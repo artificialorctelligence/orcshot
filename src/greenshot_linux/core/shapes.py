@@ -20,6 +20,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field, replace
 from typing import Sequence, Tuple
 
+import numpy as np
 from shapely.affinity import scale as shapely_scale
 from shapely.geometry import LinearRing, LineString, Point, Polygon
 
@@ -321,3 +322,42 @@ def renumber_step_labels(
     1). Returns new instances; StepLabelShape is frozen.
     """
     return [replace(label, number=start + i) for i, label in enumerate(labels)]
+
+
+@dataclass(frozen=True)
+class IconShape:
+    """Behavioral port of IconContainer: no ClickableAt override, so
+    Layer.hit_test's generic bounds-inflate-5 fallback applies as-is.
+    """
+
+    bounds: Rect
+    image: np.ndarray = field(compare=False, repr=False)
+
+
+@dataclass(frozen=True)
+class CursorShape:
+    """Behavioral port of CursorContainer: no ClickableAt override."""
+
+    bounds: Rect
+    image: np.ndarray = field(compare=False, repr=False)
+
+
+@dataclass(frozen=True)
+class ImageShape:
+    """Behavioral port of ImageContainer: no ClickableAt override. The
+    only field the source actually has (besides the image itself).
+    """
+
+    bounds: Rect
+    image: np.ndarray = field(compare=False, repr=False)
+    shadow: bool = False
+
+
+@dataclass(frozen=True)
+class SvgShape:
+    """Behavioral port of SvgContainer (via VectorGraphicsContainer):
+    no ClickableAt override, no fields of its own beyond the markup.
+    """
+
+    bounds: Rect
+    svg_data: str
