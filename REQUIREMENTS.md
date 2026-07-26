@@ -53,6 +53,14 @@ be unit tested headless with no X server required.
 Rectangle, Ellipse, Line, Arrow, Freehand, Text, Speech bubble, Step-number labels, Highlight,
 Icon/stamp, Crop, Cursor overlay, embedded Image, embedded SVG, Blur filter, Pixelize filter.
 
+**Status: all ported at the pure-data-model level** (`src/greenshot_linux/core/shapes.py`,
+`drawing.py`, `filters.py`, `crop.py`), TDD throughout, 266 tests. Not yet done: wiring these into
+an actual GTK/Cairo editor UI (drag-to-create, resize handles, live rendering) — every shape here
+is a plain value object with a `clickable_at`/hit-test method and no rendering code at all, by
+design, since there's no renderer yet. See individual module docstrings for scoped-out rendering
+details (GDI+ Bezier smoothing, exact stroked-path geometry, font measurement) — each is a
+rendering-layer concern, not a data-model gap.
+
 ### Export
 - Copy to clipboard
 - Save to file
