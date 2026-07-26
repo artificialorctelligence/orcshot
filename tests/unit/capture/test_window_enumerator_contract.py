@@ -1,0 +1,75 @@
+"""One contract every window enumerator must satisfy.
+
+Runs against the in-memory fake always, and against the real X11
+enumerator whenever a display is available, so the fake cannot quietly
+drift from how the real enumerator behaves.
+"""
+
+import os
+
+import pytest
+
+from greenshot_linux.capture.fake import FakeWindowEnumerator
+from greenshot_linux.capture.window import WindowEnumerator, is_capturable
+from greenshot_linux.core.geometry import Rect
+
+pytestmark = pytest.mark.parametrize(
+    "enumerator_name", ["fake", pytest.param("x11", marks=pytest.mark.x11)]
+)
+
+
+@pytest.fixture
+def enumerator(enumerator_name):
+    if enumerator_name == "x11":
+        if not os.environ.get("DISPLAY"):
+            pytest.skip("no X11 display available")
+        from greenshot_linux.capture.x11_window import X11WindowEnumerator
+
+        return X11WindowEnumerator()
+    return FakeWindowEnumerator(
+        windows=[
+            _window(1, "Editor"),
+            _window(2, "Browser"),
+        ],
+        active=_window(1, "Editor"),
+    )
+
+
+def _window(window_id, title):
+    from greenshot_linux.capture.window import WindowInfo
+
+    return WindowInfo(
+        window_id=window_id,
+        title=title,
+        class_name="app",
+        bounds=Rect(0, 0, 800, 600),
+        is_minimized=False,
+        window_type="normal",
+        process_id=1000 + window_id,
+    )
+
+
+def test_satisfies_the_enumerator_protocol(enumerator):
+    assert isinstance(enumerator, WindowEnumerator)
+
+
+def test_every_listed_window_is_capturable(enumerator):
+    for window in enumerator.list_windows():
+        assert is_capturable(window)
+
+
+def test_every_listed_window_has_a_unique_id(enumerator):
+    ids = [w.window_id for w in enumerator.list_windows()]
+    assert len(ids) == len(set(ids))
+
+
+def test_every_listed_window_has_positive_area(enumerator):
+    for window in enumerator.list_windows():
+        assert window.bounds.width > 0
+        assert window.bounds.height > 0
+
+
+def test_active_window_if_present_is_capturable(enumerator):
+    active = enumerator.active_window()
+    if active is not None:
+        assert is_capturable(active)

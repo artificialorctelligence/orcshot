@@ -7,11 +7,12 @@ and not merely the right size.
 
 from __future__ import annotations
 
-from typing import Sequence
+from typing import Optional, Sequence
 
 import numpy as np
 
 from greenshot_linux.capture.backend import Monitor, ScreenLayout
+from greenshot_linux.capture.window import WindowInfo, is_capturable
 from greenshot_linux.core.geometry import Rect
 
 DEFAULT_MONITORS = (Monitor("FAKE-1", Rect(0, 0, 1920, 1080), is_primary=True),)
@@ -60,3 +61,19 @@ class FakeCaptureBackend:
         top = rect.top - bounds.top
         left = rect.left - bounds.left
         return self._image[top:top + rect.height, left:left + rect.width].copy()
+
+
+class FakeWindowEnumerator:
+    def __init__(
+        self,
+        windows: Sequence[WindowInfo] = (),
+        active: Optional[WindowInfo] = None,
+    ):
+        self._windows = list(windows)
+        self._active = active
+
+    def list_windows(self) -> Sequence[WindowInfo]:
+        return [w for w in self._windows if is_capturable(w)]
+
+    def active_window(self) -> Optional[WindowInfo]:
+        return self._active
