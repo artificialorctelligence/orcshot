@@ -141,3 +141,31 @@ class ArrowShape(LineShape):
     # ArrowContainer uses thickness + 10. A real asymmetry in Greenshot,
     # not a typo to "fix" in a faithful port.
     _hit_margin = 10
+
+
+@dataclass(frozen=True)
+class FreehandShape:
+    """A captured mouse-drag stroke: a polyline through ``points``.
+
+    See the module-level note in test_freehand.py for what's
+    deliberately not ported: GDI+-specific Bezier-smoothing padding.
+    """
+
+    points: Tuple[Tuple[int, int], ...]
+    style: ShapeStyle = field(default_factory=lambda: ShapeStyle(fill_color=TRANSPARENT))
+
+    @property
+    def bounds(self) -> Rect:
+        xs = [p[0] for p in self.points]
+        ys = [p[1] for p in self.points]
+        return Rect(min(xs), min(ys), max(xs), max(ys))
+
+    def clickable_at(self, x: int, y: int) -> bool:
+        margin = self.style.line_thickness + 10
+        if margin <= 0 or len(self.points) < 2:
+            return False
+        segments = zip(self.points, self.points[1:])
+        return min(
+            _distance_point_to_segment(x, y, ax, ay, bx, by)
+            for (ax, ay), (bx, by) in segments
+        ) <= margin / 2
