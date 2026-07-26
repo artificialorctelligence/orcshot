@@ -47,29 +47,112 @@ def _box_blur_pass(region: np.ndarray, half: int, axis: int) -> np.ndarray:
     return (window_sums // hits).astype(np.uint8)
 
 
-def box_blur(image: np.ndarray, rect: Rect, radius: int) -> np.ndarray:
-    """Blur the part of ``image`` covered by ``rect``; returns a new array.
+def _rect_mask(shape, rect: Rect, invert: bool = False) -> np.ndarray:
+    """Boolean (H, W) mask selecting the pixels a filter should touch:
+    inside ``rect`` normally, outside it when ``invert`` (the "spotlight"
+    effect several HighlightContainer presets use)."""
+    height, width = shape[:2]
+    apply_rect = rect.intersect(Rect(0, 0, width, height))
+    mask = np.zeros((height, width), dtype=bool)
+    if apply_rect is not None:
+        mask[apply_rect.top:apply_rect.bottom, apply_rect.left:apply_rect.right] = True
+    return ~mask if invert else mask
+
+
+def _composite_masked(image: np.ndarray, rect: Rect, filtered: np.ndarray, invert: bool) -> np.ndarray:
+    mask = _rect_mask(image.shape, rect, invert)
+    result = image.copy()
+    result[mask] = filtered[mask]
+    return result
+
+
+def box_blur(image: np.ndarray, rect: Rect, radius: int, invert: bool = False) -> np.ndarray:
+    """Blur the part of ``image`` covered by ``rect`` (or everywhere
+    *except* it, if ``invert``); returns a new array.
 
     Even radii are bumped to the next odd value and a radius <= 1 is a
-    no-op, as in the Windows implementation. The blur only reads pixels
-    inside the rect, so content outside it cannot bleed in.
+    no-op, as in the Windows implementation. Non-inverted, the blur only
+    reads pixels inside the rect, so content outside it cannot bleed in.
     """
+    window = radius + 1 if radius % 2 == 0 else radius
+    if window <= 1:
+        return image.copy()
+    half = window // 2
+
+    if invert:
+        # An inverted region is generally L-shaped, not a plain rect, so
+        # there's no single contiguous window to slice — blur the whole
+        # image and composite, rather than handling an irregular region
+        # directly. Produces the identical pixel result.
+        blurred = image.copy()
+        for axis in (1, 0, 1, 0):
+            blurred = _box_blur_pass(blurred, half, axis)
+        return _composite_masked(image, rect, blurred, invert=True)
+
     out = image.copy()
     apply_rect = rect.intersect(_image_bounds(image))
     if apply_rect is None:
         return out
-
-    window = radius + 1 if radius % 2 == 0 else radius
-    if window <= 1:
-        return out
-    half = window // 2
-
     region = out[apply_rect.top:apply_rect.bottom, apply_rect.left:apply_rect.right]
     # Two horizontal+vertical rounds, not the textbook three: the Windows
     # source found 2x the closest match to the GDI+ blur it emulates.
     for axis in (1, 0, 1, 0):
         region[...] = _box_blur_pass(region, half, axis)
     return out
+
+
+def highlight_filter(
+    image: np.ndarray,
+    rect: Rect,
+    highlight_color=(255, 255, 0, 255),
+    invert: bool = False,
+) -> np.ndarray:
+    """Behavioral port of HighlightFilter: each RGB channel is clamped to
+    at most the matching channel of ``highlight_color`` (default yellow,
+    which zeroes only blue — the "highlighter pen" look). Alpha is
+    untouched.
+    """
+    filtered = image.copy()
+    for channel in range(3):
+        filtered[:, :, channel] = np.minimum(filtered[:, :, channel], highlight_color[channel])
+    return _composite_masked(image, rect, filtered, invert)
+
+
+def brightness_filter(
+    image: np.ndarray, rect: Rect, brightness: float = 0.9, invert: bool = False
+) -> np.ndarray:
+    """Behavioral port of BrightnessFilter via CreateAdjustAttributes.
+
+    Despite the name, GDI+'s "brightness" here is an *additive* shift in
+    normalized [0,1] color space, not a multiplicative scale:
+    output = input/255 + (brightness - 1), clamped, scaled back to
+    [0,255]. Verified by reading the ColorMatrix construction directly;
+    contrast and gamma are always 1 (identity) for every actual caller,
+    so only the brightness term is ever exercised. GDI+'s exact internal
+    rounding isn't independently verifiable without running GDI+ itself;
+    this uses numpy's standard round-half-to-even.
+    """
+    shift = (brightness - 1.0) * 255
+    filtered = image.astype(np.float64)
+    filtered[:, :, :3] = np.clip(filtered[:, :, :3] + shift, 0, 255)
+    filtered = np.round(filtered).astype(np.uint8)
+    return _composite_masked(image, rect, filtered, invert)
+
+
+_LUMA_WEIGHTS = (0.3, 0.59, 0.11)
+
+
+def grayscale_filter(image: np.ndarray, rect: Rect, invert: bool = False) -> np.ndarray:
+    """Behavioral port of GrayscaleFilter's ColorMatrix: the standard
+    luma weights (0.3R + 0.59G + 0.11B), applied uniformly to all three
+    output channels. Alpha is untouched.
+    """
+    luma = sum(image[:, :, i].astype(np.float64) * w for i, w in enumerate(_LUMA_WEIGHTS))
+    luma = np.round(np.clip(luma, 0, 255)).astype(np.uint8)
+    filtered = image.copy()
+    for channel in range(3):
+        filtered[:, :, channel] = luma
+    return _composite_masked(image, rect, filtered, invert)
 
 
 def _jittered_boundaries(length: int, pixel_size: int, jitter: int, rng) -> list[int]:
