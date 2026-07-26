@@ -77,3 +77,37 @@ class TestIsCapturable:
         ]
         for window_type in chrome_types:
             assert not is_capturable(window(window_type=window_type)), window_type
+
+
+# --- Property-based tests -------------------------------------------------
+# Imports the real _CHROME_WINDOW_TYPES set (not a hardcoded duplicate)
+# so these stay in sync with the implementation if that set ever changes.
+
+from hypothesis import given
+from hypothesis import strategies as st
+
+from greenshot_linux.capture.window import _CHROME_WINDOW_TYPES
+
+_chrome_type = st.sampled_from(sorted(_CHROME_WINDOW_TYPES))
+_non_chrome_type = st.sampled_from(["normal", "dialog", "unknown"])
+_dim = st.integers(min_value=1, max_value=4_000)
+
+
+@given(window_type=_chrome_type, title=st.text(min_size=1), w=_dim, h=_dim)
+def test_chrome_types_are_never_capturable_regardless_of_other_fields(window_type, title, w, h):
+    w = window(title=title, window_type=window_type, bounds=Rect(0, 0, w, h))
+    assert not is_capturable(w)
+
+
+@given(window_type=_non_chrome_type, title=st.text(min_size=1), w=_dim, h=_dim, minimized=st.booleans())
+def test_non_chrome_types_with_a_title_and_area_are_always_capturable(
+    window_type, title, w, h, minimized
+):
+    w = window(title=title, window_type=window_type, bounds=Rect(0, 0, w, h), is_minimized=minimized)
+    assert is_capturable(w)
+
+
+@given(window_type=_non_chrome_type, w=st.integers(0, 4_000), h=st.integers(0, 4_000))
+def test_empty_title_is_never_capturable_regardless_of_type_or_size(window_type, w, h):
+    w = window(title="", window_type=window_type, bounds=Rect(0, 0, w, h))
+    assert not is_capturable(w)

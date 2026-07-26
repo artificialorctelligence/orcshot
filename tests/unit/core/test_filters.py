@@ -266,3 +266,48 @@ def test_pixelize_preserves_shape_and_dtype(width, height, pixel_size):
 
     assert result.shape == image.shape
     assert result.dtype == image.dtype
+
+
+# --- Cross-check against scipy (trusted external reference) ---------------
+# box_blur already has a hand-computed exact worked example and a
+# uniform-invariance property test, but both only exercise specific
+# cases. This checks the general N-wide clipped average against
+# scipy.ndimage.uniform_filter1d — a trusted, independently-implemented
+# reference — for arbitrary radius and random data, at pixels where the
+# window is fully in-bounds (so boundary-handling conventions, which
+# genuinely differ between the two implementations, can't cause a
+# mismatch). scipy computes an exact float mean; our _box_blur_pass does
+# truncating integer division, so the comparison floors scipy's result
+# to match rather than asserting float equality.
+
+from scipy.ndimage import uniform_filter1d
+
+from greenshot_linux.core.filters import _box_blur_pass
+
+
+@settings(deadline=None)
+@given(
+    width=st.integers(min_value=20, max_value=40),
+    height=st.integers(min_value=20, max_value=40),
+    radius=st.integers(min_value=1, max_value=8),
+    seed=st.integers(min_value=0, max_value=10_000),
+    axis=st.sampled_from([0, 1]),
+)
+def test_interior_matches_scipy_uniform_filter1d(width, height, radius, seed, axis):
+    rng = np.random.default_rng(seed)
+    image = rng.integers(0, 256, size=(height, width, 4), dtype=np.uint8)
+    window = radius * 2 + 1
+
+    ours = _box_blur_pass(image, radius, axis)
+
+    theirs_float = uniform_filter1d(image.astype(np.float64), size=window, axis=axis, mode="nearest")
+    theirs = np.floor(theirs_float + 1e-9).astype(np.uint8)
+
+    # Only pixels at least `radius` from every edge along the filtered
+    # axis have a window that's fully in-bounds for both implementations.
+    if axis == 1:
+        ours, theirs = ours[:, radius:width - radius], theirs[:, radius:width - radius]
+    else:
+        ours, theirs = ours[radius:height - radius, :], theirs[radius:height - radius, :]
+
+    assert np.array_equal(ours, theirs)

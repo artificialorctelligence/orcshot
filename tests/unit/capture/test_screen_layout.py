@@ -123,3 +123,69 @@ class TestClamp:
         # Matters for replaying a stored "last region" after the monitor
         # layout has changed.
         assert ScreenLayout(SINGLE).clamp(Rect(5000, 5000, 5100, 5100)) is None
+
+
+# --- Property-based tests -------------------------------------------------
+# The example-based tests above cover 5 hand-picked layouts. These check
+# the same invariants across arbitrary random layouts (including ones
+# where monitors overlap, which ScreenLayout doesn't forbid), which the
+# 5 fixed examples can't exercise.
+
+from hypothesis import given
+from hypothesis import strategies as st
+
+_coord = st.integers(min_value=-5_000, max_value=5_000)
+_dim = st.integers(min_value=1, max_value=4_000)
+
+
+@st.composite
+def _monitor_lists(draw, min_size=1, max_size=5):
+    count = draw(st.integers(min_size, max_size))
+    monitors = []
+    for i in range(count):
+        left, top = draw(_coord), draw(_coord)
+        width, height = draw(_dim), draw(_dim)
+        monitors.append(Monitor(f"mon{i}", Rect(left, top, left + width, top + height)))
+    return monitors
+
+
+@given(_monitor_lists())
+def test_virtual_bounds_always_contains_every_monitor(monitors):
+    layout = ScreenLayout(monitors)
+    for monitor in monitors:
+        assert layout.virtual_bounds.intersect(monitor.bounds) == monitor.bounds
+
+
+@given(_monitor_lists())
+def test_primary_is_always_one_of_the_monitors(monitors):
+    layout = ScreenLayout(monitors)
+    assert layout.primary in monitors
+
+
+@given(_monitor_lists())
+def test_monitor_at_a_monitors_own_top_left_corner_finds_a_monitor_containing_it(monitors):
+    layout = ScreenLayout(monitors)
+    for monitor in monitors:
+        # top-left is always inside its own bounds (contains is
+        # right/bottom-exclusive, so this holds regardless of overlap).
+        found = layout.monitor_at(monitor.bounds.left, monitor.bounds.top)
+        assert found is not None
+        assert found.bounds.contains(monitor.bounds.left, monitor.bounds.top)
+
+
+@given(_monitor_lists())
+def test_clamping_the_virtual_bounds_to_itself_is_a_no_op(monitors):
+    layout = ScreenLayout(monitors)
+    assert layout.clamp(layout.virtual_bounds) == layout.virtual_bounds
+
+
+@given(_monitor_lists())
+def test_clamp_never_returns_something_outside_virtual_bounds(monitors):
+    layout = ScreenLayout(monitors)
+    # A rect straddling the virtual bounds' edge should clamp to
+    # something entirely contained within it.
+    vb = layout.virtual_bounds
+    straddling = Rect(vb.right - 1, vb.top, vb.right + 100, vb.bottom)
+    result = layout.clamp(straddling)
+    if result is not None:
+        assert vb.intersect(result) == result
