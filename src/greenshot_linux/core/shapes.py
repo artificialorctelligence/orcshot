@@ -21,7 +21,7 @@ from dataclasses import dataclass, field
 from typing import Sequence, Tuple
 
 from shapely.affinity import scale as shapely_scale
-from shapely.geometry import LinearRing, LineString, Point
+from shapely.geometry import LinearRing, LineString, Point, Polygon
 
 from greenshot_linux.core.geometry import Rect
 
@@ -186,3 +186,87 @@ class TextShape:
     horizontal_alignment: str = "center"  # "near" | "center" | "far"
     vertical_alignment: str = "center"  # "near" | "center" | "far"
     style: ShapeStyle = field(default_factory=ShapeStyle)
+
+
+@dataclass(frozen=True)
+class SpeechBubbleShape:
+    """A TextShape-like box with a triangular tail pointing at ``target``.
+
+    ``bubble_bounds`` mirrors the source's Bounds (the bubble rectangle
+    only, used for the interior-click fast path); ``bounds`` mirrors the
+    source's separate, wider DrawingBounds concept (bubble unioned with
+    the tail's own extent), which is what Layer needs for z-order
+    aggregation. See test_speech_bubble.py for the deliberate
+    simplification versus the source: no corner-rounding in the hit
+    test (it doesn't change what counts as "inside"), and the tail hit
+    test is filled-triangle-plus-margin rather than the source's
+    outline-only GraphicsPath.Widen band.
+
+    The tail hit test uses distance-to-polygon, not strict
+    Polygon.contains: contains() excludes the boundary under GEOS/OGC
+    semantics, and the triangle's apex — the exact point a user would
+    click to grab the bubble by its pointer tip — is itself a boundary
+    vertex. A property test caught this (asserting the apex is always
+    clickable, which failed under strict containment); the fix also
+    brings the tail in line with every other shape here, none of which
+    use exact/strict containment for hit-testing.
+    """
+
+    bubble_bounds: Rect
+    target: Tuple[int, int]
+    text: str
+    font_family: str = "sans-serif"
+    font_size: float = 20.0
+    bold: bool = True
+    italic: bool = False
+    horizontal_alignment: str = "center"
+    vertical_alignment: str = "center"
+    style: ShapeStyle = field(
+        default_factory=lambda: ShapeStyle(
+            line_color=(0, 0, 255, 255),
+            fill_color=(255, 255, 255, 255),
+            shadow=False,
+        )
+    )
+
+    def _tail_triangle(self):
+        cx = self.bubble_bounds.left + self.bubble_bounds.width / 2
+        cy = self.bubble_bounds.top + self.bubble_bounds.height / 2
+        tx, ty = self.target
+        dx, dy = tx - cx, ty - cy
+        length = (dx * dx + dy * dy) ** 0.5
+        if length == 0:
+            return None  # target coincides with center: no tail direction
+
+        ux, uy = dx / length, dy / length
+        px, py = -uy, ux  # perpendicular to the center->target direction
+
+        tail_width = (abs(self.bubble_bounds.width) + abs(self.bubble_bounds.height)) / 20
+        tail_width = min(abs(self.bubble_bounds.width) / 2, tail_width)
+        tail_width = min(abs(self.bubble_bounds.height) / 2, tail_width)
+
+        base_left = (cx + tail_width * px, cy + tail_width * py)
+        base_right = (cx - tail_width * px, cy - tail_width * py)
+        apex = (float(tx), float(ty))
+        return base_left, base_right, apex
+
+    @property
+    def bounds(self) -> Rect:
+        triangle = self._tail_triangle()
+        if triangle is None:
+            return self.bubble_bounds
+        xs = [p[0] for p in triangle]
+        ys = [p[1] for p in triangle]
+        tail_bounds = Rect(min(xs), min(ys), max(xs), max(ys))
+        return self.bubble_bounds.union(tail_bounds)
+
+    def clickable_at(self, x: int, y: int) -> bool:
+        if self.bubble_bounds.contains(x, y):
+            return True
+        margin = self.style.line_thickness + 10
+        if margin > 0 and _distance_point_to_rect_outline(x, y, self.bubble_bounds) <= margin / 2:
+            return True
+        triangle = self._tail_triangle()
+        if triangle is not None and Point(x, y).distance(Polygon(triangle)) <= margin / 2:
+            return True
+        return False
