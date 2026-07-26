@@ -9,6 +9,7 @@ description = "A Linux Mint port of Greenshot"
 requires-python = ">=3.10"
 dependencies = [
     "PyGObject>=3.42",
+    "numpy>=1.26",
 ]
 
 [project.optional-dependencies]
