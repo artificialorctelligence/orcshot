@@ -22,3 +22,6 @@ packages = ["src/greenshot_linux"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+markers = [
+    "x11: needs a running X server (skipped when DISPLAY is unset)",
+]
