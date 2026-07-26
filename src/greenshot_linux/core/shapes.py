@@ -17,7 +17,7 @@ doesn't need yet.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Sequence, Tuple
 
 from shapely.affinity import scale as shapely_scale
@@ -71,6 +71,27 @@ def _distance_point_to_ellipse_outline(x, y, rect: Rect) -> float:
     return Point(x, y).distance(ellipse.exterior)
 
 
+def _rectangle_clickable_at(bounds: Rect, margin: int, fill_color: Color, x: int, y: int) -> bool:
+    # Mirrors RectangleContainer.RectangleClickableAt: margin is passed
+    # explicitly rather than derived from line_thickness here, since
+    # StepLabelShape calls this with a hardcoded margin of 0 (see
+    # StepLabelContainer.ClickableAt in the source), not the usual +10.
+    if is_visible(fill_color) and bounds.contains(x, y):
+        return True
+    if margin <= 0:
+        return False
+    return _distance_point_to_rect_outline(x, y, bounds) <= margin / 2
+
+
+def _ellipse_clickable_at(bounds: Rect, margin: int, fill_color: Color, x: int, y: int) -> bool:
+    # Mirrors EllipseContainer.EllipseClickableAt; see the note above.
+    if is_visible(fill_color) and bounds.contains(x, y):
+        return True
+    if margin <= 0:
+        return False
+    return _distance_point_to_ellipse_outline(x, y, bounds) <= margin / 2
+
+
 @dataclass(frozen=True)
 class ShapeStyle:
     line_thickness: int = 2
@@ -85,12 +106,9 @@ class RectangleShape:
     style: ShapeStyle = field(default_factory=ShapeStyle)
 
     def clickable_at(self, x: int, y: int) -> bool:
-        if is_visible(self.style.fill_color) and self.bounds.contains(x, y):
-            return True
-        margin = self.style.line_thickness + 10
-        if margin <= 0:
-            return False
-        return _distance_point_to_rect_outline(x, y, self.bounds) <= margin / 2
+        return _rectangle_clickable_at(
+            self.bounds, self.style.line_thickness + 10, self.style.fill_color, x, y
+        )
 
 
 @dataclass(frozen=True)
@@ -99,12 +117,9 @@ class EllipseShape:
     style: ShapeStyle = field(default_factory=ShapeStyle)
 
     def clickable_at(self, x: int, y: int) -> bool:
-        if is_visible(self.style.fill_color) and self.bounds.contains(x, y):
-            return True
-        margin = self.style.line_thickness + 10
-        if margin <= 0:
-            return False
-        return _distance_point_to_ellipse_outline(x, y, self.bounds) <= margin / 2
+        return _ellipse_clickable_at(
+            self.bounds, self.style.line_thickness + 10, self.style.fill_color, x, y
+        )
 
 
 @dataclass(frozen=True)
@@ -270,3 +285,39 @@ class SpeechBubbleShape:
         if triangle is not None and Point(x, y).distance(Polygon(triangle)) <= margin / 2:
             return True
         return False
+
+
+@dataclass(frozen=True)
+class StepLabelShape:
+    """An auto-numbered circle. See the module docstring in
+    test_step_label.py for the ClickableAt margin=0 quirk this ports
+    faithfully, and for why renumbering is a standalone function rather
+    than shape state tied to a parent container.
+    """
+
+    bounds: Rect
+    number: int
+    style: ShapeStyle = field(
+        default_factory=lambda: ShapeStyle(
+            fill_color=(139, 0, 0, 255),  # DarkRed
+            line_color=(255, 255, 255, 255),  # White
+            line_thickness=0,
+            shadow=False,
+        )
+    )
+
+    def clickable_at(self, x: int, y: int) -> bool:
+        # Ported as-is: the source passes a literal 0 here, not
+        # line_thickness + 10 the way EllipseContainer's own
+        # ClickableAt does.
+        return _ellipse_clickable_at(self.bounds, 0, self.style.fill_color, x, y)
+
+
+def renumber_step_labels(
+    labels: Sequence[StepLabelShape], start: int = 1
+) -> list[StepLabelShape]:
+    """Reassign sequential numbers in the given order, starting at
+    ``start`` (matching the source's per-Surface CounterStart, default
+    1). Returns new instances; StepLabelShape is frozen.
+    """
+    return [replace(label, number=start + i) for i, label in enumerate(labels)]
