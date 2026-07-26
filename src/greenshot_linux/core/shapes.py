@@ -18,7 +18,10 @@ doesn't need yet.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Tuple
+from typing import Sequence, Tuple
+
+from shapely.affinity import scale as shapely_scale
+from shapely.geometry import LinearRing, LineString, Point
 
 from greenshot_linux.core.geometry import Rect
 
@@ -33,42 +36,39 @@ def is_visible(color: Color) -> bool:
 
 
 def _distance_point_to_segment(px, py, ax, ay, bx, by) -> float:
-    abx, aby = bx - ax, by - ay
-    length_sq = abx * abx + aby * aby
-    if length_sq == 0:
-        t = 0.0
-    else:
-        t = max(0.0, min(1.0, ((px - ax) * abx + (py - ay) * aby) / length_sq))
-    closest_x = ax + t * abx
-    closest_y = ay + t * aby
-    dx, dy = px - closest_x, py - closest_y
-    return (dx * dx + dy * dy) ** 0.5
+    return Point(px, py).distance(LineString([(ax, ay), (bx, by)]))
+
+
+def _distance_point_to_polyline(x, y, points: Sequence[Tuple[float, float]]) -> float:
+    return Point(x, y).distance(LineString(points))
 
 
 def _distance_point_to_rect_outline(x, y, rect: Rect) -> float:
-    edges = (
-        (rect.left, rect.top, rect.right, rect.top),
-        (rect.right, rect.top, rect.right, rect.bottom),
-        (rect.right, rect.bottom, rect.left, rect.bottom),
-        (rect.left, rect.bottom, rect.left, rect.top),
+    ring = LinearRing(
+        [
+            (rect.left, rect.top),
+            (rect.right, rect.top),
+            (rect.right, rect.bottom),
+            (rect.left, rect.bottom),
+        ]
     )
-    return min(_distance_point_to_segment(x, y, *edge) for edge in edges)
+    return Point(x, y).distance(ring)
 
 
 def _distance_point_to_ellipse_outline(x, y, rect: Rect) -> float:
-    # Approximation, not GDI+'s exact stroked-path geometry (which has
-    # no simple closed form for a general ellipse): scale the point into
-    # the ellipse's normalized unit-circle space, take the radial
-    # distance from 1.0, and scale back by the smaller semi-axis. Exact
-    # for a circle; close enough elsewhere for "is this click near the
-    # outline", which is all a hit test needs.
+    # Shapely-backed, not GDI+'s exact stroked-path geometry (which has
+    # no simple closed form for a general ellipse either): a high-
+    # resolution circle scaled into an ellipse via an affine transform.
+    # Distance to its boundary is exact to within the polygon's
+    # resolution (64 segments per quadrant here), which is far tighter
+    # than a hit-test margin ever needs to resolve.
     a, b = rect.width / 2, rect.height / 2
     if a == 0 or b == 0:
         return float("inf")
     cx, cy = rect.left + a, rect.top + b
-    u, v = (x - cx) / a, (y - cy) / b
-    radial = (u * u + v * v) ** 0.5
-    return abs(radial - 1.0) * min(a, b)
+    circle = Point(cx, cy).buffer(1, quad_segs=64)
+    ellipse = shapely_scale(circle, xfact=a, yfact=b, origin=(cx, cy))
+    return Point(x, y).distance(ellipse.exterior)
 
 
 @dataclass(frozen=True)
@@ -164,8 +164,25 @@ class FreehandShape:
         margin = self.style.line_thickness + 10
         if margin <= 0 or len(self.points) < 2:
             return False
-        segments = zip(self.points, self.points[1:])
-        return min(
-            _distance_point_to_segment(x, y, ax, ay, bx, by)
-            for (ax, ay), (bx, by) in segments
-        ) <= margin / 2
+        return _distance_point_to_polyline(x, y, self.points) <= margin / 2
+
+
+@dataclass(frozen=True)
+class TextShape:
+    """Extends RectangleContainer's fields in the source (same
+    line/fill/shadow box styling) but deliberately has no clickable_at:
+    TextContainer's override reverts to the *base* DrawableContainer
+    hit test rather than inheriting RectangleContainer's fill-aware
+    outline test, and that base behavior is exactly Layer.hit_test's
+    existing bounds-inflate-5 fallback.
+    """
+
+    bounds: Rect
+    text: str
+    font_family: str = "sans-serif"
+    font_size: float = 11.0
+    bold: bool = False
+    italic: bool = False
+    horizontal_alignment: str = "center"  # "near" | "center" | "far"
+    vertical_alignment: str = "center"  # "near" | "center" | "far"
+    style: ShapeStyle = field(default_factory=ShapeStyle)
