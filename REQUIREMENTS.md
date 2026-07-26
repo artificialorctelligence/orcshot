@@ -106,6 +106,28 @@ once the app has enough surface area to package.
 
 - Exact CI setup — to be established once there's a build worth gating.
 
+## Unverified assumptions
+
+Implemented, believed correct (spec, docs, or code-reading), but not directly observed working
+on real hardware. Each entry names a concrete way to close the gap — don't remove an entry until
+that's actually been done.
+
+- **HiDPI scale factor in X11 capture** (`capture/x11.py`, `X11CaptureBackend.screen_layout`).
+  Multiplies GDK's logical monitor geometry by `scale_factor` to get device pixels, per GDK
+  monitor API semantics. This dev machine runs at scale factor 1, so the multiplication is dead
+  code in every test run so far. **To verify:** run the test suite (specifically
+  `test_backend_contract.py`'s `x11` parametrization) on a HiDPI display, or temporarily force a
+  non-1 scale factor via Cinnamon's display settings and re-run `verify_x11.py`-style manual
+  capture, confirming captured pixel dimensions match physical framebuffer size, not logical size.
+
+- **Minimized-window detection** (`capture/x11_window.py`, `_NET_WM_STATE_HIDDEN`). Correct per
+  the EWMH spec and used by every compliant taskbar, but not observed live: attempting to
+  force-trigger it via `wmctrl -b add,hidden` on this desktop's WM (Cinnamon/Muffin) didn't
+  actually set the state (minimize isn't a client-settable EWMH toggle the way maximize is — it
+  likely needs the ICCCM `WM_CHANGE_STATE` request instead, a different protocol). **To verify:**
+  minimize a real window via the Cinnamon UI itself (not a script) and confirm
+  `X11WindowEnumerator.active_window()`/`list_windows()` reports `is_minimized=True` for it.
+
 ## Licensing
 
 Greenshot (Windows) is GPLv3. This is a derivative work — same name, same feature set, same
