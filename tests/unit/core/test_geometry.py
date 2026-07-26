@@ -58,3 +58,53 @@ def test_intersect_of_rects_that_only_touch_at_an_edge_returns_none():
     b = Rect(left=10, top=0, right=20, bottom=10)
 
     assert a.intersect(b) is None
+
+
+def test_contains_point():
+    rect = Rect(left=10, top=10, right=20, bottom=20)
+
+    assert rect.contains(10, 10)
+    assert rect.contains(15, 15)
+    assert not rect.contains(20, 20)  # right/bottom edges are exclusive
+    assert not rect.contains(9, 15)
+    assert not rect.contains(15, 25)
+
+
+def test_union_of_two_rects_covers_both():
+    a = Rect(left=0, top=0, right=10, bottom=10)
+    b = Rect(left=20, top=5, right=30, bottom=25)
+
+    assert a.union(b) == Rect(left=0, top=0, right=30, bottom=25)
+
+
+def test_union_is_commutative():
+    a = Rect(left=0, top=0, right=10, bottom=10)
+    b = Rect(left=20, top=5, right=30, bottom=25)
+
+    assert a.union(b) == b.union(a)
+
+
+def test_union_with_contained_rect_is_the_container():
+    outer = Rect(left=0, top=0, right=100, bottom=100)
+    inner = Rect(left=10, top=10, right=20, bottom=20)
+
+    assert outer.union(inner) == outer
+
+
+def test_union_all_of_a_single_rect_is_that_rect():
+    rect = Rect(left=5, top=5, right=15, bottom=15)
+
+    assert Rect.union_all([rect]) == rect
+
+
+def test_union_all_covers_every_rect():
+    rects = [
+        Rect(left=0, top=0, right=1920, bottom=1080),
+        Rect(left=1920, top=0, right=4480, bottom=1440),
+    ]
+
+    assert Rect.union_all(rects) == Rect(left=0, top=0, right=4480, bottom=1440)
+
+
+def test_union_all_of_empty_sequence_returns_none():
+    assert Rect.union_all([]) is None

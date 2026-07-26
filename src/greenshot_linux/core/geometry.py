@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Iterable
 from dataclasses import dataclass
 
 
@@ -30,3 +31,21 @@ class Rect:
         if left >= right or top >= bottom:
             return None
         return Rect(left, top, right, bottom)
+
+    def contains(self, x: int, y: int) -> bool:
+        return self.left <= x < self.right and self.top <= y < self.bottom
+
+    def union(self, other: Rect) -> Rect:
+        return Rect(
+            min(self.left, other.left),
+            min(self.top, other.top),
+            max(self.right, other.right),
+            max(self.bottom, other.bottom),
+        )
+
+    @classmethod
+    def union_all(cls, rects: Iterable[Rect]) -> Rect | None:
+        result = None
+        for rect in rects:
+            result = rect if result is None else result.union(rect)
+        return result
