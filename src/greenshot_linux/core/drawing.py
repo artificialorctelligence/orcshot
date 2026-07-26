@@ -24,10 +24,18 @@ class Drawable(Protocol):
 def hit_test(drawable: Drawable, x: int, y: int) -> bool:
     """Whether (x, y) counts as a click on ``drawable``.
 
-    Bounds are inflated by HIT_TEST_MARGIN, so thin shapes (a line, an
-    arrow) stay clickable a few pixels past their edge — ported from
-    DrawableContainer.ClickableAt's Inflate(5, 5).
+    Shapes with their own ``clickable_at`` (Rectangle, Ellipse, Line,
+    Arrow, ...) use it — mirroring ClickableAt being virtual/overridden
+    per-shape in the Windows source, so a hollow shape is only
+    clickable near its outline, not its whole bounding box. Shapes
+    without one fall back to bounds inflated by HIT_TEST_MARGIN, so
+    thin shapes stay clickable a few pixels past their edge — ported
+    from the base DrawableContainer.ClickableAt's Inflate(5, 5).
     """
+    clickable_at = getattr(drawable, "clickable_at", None)
+    if clickable_at is not None:
+        return clickable_at(x, y)
+
     b = drawable.bounds
     inflated = Rect(
         b.left - HIT_TEST_MARGIN,

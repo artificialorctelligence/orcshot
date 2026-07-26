@@ -10,6 +10,7 @@ against several layouts before writing any Python.
 
 from greenshot_linux.core.drawing import Layer, hit_test
 from greenshot_linux.core.geometry import Rect
+from greenshot_linux.core.shapes import RectangleShape
 
 
 class FakeDrawable:
@@ -98,6 +99,19 @@ class TestTopmostAt:
         s["b"].bounds = Rect(100, 100, 110, 110)
 
         assert layer.topmost_at(5, 5) is s["a"]
+
+    def test_uses_a_shapes_own_clickable_at_instead_of_the_generic_hit_test(self):
+        # Mirrors ClickableAt being virtual/overridden per-shape in the
+        # Windows source: RectangleContainer's hit test is fill/outline
+        # aware, not just "inflate bounds by 5". A hollow real shape
+        # should NOT be hit in its interior even though the generic
+        # bounds-inflate test would happily say yes.
+        hollow = RectangleShape(bounds=Rect(0, 0, 100, 100))  # transparent fill
+        layer = Layer()
+        layer.add(hollow)
+
+        assert not layer.topmost_at(50, 50)  # deep interior, no shape has a "clickable_at" fallback firing this true
+        assert layer.topmost_at(50, 0) is hollow  # right on the (0-thickness-safe) border
 
 
 class TestBringForward:
