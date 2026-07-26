@@ -171,3 +171,60 @@ class TestArrowShape:
 
         assert not line.clickable_at(50, 4)
         assert arrow.clickable_at(50, 4)
+
+
+# --- Property-based tests -------------------------------------------------
+
+from hypothesis import assume, given
+from hypothesis import strategies as st
+
+_coord = st.integers(min_value=-1_000, max_value=1_000)
+_thickness = st.integers(min_value=1, max_value=20)
+_t = st.floats(min_value=0, max_value=1, allow_nan=False, allow_infinity=False)
+
+
+@given(x1=_coord, y1=_coord, x2=_coord, y2=_coord, thickness=_thickness, t=_t)
+def test_any_point_on_a_line_segment_is_always_clickable(x1, y1, x2, y2, thickness, t):
+    assume((x1, y1) != (x2, y2))
+    px = x1 + t * (x2 - x1)
+    py = y1 + t * (y2 - y1)
+    line = LineShape(start=(x1, y1), end=(x2, y2), style=ShapeStyle(line_thickness=thickness))
+
+    # margin/2 is always >= 3 here (min thickness 1 + hit margin 5, /2),
+    # comfortably larger than the float->int rounding error (<=~0.71).
+    assert line.clickable_at(round(px), round(py))
+
+
+@given(x1=_coord, y1=_coord, x2=_coord, y2=_coord, thickness=_thickness, t=_t)
+def test_any_point_on_an_arrow_segment_is_always_clickable(x1, y1, x2, y2, thickness, t):
+    assume((x1, y1) != (x2, y2))
+    px = x1 + t * (x2 - x1)
+    py = y1 + t * (y2 - y1)
+    arrow = ArrowShape(start=(x1, y1), end=(x2, y2), style=ShapeStyle(line_thickness=thickness))
+
+    assert arrow.clickable_at(round(px), round(py))
+
+
+@given(x1=_coord, y1=_coord, x2=_coord, y2=_coord)
+def test_line_bounds_do_not_depend_on_which_endpoint_is_which(x1, y1, x2, y2):
+    forward = LineShape(start=(x1, y1), end=(x2, y2))
+    backward = LineShape(start=(x2, y2), end=(x1, y1))
+    assert forward.bounds == backward.bounds
+
+
+@given(left=_coord, top=_coord, w=st.integers(1, 500), h=st.integers(1, 500), thickness=_thickness)
+def test_rectangle_center_is_always_clickable_when_filled(left, top, w, h, thickness):
+    rect = RectangleShape(
+        bounds=Rect(left, top, left + w, top + h),
+        style=ShapeStyle(line_thickness=thickness, fill_color=(0, 255, 0, 255)),
+    )
+    assert rect.clickable_at(left + w // 2, top + h // 2)
+
+
+@given(left=_coord, top=_coord, w=st.integers(1, 500), h=st.integers(1, 500), thickness=_thickness)
+def test_ellipse_center_is_always_clickable_when_filled(left, top, w, h, thickness):
+    ellipse = EllipseShape(
+        bounds=Rect(left, top, left + w, top + h),
+        style=ShapeStyle(line_thickness=thickness, fill_color=(0, 255, 0, 255)),
+    )
+    assert ellipse.clickable_at(left + w // 2, top + h // 2)

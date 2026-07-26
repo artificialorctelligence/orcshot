@@ -203,3 +203,66 @@ class TestPixelize:
         pixelize(image, full_rect(image), 4)
 
         assert np.array_equal(image, original)
+
+
+# --- Property-based tests -------------------------------------------------
+# Generalizes the "uniform region is unchanged" examples above across the
+# whole color/dimension/radius space instead of the one hand-picked case
+# each — a bug that only shows up for, say, an odd width or a specific
+# color channel wouldn't be caught by a single example.
+
+from hypothesis import given, settings
+from hypothesis import strategies as st
+
+_channel = st.integers(min_value=0, max_value=255)
+_dim = st.integers(min_value=1, max_value=24)
+_blur_radius = st.integers(min_value=1, max_value=15)
+_pixel_size = st.integers(min_value=1, max_value=15)
+
+
+@settings(deadline=None)
+@given(_dim, _dim, _channel, _channel, _channel, _channel, _blur_radius)
+def test_box_blur_never_changes_a_uniform_image(width, height, r, g, b, a, radius):
+    image = np.full((height, width, 4), (r, g, b, a), dtype=np.uint8)
+
+    result = box_blur(image, full_rect(image), radius)
+
+    assert np.array_equal(result, image)
+
+
+@settings(deadline=None)
+@given(_dim, _dim, _blur_radius)
+def test_box_blur_preserves_shape_and_dtype(width, height, radius):
+    image = np.zeros((height, width, 4), dtype=np.uint8)
+
+    result = box_blur(image, full_rect(image), radius)
+
+    assert result.shape == image.shape
+    assert result.dtype == image.dtype
+
+
+@settings(deadline=None)
+@given(_dim, _dim, _channel, _channel, _channel, _channel, _pixel_size)
+def test_pixelize_never_changes_a_uniform_image_even_with_the_real_rng(
+    width, height, r, g, b, a, pixel_size
+):
+    # Deliberately using the real (unseeded) RNG here, not the ZeroRng
+    # stub: this is exactly the property that makes the noise-injection
+    # design safe — zero color variation means zero noise regardless of
+    # what the RNG produces, so this must hold with real randomness too.
+    image = np.full((height, width, 4), (r, g, b, a), dtype=np.uint8)
+
+    result = pixelize(image, full_rect(image), pixel_size)
+
+    assert np.array_equal(result, image)
+
+
+@settings(deadline=None)
+@given(_dim, _dim, _pixel_size)
+def test_pixelize_preserves_shape_and_dtype(width, height, pixel_size):
+    image = np.zeros((height, width, 4), dtype=np.uint8)
+
+    result = pixelize(image, full_rect(image), pixel_size)
+
+    assert result.shape == image.shape
+    assert result.dtype == image.dtype

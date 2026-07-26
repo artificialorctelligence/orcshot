@@ -234,3 +234,59 @@ class TestAddRemove:
     def test_len_reflects_the_current_count(self):
         layer, _ = layer_of("a", "b", "c")
         assert len(layer) == 3
+
+
+# --- Property-based tests -------------------------------------------------
+# The multi-select z-order methods are the subtlest code in this module —
+# they were only gotten right by hand-tracing the C# against specific
+# layouts. These properties check invariants across *any* layer size and
+# *any* selection, which is a broader net than the hand-picked traces:
+# a bug that only shows up for, say, a selection with a particular gap
+# pattern wouldn't necessarily appear in the traced examples.
+
+from hypothesis import given
+from hypothesis import strategies as st
+
+_layer_size = st.integers(min_value=1, max_value=8)
+
+
+def _build_layer_and_selection(n, selection_mask):
+    layer, shapes_by_name = layer_of(*[str(i) for i in range(n)])
+    ordered = [shapes_by_name[str(i)] for i in range(n)]
+    selected = [item for item, chosen in zip(ordered, selection_mask) if chosen]
+    return layer, ordered, selected
+
+
+@given(n=_layer_size, data=st.data())
+def test_z_order_operations_never_lose_or_duplicate_elements(n, data):
+    selection_mask = data.draw(st.lists(st.booleans(), min_size=n, max_size=n))
+    layer, _, selected = _build_layer_and_selection(n, selection_mask)
+
+    for op in (layer.bring_forward, layer.send_backward, layer.bring_to_front, layer.send_to_back):
+        before = {id(item) for item in layer}
+        op(selected)
+        after = {id(item) for item in layer}
+        assert before == after
+        assert len(layer) == n
+
+
+@given(n=_layer_size, data=st.data())
+def test_bring_to_front_preserves_the_selections_relative_order(n, data):
+    selection_mask = data.draw(st.lists(st.booleans(), min_size=n, max_size=n))
+    layer, _, selected = _build_layer_and_selection(n, selection_mask)
+
+    layer.bring_to_front(selected)
+
+    final_order = [item for item in layer if item in selected]
+    assert final_order == selected
+
+
+@given(n=_layer_size, data=st.data())
+def test_send_to_back_preserves_the_selections_relative_order(n, data):
+    selection_mask = data.draw(st.lists(st.booleans(), min_size=n, max_size=n))
+    layer, _, selected = _build_layer_and_selection(n, selection_mask)
+
+    layer.send_to_back(selected)
+
+    final_order = [item for item in layer if item in selected]
+    assert final_order == selected

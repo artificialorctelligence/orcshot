@@ -108,3 +108,63 @@ def test_union_all_covers_every_rect():
 
 def test_union_all_of_empty_sequence_returns_none():
     assert Rect.union_all([]) is None
+
+
+# --- Property-based tests -------------------------------------------------
+# These generalize the example-based tests above across the whole input
+# space instead of the specific cases picked by hand, catching classes of
+# bugs (e.g. an off-by-one at a boundary the hand-picked examples don't
+# happen to hit) that example tests alone would miss.
+
+from hypothesis import given
+from hypothesis import strategies as st
+
+_coord = st.integers(min_value=-10_000, max_value=10_000)
+
+
+@given(_coord, _coord, _coord, _coord)
+def test_from_points_always_produces_a_normalized_rect(x1, y1, x2, y2):
+    rect = Rect.from_points(x1, y1, x2, y2)
+    assert rect.left <= rect.right
+    assert rect.top <= rect.bottom
+
+
+@given(_coord, _coord, _coord, _coord)
+def test_from_points_does_not_depend_on_which_point_is_which(x1, y1, x2, y2):
+    # Drag direction shouldn't matter: dragging A->B or B->A must yield
+    # the same rect.
+    assert Rect.from_points(x1, y1, x2, y2) == Rect.from_points(x2, y2, x1, y1)
+
+
+@given(_coord, _coord, _coord, _coord)
+def test_from_points_bounds_always_contain_both_input_points(x1, y1, x2, y2):
+    rect = Rect.from_points(x1, y1, x2, y2)
+    assert rect.left <= x1 <= rect.right
+    assert rect.left <= x2 <= rect.right
+    assert rect.top <= y1 <= rect.bottom
+    assert rect.top <= y2 <= rect.bottom
+
+
+@given(_coord, _coord, _coord, _coord, _coord, _coord, _coord, _coord)
+def test_intersect_is_always_commutative(ax1, ay1, ax2, ay2, bx1, by1, bx2, by2):
+    a = Rect.from_points(ax1, ay1, ax2, ay2)
+    b = Rect.from_points(bx1, by1, bx2, by2)
+    assert a.intersect(b) == b.intersect(a)
+
+
+@given(_coord, _coord, _coord, _coord)
+def test_intersect_of_a_nondegenerate_rect_with_itself_is_itself(x1, y1, x2, y2):
+    rect = Rect.from_points(x1, y1, x2, y2)
+    if rect.width == 0 or rect.height == 0:
+        return  # a zero-area rect intersected with itself is empty by our contains-is-exclusive rule
+    assert rect.intersect(rect) == rect
+
+
+@given(st.lists(st.tuples(_coord, _coord, _coord, _coord), min_size=1, max_size=10))
+def test_union_all_bounds_contain_every_input_rect(coords):
+    rects = [Rect.from_points(*c) for c in coords]
+    union = Rect.union_all(rects)
+    for rect in rects:
+        if rect.width == 0 or rect.height == 0:
+            continue  # a zero-area rect intersects nothing, not even itself
+        assert union.intersect(rect) == rect
