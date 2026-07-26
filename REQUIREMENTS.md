@@ -95,13 +95,16 @@ Windows "run at startup" behavior.
 - Advanced print options: auto-rotate-to-fit, shrink/enlarge-to-fit, center alignment,
   grayscale/monochrome/invert print effects, footer timestamp, "prompt for print options" dialog
 
+## Packaging
+
+**Decision: `.deb`.** Avoids Flatpak's sandbox tendency to force portal-mediated capture even
+under X11, which would fight the direct-X11-access priority. Packaging mechanics (debhelper vs
+`dh-virtualenv` vs a PyInstaller-built binary bundled into the `.deb`) not yet worked out — revisit
+once the app has enough surface area to package.
+
 ## Open questions (not yet decided)
 
-- **Packaging target**: plain `.deb`/AppImage vs Flatpak. Matters because Flatpak sandboxing
-  tends to force portal-mediated capture even under X11 in some configurations, which cuts
-  against direct X11 capture access. Not yet resolved with the user.
-- Exact test runner conventions, CI setup, project directory layout — to be established when
-  scaffolding begins.
+- Exact CI setup — to be established once there's a build worth gating.
 
 ## Licensing
 
