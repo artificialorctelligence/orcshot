@@ -54,12 +54,21 @@ Rectangle, Ellipse, Line, Arrow, Freehand, Text, Speech bubble, Step-number labe
 Icon/stamp, Crop, Cursor overlay, embedded Image, embedded SVG, Blur filter, Pixelize filter.
 
 **Status: all ported at the pure-data-model level** (`src/greenshot_linux/core/shapes.py`,
-`drawing.py`, `filters.py`, `crop.py`), TDD throughout, 266 tests. Not yet done: wiring these into
+`drawing.py`, `filters.py`, `crop.py`), TDD throughout, 297 tests. Not yet done: wiring these into
 an actual GTK/Cairo editor UI (drag-to-create, resize handles, live rendering) — every shape here
 is a plain value object with a `clickable_at`/hit-test method and no rendering code at all, by
 design, since there's no renderer yet. See individual module docstrings for scoped-out rendering
 details (GDI+ Bezier smoothing, exact stroked-path geometry, font measurement) — each is a
 rendering-layer concern, not a data-model gap.
+
+### Undo/redo
+**Status: done at the pure-data-model level** (`src/greenshot_linux/core/history.py`) — a generic
+`UndoRedoStack` engine plus mementos over `Layer` (add/delete/change an element, batched as one
+step via `CompositeMemento`). Faithful port of Greenshot's `IMemento`/`Surface.Undo/Redo`, with one
+deliberate architectural simplification: three Windows memento types (bounds-change, field-change,
+text-change) collapse into one `ElementChangeMemento`, since all three reduce to "swap the
+immutable shape instance" once shapes are frozen dataclasses. Not yet wired into an actual editor
+session (nothing yet calls `UndoRedoStack.push` from a real user action, since there's no UI).
 
 ### Export
 - Copy to clipboard
