@@ -236,6 +236,23 @@ class TestAddRemove:
         assert len(layer) == 3
 
 
+class TestReplace:
+    def test_swaps_the_drawable_in_place(self):
+        layer, s = layer_of("a", "b", "c")
+        new_b = shape(name="b2")
+        layer.replace(s["b"], new_b)
+        assert list(layer) == [s["a"], new_b, s["c"]]
+
+    def test_preserves_z_order_index_unlike_remove_then_add(self):
+        # The whole reason replace exists: modifying a shape (move,
+        # style, text) must not send it to the top of the stack the
+        # way delete-then-re-add does.
+        layer, s = layer_of("a", "b", "c")
+        new_a = shape(name="a2")
+        layer.replace(s["a"], new_a)
+        assert list(layer).index(new_a) == 0
+
+
 # --- Property-based tests -------------------------------------------------
 # The multi-select z-order methods are the subtlest code in this module —
 # they were only gotten right by hand-tracing the C# against specific

@@ -69,6 +69,15 @@ class Layer:
     def remove(self, drawable: Drawable) -> None:
         self._items.pop(_index_by_identity(self._items, drawable))
 
+    def replace(self, old: Drawable, new: Drawable) -> None:
+        """Swap ``old`` for ``new`` at the same z-order index.
+
+        Distinct from remove+add: modifying a shape in place (move,
+        restyle, edit text) must not send it to the top of the stack
+        the way delete-then-re-add does.
+        """
+        self._items[_index_by_identity(self._items, old)] = new
+
     @property
     def bounds(self) -> Optional[Rect]:
         return Rect.union_all(d.bounds for d in self._items)
