@@ -305,6 +305,17 @@ PangoCairo rather than Cairo's toy API, was never affected.) Verified live: an e
 desktop), captured to just the window's own on-screen bounds, with raw pixel sampling confirming
 the six line-art icons now render at the exact theme foreground color with no stray fringe pixels.
 
+**Bug fixed after initial ship, reported live**: for a capture smaller than the toolbar's natural
+width, the drawing area (packed with `fill=True`, so `Gtk.Box` stretches it to match the toolbar's
+width) ended up wider than the image, and the image was drawn pinned to its top-left corner instead
+of centered - leaving a lopsided gap on the right (and below, for a short capture). Fixed by adding
+`EditorWindow._content_offset()` (half the leftover width/height, floored at 0) and applying it as a
+Cairo translate in `_on_draw` plus subtracting it from raw event coordinates in
+`_on_button_press`/`_on_motion`/`_on_button_release` - both the drawing and all hit-testing/shape-
+creation now agree on where the image actually is, not just the drawing. Verified live (visual
+centering) and via a simulated click/drag confirming the resulting shape's bounds land at the
+correct image-local coordinates despite the widget-local click coordinates being offset.
+
 ### Undo/redo
 **Status: done at the pure-data-model level** (`src/greenshot_linux/core/history.py`) — a generic
 `UndoRedoStack` engine plus mementos over `Layer` (add/delete/change an element, batched as one
@@ -489,6 +500,8 @@ collision detection are wired up and trigger for real the first time the app is 
   substitute for the Windows-only OCR API the original feature depends on)
 - Advanced print options: auto-rotate-to-fit, shrink/enlarge-to-fit, center alignment,
   grayscale/monochrome/invert print effects, footer timestamp, "prompt for print options" dialog
+- Zoom in the editor - not yet checked against the Windows source for whether/how it behaved there;
+  needs that check before implementing, to decide faithful behavior vs. a from-scratch design.
 
 ## Packaging
 

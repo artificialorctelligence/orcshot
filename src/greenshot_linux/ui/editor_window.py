@@ -536,7 +536,22 @@ class EditorWindow(Gtk.Window):
             ctx.stroke()
             ctx.restore()
 
+    def _content_offset(self) -> tuple:
+        """How far the image is inset from the drawing area's top-left
+        corner. The drawing area can end up larger than the image - a
+        small capture is narrower than the toolbar's natural width, and
+        Gtk.Box (packed with fill=True) stretches every child to that
+        width - so without this, a small capture used to sit pinned to
+        the corner with a lopsided gap on the right/bottom instead of
+        looking centered.
+        """
+        img_h, img_w = self._base_image.shape[:2]
+        alloc = self._drawing_area.get_allocation()
+        return max(0, (alloc.width - img_w) // 2), max(0, (alloc.height - img_h) // 2)
+
     def _on_draw(self, widget, ctx):
+        offset_x, offset_y = self._content_offset()
+        ctx.translate(offset_x, offset_y)
         ctx.set_source_surface(self._surface, 0, 0)
         ctx.paint()
         for shape in self.layer:
@@ -556,7 +571,8 @@ class EditorWindow(Gtk.Window):
 
     def _on_button_press(self, widget, event):
         self._commit_text_editing_if_active()
-        x, y = int(event.x), int(event.y)
+        offset_x, offset_y = self._content_offset()
+        x, y = int(event.x) - offset_x, int(event.y) - offset_y
 
         if self.selected_shape is not None:
             handle = handle_at(self.selected_shape, x, y)
@@ -598,7 +614,8 @@ class EditorWindow(Gtk.Window):
         return True
 
     def _on_motion(self, widget, event):
-        x, y = int(event.x), int(event.y)
+        offset_x, offset_y = self._content_offset()
+        x, y = int(event.x) - offset_x, int(event.y) - offset_y
         if self._resize_shape is not None:
             self._resize_preview = resize_shape(self._resize_shape, self._resize_handle, x, y)
             widget.queue_draw()
@@ -621,7 +638,8 @@ class EditorWindow(Gtk.Window):
         return False
 
     def _on_button_release(self, widget, event):
-        x, y = int(event.x), int(event.y)
+        offset_x, offset_y = self._content_offset()
+        x, y = int(event.x) - offset_x, int(event.y) - offset_y
         if self._resize_shape is not None:
             final = resize_shape(self._resize_shape, self._resize_handle, x, y)
             self.layer.replace(self._resize_shape, final)
