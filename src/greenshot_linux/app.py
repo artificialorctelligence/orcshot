@@ -22,11 +22,12 @@ Not unit tested for the same reason editor_window.py/region_select.py
 aren't: GTK/GIO glue driving a live process and an on-screen tray icon,
 with no meaningful headless test. Verified by actually running it.
 
-REQUIREMENTS.md calls for hotkey auto-configuration "on first run with
-a one-time user confirmation" - that confirmation UI (and actually
-calling hotkey_setup.configure_hotkey, which writes to the user's real
-desktop keybinding configuration) is intentionally not wired up here
-yet; see hotkey_setup.py's module docstring for why.
+do_startup calls ui.first_run_setup.maybe_run_first_run_setup(), which
+shows a one-time confirmation dialog (REQUIREMENTS.md's "on first run
+with a one-time user confirmation") offering to enable autostart and
+the four capture hotkeys - see that module's docstring for why this is
+the only place in the codebase allowed to write to the user's real
+desktop configuration, and only via a human clicking a real button.
 """
 
 from __future__ import annotations
@@ -43,6 +44,7 @@ from greenshot_linux.ui.capture_modes import (
     start_full_screen_capture,
     start_last_region_capture,
 )
+from greenshot_linux.ui.first_run_setup import maybe_run_first_run_setup
 from greenshot_linux.ui.region_select import start_region_capture
 from greenshot_linux.ui.window_picker import start_window_picker
 
@@ -84,6 +86,7 @@ class GreenshotApplication(Gtk.Application):
     def do_startup(self):
         Gtk.Application.do_startup(self)
         self._tray_icon = self._build_tray_icon()
+        maybe_run_first_run_setup()
 
     def do_command_line(self, command_line):
         self.activate()

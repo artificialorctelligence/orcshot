@@ -2,7 +2,7 @@
 and repeat-last-region. Region select (interactive drag) lives in
 region_select.py; window picker (interactive hover+click) in
 window_picker.py - both need a live overlay, these three don't, so
-there's no window class here, just grab-then-launch functions.
+there's no window class here, just grab-then-show-picker functions.
 
 Not unit tested for the same reason region_select.py isn't: GTK glue
 with no meaningful headless test. The *which Rect to grab* logic these
@@ -30,18 +30,16 @@ def _default_window_enumerator() -> WindowEnumerator:
     return X11WindowEnumerator()
 
 
-def _launch_editor(image):
-    from greenshot_linux.ui.editor_window import EditorWindow
+def _show_picker(image):
+    from greenshot_linux.ui.destination_picker import show_destination_picker
 
-    editor = EditorWindow(image)
-    editor.show_all()
-    return editor
+    return show_destination_picker(image)
 
 
 def start_full_screen_capture(capture_backend: CaptureBackend = None, on_captured=None):
-    """Grabs the whole virtual screen and opens EditorWindow on it.
-    ``on_captured(absolute_rect)``, if given, fires right before the
-    editor opens - GreenshotApplication uses this to remember the
+    """Grabs the whole virtual screen and shows the destination picker
+    on it. ``on_captured(absolute_rect)``, if given, fires right before
+    the picker opens - GreenshotApplication uses this to remember the
     region for "repeat last region".
     """
     if capture_backend is None:
@@ -50,15 +48,15 @@ def start_full_screen_capture(capture_backend: CaptureBackend = None, on_capture
     image = capture_backend.grab(region)
     if on_captured is not None:
         on_captured(region)
-    return _launch_editor(image)
+    return _show_picker(image)
 
 
 def start_active_window_capture(
     capture_backend: CaptureBackend = None, window_enumerator: WindowEnumerator = None, on_captured=None
 ):
-    """Grabs the currently focused window and opens EditorWindow on
-    it. Returns None (doing nothing else) if there's no active window
-    to capture - e.g. focus is on the desktop itself.
+    """Grabs the currently focused window and shows the destination
+    picker on it. Returns None (doing nothing else) if there's no
+    active window to capture - e.g. focus is on the desktop itself.
     """
     if capture_backend is None:
         capture_backend = _default_capture_backend()
@@ -70,16 +68,16 @@ def start_active_window_capture(
     image = capture_backend.grab(region)
     if on_captured is not None:
         on_captured(region)
-    return _launch_editor(image)
+    return _show_picker(image)
 
 
 def start_last_region_capture(last_region: Rect, capture_backend: CaptureBackend = None):
     """Re-grabs ``last_region`` fresh (not cached pixels - "repeat"
     means the same spatial region, picking up whatever's there now,
     matching the Windows source's Shift+PrintScreen behavior) and
-    opens EditorWindow on it. Returns None if there's no region to
-    repeat, matching start_active_window_capture's "nothing to do"
-    convention.
+    shows the destination picker on it. Returns None if there's no
+    region to repeat, matching start_active_window_capture's "nothing
+    to do" convention.
     """
     if last_region is None:
         return None
@@ -89,4 +87,4 @@ def start_last_region_capture(last_region: Rect, capture_backend: CaptureBackend
     if clamped is None:
         return None
     image = capture_backend.grab(clamped)
-    return _launch_editor(image)
+    return _show_picker(image)

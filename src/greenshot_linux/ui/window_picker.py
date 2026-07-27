@@ -152,11 +152,11 @@ class WindowPickerWindow(Gtk.Window):
 def start_window_picker(
     capture_backend: CaptureBackend = None, window_enumerator: WindowEnumerator = None, on_captured=None
 ) -> WindowPickerWindow:
-    """Show the overlay and launch EditorWindow on whichever window
-    gets clicked. Both backends are injectable (for tests/fakes); the
-    defaults construct the real X11 adapters lazily so importing this
-    module doesn't require a display. ``on_captured(absolute_rect)``,
-    if given, fires right before the editor opens - GreenshotApplication
+    """Show the overlay and show the destination picker on whichever
+    window gets clicked. Both backends are injectable (for tests/fakes);
+    the defaults construct the real X11 adapters lazily so importing
+    this module doesn't require a display. ``on_captured(absolute_rect)``,
+    if given, fires right before the picker opens - GreenshotApplication
     uses this to remember the region for "repeat last region".
     """
     if capture_backend is None:
@@ -171,10 +171,9 @@ def start_window_picker(
     def on_selected(image, window_info):
         if on_captured is not None:
             on_captured(window_info.bounds)
-        from greenshot_linux.ui.editor_window import EditorWindow
+        from greenshot_linux.ui.destination_picker import show_destination_picker
 
-        editor = EditorWindow(image)
-        editor.show_all()
+        show_destination_picker(image)
 
     window = WindowPickerWindow(capture_backend, window_enumerator, on_selected)
     window.show_all()

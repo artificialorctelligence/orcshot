@@ -91,6 +91,7 @@ no handles - shape_handles returns {} for them.
 from __future__ import annotations
 
 from dataclasses import replace as dataclass_replace
+from pathlib import Path
 
 import gi
 
@@ -108,6 +109,7 @@ from greenshot_linux.core.history import (
     UndoRedoStack,
 )
 from greenshot_linux.core.shapes import ObfuscateShape, ShapeStyle, TextShape
+from greenshot_linux.settings import get_output_directory, set_output_directory
 from greenshot_linux.core.tools import (
     Tool,
     create_freehand_shape,
@@ -121,6 +123,7 @@ from greenshot_linux.ui.cairo_convert import numpy_to_cairo_surface
 from greenshot_linux.ui.composite import composite_to_numpy
 from greenshot_linux.ui.file_export import save_image_to_file
 from greenshot_linux.ui.icons import tool_icon_image
+from greenshot_linux.ui.printing import print_image
 from greenshot_linux.ui.render import render_shape
 
 _TOOL_KEYS = {
@@ -281,6 +284,13 @@ class EditorWindow(Gtk.Window):
         print_button.connect("clicked", lambda _b: self._do_print())
         toolbar.insert(print_button, -1)
 
+        toolbar.insert(Gtk.SeparatorToolItem(), -1)
+
+        save_location_button = Gtk.ToolButton(icon_widget=Gtk.Image.new_from_icon_name("folder-symbolic", Gtk.IconSize.SMALL_TOOLBAR))
+        save_location_button.set_tooltip_text("Screenshot Save Location")
+        save_location_button.connect("clicked", lambda _b: self._do_choose_save_location())
+        toolbar.insert(save_location_button, -1)
+
         return toolbar
 
     def _build_style_panel(self) -> Gtk.Box:
@@ -402,6 +412,7 @@ class EditorWindow(Gtk.Window):
             Gtk.STOCK_CANCEL, Gtk.ResponseType.CANCEL,
             Gtk.STOCK_SAVE, Gtk.ResponseType.OK,
         )
+        dialog.set_current_folder(str(get_output_directory()))
         dialog.set_current_name("screenshot.png")
         dialog.set_do_overwrite_confirmation(True)
         try:
@@ -410,24 +421,31 @@ class EditorWindow(Gtk.Window):
         finally:
             dialog.destroy()
 
-    def _draw_print_page(self, operation, context, page_nr) -> None:
-        image = self._composited_image()
-        img_h, img_w = image.shape[:2]
-        page_w, page_h = context.get_width(), context.get_height()
-        scale = min(page_w / img_w, page_h / img_h)
-
-        ctx = context.get_cairo_context()
-        ctx.translate((page_w - img_w * scale) / 2, (page_h - img_h * scale) / 2)
-        ctx.scale(scale, scale)
-        ctx.set_source_surface(numpy_to_cairo_surface(image), 0, 0)
-        ctx.paint()
+    def _do_choose_save_location(self) -> None:
+        """Lets the user view/change the folder the destination
+        picker's silent "Save" (ui/destination_picker.py) and this
+        window's own Save dialog both start from - persisted via
+        settings.py, so it's remembered across captures and restarts.
+        """
+        dialog = Gtk.FileChooserDialog(
+            title="Screenshot Save Location", transient_for=self, action=Gtk.FileChooserAction.SELECT_FOLDER
+        )
+        dialog.add_buttons(
+            Gtk.STOCK_CANCEL, Gtk.ResponseType.CANCEL,
+            "Select", Gtk.ResponseType.OK,
+        )
+        current = get_output_directory()
+        current.mkdir(parents=True, exist_ok=True)
+        dialog.set_current_folder(str(current))
+        try:
+            if dialog.run() == Gtk.ResponseType.OK:
+                set_output_directory(Path(dialog.get_filename()))
+        finally:
+            dialog.destroy()
 
     def _do_print(self) -> None:
         self._commit_text_editing_if_active()
-        operation = Gtk.PrintOperation()
-        operation.set_n_pages(1)
-        operation.connect("draw-page", self._draw_print_page)
-        operation.run(Gtk.PrintOperationAction.PRINT_DIALOG, self)
+        print_image(self._composited_image(), parent=self)
 
     def _update_editing_text(self, new_text: str) -> None:
         old_shape = self._editing_text_shape

@@ -341,15 +341,43 @@ yet — nothing in the UI performs a multi-shape action as a single undo step.
 - `src/greenshot_linux/ui/file_export.py`: `save_image_to_file(image, path)`, format inferred from
   the extension via `GdkPixbuf`'s own save types, defaulting to PNG.
 - `EditorWindow` wiring: toolbar Copy/Save/Print buttons plus Ctrl+C/Ctrl+S/Ctrl+P. Save uses a real
-  `Gtk.FileChooserDialog`; Print uses a real `Gtk.PrintOperation` (`_draw_print_page` scales the
-  composited image to fit the page, centered — no page setup/multi-page/DPI options, "basic print"
-  per the requirement). Verified live: drew a shape, copied it, confirmed the real X11 clipboard
-  held the exact expected composited image; saved it through the actual dialog (auto-responded via
-  a scheduled `GLib.timeout_add` firing inside the dialog's nested main loop, not skipped), confirmed
-  the file on disk matched too; exported print output via `Gtk.PrintOperationAction.EXPORT` (the
-  same `draw-page` code path real printing uses, without needing a physical printer) to a PDF,
-  rendered that PDF back to an image with `pdftoppm`, and visually confirmed the composited content
-  landed centered and correctly scaled on the page.
+  `Gtk.FileChooserDialog`; Print uses `src/greenshot_linux/ui/printing.py`'s `print_image()` (a real
+  `Gtk.PrintOperation` — scales the image to fit the page, centered — no page setup/multi-page/DPI
+  options, "basic print" per the requirement), extracted out of `EditorWindow` so the destination
+  picker (see Global activation below) can print a raw, not-yet-annotated capture too, not just
+  `EditorWindow`'s own composited image. Verified live: drew a shape, copied it, confirmed the real
+  X11 clipboard held the exact expected composited image; saved it through the actual dialog
+  (auto-responded via a scheduled `GLib.timeout_add` firing inside the dialog's nested main loop, not
+  skipped), confirmed the file on disk matched too; exported print output via
+  `Gtk.PrintOperationAction.EXPORT` (the same `draw-page` code path real printing uses, without
+  needing a physical printer) to a PDF, rendered that PDF back to an image with `pdftoppm`, and
+  visually confirmed the composited content landed centered and correctly scaled on the page.
+- **Destination picker** (`src/greenshot_linux/ui/destination_picker.py`, new): every capture now
+  shows a `Gtk.Menu` context menu at the pointer instead of unconditionally opening the editor.
+  Reading the actual Windows source (`Greenshot.Base/Core/ICoreConfiguration.cs`,
+  `Greenshot/Destinations/PickerDestination.cs`) before building this found that Windows' own
+  default `OutputDestinations` is `"Picker"` — a destination-choice popup — not "always open the
+  editor," which is what this port originally, incorrectly, always did. Item order matches Windows'
+  own priority-sorted default (File priority 0, Editor priority 1, Clipboard/Printer priority 2)
+  with one deliberate change per explicit user request: Copy to Clipboard is pulled to the very top.
+  Final order: Copy to Clipboard, Save, Save As..., Edit, Print. Save/Save As mirror Windows' own
+  two-tier save (`FileNoDialog`/`FileDialog`): Save writes silently to the configured output
+  directory (see `settings.py` below) with a generated timestamp filename
+  (`settings.quick_save_filename`, matching Windows' own `yyyy-MM-dd HH_mm_ss` pattern but dropping
+  its `-${title}` suffix — not every capture mode here has a single associated window title);
+  Save As opens a file chooser. `region_select.py`, `window_picker.py`, and `capture_modes.py`'s
+  three non-interactive triggers all show this picker now instead of constructing `EditorWindow`
+  directly. Verified live and via a headless structural check (menu item labels/order, activating
+  the Clipboard item against a fake backend) plus an end-to-end sandboxed quick-save write.
+- **Configurable save location** (`src/greenshot_linux/settings.py`, new): a plain JSON file at
+  `~/.config/greenshot-linux/config.json` (XDG Base Directory spec, same testing approach as
+  `autostart.py`'s `.desktop` entry — real file I/O, exercised for real in tests against a temp
+  path) holding the output directory the destination picker's silent Save writes to (default
+  `~/Pictures/Screenshots`, falling back to `~/Screenshots` if there's no Pictures folder) and the
+  first-run-setup-already-ran flag (see Global activation below). `EditorWindow` gained a toolbar
+  button (folder icon, end of the toolbar) opening a folder-chooser dialog to view/change it — the
+  user explicitly asked for this to be adjustable "in the editor," not just a config file. The
+  editor's own pre-existing Save dialog also now starts from this folder.
 
 ### Global activation (new requirement, not in original Windows feature parity list but matched
 to Windows defaults for familiarity)
@@ -375,8 +403,8 @@ into Settings.
 Autostart on login (`.desktop` autostart entry) so the tray icon is always present, matching
 Windows "run at startup" behavior.
 
-**Status: persistent background process + tray icon done; PrintScreen -> region capture hotkey
-logic done but deliberately not switched on.**
+**Status: done, including the first-run confirmation flow — all four hotkeys, autostart, and
+collision detection are wired up and trigger for real the first time the app is actually run.**
 - `src/greenshot_linux/app.py` (`GreenshotApplication`): a `Gtk.Application` with a fixed
   `application_id`, using GIO's built-in single-instance-via-D-Bus behavior — re-running the entry
   point (as a hotkey binding would) gets routed to the already-running instance's
@@ -385,38 +413,61 @@ logic done but deliberately not switched on.**
   process's PID) before relying on it. `Gtk.StatusIcon` for the tray icon (Cinnamon still supports
   the legacy XEmbed tray protocol its panel inherited from GNOME2/MATE, unlike pure GNOME Shell) —
   click or the menu's "Capture Region" both call the same `start_capture()` the CLI flag does.
-  Verified live: started the app, confirmed the tray icon builds without error, launched a second
-  process with `--capture-region`, and confirmed (via a subclass overriding `start_capture` to log
-  instead of opening a real overlay, to avoid needless live desktop interaction) that it landed in
-  the first process, not a new one.
+  `do_startup` also calls `ui.first_run_setup.maybe_run_first_run_setup()` (see below). Verified
+  live: started the app, confirmed the tray icon builds without error, launched a second process
+  with `--capture-region`, and confirmed (via a subclass overriding `start_capture` to log instead
+  of opening a real overlay, to avoid needless live desktop interaction) that it landed in the first
+  process, not a new one.
 - `src/greenshot_linux/autostart.py`: `install_autostart_entry(exec_command, autostart_dir=None)`
   writes a `.desktop` autostart entry (XDG Desktop Entry/Autostart specs), creating
   `$XDG_CONFIG_HOME/autostart/` (default `~/.config/autostart/`) if needed. Unlike
   `hotkey_setup.py`'s gsettings/dconf writes (global session state with no safe way to test without
   touching the live system), a `.desktop` entry is just a plain file, so the actual write is
-  exercised for real in tests — against a temp directory, never the real default path. Same
-  standing caution as the hotkey either way: nothing in this codebase calls it against the real
-  `~/.config/autostart/` automatically; wiring it into a first-run "enable autostart?" prompt (and
-  actually installing it) is left for the user, or a future session explicitly asked to.
-- `src/greenshot_linux/hotkey_setup.py`: `configure_hotkey(backend, command)` idempotently adds a
-  Cinnamon custom keybinding (`org.cinnamon.desktop.keybindings.custom-keybinding`, the relocatable
-  schema backing `/org/cinnamon/desktop/keybindings/custom-keybindings/customN/`) for PrintScreen ->
-  region capture. Schema/path layout confirmed by reading (not writing) this machine's real
-  Cinnamon settings first — this dev machine already had a custom `<Shift>Print` → `shutter -f`
-  binding, which showed the exact structure needed. Only the `PrintScreen` binding is wired (region
-  capture is the only capture mode that exists); Alt/Ctrl/Shift+PrintScreen need Window/Full-
-  screen/Last-region capture modes that aren't built yet.
-  **Deliberately not invoked against the real system by anything in this codebase or its tests** —
-  writing to the user's actual desktop keybinding configuration is a real system settings change,
-  not something to do as a side effect of building the feature or verifying it works. The logic is
-  fully unit tested against an injectable fake `SettingsBackend` instead; the real
-  `GioSettingsBackend` adapter is written and its schema verified by reading the live system, but
-  never executed here. Wiring it up for real — actually calling `configure_hotkey` with the
-  first-run "one-time user confirmation" REQUIREMENTS.md calls for — is intentionally left as
-  future work the user (or a future session, explicitly asked to do so) should trigger themselves.
-  To turn the hotkey on manually right now: `python -c "from greenshot_linux.hotkey_setup import
-  configure_hotkey, GioSettingsBackend; configure_hotkey(GioSettingsBackend(),
-  '/path/to/.venv/bin/python -m greenshot_linux.app --capture-region')"`.
+  exercised for real in tests — against a temp directory, never the real default path.
+- `src/greenshot_linux/hotkey_setup.py`: generalized from a single hardcoded PrintScreen binding to
+  all four (`DEFAULT_HOTKEYS`, a tuple of `HotkeyBinding(name, binding, cli_flag)` matching the
+  table above). `configure_hotkey(backend, name, binding, command)` idempotently adds a Cinnamon
+  custom keybinding (`org.cinnamon.desktop.keybindings.custom-keybinding`, the relocatable schema
+  backing `/org/cinnamon/desktop/keybindings/custom-keybindings/customN/`); `configure_all_hotkeys`
+  does all four at once, with a `skip` set for anything the caller decided not to touch.
+  **Collision detection, added because the user asked to be warned before anything gets
+  overwritten**: `find_conflicts(backend, binding, ignore_names=...)` scans
+  `org.cinnamon.desktop.keybindings.media-keys`'s screenshot-related keys (`area-screenshot`,
+  `area-screenshot-clip`, `screenshot`, `screenshot-clip`, `window-screenshot`,
+  `window-screenshot-clip` — Cinnamon's own built-in PrtScn-family actions) plus existing custom
+  keybindings for anything already bound to a given key combo; `check_all_conflicts` runs that
+  across all four defaults at once; `clear_conflict` frees a specific conflicting binding (clearing
+  just that one field — a custom keybinding's name/command are left intact, just unbound) without
+  deleting whatever it belonged to. This is a deliberate scope boundary, not exhaustive: it only
+  checks the schemas realistically likely to hold a PrintScreen-family binding, not every gsettings
+  schema on the system. Schema/path layout and the built-in media-keys key names were confirmed by
+  reading (not writing) this machine's real Cinnamon settings first — which turned up real, not
+  hypothetical, collisions for *all four* target bindings: `Print` was already claimed by a custom
+  "Area Screenshot" → `shutter -s` binding, `<Alt>Print` by Cinnamon's own built-in
+  `window-screenshot` action, `<Control>Print` by Cinnamon's built-in `screenshot-clip` action, and
+  `<Shift>Print` by a custom "Full Screenshot" → `shutter -f` binding.
+  **Deliberately still never invoked against the real system by anything in this codebase or its
+  tests** — all of the above is fully unit tested against an injectable fake `SettingsBackend`. The
+  real `GioSettingsBackend` adapter is written and its schema verified by reading the live system,
+  but the only thing in this codebase that ever calls it for real is `ui/first_run_setup.py`, and
+  only because a human clicked a real confirmation button in their own running app — never as a
+  side effect of building or testing the feature.
+- `src/greenshot_linux/ui/first_run_setup.py` (new): the actual first-run confirmation dialog.
+  `maybe_run_first_run_setup()` checks `settings.is_first_run_setup_done()` (so it only ever asks
+  once — whatever the user chooses, the flag is set either way, matching "one-time") and, if not yet
+  run, shows a `Gtk.Dialog` offering to enable autostart and each of the four hotkeys. Each
+  conflict-free hotkey defaults to checked; each conflicting one defaults to *unchecked* with the
+  conflict named in its own label ("... — overwrite existing custom shortcut 'Area Screenshot'?") —
+  checking it is how the user opts into overwriting, matching the explicit request to "ask if we
+  want that overwritten." `resolve_hotkey_choices` (pure, in `hotkey_setup.py`) turns the checkbox
+  state into a skip-set and a list of conflicts to actually clear; the dialog itself is just thin
+  GTK glue calling that plus `configure_all_hotkeys`/`clear_conflict`/`install_autostart_entry`.
+  Wired into `app.py`'s `do_startup`, so it fires for real the first time the packaged app actually
+  runs — for this dev machine or anyone else who installs it. Verified live end-to-end, fully
+  sandboxed (temp `XDG_CONFIG_HOME` + a fake settings backend seeded with the two real conflicts
+  above, auto-clicking through both the default-safe path and the opt-in-overwrite path via
+  `dialog.response()`), then re-confirmed against this machine's *real* gsettings and
+  `~/.config/greenshot-linux/` that nothing real was touched by any of that verification.
 
 ### Explicitly cut (not ported)
 - Email destination

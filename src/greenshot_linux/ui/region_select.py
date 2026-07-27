@@ -1,10 +1,11 @@
 """The region-selection overlay: a fullscreen, borderless window
 showing a frozen copy of the desktop, that lets the user click-drag to
-pick a rectangular region. Releasing launches EditorWindow on the
-selected region; Escape cancels. This is the actual "day one" trigger
-for a capture - everything built so far (capture backends,
-EditorWindow) needed something to launch them from a real user
-gesture, rather than being constructed by hand in a script.
+pick a rectangular region. Releasing shows the destination picker
+(ui/destination_picker.py) on the selected region; Escape cancels.
+This is the actual "day one" trigger for a capture - everything built
+so far (capture backends, EditorWindow) needed something to launch
+them from a real user gesture, rather than being constructed by hand
+in a script.
 
 Not unit tested for the same reason editor_window.py isn't: GTK glue
 driving a live event loop and an on-screen window, with no meaningful
@@ -142,11 +143,11 @@ class RegionSelectWindow(Gtk.Window):
 
 
 def start_region_capture(capture_backend: CaptureBackend = None, on_captured=None) -> RegionSelectWindow:
-    """Show the overlay and launch EditorWindow on whatever gets
-    selected. capture_backend is injectable (for tests/fakes); the
+    """Show the overlay and show the destination picker on whatever
+    gets selected. capture_backend is injectable (for tests/fakes); the
     default constructs the real X11 adapter lazily so importing this
     module doesn't require a display. ``on_captured(absolute_rect)``,
-    if given, fires right before the editor opens - GreenshotApplication
+    if given, fires right before the picker opens - GreenshotApplication
     uses this to remember the region for "repeat last region".
     """
     if capture_backend is None:
@@ -157,10 +158,9 @@ def start_region_capture(capture_backend: CaptureBackend = None, on_captured=Non
     def on_selected(image, absolute_rect):
         if on_captured is not None:
             on_captured(absolute_rect)
-        from greenshot_linux.ui.editor_window import EditorWindow
+        from greenshot_linux.ui.destination_picker import show_destination_picker
 
-        editor = EditorWindow(image)
-        editor.show_all()
+        show_destination_picker(image)
 
     window = RegionSelectWindow(capture_backend, on_selected)
     window.show_all()
