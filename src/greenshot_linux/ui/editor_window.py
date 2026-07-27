@@ -96,9 +96,10 @@ from pathlib import Path
 import gi
 
 gi.require_version("Gtk", "3.0")
+gi.require_version("Gio", "2.0")
 
 import numpy as np
-from gi.repository import Gdk, Gtk
+from gi.repository import Gdk, Gio, Gtk
 
 from greenshot_linux.capture.clipboard import ClipboardBackend
 from greenshot_linux.core.drawing import Layer
@@ -230,7 +231,20 @@ class EditorWindow(Gtk.Window):
         self.add(box)
 
         self.connect("key-press-event", self._on_key_press)
-        self.connect("destroy", Gtk.main_quit)
+        # Registers with the running GreenshotApplication (if any) so
+        # it can decline to start an overlapping capture while this
+        # editor is open - see app.py's _block_if_editor_open. This
+        # replaces a stale `self.connect("destroy", Gtk.main_quit)`
+        # left over from early standalone-script testing (a plain
+        # Gtk.main() loop, not the real Gtk.Application) - confirmed
+        # live that call was already a harmless no-op against the real
+        # app (Gtk.main_quit has nothing to quit when Gtk.Application.
+        # run() is what's actually driving the loop), but a no-op that
+        # printed a scary Gtk-CRITICAL warning on every editor close.
+        app = Gio.Application.get_default()
+        if app is not None:
+            app.register_editor_window(self)
+        self.connect("destroy", self._on_destroy)
 
     def _build_toolbar(self) -> Gtk.Toolbar:
         toolbar = Gtk.Toolbar()
@@ -723,3 +737,8 @@ class EditorWindow(Gtk.Window):
             self._do_print()
             return True
         return False
+
+    def _on_destroy(self, widget) -> None:
+        app = Gio.Application.get_default()
+        if app is not None:
+            app.unregister_editor_window(self)

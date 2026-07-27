@@ -44,6 +44,7 @@ from greenshot_linux.ui.capture_modes import (
     start_full_screen_capture,
     start_last_region_capture,
 )
+from greenshot_linux.resources import LOGO_PATH
 from greenshot_linux.ui.first_run_setup import maybe_run_first_run_setup
 from greenshot_linux.ui.region_select import start_region_capture
 from greenshot_linux.ui.window_picker import start_window_picker
@@ -82,9 +83,11 @@ class GreenshotApplication(Gtk.Application):
         )
         self.last_region = None
         self._repeat_item = None
+        self._open_editors = []
 
     def do_startup(self):
         Gtk.Application.do_startup(self)
+        Gtk.Window.set_default_icon_from_file(str(LOGO_PATH))
         self._tray_icon = self._build_tray_icon()
         maybe_run_first_run_setup()
 
@@ -117,19 +120,57 @@ class GreenshotApplication(Gtk.Application):
     def _remember_region(self, rect) -> None:
         self.last_region = rect
 
+    def register_editor_window(self, editor) -> None:
+        self._open_editors.append(editor)
+
+    def unregister_editor_window(self, editor) -> None:
+        if editor in self._open_editors:
+            self._open_editors.remove(editor)
+
+    def _block_if_editor_open(self) -> bool:
+        """True (after focusing the existing editor instead) if a new
+        capture shouldn't start right now because one's already open.
+
+        Without this, triggering a hotkey while EditorWindow is open
+        produces a confusing, silent no-op - reported live: the
+        capture overlay/destination-picker flow never visibly
+        appeared, though the app didn't hang either. Root cause wasn't
+        pinned down precisely (Cinnamon/Muffin focus-stealing
+        prevention likely keeps the newly-created override-redirect
+        overlay from actually receiving input while the editor already
+        has focus), but disallowing overlapping captures avoids the
+        whole scenario rather than chasing that edge case, and matches
+        the reasonable expectation that starting a new capture
+        mid-annotation isn't something you'd want to happen anyway.
+        """
+        if not self._open_editors:
+            return False
+        self._open_editors[-1].present()
+        return True
+
     def start_region_capture(self) -> None:
+        if self._block_if_editor_open():
+            return
         start_region_capture(on_captured=self._remember_region)
 
     def start_full_screen_capture(self) -> None:
+        if self._block_if_editor_open():
+            return
         start_full_screen_capture(on_captured=self._remember_region)
 
     def start_active_window_capture(self) -> None:
+        if self._block_if_editor_open():
+            return
         start_active_window_capture(on_captured=self._remember_region)
 
     def start_window_picker(self) -> None:
+        if self._block_if_editor_open():
+            return
         start_window_picker(on_captured=self._remember_region)
 
     def start_last_region_capture(self) -> None:
+        if self._block_if_editor_open():
+            return
         # Deliberately not chained through _remember_region: the
         # region being repeated already *is* self.last_region, so
         # there's nothing new to record.
@@ -137,7 +178,7 @@ class GreenshotApplication(Gtk.Application):
 
     def _build_tray_icon(self) -> Gtk.StatusIcon:
         icon = Gtk.StatusIcon()
-        icon.set_from_icon_name("applets-screenshooter")
+        icon.set_from_file(str(LOGO_PATH))
         icon.set_tooltip_text("Greenshot Linux")
         icon.connect("activate", lambda _icon: self.start_capture())
 

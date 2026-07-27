@@ -438,6 +438,34 @@ collision detection are wired up and trigger for real the first time the app is 
   with `--capture-region`, and confirmed (via a subclass overriding `start_capture` to log instead
   of opening a real overlay, to avoid needless live desktop interaction) that it landed in the first
   process, not a new one.
+- `src/greenshot_linux/resources.py` + `resources/greenshot-linux.png` (new): the app's real logo
+  asset (a dotted-ring "G" mark, user-supplied), bundled and used for every icon surface -
+  `Gtk.Window.set_default_icon_from_file` in `do_startup` for the window/taskbar icon (previously
+  unset, i.e. a generic default), `Gtk.StatusIcon.set_from_file` for the tray icon (previously
+  `applets-screenshooter`, a generic theme icon), and the autostart `.desktop` entry's `Icon=` field.
+  One shared real asset rather than a separate hand-drawn recreation per surface (an earlier Cairo-
+  drawn dotted-G prototype for the tray icon specifically was built and looked reasonable, but was
+  dropped in favor of the actual source image once available, per explicit request - "this is
+  supposed to be a port").
+- **Bug fixed after initial ship, reported live**: triggering a capture hotkey while `EditorWindow`
+  was already open produced a confusing silent no-op - no capture overlay, no destination picker, no
+  new editor - though the app didn't hang. Root cause wasn't pinned down with certainty (Cinnamon/
+  Muffin focus-stealing prevention likely keeps a newly-created override-redirect overlay from
+  actually receiving input while the editor already holds focus - confirmed empirically that a
+  separate suspect, `EditorWindow`'s `self.connect("destroy", Gtk.main_quit)`, was *not* the cause:
+  it turned out to be a harmless no-op against the real `Gtk.Application`-driven app - `Gtk.main_quit`
+  has nothing to quit when `Gtk.Application.run()`, not `gtk_main()`, is what's driving the loop -
+  confirmed by reproducing it in isolation, though it was still a leftover from early standalone-
+  script testing that printed a spurious `Gtk-CRITICAL` on every editor close). Fixed at the product
+  level instead of chasing the exact WM interaction: `GreenshotApplication` now tracks open
+  `EditorWindow` instances (`register_editor_window`/`unregister_editor_window`, called from the
+  window's `__init__`/`destroy` via `Gio.Application.get_default()`) and every capture-trigger method
+  (`start_region_capture` and its four siblings) declines to start a new capture while one's open,
+  presenting the existing editor instead - both avoids the whole class of overlapping-capture bugs
+  and matches the reasonable expectation that starting a new capture mid-annotation isn't something
+  you'd want anyway. Verified live end-to-end (open an editor, confirm a capture call is blocked and
+  the existing editor is presented; close it, confirm capture calls go through again; confirmed the
+  `Gtk-CRITICAL` warning is gone on close too).
 - `src/greenshot_linux/autostart.py`: `install_autostart_entry(exec_command, autostart_dir=None)`
   writes a `.desktop` autostart entry (XDG Desktop Entry/Autostart specs), creating
   `$XDG_CONFIG_HOME/autostart/` (default `~/.config/autostart/`) if needed. Unlike

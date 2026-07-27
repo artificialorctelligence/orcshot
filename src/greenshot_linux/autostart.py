@@ -20,6 +20,8 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
+from greenshot_linux.resources import LOGO_PATH
+
 DESKTOP_ENTRY_FILENAME = "greenshot-linux.desktop"
 
 
@@ -31,7 +33,7 @@ def autostart_desktop_entry(exec_command: str) -> str:
         "Name=Greenshot Linux\n"
         "Comment=Screenshot capture and annotation tool\n"
         f"Exec={exec_command}\n"
-        "Icon=applets-screenshooter\n"
+        f"Icon={LOGO_PATH}\n"
         "Terminal=false\n"
         "X-GNOME-Autostart-enabled=true\n"
     )
