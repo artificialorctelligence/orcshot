@@ -1,0 +1,689 @@
+"""The editor window: shows a captured image with the annotation Layer
+drawn on top, and wires mouse interaction to create/move/resize shapes
+plus Ctrl+Z/Ctrl+Y to undo/redo through UndoRedoStack.
+
+This module is deliberately not unit tested the way core/ is — it's
+GTK glue code driving a live event loop and an on-screen window, which
+has no meaningful headless test. Verified instead by actually running
+it and inspecting a real screenshot, the same way "does the X11 capture
+backend work" was verified against real hardware earlier in this
+project rather than asserted from reading the API docs. The logic that
+CAN be unit tested (which shape a drag produces, how a shape moves or
+resizes) is factored out into core/tools.py and tested there.
+
+Interaction model: clicking on empty space starts a drag-to-create
+gesture in the current tool, selected either via the toolbar along the
+top or number keys 1-8 (Rectangle, Ellipse, Line, Arrow, Freehand,
+Pixelize, Blur, Text) - both stay in sync, each updates the other.
+Clicking on an existing shape selects it (drawing small square handles
+at its corners/edges, or its two endpoints for Line/Arrow) and starts
+dragging it; clicking one of those handles resizes/reshapes instead.
+Selection persists after a click (not just for the duration of a drag)
+so the handles stay visible and grabbable on a later, separate click.
+The toolbar also has Undo/Redo buttons alongside Ctrl+Z/Ctrl+Y, and
+Copy/Save/Print buttons alongside Ctrl+C/Ctrl+S/Ctrl+P - all three
+composite the base image with the current Layer (ui/composite.py)
+into one flat image, matching exactly what's on screen, then hand it
+to a ClipboardBackend, ui/file_export.py, or a Gtk.PrintOperation (the
+OS print dialog, no page-setup/multi-page/DPI options beyond fit-to-
+page-centered - "basic print" per REQUIREMENTS.md). Icon-only buttons
+with tooltips (Gtk.ToolbarStyle.ICONS), paint/Photoshop-style rather
+than text labels: the drawing tools use small hand-drawn Cairo icons
+(ui/icons.py, reusing ui/render.py's actual renderers where one
+exists, so an icon can never visually drift from what the tool draws
+- no icon theme has standardized names for "rectangle annotation
+tool"), the generic actions use standard freedesktop theme icon names
+(edit-undo-symbolic etc., confirmed present via Gtk.IconTheme.has_icon
+before relying on them) so they follow the system icon theme/dark-
+light mode automatically, same as everything else in this app.
+
+The Text tool drags out a box same as Rectangle, then enters an
+editing mode where key presses append/backspace the shape's text
+directly (no GtkEntry overlay - the shape re-renders live through the
+normal Cairo pipeline on every keystroke); Enter or clicking elsewhere
+commits, Escape or committing with empty text discards the shape.
+While editing, every other key handler (tool switching, undo/redo,
+copy/save/print) is suppressed so typing "z" doesn't trigger undo.
+No visible text cursor/caret (the live-updating text itself is the
+only feedback that typing is registering).
+
+Double-clicking an *existing* TextShape re-enters editing mode on it
+too (self._editing_original_shape tracks which case applies - None for
+a brand-new shape, the pre-edit instance for a re-edit - since the
+correct undo/cancel behavior differs: cancelling a fresh shape discards
+it with nothing to undo, cancelling a re-edit reverts the text with
+nothing to undo either, but *committing* a re-edit pushes
+ElementChangeMemento/DeleteElementMemento instead of AddElementMemento,
+since the shape already existed in committed history). GTK fires a
+normal single-click press before a double-click's second press, so
+that first press already runs the ordinary select-and-start-moving
+branch below; the double-click branch explicitly cancels that
+in-progress move. A related fix that came out of tracing through this:
+a click that ends without any drag (dx=dy=0) no longer pushes a no-op
+move ElementChangeMemento - it was cluttering undo history even for a
+plain single click that just selects a shape.
+
+A second row below the toolbar (line color, fill color, thickness,
+shadow) updates self._default_style, affecting shapes created *after*
+a change; if a shape is currently selected when a control changes, it
+gets restyled too (one ElementChangeMemento per control change) -
+except Obfuscate/Icon/Cursor/Image/Svg, none of which have a style
+field to change. The panel doesn't sync *from* a selection though -
+clicking an existing shape doesn't update the controls to show its
+current style, only editing them pushes a change out. A separate
+"Obfuscate Amount" spinner (blur radius / pixel size, self._default_
+obfuscate_amount) works the same way but only applies to Pixelize/Blur
+shapes - it's threaded through create_shape_from_drag's amount
+parameter regardless of the current tool (ignored for every other
+tool), and retroactively updates a selected ObfuscateShape the same
+way the style controls retroactively restyle.
+
+Every shape type with rendering support (see ui/render.py) has resize
+handles too - core/tools.py's shape_handles/resize_shape special-case
+SpeechBubbleShape (handles track bubble_bounds, not the wider .bounds
+that includes the tail; the tail's target point is left alone so it
+keeps pointing at the same spot) and FreehandShape (no bounds field to
+swap, so its points are scaled proportionally from the old tight
+bounding box into the new one). Shapes without a renderer still have
+no handles - shape_handles returns {} for them.
+"""
+
+from __future__ import annotations
+
+from dataclasses import replace as dataclass_replace
+
+import gi
+
+gi.require_version("Gtk", "3.0")
+
+import numpy as np
+from gi.repository import Gdk, Gtk
+
+from greenshot_linux.capture.clipboard import ClipboardBackend
+from greenshot_linux.core.drawing import Layer
+from greenshot_linux.core.history import (
+    AddElementMemento,
+    DeleteElementMemento,
+    ElementChangeMemento,
+    UndoRedoStack,
+)
+from greenshot_linux.core.shapes import ObfuscateShape, ShapeStyle, TextShape
+from greenshot_linux.core.tools import (
+    Tool,
+    create_freehand_shape,
+    create_shape_from_drag,
+    handle_at,
+    resize_shape,
+    shape_handles,
+    translate_shape,
+)
+from greenshot_linux.ui.cairo_convert import numpy_to_cairo_surface
+from greenshot_linux.ui.composite import composite_to_numpy
+from greenshot_linux.ui.file_export import save_image_to_file
+from greenshot_linux.ui.icons import tool_icon_image
+from greenshot_linux.ui.render import render_shape
+
+_TOOL_KEYS = {
+    Gdk.KEY_1: Tool.RECTANGLE,
+    Gdk.KEY_2: Tool.ELLIPSE,
+    Gdk.KEY_3: Tool.LINE,
+    Gdk.KEY_4: Tool.ARROW,
+    Gdk.KEY_5: Tool.FREEHAND,
+    Gdk.KEY_6: Tool.PIXELIZE,
+    Gdk.KEY_7: Tool.BLUR,
+    Gdk.KEY_8: Tool.TEXT,
+}
+
+_TOOL_LABELS = [
+    (Tool.RECTANGLE, "Rectangle"),
+    (Tool.ELLIPSE, "Ellipse"),
+    (Tool.LINE, "Line"),
+    (Tool.ARROW, "Arrow"),
+    (Tool.FREEHAND, "Freehand"),
+    (Tool.PIXELIZE, "Pixelize"),
+    (Tool.BLUR, "Blur"),
+    (Tool.TEXT, "Text"),
+]
+
+_HANDLE_SIZE = 6
+_HANDLE_FILL = (1.0, 1.0, 1.0)
+_HANDLE_STROKE = (0.1, 0.4, 0.9)
+
+
+def _color_to_rgba(color) -> Gdk.RGBA:
+    r, g, b, a = color
+    rgba = Gdk.RGBA()
+    rgba.red, rgba.green, rgba.blue, rgba.alpha = r / 255, g / 255, b / 255, a / 255
+    return rgba
+
+
+def _rgba_to_color(rgba: Gdk.RGBA):
+    return (
+        round(rgba.red * 255), round(rgba.green * 255), round(rgba.blue * 255), round(rgba.alpha * 255),
+    )
+
+
+class EditorWindow(Gtk.Window):
+    def __init__(self, image: np.ndarray, clipboard_backend: ClipboardBackend = None):
+        super().__init__(title="Greenshot Linux")
+        self._base_image = image
+        self._surface = numpy_to_cairo_surface(image)
+        height, width = image.shape[:2]
+
+        if clipboard_backend is None:
+            from greenshot_linux.capture.x11_clipboard import X11ClipboardBackend
+
+            clipboard_backend = X11ClipboardBackend()
+        self._clipboard = clipboard_backend
+
+        self.layer = Layer()
+        self.undo_redo = UndoRedoStack()
+        self.tool = Tool.RECTANGLE
+        self._default_style = ShapeStyle()
+        self._default_obfuscate_amount = 5  # matches ObfuscateShape's own default
+        self.selected_shape = None
+
+        # drag-to-create state
+        self._drag_origin = None
+        self._drag_points = None
+        self._drag_shape = None
+
+        # click-to-move state
+        self._move_shape = None
+        self._move_origin = None
+        self._move_preview = None
+
+        # drag-a-handle-to-resize state
+        self._resize_shape = None
+        self._resize_handle = None
+        self._resize_preview = None
+
+        # type-to-edit-text state
+        self._editing_text_shape = None
+        # None while editing a brand-new shape (discard on cancel/empty
+        # commit, nothing to undo since it was never added to history);
+        # the pre-edit shape instance while re-editing an existing one
+        # (revert to it on cancel, ElementChangeMemento/DeleteElementMemento
+        # on commit instead of Add, since it already existed).
+        self._editing_original_shape = None
+
+        self._drawing_area = Gtk.DrawingArea()
+        self._drawing_area.set_size_request(width, height)
+        self._drawing_area.set_can_focus(True)
+        self._drawing_area.add_events(
+            Gdk.EventMask.BUTTON_PRESS_MASK
+            | Gdk.EventMask.BUTTON_RELEASE_MASK
+            | Gdk.EventMask.POINTER_MOTION_MASK
+        )
+        self._drawing_area.connect("draw", self._on_draw)
+        self._drawing_area.connect("button-press-event", self._on_button_press)
+        self._drawing_area.connect("motion-notify-event", self._on_motion)
+        self._drawing_area.connect("button-release-event", self._on_button_release)
+
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+        box.pack_start(self._build_toolbar(), False, False, 0)
+        box.pack_start(self._build_style_panel(), False, False, 0)
+        box.pack_start(self._drawing_area, True, True, 0)
+        self.add(box)
+
+        self.connect("key-press-event", self._on_key_press)
+        self.connect("destroy", Gtk.main_quit)
+
+    def _build_toolbar(self) -> Gtk.Toolbar:
+        toolbar = Gtk.Toolbar()
+        toolbar.set_style(Gtk.ToolbarStyle.ICONS)
+
+        # Hand-drawn icons don't get theme colors for free the way the
+        # standard "-symbolic" icon names below do - query the window's
+        # actual foreground color (resolves correctly even pre-realize,
+        # confirmed empirically) so they follow light/dark theme too.
+        icon_color = _rgba_to_color(self.get_style_context().get_color(Gtk.StateFlags.NORMAL))
+
+        self._tool_buttons = {}
+        group_leader = None
+        for tool, label in _TOOL_LABELS:
+            button = Gtk.RadioToolButton.new_from_widget(group_leader)
+            if group_leader is None:
+                group_leader = button
+            button.set_icon_widget(tool_icon_image(tool, color=icon_color))
+            button.set_tooltip_text(label)
+            button.set_active(tool is self.tool)
+            button.connect("toggled", self._on_tool_button_toggled, tool)
+            toolbar.insert(button, -1)
+            self._tool_buttons[tool] = button
+
+        toolbar.insert(Gtk.SeparatorToolItem(), -1)
+
+        undo_button = Gtk.ToolButton(icon_widget=Gtk.Image.new_from_icon_name("edit-undo-symbolic", Gtk.IconSize.SMALL_TOOLBAR))
+        undo_button.set_tooltip_text("Undo")
+        undo_button.connect("clicked", lambda _b: self._do_undo())
+        toolbar.insert(undo_button, -1)
+
+        redo_button = Gtk.ToolButton(icon_widget=Gtk.Image.new_from_icon_name("edit-redo-symbolic", Gtk.IconSize.SMALL_TOOLBAR))
+        redo_button.set_tooltip_text("Redo")
+        redo_button.connect("clicked", lambda _b: self._do_redo())
+        toolbar.insert(redo_button, -1)
+
+        toolbar.insert(Gtk.SeparatorToolItem(), -1)
+
+        copy_button = Gtk.ToolButton(icon_widget=Gtk.Image.new_from_icon_name("edit-copy-symbolic", Gtk.IconSize.SMALL_TOOLBAR))
+        copy_button.set_tooltip_text("Copy")
+        copy_button.connect("clicked", lambda _b: self._do_copy())
+        toolbar.insert(copy_button, -1)
+
+        save_button = Gtk.ToolButton(icon_widget=Gtk.Image.new_from_icon_name("document-save-symbolic", Gtk.IconSize.SMALL_TOOLBAR))
+        save_button.set_tooltip_text("Save")
+        save_button.connect("clicked", lambda _b: self._do_save())
+        toolbar.insert(save_button, -1)
+
+        print_button = Gtk.ToolButton(icon_widget=Gtk.Image.new_from_icon_name("document-print-symbolic", Gtk.IconSize.SMALL_TOOLBAR))
+        print_button.set_tooltip_text("Print")
+        print_button.connect("clicked", lambda _b: self._do_print())
+        toolbar.insert(print_button, -1)
+
+        return toolbar
+
+    def _build_style_panel(self) -> Gtk.Box:
+        """Color/thickness/shadow controls that update self._default_style,
+        plus a separate obfuscate-amount spinner (blur radius / pixel
+        size) for self._default_obfuscate_amount, since ObfuscateShape
+        has no style field. Both affect shapes created *after* a
+        change, and also retroactively restyle the current selection
+        if it has the relevant field.
+        """
+        box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        box.set_border_width(4)
+
+        box.pack_start(Gtk.Label(label="Line:"), False, False, 0)
+        self._line_color_button = Gtk.ColorButton()
+        self._line_color_button.set_use_alpha(True)
+        self._line_color_button.set_rgba(_color_to_rgba(self._default_style.line_color))
+        self._line_color_button.connect("color-set", self._on_line_color_changed)
+        box.pack_start(self._line_color_button, False, False, 0)
+
+        box.pack_start(Gtk.Label(label="Fill:"), False, False, 0)
+        self._fill_color_button = Gtk.ColorButton()
+        self._fill_color_button.set_use_alpha(True)
+        self._fill_color_button.set_rgba(_color_to_rgba(self._default_style.fill_color))
+        self._fill_color_button.connect("color-set", self._on_fill_color_changed)
+        box.pack_start(self._fill_color_button, False, False, 0)
+
+        box.pack_start(Gtk.Label(label="Thickness:"), False, False, 0)
+        adjustment = Gtk.Adjustment(
+            value=self._default_style.line_thickness, lower=0, upper=20, step_increment=1
+        )
+        self._thickness_spin = Gtk.SpinButton(adjustment=adjustment)
+        self._thickness_spin.connect("value-changed", self._on_thickness_changed)
+        box.pack_start(self._thickness_spin, False, False, 0)
+
+        self._shadow_check = Gtk.CheckButton(label="Shadow")
+        self._shadow_check.set_active(self._default_style.shadow)
+        self._shadow_check.connect("toggled", self._on_shadow_toggled)
+        box.pack_start(self._shadow_check, False, False, 0)
+
+        box.pack_start(Gtk.Label(label="Obfuscate Amount:"), False, False, 0)
+        obfuscate_adjustment = Gtk.Adjustment(
+            value=self._default_obfuscate_amount, lower=2, upper=50, step_increment=1
+        )
+        self._obfuscate_amount_spin = Gtk.SpinButton(adjustment=obfuscate_adjustment)
+        self._obfuscate_amount_spin.connect("value-changed", self._on_obfuscate_amount_changed)
+        box.pack_start(self._obfuscate_amount_spin, False, False, 0)
+
+        return box
+
+    def _on_obfuscate_amount_changed(self, spin: Gtk.SpinButton) -> None:
+        amount = spin.get_value_as_int()
+        self._default_obfuscate_amount = amount
+        shape = self.selected_shape
+        if isinstance(shape, ObfuscateShape):
+            updated = dataclass_replace(shape, amount=amount)
+            self.layer.replace(shape, updated)
+            self.undo_redo.push(ElementChangeMemento(self.layer, before=shape, after=updated))
+            self.selected_shape = updated
+            self._drawing_area.queue_draw()
+
+    def _apply_style_change(self, updated_style: ShapeStyle) -> None:
+        """Style panel changes always update self._default_style (for
+        shapes created from here on); if a shape is currently selected
+        and has a style field (everything except Obfuscate/Icon/
+        Cursor/Image/Svg, none of which have line/fill styling), it's
+        restyled too, via one ElementChangeMemento per control change.
+        """
+        self._default_style = updated_style
+        shape = self.selected_shape
+        if shape is not None and hasattr(shape, "style"):
+            restyled = dataclass_replace(shape, style=updated_style)
+            self.layer.replace(shape, restyled)
+            self.undo_redo.push(ElementChangeMemento(self.layer, before=shape, after=restyled))
+            self.selected_shape = restyled
+            self._drawing_area.queue_draw()
+
+    def _on_line_color_changed(self, button: Gtk.ColorButton) -> None:
+        self._apply_style_change(dataclass_replace(self._default_style, line_color=_rgba_to_color(button.get_rgba())))
+
+    def _on_fill_color_changed(self, button: Gtk.ColorButton) -> None:
+        self._apply_style_change(dataclass_replace(self._default_style, fill_color=_rgba_to_color(button.get_rgba())))
+
+    def _on_thickness_changed(self, spin: Gtk.SpinButton) -> None:
+        self._apply_style_change(dataclass_replace(self._default_style, line_thickness=spin.get_value_as_int()))
+
+    def _on_shadow_toggled(self, check: Gtk.CheckButton) -> None:
+        self._apply_style_change(dataclass_replace(self._default_style, shadow=check.get_active()))
+
+    def _on_tool_button_toggled(self, button: Gtk.RadioToolButton, tool: Tool) -> None:
+        if button.get_active():
+            self.tool = tool
+
+    def _do_undo(self) -> None:
+        self._commit_text_editing_if_active()
+        if self.undo_redo.undo():
+            self.selected_shape = None
+            self._drawing_area.queue_draw()
+
+    def _do_redo(self) -> None:
+        self._commit_text_editing_if_active()
+        if self.undo_redo.redo():
+            self.selected_shape = None
+            self._drawing_area.queue_draw()
+
+    def _composited_image(self) -> np.ndarray:
+        return composite_to_numpy(self._base_image, self.layer)
+
+    def _do_copy(self) -> None:
+        self._commit_text_editing_if_active()
+        self._clipboard.set_image(self._composited_image())
+
+    def _do_save(self) -> None:
+        self._commit_text_editing_if_active()
+        dialog = Gtk.FileChooserDialog(
+            title="Save Screenshot", transient_for=self, action=Gtk.FileChooserAction.SAVE
+        )
+        dialog.add_buttons(
+            Gtk.STOCK_CANCEL, Gtk.ResponseType.CANCEL,
+            Gtk.STOCK_SAVE, Gtk.ResponseType.OK,
+        )
+        dialog.set_current_name("screenshot.png")
+        dialog.set_do_overwrite_confirmation(True)
+        try:
+            if dialog.run() == Gtk.ResponseType.OK:
+                save_image_to_file(self._composited_image(), dialog.get_filename())
+        finally:
+            dialog.destroy()
+
+    def _draw_print_page(self, operation, context, page_nr) -> None:
+        image = self._composited_image()
+        img_h, img_w = image.shape[:2]
+        page_w, page_h = context.get_width(), context.get_height()
+        scale = min(page_w / img_w, page_h / img_h)
+
+        ctx = context.get_cairo_context()
+        ctx.translate((page_w - img_w * scale) / 2, (page_h - img_h * scale) / 2)
+        ctx.scale(scale, scale)
+        ctx.set_source_surface(numpy_to_cairo_surface(image), 0, 0)
+        ctx.paint()
+
+    def _do_print(self) -> None:
+        self._commit_text_editing_if_active()
+        operation = Gtk.PrintOperation()
+        operation.set_n_pages(1)
+        operation.connect("draw-page", self._draw_print_page)
+        operation.run(Gtk.PrintOperationAction.PRINT_DIALOG, self)
+
+    def _update_editing_text(self, new_text: str) -> None:
+        old_shape = self._editing_text_shape
+        new_shape = dataclass_replace(old_shape, text=new_text)
+        self.layer.replace(old_shape, new_shape)
+        self._editing_text_shape = new_shape
+        self.selected_shape = new_shape
+        self._drawing_area.queue_draw()
+
+    def _commit_text_editing(self) -> None:
+        shape = self._editing_text_shape
+        original = self._editing_original_shape
+        self._editing_text_shape = None
+        self._editing_original_shape = None
+
+        if not shape.text.strip():
+            self.layer.remove(shape)
+            self.selected_shape = None
+            if original is not None:
+                # it existed before this edit session - deleting it
+                # needs to be undoable, unlike discarding a fresh one.
+                self.undo_redo.push(DeleteElementMemento(self.layer, original))
+        elif original is not None:
+            self.undo_redo.push(ElementChangeMemento(self.layer, before=original, after=shape))
+        else:
+            self.undo_redo.push(AddElementMemento(self.layer, shape))
+        self._drawing_area.queue_draw()
+
+    def _commit_text_editing_if_active(self) -> None:
+        if self._editing_text_shape is not None:
+            self._commit_text_editing()
+
+    def _cancel_text_editing(self) -> None:
+        shape = self._editing_text_shape
+        original = self._editing_original_shape
+        self._editing_text_shape = None
+        self._editing_original_shape = None
+
+        if original is not None:
+            # revert to the pre-edit text; nothing was ever pushed to
+            # undo history for this session, so there's nothing to undo.
+            self.layer.replace(shape, original)
+            self.selected_shape = original
+        else:
+            self.layer.remove(shape)
+            self.selected_shape = None
+        self._drawing_area.queue_draw()
+
+    def _handle_text_editing_key(self, event) -> bool:
+        shape = self._editing_text_shape
+        if event.keyval == Gdk.KEY_Escape:
+            self._cancel_text_editing()
+            return True
+        if event.keyval in (Gdk.KEY_Return, Gdk.KEY_KP_Enter):
+            if event.state & Gdk.ModifierType.SHIFT_MASK:
+                self._update_editing_text(shape.text + "\n")
+            else:
+                self._commit_text_editing()
+            return True
+        if event.keyval == Gdk.KEY_BackSpace:
+            self._update_editing_text(shape.text[:-1])
+            return True
+        codepoint = Gdk.keyval_to_unicode(event.keyval)
+        if codepoint:
+            char = chr(codepoint)
+            if char.isprintable():
+                self._update_editing_text(shape.text + char)
+        return True  # swallow everything else - no tool-switch/undo while editing
+
+    def _selected_display_shape(self):
+        """The selected shape's current bounds for handle drawing,
+        following whichever live preview (if any) applies."""
+        if self._resize_shape is not None:
+            return self._resize_preview or self._resize_shape
+        if self._move_shape is not None and self._move_shape is self.selected_shape:
+            return self._move_preview or self._move_shape
+        return self.selected_shape
+
+    def _draw_handles(self, ctx, shape):
+        half = _HANDLE_SIZE / 2
+        for x, y in shape_handles(shape).values():
+            ctx.save()
+            ctx.rectangle(x - half, y - half, _HANDLE_SIZE, _HANDLE_SIZE)
+            ctx.set_source_rgb(*_HANDLE_FILL)
+            ctx.fill_preserve()
+            ctx.set_source_rgb(*_HANDLE_STROKE)
+            ctx.set_line_width(1)
+            ctx.stroke()
+            ctx.restore()
+
+    def _on_draw(self, widget, ctx):
+        ctx.set_source_surface(self._surface, 0, 0)
+        ctx.paint()
+        for shape in self.layer:
+            if shape is self._move_shape and self._move_preview is not None:
+                render_shape(ctx, self._move_preview, base_image=self._base_image)
+            elif shape is self._resize_shape and self._resize_preview is not None:
+                render_shape(ctx, self._resize_preview, base_image=self._base_image)
+            else:
+                render_shape(ctx, shape, base_image=self._base_image)
+        if self._drag_shape is not None:
+            render_shape(ctx, self._drag_shape, base_image=self._base_image)
+
+        display_shape = self._selected_display_shape()
+        if display_shape is not None:
+            self._draw_handles(ctx, display_shape)
+        return False
+
+    def _on_button_press(self, widget, event):
+        self._commit_text_editing_if_active()
+        x, y = int(event.x), int(event.y)
+
+        if self.selected_shape is not None:
+            handle = handle_at(self.selected_shape, x, y)
+            if handle is not None:
+                self._resize_shape = self.selected_shape
+                self._resize_handle = handle
+                widget.queue_draw()
+                return True
+
+        hit = self.layer.topmost_at(x, y)
+
+        if hit is not None and isinstance(hit, TextShape) and event.type == Gdk.EventType._2BUTTON_PRESS:
+            # A double-click's second press follows a first (single)
+            # press that already ran the branch below and may have
+            # started a move - cancel that, double-click means edit.
+            self._move_shape = None
+            self._move_origin = None
+            self.selected_shape = hit
+            self._editing_text_shape = hit
+            self._editing_original_shape = hit
+            widget.queue_draw()
+            return True
+
+        if hit is not None:
+            self.selected_shape = hit
+            self._move_shape = hit
+            self._move_origin = (x, y)
+        else:
+            self.selected_shape = None
+            self._drag_origin = (x, y)
+            if self.tool is Tool.FREEHAND:
+                self._drag_points = [(x, y)]
+                self._drag_shape = create_freehand_shape(self._drag_points, self._default_style)
+            else:
+                self._drag_shape = create_shape_from_drag(
+                    self.tool, (x, y), (x, y), self._default_style, amount=self._default_obfuscate_amount
+                )
+        widget.queue_draw()
+        return True
+
+    def _on_motion(self, widget, event):
+        x, y = int(event.x), int(event.y)
+        if self._resize_shape is not None:
+            self._resize_preview = resize_shape(self._resize_shape, self._resize_handle, x, y)
+            widget.queue_draw()
+            return True
+        if self._move_shape is not None:
+            dx, dy = x - self._move_origin[0], y - self._move_origin[1]
+            self._move_preview = translate_shape(self._move_shape, dx, dy)
+            widget.queue_draw()
+            return True
+        if self._drag_origin is not None:
+            if self.tool is Tool.FREEHAND:
+                self._drag_points.append((x, y))
+                self._drag_shape = create_freehand_shape(self._drag_points, self._default_style)
+            else:
+                self._drag_shape = create_shape_from_drag(
+                    self.tool, self._drag_origin, (x, y), self._default_style, amount=self._default_obfuscate_amount
+                )
+            widget.queue_draw()
+            return True
+        return False
+
+    def _on_button_release(self, widget, event):
+        x, y = int(event.x), int(event.y)
+        if self._resize_shape is not None:
+            final = resize_shape(self._resize_shape, self._resize_handle, x, y)
+            self.layer.replace(self._resize_shape, final)
+            self.undo_redo.push(ElementChangeMemento(self.layer, before=self._resize_shape, after=final))
+            self.selected_shape = final
+            self._resize_shape = None
+            self._resize_handle = None
+            self._resize_preview = None
+            widget.queue_draw()
+            return True
+        if self._move_shape is not None:
+            dx, dy = x - self._move_origin[0], y - self._move_origin[1]
+            if dx == 0 and dy == 0:
+                # a click without a drag - e.g. just selecting a shape,
+                # or the first press of what turns into a double-click.
+                # Nothing moved; pushing a memento here would only
+                # clutter undo history with a no-op step.
+                self.selected_shape = self._move_shape
+            else:
+                final = translate_shape(self._move_shape, dx, dy)
+                self.layer.replace(self._move_shape, final)
+                self.undo_redo.push(ElementChangeMemento(self.layer, before=self._move_shape, after=final))
+                self.selected_shape = final
+            self._move_shape = None
+            self._move_origin = None
+            self._move_preview = None
+            widget.queue_draw()
+            return True
+        if self._drag_origin is not None:
+            if self.tool is Tool.FREEHAND:
+                shape = create_freehand_shape(self._drag_points, self._default_style)
+            else:
+                shape = create_shape_from_drag(
+                    self.tool, self._drag_origin, (x, y), self._default_style, amount=self._default_obfuscate_amount
+                )
+            self._drag_origin = None
+            self._drag_points = None
+            self._drag_shape = None
+            self.layer.add(shape)
+            self.selected_shape = shape
+            if self.tool is Tool.TEXT:
+                # Editing starts immediately; AddElementMemento is only
+                # pushed once the text is committed (see
+                # _commit_text_editing), not per-keystroke.
+                self._editing_text_shape = shape
+                self._editing_original_shape = None  # brand new, not a re-edit
+            else:
+                self.undo_redo.push(AddElementMemento(self.layer, shape))
+            widget.queue_draw()
+            return True
+        return False
+
+    def _on_key_press(self, widget, event):
+        if self._editing_text_shape is not None:
+            return self._handle_text_editing_key(event)
+
+        tool = _TOOL_KEYS.get(event.keyval)
+        if tool is not None:
+            # set_active(True) fires "toggled", which itself sets
+            # self.tool - this just keeps the toolbar's radio buttons
+            # in sync with a keyboard-driven tool switch too.
+            self._tool_buttons[tool].set_active(True)
+            return True
+
+        ctrl_held = bool(event.state & Gdk.ModifierType.CONTROL_MASK)
+        if not ctrl_held:
+            return False
+        if event.keyval in (Gdk.KEY_z, Gdk.KEY_Z):
+            self._do_undo()
+            return True
+        if event.keyval in (Gdk.KEY_y, Gdk.KEY_Y):
+            self._do_redo()
+            return True
+        if event.keyval in (Gdk.KEY_c, Gdk.KEY_C):
+            self._do_copy()
+            return True
+        if event.keyval in (Gdk.KEY_s, Gdk.KEY_S):
+            self._do_save()
+            return True
+        if event.keyval in (Gdk.KEY_p, Gdk.KEY_P):
+            self._do_print()
+            return True
+        return False

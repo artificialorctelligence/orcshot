@@ -1,0 +1,182 @@
+"""The window-picker overlay: a fullscreen, borderless window showing
+a frozen copy of the desktop, that highlights whichever window is
+under the cursor as it moves and captures that window on click.
+Escape (or clicking where no window is) cancels.
+
+Structurally a sibling of region_select.py's RegionSelectWindow - same
+frozen-backdrop-plus-even-odd-dim technique, same POPUP window type
+for exact multi-monitor geometry (see region_select.py's module
+docstring for why TOPLEVEL doesn't work) - but highlights a pre-known
+window rect under the cursor instead of a free-form drag rectangle.
+
+Hover picks the *last* matching window in WindowEnumerator.list_windows()'s
+order when windows overlap - correct as long as list_windows() returns
+windows in bottom-to-top stacking order, which is now a contract
+enforced by test_window_enumerator_contract.py's
+test_active_window_is_last_in_list_windows_stacking_order. This caught
+a real bug during manual testing: X11WindowEnumerator originally read
+_NET_CLIENT_LIST (the window manager's *unordered* window list, no
+stacking guarantee) instead of _NET_CLIENT_LIST_STACKING (its actual
+bottom-to-top paint order) - on a desktop with several maximized
+windows sharing one monitor, hovering the occluded windows' shared
+region picked whichever was last in the arbitrary client-list order,
+not whichever was actually visible on top. Fixed in
+capture/x11_window.py; see that module's docstring for the full story.
+
+Not unit tested for the same reason region_select.py isn't: GTK glue
+driving a live event loop and an on-screen window, with no meaningful
+headless test. Verified by running it and inspecting real screenshots,
+including a live interactive click against real overlapping/maximized
+windows after the stacking-order fix.
+"""
+
+from __future__ import annotations
+
+import cairo
+import gi
+
+gi.require_version("Gtk", "3.0")
+gi.require_version("Gdk", "3.0")
+from gi.repository import Gdk, Gtk
+
+from greenshot_linux.capture.backend import CaptureBackend
+from greenshot_linux.capture.window import WindowEnumerator
+from greenshot_linux.core.geometry import Rect
+from greenshot_linux.ui.cairo_convert import numpy_to_cairo_surface
+
+_SELECTION_BORDER = (0.1, 0.6, 1.0)
+_DIM_ALPHA = 0.5
+
+
+class WindowPickerWindow(Gtk.Window):
+    def __init__(self, capture_backend: CaptureBackend, window_enumerator: WindowEnumerator, on_window_selected, on_cancelled=None):
+        super().__init__(type=Gtk.WindowType.POPUP)
+        self._on_window_selected = on_window_selected
+        self._on_cancelled = on_cancelled
+
+        self._bounds = capture_backend.screen_layout().virtual_bounds
+        self._frozen_image = capture_backend.grab(self._bounds)
+        self._surface = numpy_to_cairo_surface(self._frozen_image)
+        self._windows = [w for w in window_enumerator.list_windows() if not w.is_minimized]
+        self._hovered = None
+
+        self.set_app_paintable(True)
+        self.set_keep_above(True)
+        self.set_can_focus(True)
+        self.move(self._bounds.left, self._bounds.top)
+        self.resize(self._bounds.width, self._bounds.height)
+
+        self.add_events(
+            Gdk.EventMask.BUTTON_PRESS_MASK
+            | Gdk.EventMask.POINTER_MOTION_MASK
+            | Gdk.EventMask.KEY_PRESS_MASK
+        )
+        self.connect("draw", self._on_draw)
+        self.connect("button-press-event", self._on_button_press)
+        self.connect("motion-notify-event", self._on_motion)
+        self.connect("key-press-event", self._on_key_press)
+
+    def _local_rect(self, absolute: Rect) -> Rect:
+        return Rect(
+            absolute.left - self._bounds.left, absolute.top - self._bounds.top,
+            absolute.right - self._bounds.left, absolute.bottom - self._bounds.top,
+        )
+
+    def _window_at_local(self, x: int, y: int):
+        ax, ay = x + self._bounds.left, y + self._bounds.top
+        match = None
+        for window in self._windows:
+            if window.bounds.contains(ax, ay):
+                match = window
+        return match
+
+    def _on_draw(self, widget, ctx):
+        ctx.set_source_surface(self._surface, 0, 0)
+        ctx.paint()
+
+        ctx.save()
+        ctx.set_fill_rule(cairo.FILL_RULE_EVEN_ODD)
+        ctx.rectangle(0, 0, self._bounds.width, self._bounds.height)
+        if self._hovered is not None:
+            r = self._local_rect(self._hovered.bounds)
+            ctx.rectangle(r.left, r.top, r.width, r.height)
+        ctx.set_source_rgba(0, 0, 0, _DIM_ALPHA)
+        ctx.fill()
+        ctx.restore()
+
+        if self._hovered is not None:
+            r = self._local_rect(self._hovered.bounds)
+            ctx.save()
+            ctx.set_source_rgb(*_SELECTION_BORDER)
+            ctx.set_line_width(2)
+            ctx.rectangle(r.left, r.top, r.width, r.height)
+            ctx.stroke()
+            ctx.restore()
+        return False
+
+    def _on_motion(self, widget, event):
+        hovered = self._window_at_local(int(event.x), int(event.y))
+        if hovered is not self._hovered:
+            self._hovered = hovered
+            widget.queue_draw()
+        return True
+
+    def _on_button_press(self, widget, event):
+        hovered = self._hovered
+        self.destroy()
+        if hovered is None:
+            if self._on_cancelled is not None:
+                self._on_cancelled()
+            return True
+
+        local = self._local_rect(hovered.bounds)
+        clamped = local.intersect(Rect(0, 0, self._bounds.width, self._bounds.height))
+        if clamped is None:
+            if self._on_cancelled is not None:
+                self._on_cancelled()
+            return True
+
+        cropped = self._frozen_image[clamped.top:clamped.bottom, clamped.left:clamped.right]
+        self._on_window_selected(cropped, hovered)
+        return True
+
+    def _on_key_press(self, widget, event):
+        if event.keyval == Gdk.KEY_Escape:
+            self.destroy()
+            if self._on_cancelled is not None:
+                self._on_cancelled()
+            return True
+        return False
+
+
+def start_window_picker(
+    capture_backend: CaptureBackend = None, window_enumerator: WindowEnumerator = None, on_captured=None
+) -> WindowPickerWindow:
+    """Show the overlay and launch EditorWindow on whichever window
+    gets clicked. Both backends are injectable (for tests/fakes); the
+    defaults construct the real X11 adapters lazily so importing this
+    module doesn't require a display. ``on_captured(absolute_rect)``,
+    if given, fires right before the editor opens - GreenshotApplication
+    uses this to remember the region for "repeat last region".
+    """
+    if capture_backend is None:
+        from greenshot_linux.capture.x11 import X11CaptureBackend
+
+        capture_backend = X11CaptureBackend()
+    if window_enumerator is None:
+        from greenshot_linux.capture.x11_window import X11WindowEnumerator
+
+        window_enumerator = X11WindowEnumerator()
+
+    def on_selected(image, window_info):
+        if on_captured is not None:
+            on_captured(window_info.bounds)
+        from greenshot_linux.ui.editor_window import EditorWindow
+
+        editor = EditorWindow(image)
+        editor.show_all()
+
+    window = WindowPickerWindow(capture_backend, window_enumerator, on_selected)
+    window.show_all()
+    window.grab_focus()
+    return window

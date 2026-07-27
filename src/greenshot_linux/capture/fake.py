@@ -77,3 +77,15 @@ class FakeWindowEnumerator:
 
     def active_window(self) -> Optional[WindowInfo]:
         return self._active
+
+
+class FakeClipboardBackend:
+    def __init__(self):
+        self.images: list[np.ndarray] = []
+
+    def set_image(self, image: np.ndarray) -> None:
+        self.images.append(image.copy())
+
+    @property
+    def last_image(self) -> Optional[np.ndarray]:
+        return self.images[-1] if self.images else None

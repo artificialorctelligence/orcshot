@@ -28,8 +28,8 @@ def enumerator(enumerator_name):
         return X11WindowEnumerator()
     return FakeWindowEnumerator(
         windows=[
-            _window(1, "Editor"),
             _window(2, "Browser"),
+            _window(1, "Editor"),  # last = topmost, matching real stacking-order semantics
         ],
         active=_window(1, "Editor"),
     )
@@ -73,3 +73,17 @@ def test_active_window_if_present_is_capturable(enumerator):
     active = enumerator.active_window()
     if active is not None:
         assert is_capturable(active)
+
+
+def test_active_window_is_last_in_list_windows_stacking_order(enumerator):
+    # list_windows() is expected to be bottom-to-top stacking order, so
+    # a currently-focused (necessarily topmost) window should be the
+    # last entry - this is what a window picker relies on to resolve
+    # overlapping/maximized windows to whichever one is actually
+    # visible, not an arbitrary EWMH client-list order. Caught a real
+    # bug: X11WindowEnumerator originally read _NET_CLIENT_LIST (no
+    # ordering guarantee) instead of _NET_CLIENT_LIST_STACKING.
+    active = enumerator.active_window()
+    listed_ids = [w.window_id for w in enumerator.list_windows()]
+    if active is not None and active.window_id in listed_ids:
+        assert listed_ids[-1] == active.window_id

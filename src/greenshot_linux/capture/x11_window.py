@@ -1,11 +1,27 @@
 """X11 window enumeration via EWMH properties.
 
-_NET_CLIENT_LIST is maintained by the window manager itself and already
-excludes child windows and desktop/panel chrome — unlike Windows'
-EnumWindows, which returns every window and leaves the caller to filter
-by parentage and class name. That's why this adapter has no equivalent
-of WindowDetails' HasParent / IgnoreClasses checks: the WM did that work
-already. What's left to filter is window type (see window.py).
+_NET_CLIENT_LIST_STACKING (falling back to plain _NET_CLIENT_LIST if a
+WM doesn't advertise it) is maintained by the window manager itself and
+already excludes child windows and desktop/panel chrome — unlike
+Windows' EnumWindows, which returns every window and leaves the caller
+to filter by parentage and class name. That's why this adapter has no
+equivalent of WindowDetails' HasParent / IgnoreClasses checks: the WM
+did that work already. What's left to filter is window type (see
+window.py).
+
+list_windows() specifically needs the *stacking* variant, not just
+"a" client list: it returns windows bottom-to-top, so the topmost
+(actually-visible) window among several overlapping/maximized ones on
+the same monitor is reliably the *last* entry - what the window-picker
+overlay (ui/window_picker.py) relies on to resolve overlaps correctly.
+Plain _NET_CLIENT_LIST has no such ordering guarantee (commonly
+initial-mapping order); this was a real bug caught via live testing
+(see test_window_enumerator_contract.py's
+test_active_window_is_last_in_list_windows_stacking_order) - the
+active window landed second in _NET_CLIENT_LIST's order on this
+machine, not last, causing the picker to highlight a completely
+different, occluded window depending on which pixel row the cursor
+was over.
 
 Requires an EWMH-compliant window manager (Cinnamon/Muffin, GNOME/Mutter,
 KDE/KWin all qualify).
@@ -94,7 +110,9 @@ class X11WindowEnumerator:
         return "unknown"
 
     def list_windows(self) -> Sequence[WindowInfo]:
-        client_list = self._get_property(self._root, "_NET_CLIENT_LIST")
+        client_list = self._get_property(self._root, "_NET_CLIENT_LIST_STACKING") or self._get_property(
+            self._root, "_NET_CLIENT_LIST"
+        )
         if client_list is None:
             return []
         windows = (self._window_info(wid) for wid in client_list.value)

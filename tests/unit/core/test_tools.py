@@ -1,0 +1,378 @@
+"""Pure, UI-independent logic behind interactive editing: which shape a
+drag-to-create gesture produces, and how a shape moves when dragged.
+Kept out of ui/editor_window.py so it's unit testable without GTK.
+"""
+
+from dataclasses import replace
+
+import pytest
+from hypothesis import given
+from hypothesis import strategies as st
+
+import numpy as np
+
+from greenshot_linux.core.geometry import Rect
+from greenshot_linux.core.shapes import (
+    ArrowShape,
+    CursorShape,
+    EllipseShape,
+    FreehandShape,
+    IconShape,
+    ImageShape,
+    LineShape,
+    ObfuscateMode,
+    ObfuscateShape,
+    RectangleShape,
+    ShapeStyle,
+    SpeechBubbleShape,
+    StepLabelShape,
+    SvgShape,
+    TextShape,
+)
+from greenshot_linux.core.tools import (
+    Tool,
+    create_freehand_shape,
+    create_shape_from_drag,
+    handle_at,
+    resize_shape,
+    shape_handles,
+    translate_shape,
+)
+
+STYLE = ShapeStyle(line_thickness=3, line_color=(1, 2, 3, 255))
+
+
+class NotARealShape:
+    """A shape type core/tools.py has never heard of - used to test the
+    NotImplementedError fallback without needing a real still-
+    unsupported shape (there isn't one left after this module's tests)."""
+
+    bounds = Rect(0, 0, 10, 10)
+
+
+def rgba_image(w=4, h=4):
+    return np.full((h, w, 4), (10, 20, 30, 255), dtype=np.uint8)
+
+
+class TestCreateShapeFromDrag:
+    def test_rectangle(self):
+        shape = create_shape_from_drag(Tool.RECTANGLE, (10, 40), (60, 10), STYLE)
+        assert isinstance(shape, RectangleShape)
+        assert shape.bounds == Rect(10, 10, 60, 40)
+        assert shape.style is STYLE
+
+    def test_ellipse(self):
+        shape = create_shape_from_drag(Tool.ELLIPSE, (10, 40), (60, 10), STYLE)
+        assert isinstance(shape, EllipseShape)
+        assert shape.bounds == Rect(10, 10, 60, 40)
+
+    def test_line_preserves_true_endpoints_not_just_bounds(self):
+        shape = create_shape_from_drag(Tool.LINE, (60, 10), (10, 40), STYLE)
+        assert isinstance(shape, LineShape)
+        assert not isinstance(shape, ArrowShape)
+        assert shape.start == (60, 10)
+        assert shape.end == (10, 40)
+
+    def test_arrow_preserves_true_endpoints(self):
+        shape = create_shape_from_drag(Tool.ARROW, (60, 10), (10, 40), STYLE)
+        assert isinstance(shape, ArrowShape)
+        assert shape.start == (60, 10)
+        assert shape.end == (10, 40)
+
+    def test_freehand_is_rejected_since_it_needs_a_point_list_not_two_points(self):
+        with pytest.raises(ValueError):
+            create_shape_from_drag(Tool.FREEHAND, (0, 0), (10, 10), STYLE)
+
+    def test_pixelize(self):
+        shape = create_shape_from_drag(Tool.PIXELIZE, (10, 40), (60, 10), STYLE)
+        assert isinstance(shape, ObfuscateShape)
+        assert shape.bounds == Rect(10, 10, 60, 40)
+        assert shape.mode is ObfuscateMode.PIXELIZE
+        assert shape.amount == 5  # ObfuscateShape's own default, unspecified here
+
+    def test_blur(self):
+        shape = create_shape_from_drag(Tool.BLUR, (10, 40), (60, 10), STYLE)
+        assert isinstance(shape, ObfuscateShape)
+        assert shape.bounds == Rect(10, 10, 60, 40)
+        assert shape.mode is ObfuscateMode.BLUR
+        assert shape.amount == 5
+
+    def test_pixelize_with_an_explicit_amount(self):
+        shape = create_shape_from_drag(Tool.PIXELIZE, (10, 40), (60, 10), STYLE, amount=12)
+        assert shape.amount == 12
+
+    def test_blur_with_an_explicit_amount(self):
+        shape = create_shape_from_drag(Tool.BLUR, (10, 40), (60, 10), STYLE, amount=9)
+        assert shape.amount == 9
+
+    def test_amount_is_ignored_for_tools_that_do_not_use_it(self):
+        # every other tool must accept (and ignore) the amount kwarg
+        # without erroring, so callers don't need to branch by tool
+        # just to decide whether to pass it.
+        shape = create_shape_from_drag(Tool.RECTANGLE, (10, 40), (60, 10), STYLE, amount=99)
+        assert isinstance(shape, RectangleShape)
+
+    def test_text_starts_empty(self):
+        shape = create_shape_from_drag(Tool.TEXT, (10, 40), (60, 10), STYLE)
+        assert isinstance(shape, TextShape)
+        assert shape.bounds == Rect(10, 10, 60, 40)
+        assert shape.text == ""
+        assert shape.style is STYLE
+
+
+def test_create_freehand_shape():
+    points = ((0, 0), (5, 5), (10, 0))
+    shape = create_freehand_shape(points, STYLE)
+    assert isinstance(shape, FreehandShape)
+    assert shape.points == points
+    assert shape.style is STYLE
+
+
+class TestTranslateShape:
+    def test_rectangle_bounds_shift(self):
+        shape = RectangleShape(Rect(10, 10, 50, 50), STYLE)
+        moved = translate_shape(shape, 5, -3)
+        assert moved.bounds == Rect(15, 7, 55, 47)
+        assert moved.style is STYLE
+
+    def test_ellipse_bounds_shift(self):
+        shape = EllipseShape(Rect(10, 10, 50, 50), STYLE)
+        moved = translate_shape(shape, -2, 4)
+        assert moved.bounds == Rect(8, 14, 48, 54)
+
+    def test_line_endpoints_shift(self):
+        shape = LineShape(start=(10, 10), end=(20, 30), style=STYLE)
+        moved = translate_shape(shape, 3, 3)
+        assert moved.start == (13, 13)
+        assert moved.end == (23, 33)
+
+    def test_arrow_endpoints_shift_and_stays_an_arrow(self):
+        shape = ArrowShape(start=(10, 10), end=(20, 30), style=STYLE)
+        moved = translate_shape(shape, 1, 1)
+        assert isinstance(moved, ArrowShape)
+        assert moved.start == (11, 11)
+        assert moved.end == (21, 31)
+
+    def test_freehand_points_shift(self):
+        shape = FreehandShape(points=((0, 0), (5, 5)), style=STYLE)
+        moved = translate_shape(shape, 2, 2)
+        assert moved.points == ((2, 2), (7, 7))
+
+    def test_obfuscate_bounds_shift(self):
+        shape = ObfuscateShape(bounds=Rect(10, 10, 50, 50), mode=ObfuscateMode.BLUR, amount=9)
+        moved = translate_shape(shape, 5, -3)
+        assert moved.bounds == Rect(15, 7, 55, 47)
+        assert moved.mode is ObfuscateMode.BLUR
+        assert moved.amount == 9
+
+    def test_text_bounds_shift(self):
+        shape = TextShape(Rect(10, 10, 50, 50), text="hi", style=STYLE)
+        moved = translate_shape(shape, 5, -3)
+        assert moved.bounds == Rect(15, 7, 55, 47)
+        assert moved.text == "hi"
+
+    def test_step_label_icon_cursor_image_svg_bounds_shift(self):
+        step_label = StepLabelShape(Rect(10, 10, 50, 50), number=3)
+        assert translate_shape(step_label, 5, -3).bounds == Rect(15, 7, 55, 47)
+
+        icon = IconShape(Rect(10, 10, 50, 50), image=rgba_image())
+        assert translate_shape(icon, 5, -3).bounds == Rect(15, 7, 55, 47)
+
+        cursor = CursorShape(Rect(10, 10, 50, 50), image=rgba_image())
+        assert translate_shape(cursor, 5, -3).bounds == Rect(15, 7, 55, 47)
+
+        image_shape = ImageShape(Rect(10, 10, 50, 50), image=rgba_image(), shadow=True)
+        moved_image = translate_shape(image_shape, 5, -3)
+        assert moved_image.bounds == Rect(15, 7, 55, 47)
+        assert moved_image.shadow is True
+
+        svg = SvgShape(Rect(10, 10, 50, 50), svg_data="<svg></svg>")
+        assert translate_shape(svg, 5, -3).bounds == Rect(15, 7, 55, 47)
+
+    def test_speech_bubble_bubble_bounds_shift_and_target_moves_too(self):
+        # target moves with the bubble, same as a normal translate -
+        # the tail keeps pointing the same *relative* direction.
+        shape = SpeechBubbleShape(Rect(10, 10, 50, 50), target=(100, 100), text="hi")
+        moved = translate_shape(shape, 5, -3)
+        assert moved.bubble_bounds == Rect(15, 7, 55, 47)
+        assert moved.target == (105, 97)
+
+    def test_unsupported_shape_type_raises(self):
+        with pytest.raises(NotImplementedError):
+            translate_shape(NotARealShape(), 1, 1)
+
+    def test_original_shape_is_unchanged(self):
+        shape = RectangleShape(Rect(10, 10, 50, 50), STYLE)
+        translate_shape(shape, 5, 5)
+        assert shape.bounds == Rect(10, 10, 50, 50)
+
+
+_offset = st.integers(min_value=-500, max_value=500)
+
+
+@given(_offset, _offset, _offset, _offset)
+def test_translating_twice_composes_additively(dx1, dy1, dx2, dy2):
+    shape = RectangleShape(Rect(100, 100, 200, 200), STYLE)
+    twice = translate_shape(translate_shape(shape, dx1, dy1), dx2, dy2)
+    once = translate_shape(shape, dx1 + dx2, dy1 + dy2)
+    assert twice == once
+
+
+class TestShapeHandles:
+    def test_bounds_shape_has_eight_handles_at_corners_and_edge_midpoints(self):
+        shape = RectangleShape(Rect(0, 0, 100, 40), STYLE)
+        handles = shape_handles(shape)
+        assert handles == {
+            "top_left": (0, 0), "top": (50, 0), "top_right": (100, 0),
+            "right": (100, 20), "bottom_right": (100, 40), "bottom": (50, 40),
+            "bottom_left": (0, 40), "left": (0, 20),
+        }
+
+    def test_ellipse_obfuscate_and_text_shapes_use_the_same_bounds_handles(self):
+        ellipse = EllipseShape(Rect(0, 0, 100, 40), STYLE)
+        obfuscate = ObfuscateShape(Rect(0, 0, 100, 40))
+        text = TextShape(Rect(0, 0, 100, 40), text="hi", style=STYLE)
+        rect = RectangleShape(Rect(0, 0, 100, 40), STYLE)
+        assert shape_handles(ellipse) == shape_handles(rect)
+        assert shape_handles(obfuscate) == shape_handles(rect)
+        assert shape_handles(text) == shape_handles(rect)
+
+    def test_line_and_arrow_shapes_have_just_start_and_end_handles(self):
+        line = LineShape(start=(10, 20), end=(90, 70), style=STYLE)
+        assert shape_handles(line) == {"start": (10, 20), "end": (90, 70)}
+
+        arrow = ArrowShape(start=(10, 20), end=(90, 70), style=STYLE)
+        assert shape_handles(arrow) == {"start": (10, 20), "end": (90, 70)}
+
+    def test_step_label_icon_cursor_image_svg_use_the_same_bounds_handles(self):
+        rect = RectangleShape(Rect(0, 0, 100, 40), STYLE)
+        expected = shape_handles(rect)
+
+        assert shape_handles(StepLabelShape(Rect(0, 0, 100, 40), number=1)) == expected
+        assert shape_handles(IconShape(Rect(0, 0, 100, 40), image=rgba_image())) == expected
+        assert shape_handles(CursorShape(Rect(0, 0, 100, 40), image=rgba_image())) == expected
+        assert shape_handles(ImageShape(Rect(0, 0, 100, 40), image=rgba_image())) == expected
+        assert shape_handles(SvgShape(Rect(0, 0, 100, 40), svg_data="<svg></svg>")) == expected
+
+    def test_freehand_handles_come_from_its_tight_bounding_box(self):
+        shape = FreehandShape(points=((0, 0), (100, 40)), style=STYLE)
+        assert shape_handles(shape) == shape_handles(RectangleShape(Rect(0, 0, 100, 40), STYLE))
+
+    def test_speech_bubble_handles_come_from_bubble_bounds_not_bounds(self):
+        # .bounds (the Drawable-protocol property) unions bubble_bounds
+        # with the tail's own extent - a wider rect than bubble_bounds.
+        # Handles must track the bubble box itself, not that union.
+        shape = SpeechBubbleShape(Rect(0, 0, 100, 40), target=(500, 500), text="hi")
+        assert shape.bounds != shape.bubble_bounds  # sanity: tail really does widen .bounds
+        assert shape_handles(shape) == shape_handles(RectangleShape(shape.bubble_bounds, STYLE))
+
+    def test_unsupported_shape_type_has_no_handles(self):
+        assert shape_handles(NotARealShape()) == {}
+
+
+class TestHandleAt:
+    def test_finds_the_handle_within_margin(self):
+        shape = RectangleShape(Rect(0, 0, 100, 40), STYLE)
+        assert handle_at(shape, 2, 1, margin=6) == "top_left"
+        assert handle_at(shape, 98, 39, margin=6) == "bottom_right"
+
+    def test_returns_none_when_not_near_any_handle(self):
+        shape = RectangleShape(Rect(0, 0, 100, 40), STYLE)
+        assert handle_at(shape, 50, 20, margin=6) is None  # dead center
+
+    def test_returns_none_for_a_shape_with_no_handles(self):
+        assert handle_at(NotARealShape(), 0, 0) is None
+
+
+class TestResizeShape:
+    def test_dragging_a_corner_moves_both_edges(self):
+        shape = RectangleShape(Rect(10, 10, 100, 100), STYLE)
+        resized = resize_shape(shape, "top_left", 20, 30)
+        assert resized.bounds == Rect(20, 30, 100, 100)
+
+    def test_dragging_an_edge_midpoint_moves_only_that_edge(self):
+        shape = RectangleShape(Rect(10, 10, 100, 100), STYLE)
+        resized = resize_shape(shape, "top", 999, 30)  # x ignored for a top-only handle
+        assert resized.bounds == Rect(10, 30, 100, 100)
+
+    def test_dragging_past_the_opposite_edge_normalizes(self):
+        shape = RectangleShape(Rect(10, 10, 100, 100), STYLE)
+        resized = resize_shape(shape, "bottom_right", 5, 5)  # now above/left of top_left
+        assert resized.bounds == Rect(5, 5, 10, 10)
+
+    def test_ellipse_obfuscate_and_text_resize_the_same_way(self):
+        ellipse = EllipseShape(Rect(10, 10, 100, 100), STYLE)
+        assert resize_shape(ellipse, "bottom_right", 150, 120).bounds == Rect(10, 10, 150, 120)
+
+        obfuscate = ObfuscateShape(Rect(10, 10, 100, 100))
+        assert resize_shape(obfuscate, "bottom_right", 150, 120).bounds == Rect(10, 10, 150, 120)
+
+        text = TextShape(Rect(10, 10, 100, 100), text="hi", style=STYLE)
+        resized_text = resize_shape(text, "bottom_right", 150, 120)
+        assert resized_text.bounds == Rect(10, 10, 150, 120)
+        assert resized_text.text == "hi"
+
+    def test_line_start_handle_moves_only_the_start_point(self):
+        shape = LineShape(start=(10, 10), end=(90, 90), style=STYLE)
+        resized = resize_shape(shape, "start", 5, 6)
+        assert resized.start == (5, 6)
+        assert resized.end == (90, 90)
+
+    def test_arrow_end_handle_moves_only_the_end_point_and_stays_an_arrow(self):
+        shape = ArrowShape(start=(10, 10), end=(90, 90), style=STYLE)
+        resized = resize_shape(shape, "end", 200, 210)
+        assert isinstance(resized, ArrowShape)
+        assert resized.start == (10, 10)
+        assert resized.end == (200, 210)
+
+    def test_unknown_handle_for_a_line_raises(self):
+        shape = LineShape(start=(10, 10), end=(90, 90), style=STYLE)
+        with pytest.raises(ValueError):
+            resize_shape(shape, "top_left", 5, 6)
+
+    def test_step_label_icon_cursor_image_svg_resize_the_same_way(self):
+        step_label = StepLabelShape(Rect(10, 10, 100, 100), number=1)
+        assert resize_shape(step_label, "bottom_right", 150, 120).bounds == Rect(10, 10, 150, 120)
+
+        icon = IconShape(Rect(10, 10, 100, 100), image=rgba_image())
+        assert resize_shape(icon, "bottom_right", 150, 120).bounds == Rect(10, 10, 150, 120)
+
+        cursor = CursorShape(Rect(10, 10, 100, 100), image=rgba_image())
+        assert resize_shape(cursor, "bottom_right", 150, 120).bounds == Rect(10, 10, 150, 120)
+
+        image_shape = ImageShape(Rect(10, 10, 100, 100), image=rgba_image())
+        assert resize_shape(image_shape, "bottom_right", 150, 120).bounds == Rect(10, 10, 150, 120)
+
+        svg = SvgShape(Rect(10, 10, 100, 100), svg_data="<svg></svg>")
+        assert resize_shape(svg, "bottom_right", 150, 120).bounds == Rect(10, 10, 150, 120)
+
+    def test_speech_bubble_resizes_bubble_bounds_and_keeps_the_target(self):
+        shape = SpeechBubbleShape(Rect(10, 10, 100, 100), target=(500, 500), text="hi")
+        resized = resize_shape(shape, "bottom_right", 150, 120)
+        assert resized.bubble_bounds == Rect(10, 10, 150, 120)
+        assert resized.target == (500, 500)  # tail still points at the same spot
+        assert resized.text == "hi"
+
+    def test_freehand_resize_scales_the_points_proportionally(self):
+        # bounds (0,0)-(100,40); dragging bottom_right to (200,80) is a
+        # 2x scale on both axes, so every point doubles from the origin.
+        shape = FreehandShape(points=((0, 0), (100, 40), (50, 20)), style=STYLE)
+        resized = resize_shape(shape, "bottom_right", 200, 80)
+        assert resized.points == ((0, 0), (200, 80), (100, 40))
+        assert resized.style is STYLE
+
+    def test_freehand_resize_via_top_left_scales_from_the_opposite_corner(self):
+        shape = FreehandShape(points=((0, 0), (100, 40)), style=STYLE)
+        resized = resize_shape(shape, "top_left", -100, -40)
+        # new bounds (-100,-40)-(100,40): double width/height, anchored
+        # so the original bottom-right point (100,40) stays put.
+        assert resized.points == ((-100, -40), (100, 40))
+
+    def test_unsupported_shape_type_raises(self):
+        with pytest.raises(NotImplementedError):
+            resize_shape(NotARealShape(), "top_left", 5, 6)
+
+    def test_original_shape_is_unchanged(self):
+        shape = RectangleShape(Rect(10, 10, 100, 100), STYLE)
+        resize_shape(shape, "top_left", 20, 30)
+        assert shape.bounds == Rect(10, 10, 100, 100)

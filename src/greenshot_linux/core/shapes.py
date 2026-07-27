@@ -18,6 +18,7 @@ doesn't need yet.
 from __future__ import annotations
 
 from dataclasses import dataclass, field, replace
+from enum import Enum
 from typing import Sequence, Tuple
 
 import numpy as np
@@ -361,3 +362,31 @@ class SvgShape:
 
     bounds: Rect
     svg_data: str
+
+
+class ObfuscateMode(str, Enum):
+    BLUR = "blur"
+    PIXELIZE = "pixelize"
+
+
+@dataclass(frozen=True)
+class ObfuscateShape:
+    """Behavioral port of ObfuscateContainer: has no visual content of
+    its own, unlike every other shape here. Rendering it means
+    re-filtering the region of the *original captured image* under
+    ``bounds`` (see ui/render.py's render_obfuscate), using the
+    box_blur/pixelize functions in filters.py. No ClickableAt override
+    in the source, so this falls through to the generic bounds-
+    inflate-5 hit test, same as TextShape/IconShape/CursorShape/
+    ImageShape/SvgShape.
+
+    ``amount`` is blur radius when ``mode`` is BLUR, pixel block size
+    when PIXELIZE - a deliberate simplification of the source, which
+    gives BlurFilter and PixelizationFilter independent fields
+    (BLUR_RADIUS=3, PIXEL_SIZE=5) that keep their own values
+    independently as you switch between them.
+    """
+
+    bounds: Rect
+    mode: ObfuscateMode = ObfuscateMode.PIXELIZE
+    amount: int = 5
