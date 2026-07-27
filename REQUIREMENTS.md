@@ -369,6 +369,15 @@ yet — nothing in the UI performs a multi-shape action as a single undo step.
   three non-interactive triggers all show this picker now instead of constructing `EditorWindow`
   directly. Verified live and via a headless structural check (menu item labels/order, activating
   the Clipboard item against a fake backend) plus an end-to-end sandboxed quick-save write.
+  **Bug fixed after initial ship, reported live**: the picker never actually appeared after a real
+  capture (region-select worked, then nothing) — root-caused to `Gtk.Menu.popup_at_pointer(None)`,
+  which needs to resolve a GDK-known window under the current pointer position to anchor against.
+  Right after the full-screen capture overlay closes, the pointer is back over whatever real window
+  was underneath it — almost never one this app owns — so that resolution silently fails
+  (reproduced directly: `Gtk-CRITICAL "assertion 'GDK_IS_WINDOW (rect_window)' failed"`, menu never
+  becomes visible/mapped). Fixed by anchoring to the screen's root window instead (always
+  resolvable) via `popup_at_rect` at the raw pointer coordinates from `Gdk.Seat.get_pointer()`,
+  confirmed live to actually show now.
 - **Configurable save location** (`src/greenshot_linux/settings.py`, new): a plain JSON file at
   `~/.config/greenshot-linux/config.json` (XDG Base Directory spec, same testing approach as
   `autostart.py`'s `.desktop` entry — real file I/O, exercised for real in tests against a temp

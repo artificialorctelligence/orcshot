@@ -29,6 +29,20 @@ button did (still true for EditorWindow's own Save button).
 Not unit tested for the same reason region_select.py/window_picker.py
 aren't: GTK glue driving a live popup menu, with no meaningful
 headless test. Verified by running it and clicking each item.
+
+Popup positioning deliberately does *not* use Gtk.Menu.popup_at_pointer
+(None) - a real bug caught live: right after the full-screen capture
+overlay closes, the pointer is back over whatever real window was
+underneath it, which almost never belongs to this app. popup_at_pointer
+needs to resolve a GDK-known window at the pointer position to anchor
+against, and GDK generally can't resolve windows it doesn't own, so
+that resolution silently fails (confirmed by reproducing it directly:
+Gtk-CRITICAL "assertion 'GDK_IS_WINDOW (rect_window)' failed", menu
+never becomes visible/mapped) - the picker just never appeared.
+Anchoring to the screen's root window instead (always resolvable,
+regardless of what else is running) at the raw pointer coordinates
+fixes it; confirmed by reproducing the same scenario with this fix in
+place and observing the menu actually becomes visible/mapped.
 """
 
 from __future__ import annotations
@@ -39,7 +53,8 @@ import numpy as np
 import gi
 
 gi.require_version("Gtk", "3.0")
-from gi.repository import Gtk
+gi.require_version("Gdk", "3.0")
+from gi.repository import Gdk, Gtk
 
 from greenshot_linux.capture.clipboard import ClipboardBackend
 from greenshot_linux.settings import get_output_directory, quick_save_filename
@@ -104,5 +119,10 @@ def show_destination_picker(image: np.ndarray, clipboard_backend: ClipboardBacke
     add_item("Print", print_image)
 
     menu.show_all()
-    menu.popup_at_pointer(None)
+    seat = Gdk.Display.get_default().get_default_seat()
+    _screen, x, y = seat.get_pointer().get_position()
+    root = Gdk.Screen.get_default().get_root_window()
+    rect = Gdk.Rectangle()
+    rect.x, rect.y, rect.width, rect.height = x, y, 1, 1
+    menu.popup_at_rect(root, rect, Gdk.Gravity.NORTH_WEST, Gdk.Gravity.NORTH_WEST, None)
     return menu
