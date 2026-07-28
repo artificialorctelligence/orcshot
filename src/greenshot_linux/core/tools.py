@@ -256,3 +256,29 @@ def resize_shape(shape, handle: str, x: int, y: int):
     if isinstance(shape, _BOUNDS_RESIZABLE):
         return replace(shape, bounds=_resized_rect(shape.bounds, handle, x, y))
     raise NotImplementedError(f"no resize support yet for {type(shape).__name__}")
+
+
+_INSERT_MAX_FRACTION = 0.8
+
+
+def default_insert_bounds(content_w: int, content_h: int, canvas_w: int, canvas_h: int) -> Rect:
+    """Where an inserted Image/SVG shape (ui/editor_window.py's Insert
+    Image/Insert SVG, from the File menu) starts out: centered in the
+    canvas, at its natural size unless that's bigger than
+    _INSERT_MAX_FRACTION of the canvas in either dimension, in which
+    case it's scaled down (preserving aspect ratio) to fit - never
+    scaled *up*, so a small image doesn't get blown up past its real
+    size just because the canvas is large. Unlike every other shape
+    here, there's no drag gesture to size these from (Insert Image/SVG
+    is a file picker, not a click-and-drag tool), so this is the
+    one-shot placement logic that stands in for one.
+    """
+    scale = min(
+        1.0,
+        (canvas_w * _INSERT_MAX_FRACTION) / content_w if content_w else 1.0,
+        (canvas_h * _INSERT_MAX_FRACTION) / content_h if content_h else 1.0,
+    )
+    w, h = round(content_w * scale), round(content_h * scale)
+    left = round((canvas_w - w) / 2)
+    top = round((canvas_h - h) / 2)
+    return Rect(left, top, left + w, top + h)

@@ -33,6 +33,7 @@ from greenshot_linux.core.tools import (
     Tool,
     create_freehand_shape,
     create_shape_from_drag,
+    default_insert_bounds,
     handle_at,
     resize_shape,
     shape_handles,
@@ -420,3 +421,40 @@ class TestResizeShape:
         shape = RectangleShape(Rect(10, 10, 100, 100), STYLE)
         resize_shape(shape, "top_left", 20, 30)
         assert shape.bounds == Rect(10, 10, 100, 100)
+
+
+class TestDefaultInsertBounds:
+    """Where an Insert Image/SVG default lands - there's no drag
+    gesture to size these from (unlike every other shape here), so
+    inserted content needs a sensible one-shot placement: centered,
+    scaled down only if it wouldn't otherwise fit.
+    """
+
+    def test_small_content_is_centered_at_its_natural_size(self):
+        bounds = default_insert_bounds(content_w=100, content_h=50, canvas_w=800, canvas_h=600)
+        assert bounds.width == 100
+        assert bounds.height == 50
+        cx = (bounds.left + bounds.right) / 2
+        cy = (bounds.top + bounds.bottom) / 2
+        assert (cx, cy) == (400, 300)
+
+    def test_oversized_content_is_scaled_down_to_fit(self):
+        bounds = default_insert_bounds(content_w=2000, content_h=1000, canvas_w=800, canvas_h=600)
+        assert bounds.width <= 800
+        assert bounds.height <= 600
+
+    def test_scaling_preserves_aspect_ratio(self):
+        bounds = default_insert_bounds(content_w=2000, content_h=1000, canvas_w=800, canvas_h=600)
+        assert bounds.width / bounds.height == pytest.approx(2000 / 1000, rel=0.01)
+
+    def test_result_is_still_centered_after_scaling_down(self):
+        bounds = default_insert_bounds(content_w=2000, content_h=1000, canvas_w=800, canvas_h=600)
+        cx = (bounds.left + bounds.right) / 2
+        cy = (bounds.top + bounds.bottom) / 2
+        assert cx == pytest.approx(400, abs=1)
+        assert cy == pytest.approx(300, abs=1)
+
+    def test_never_scales_up_content_smaller_than_the_canvas(self):
+        bounds = default_insert_bounds(content_w=10, content_h=10, canvas_w=800, canvas_h=600)
+        assert bounds.width == 10
+        assert bounds.height == 10

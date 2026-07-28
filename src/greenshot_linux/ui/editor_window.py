@@ -103,9 +103,10 @@ import gi
 gi.require_version("Gtk", "3.0")
 gi.require_version("Gio", "2.0")
 gi.require_version("GdkPixbuf", "2.0")
+gi.require_version("Rsvg", "2.0")
 
 import numpy as np
-from gi.repository import Gdk, GdkPixbuf, Gio, GLib, Gtk
+from gi.repository import Gdk, GdkPixbuf, Gio, GLib, Gtk, Rsvg
 
 from greenshot_linux.capture.clipboard import ClipboardBackend
 from greenshot_linux.core.drawing import Layer
@@ -115,13 +116,16 @@ from greenshot_linux.core.history import (
     ElementChangeMemento,
     UndoRedoStack,
 )
-from greenshot_linux.core.shapes import ObfuscateShape, ShapeStyle, SpeechBubbleShape, StepLabelShape, TextShape
+from greenshot_linux.core.shapes import (
+    ImageShape, ObfuscateShape, ShapeStyle, SpeechBubbleShape, StepLabelShape, SvgShape, TextShape,
+)
 from greenshot_linux.settings import get_output_directory, set_output_directory
 from greenshot_linux.resources import LOGO_PATH
 from greenshot_linux.core.tools import (
     Tool,
     create_freehand_shape,
     create_shape_from_drag,
+    default_insert_bounds,
     handle_at,
     resize_shape,
     shape_handles,
@@ -129,6 +133,7 @@ from greenshot_linux.core.tools import (
 )
 from greenshot_linux.ui.cairo_convert import numpy_to_cairo_surface
 from greenshot_linux.ui.composite import composite_to_numpy
+from greenshot_linux.ui.gdk_convert import pixbuf_to_numpy
 from greenshot_linux.ui.file_export import save_image_to_file
 from greenshot_linux.ui.icons import tool_icon_image
 from greenshot_linux.ui.printing import print_image
@@ -313,6 +318,9 @@ class EditorWindow(Gtk.Window):
         file_menu = add_menu("File")
         add_item(file_menu, "Save...", self._do_save)
         add_item(file_menu, "Print...", self._do_print)
+        file_menu.append(Gtk.SeparatorMenuItem())
+        add_item(file_menu, "Insert Image...", self._do_insert_image)
+        add_item(file_menu, "Insert SVG...", self._do_insert_svg)
         file_menu.append(Gtk.SeparatorMenuItem())
         add_item(file_menu, "Screenshot Save Location...", self._do_choose_save_location)
         file_menu.append(Gtk.SeparatorMenuItem())
@@ -660,6 +668,78 @@ class EditorWindow(Gtk.Window):
                 set_output_directory(Path(dialog.get_filename()))
         finally:
             dialog.destroy()
+
+    def _do_insert_image(self) -> None:
+        """Embeds an image file as a new ImageShape - Windows has no
+        dedicated "insert image" toolbar tool (DrawingModes.Bitmap is
+        defined but never assigned anywhere in the source); this is
+        part of its generic file-import system instead (a
+        IFileFormatHandler alongside PNG/JPG/ICO/etc.), so it lives in
+        the File menu, not the tool palette. There's no drag gesture
+        to size the shape from (this is a file picker, not a
+        click-and-drag tool), so it starts at default_insert_bounds'
+        placement - centered, scaled down only if larger than the
+        canvas - and is then resizable/movable like any other shape
+        via the Select tool. GdkPixbuf's own supported-format list
+        covers .ico/.cur natively (confirmed live), which is also why
+        there's no separate "Icon/stamp" tool here - Windows' own
+        IconContainer for that is dead code with no UI path to
+        trigger it at all, so nothing was dropped by folding it in.
+        """
+        self._commit_text_editing_if_active()
+        dialog = Gtk.FileChooserDialog(title="Insert Image", transient_for=self, action=Gtk.FileChooserAction.OPEN)
+        dialog.add_buttons(Gtk.STOCK_CANCEL, Gtk.ResponseType.CANCEL, Gtk.STOCK_OPEN, Gtk.ResponseType.OK)
+        image_filter = Gtk.FileFilter()
+        image_filter.set_name("Images")
+        for pattern in ("*.png", "*.jpg", "*.jpeg", "*.bmp", "*.gif", "*.ico", "*.cur", "*.tif", "*.tiff"):
+            image_filter.add_pattern(pattern)
+        dialog.add_filter(image_filter)
+        try:
+            if dialog.run() != Gtk.ResponseType.OK:
+                return
+            path = dialog.get_filename()
+        finally:
+            dialog.destroy()
+
+        pixbuf = GdkPixbuf.Pixbuf.new_from_file(path)
+        image = pixbuf_to_numpy(pixbuf)
+        img_h, img_w = image.shape[:2]
+        base_h, base_w = self._base_image.shape[:2]
+        bounds = default_insert_bounds(img_w, img_h, base_w, base_h)
+        shape = ImageShape(bounds=bounds, image=image)
+        self.layer.add(shape)
+        self.selected_shape = shape
+        self.undo_redo.push(AddElementMemento(self.layer, shape))
+        self._drawing_area.queue_draw()
+
+    def _do_insert_svg(self) -> None:
+        """Same idea as _do_insert_image, for SVG - Windows registers
+        SVG support as a generic IFileFormatHandler too
+        (SvgFileFormatHandler.cs), not a dedicated toolbar tool."""
+        self._commit_text_editing_if_active()
+        dialog = Gtk.FileChooserDialog(title="Insert SVG", transient_for=self, action=Gtk.FileChooserAction.OPEN)
+        dialog.add_buttons(Gtk.STOCK_CANCEL, Gtk.ResponseType.CANCEL, Gtk.STOCK_OPEN, Gtk.ResponseType.OK)
+        svg_filter = Gtk.FileFilter()
+        svg_filter.set_name("SVG images")
+        svg_filter.add_pattern("*.svg")
+        dialog.add_filter(svg_filter)
+        try:
+            if dialog.run() != Gtk.ResponseType.OK:
+                return
+            path = dialog.get_filename()
+        finally:
+            dialog.destroy()
+
+        svg_data = Path(path).read_text()
+        handle = Rsvg.Handle.new_from_data(svg_data.encode("utf-8"))
+        dimensions = handle.get_dimensions()
+        base_h, base_w = self._base_image.shape[:2]
+        bounds = default_insert_bounds(dimensions.width, dimensions.height, base_w, base_h)
+        shape = SvgShape(bounds=bounds, svg_data=svg_data)
+        self.layer.add(shape)
+        self.selected_shape = shape
+        self.undo_redo.push(AddElementMemento(self.layer, shape))
+        self._drawing_area.queue_draw()
 
     def _do_print(self) -> None:
         self._commit_text_editing_if_active()

@@ -449,6 +449,39 @@ Redo | Settings | Help`.
   and always current. Saves the composited image to a temp PNG and launches the editor
   non-blockingly (`subprocess.Popen`), via `flatpak run <app-id>` when that's how it was found.
 
+**Insert Image / Insert SVG — done, folds in what would otherwise be Icon/Cursor support.**
+Windows has no dedicated "insert image" *toolbar tool* — `DrawingModes.Bitmap` is defined in the
+enum but never assigned anywhere in the source. Image/SVG are instead handled by Windows' generic
+file-import system (`IFileFormatHandler` implementations alongside PNG/JPG/ICO/`SvgFileFormatHandler.cs`),
+so this port matches that shape: `File > Insert Image...` / `File > Insert SVG...`, not tool-palette
+buttons. Since there's no drag gesture to size the shape from (a file picker, not a click-and-drag
+tool), the inserted shape starts at `core/tools.py`'s new `default_insert_bounds(content_w,
+content_h, canvas_w, canvas_h)` - centered on the canvas at natural size, scaled down (preserving
+aspect ratio) only if larger than 80% of the canvas in either dimension, never scaled up - and is
+then movable/resizable like any other shape via the Select tool (`ImageShape`/`SvgShape` were
+already in `_BOUNDS_RESIZABLE`, so no extra work needed there). Confirmed live: PNG insert into a
+500x300 canvas centers a 60x40 image at `Rect(220,130,280,170)`; SVG insert centers an 80x40 SVG at
+`Rect(210,130,290,170)` - both match the expected centered math exactly.
+- **Icon/stamp folded in, not built separately**: GdkPixbuf's own supported-format list includes
+  `.ico`/`.cur` natively (confirmed live via `GdkPixbuf.Pixbuf.get_formats()`), so Insert Image
+  already covers icon files with zero extra code. This isn't a shortcut - Windows' own
+  `IconContainer` (the closest equivalent) turned out to be dead code during research: it's defined
+  but has no UI path that ever constructs one (confirmed via `Surface.cs`/`CaptureHelper.cs`
+  citations), so there was nothing real to port in the first place. Cursor is unrelated - it's a
+  capture-time *setting* (draw the mouse cursor into the screenshot), not a tool at all; tracked
+  separately as its own task since it belongs in the capture backend, not the editor.
+- **Debugging note worth keeping**: verifying this live (driving the real `Gtk.FileChooserDialog`
+  via `GLib.timeout_add` + `dialog.set_filename()` + `dialog.response()`, the same pattern used
+  successfully for every other dialog in this port) initially hung indefinitely and looked like a
+  serious bug in the new code. Root cause was a *test-harness-only* race: calling
+  `dialog.response(OK)` immediately after `set_filename()`, with no gap for the file chooser's own
+  async directory-navigation to settle, deadlocks `dialog.run()` - reproduced in a minimal script
+  with no app code involved at all, and confirmed fixed by giving the main loop a short gap (a
+  second `GLib.timeout_add` a few hundred ms later) between the two calls. A real user clicking
+  through the dialog never hits this, since mouse interaction doesn't race the chooser's internal
+  state the way scripted `set_filename()` + immediate `response()` does. Cancel-only dialog tests
+  (used everywhere else so far) never exercised this path, which is why it hadn't shown up before.
+
 ### Undo/redo
 **Status: done at the pure-data-model level** (`src/greenshot_linux/core/history.py`) — a generic
 `UndoRedoStack` engine plus mementos over `Layer` (add/delete/change an element, batched as one
