@@ -316,6 +316,66 @@ creation now agree on where the image actually is, not just the drawing. Verifie
 centering) and via a simulated click/drag confirming the resulting shape's bounds land at the
 correct image-local coordinates despite the widget-local click coordinates being offset.
 
+**Editor layout restructured to match Windows, plus two more interactive tools — done.** Windows'
+editor uses a vertical left-side tool palette plus a separate File/Edit/Object/Help menu bar, not
+one horizontal toolbar; requested explicitly, with only the menu items applicable to this port's
+actual feature set (no Office/OneDrive/cloud destinations - already cut, see "Explicitly cut"
+below).
+- Layout: `_build_menu_bar()` (File/Edit/Object/Help) → `_build_action_toolbar()` (Undo/Redo/Copy/
+  Save/Print/Save-location, horizontal, unchanged from before) → `_build_style_panel()` (unchanged)
+  → a horizontal row of `_build_tool_palette()` (the drawing tools, now vertical) beside the drawing
+  area. `_content_offset()`'s centering math (see above) is layout-agnostic by construction - it
+  only compares the drawing area's actual allocation to the image's actual size, not which side the
+  toolbar is on - so it needed no changes for this.
+- **The tool palette is plain `Gtk.RadioButton`s in a `Gtk.Box`, not `Gtk.RadioToolButton`s in a
+  `Gtk.Toolbar(orientation=VERTICAL)`** - the more common pattern for a vertical icon palette anyway
+  (same idea as GIMP/Inkscape's toolbox). This *wasn't* chasing a confirmed bug: a first pass with
+  `Gtk.Toolbar` looked like the last of 10 buttons was clipped below the window edge in a
+  screenshot, but the actual fix turned out to be `border_width` (zero padding at the bottom made it
+  flush with the window edge and easy to miss, not actually clipped - confirmed via per-button
+  `get_allocation()`/`get_mapped()` checks, all correct). The widget swap happened before that was
+  isolated and turned out harmless, so it stayed.
+- **Verification methodology note, worth keeping**: mid-investigation, X11 screen-capture-based
+  screenshots of the live window repeatedly showed an inexplicable artifact (a plain rounded-
+  rectangle shape) at the exact position of the Step Label icon, even after the padding fix. Direct,
+  non-screenshot checks (the widget's own `get_image().get_pixbuf()`, saved and inspected) confirmed
+  the *actual* icon data was always correct. Rather than keep capturing more of the live X11 desktop
+  to chase what might have been a window-manager decoration artifact or, worse, a capture-region
+  overshoot picking up unrelated desktop content, switched to `Gtk.OffscreenWindow` - renders a
+  widget subtree straight to a pixbuf with no real display/desktop involved at all - which
+  immediately confirmed all 10 tools render correctly. Prefer `Gtk.OffscreenWindow` over X11 window-
+  bounds screenshots for future editor-window UI verification: same visual fidelity, zero desktop-
+  capture risk.
+- Two new interactive tools, both already had full rendering support from earlier in this project
+  (`ui/render.py`) and only needed UI wiring: **Speech Bubble** (drag to create; the tail's `target`
+  defaults to a fixed point below the bubble, since `SpeechBubbleShape` has no dedicated handle to
+  reposition just the tail after creation - moving the whole shape keeps target and bubble in sync,
+  but there's no way to adjust their relative offset post-creation, so creation has to pick a
+  sensible default) and **Step Label** (click-to-place - `core/tools.py`'s `create_shape_from_drag`
+  ignores the drag's end point for this tool, always using a fixed-radius circle at the start point,
+  matching the source's click-to-place rather than drag-to-size interaction; auto-increments via
+  `EditorWindow._next_step_number()`, counting existing `StepLabelShape`s already in the layer).
+  Speech Bubble also generalizes the existing Text-tool editing machinery (immediate edit-mode after
+  creation, double-click to re-edit) from a `TextShape`-only `isinstance` check to
+  `(TextShape, SpeechBubbleShape)` - both already used the same generic `dataclass_replace(shape,
+  text=...)` pattern keyed off a `.text` field, so no other changes were needed for text entry to
+  work on bubbles too.
+- **Object menu** (new): Delete (also bound to the Delete key), Bring to Front, Send to Back -
+  thin wiring over already-tested pure `Layer` methods (`bring_to_front`/`send_to_back`) and the
+  existing `DeleteElementMemento`. Bring to Front/Send to Back are **deliberately not undoable
+  yet** - `core/history.py` has no z-order memento type (only Add/Delete/ElementChange), and
+  reordering is rare/easy enough to reverse manually that this is a documented simplification, not
+  something worth a new memento type for right now.
+- **Help → About** (new): a `Gtk.AboutDialog` using the real logo (`resources/greenshot-linux.png`,
+  see the icon-surfaces work above).
+- **Still outstanding from the original ask** (not yet done, needs product decisions before
+  building - see the task list): Icon/stamp, Cursor overlay, embedded Image, and embedded SVG as
+  interactive tools. All four already render correctly too, but unlike Speech Bubble/Step Label they
+  need either a stock asset picker (Icon), a file chooser (Image/SVG - `Gtk.FileChooserDialog`,
+  already used elsewhere in this file), or capture-time integration rather than after-the-fact
+  placement (Cursor - Windows embeds the actually-captured mouse cursor bitmap, which isn't
+  something a toolbar tool naturally "adds" after the fact the way the others do).
+
 ### Undo/redo
 **Status: done at the pure-data-model level** (`src/greenshot_linux/core/history.py`) — a generic
 `UndoRedoStack` engine plus mementos over `Layer` (add/delete/change an element, batched as one

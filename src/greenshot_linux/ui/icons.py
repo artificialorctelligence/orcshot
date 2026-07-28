@@ -40,9 +40,15 @@ gi.require_version("GdkPixbuf", "2.0")
 from gi.repository import Gdk, GdkPixbuf, Gtk
 
 from greenshot_linux.core.geometry import Rect
-from greenshot_linux.core.shapes import ArrowShape, Color, EllipseShape, FreehandShape, LineShape, RectangleShape, ShapeStyle
+from greenshot_linux.core.shapes import (
+    ArrowShape, Color, EllipseShape, FreehandShape, LineShape, RectangleShape, ShapeStyle,
+    SpeechBubbleShape, StepLabelShape,
+)
 from greenshot_linux.core.tools import Tool
-from greenshot_linux.ui.render import render_arrow, render_ellipse, render_freehand, render_line, render_rectangle
+from greenshot_linux.ui.render import (
+    render_arrow, render_ellipse, render_freehand, render_line, render_rectangle,
+    render_speech_bubble, render_step_label,
+)
 
 ICON_SIZE = 24
 _MARGIN = 4
@@ -147,6 +153,29 @@ def _text_icon(color: Color) -> cairo.ImageSurface:
     return surface
 
 
+def _speech_bubble_icon(color: Color) -> cairo.ImageSurface:
+    surface = _blank_surface()
+    bubble_bounds = Rect(_MARGIN, _MARGIN, ICON_SIZE - _MARGIN, ICON_SIZE * 0.6)
+    shape = SpeechBubbleShape(
+        bubble_bounds=bubble_bounds, target=(ICON_SIZE * 0.3, ICON_SIZE - _MARGIN), text="",
+        style=_line_art_style(color),
+    )
+    render_speech_bubble(cairo.Context(surface), shape)
+    return surface
+
+
+def _step_label_icon(color: Color) -> cairo.ImageSurface:
+    # Ignores ``color`` like Pixelize/Blur - a step label always
+    # renders in its own fixed dark-red/white style (see
+    # StepLabelShape's default in core/shapes.py), not the editor's
+    # adjustable line/fill color, so the icon shouldn't pretend
+    # otherwise.
+    surface = _blank_surface()
+    shape = StepLabelShape(Rect(_MARGIN, _MARGIN, ICON_SIZE - _MARGIN, ICON_SIZE - _MARGIN), number=1)
+    render_step_label(cairo.Context(surface), shape)
+    return surface
+
+
 _TOOL_ICON_BUILDERS = {
     Tool.RECTANGLE: _rectangle_icon,
     Tool.ELLIPSE: _ellipse_icon,
@@ -156,6 +185,8 @@ _TOOL_ICON_BUILDERS = {
     Tool.PIXELIZE: _pixelize_icon,
     Tool.BLUR: _blur_icon,
     Tool.TEXT: _text_icon,
+    Tool.SPEECH_BUBBLE: _speech_bubble_icon,
+    Tool.STEP_LABEL: _step_label_icon,
 }
 
 

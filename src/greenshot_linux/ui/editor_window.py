@@ -13,8 +13,9 @@ resizes) is factored out into core/tools.py and tested there.
 
 Interaction model: clicking on empty space starts a drag-to-create
 gesture in the current tool, selected either via the toolbar along the
-top or number keys 1-8 (Rectangle, Ellipse, Line, Arrow, Freehand,
-Pixelize, Blur, Text) - both stay in sync, each updates the other.
+top or number keys 1-0 (Rectangle, Ellipse, Line, Arrow, Freehand,
+Pixelize, Blur, Text, Speech Bubble, Step Label) - both stay in sync,
+each updates the other.
 Clicking on an existing shape selects it (drawing small square handles
 at its corners/edges, or its two endpoints for Line/Arrow) and starts
 dragging it; clicking one of those handles resizes/reshapes instead.
@@ -97,9 +98,10 @@ import gi
 
 gi.require_version("Gtk", "3.0")
 gi.require_version("Gio", "2.0")
+gi.require_version("GdkPixbuf", "2.0")
 
 import numpy as np
-from gi.repository import Gdk, Gio, Gtk
+from gi.repository import Gdk, GdkPixbuf, Gio, GLib, Gtk
 
 from greenshot_linux.capture.clipboard import ClipboardBackend
 from greenshot_linux.core.drawing import Layer
@@ -109,8 +111,9 @@ from greenshot_linux.core.history import (
     ElementChangeMemento,
     UndoRedoStack,
 )
-from greenshot_linux.core.shapes import ObfuscateShape, ShapeStyle, TextShape
+from greenshot_linux.core.shapes import ObfuscateShape, ShapeStyle, SpeechBubbleShape, StepLabelShape, TextShape
 from greenshot_linux.settings import get_output_directory, set_output_directory
+from greenshot_linux.resources import LOGO_PATH
 from greenshot_linux.core.tools import (
     Tool,
     create_freehand_shape,
@@ -136,6 +139,8 @@ _TOOL_KEYS = {
     Gdk.KEY_6: Tool.PIXELIZE,
     Gdk.KEY_7: Tool.BLUR,
     Gdk.KEY_8: Tool.TEXT,
+    Gdk.KEY_9: Tool.SPEECH_BUBBLE,
+    Gdk.KEY_0: Tool.STEP_LABEL,
 }
 
 _TOOL_LABELS = [
@@ -147,6 +152,8 @@ _TOOL_LABELS = [
     (Tool.PIXELIZE, "Pixelize"),
     (Tool.BLUR, "Blur"),
     (Tool.TEXT, "Text"),
+    (Tool.SPEECH_BUBBLE, "Speech Bubble"),
+    (Tool.STEP_LABEL, "Step Label"),
 ]
 
 _HANDLE_SIZE = 6
@@ -224,10 +231,15 @@ class EditorWindow(Gtk.Window):
         self._drawing_area.connect("motion-notify-event", self._on_motion)
         self._drawing_area.connect("button-release-event", self._on_button_release)
 
+        content_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL)
+        content_row.pack_start(self._build_tool_palette(), False, False, 0)
+        content_row.pack_start(self._drawing_area, True, True, 0)
+
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
-        box.pack_start(self._build_toolbar(), False, False, 0)
+        box.pack_start(self._build_menu_bar(), False, False, 0)
+        box.pack_start(self._build_action_toolbar(), False, False, 0)
         box.pack_start(self._build_style_panel(), False, False, 0)
-        box.pack_start(self._drawing_area, True, True, 0)
+        box.pack_start(content_row, True, True, 0)
         self.add(box)
 
         self.connect("key-press-event", self._on_key_press)
@@ -246,9 +258,85 @@ class EditorWindow(Gtk.Window):
             app.register_editor_window(self)
         self.connect("destroy", self._on_destroy)
 
-    def _build_toolbar(self) -> Gtk.Toolbar:
-        toolbar = Gtk.Toolbar()
-        toolbar.set_style(Gtk.ToolbarStyle.ICONS)
+    def _build_menu_bar(self) -> Gtk.MenuBar:
+        """File/Edit/Object/Help, matching Windows Greenshot's editor
+        menu structure - only the items applicable to this port's
+        actual feature set (no Office/OneDrive/cloud destinations,
+        already out of scope - see REQUIREMENTS.md's "Explicitly cut"
+        section). Duplicates the toolbar/keyboard-shortcut actions
+        rather than replacing them - matching Windows, which has both.
+        """
+        menu_bar = Gtk.MenuBar()
+
+        def add_menu(label: str) -> Gtk.Menu:
+            menu = Gtk.Menu()
+            item = Gtk.MenuItem(label=label)
+            item.set_submenu(menu)
+            menu_bar.append(item)
+            return menu
+
+        def add_item(menu: Gtk.Menu, label: str, handler) -> None:
+            item = Gtk.MenuItem(label=label)
+            item.connect("activate", lambda _i: handler())
+            menu.append(item)
+
+        file_menu = add_menu("File")
+        add_item(file_menu, "Save...", self._do_save)
+        add_item(file_menu, "Print...", self._do_print)
+        file_menu.append(Gtk.SeparatorMenuItem())
+        add_item(file_menu, "Screenshot Save Location...", self._do_choose_save_location)
+        file_menu.append(Gtk.SeparatorMenuItem())
+        add_item(file_menu, "Close", self.close)
+
+        edit_menu = add_menu("Edit")
+        add_item(edit_menu, "Undo", self._do_undo)
+        add_item(edit_menu, "Redo", self._do_redo)
+        edit_menu.append(Gtk.SeparatorMenuItem())
+        add_item(edit_menu, "Copy", self._do_copy)
+
+        object_menu = add_menu("Object")
+        add_item(object_menu, "Delete", self._do_delete)
+        object_menu.append(Gtk.SeparatorMenuItem())
+        add_item(object_menu, "Bring to Front", self._do_bring_to_front)
+        add_item(object_menu, "Send to Back", self._do_send_to_back)
+
+        help_menu = add_menu("Help")
+        add_item(help_menu, "About Greenshot Linux", self._do_show_about)
+
+        return menu_bar
+
+    def _do_show_about(self) -> None:
+        dialog = Gtk.AboutDialog(transient_for=self)
+        dialog.set_program_name("Greenshot Linux")
+        dialog.set_comments("A Linux Mint port of Greenshot")
+        dialog.set_logo_icon_name(None)
+        try:
+            dialog.set_logo(GdkPixbuf.Pixbuf.new_from_file(str(LOGO_PATH)))
+        except GLib.Error:
+            pass
+        dialog.run()
+        dialog.destroy()
+
+    def _build_tool_palette(self) -> Gtk.Box:
+        """The drawing tools, in a vertical column on the left -
+        matching Windows Greenshot's editor layout, and separate from
+        _build_action_toolbar's horizontal row of document/edit
+        actions (Windows keeps those distinct too).
+
+        Plain Gtk.RadioButtons in a Gtk.Box, not Gtk.RadioToolButton in
+        a Gtk.Toolbar(orientation=VERTICAL) - the more common pattern
+        for a vertical icon palette anyway (same idea as GIMP/
+        Inkscape's toolbox). This wasn't chasing a real bug: a first
+        pass looked clipped in a screenshot (the last of 10 buttons
+        seemed to be missing), but per-button allocation checks showed
+        every one correctly sized and mapped - it was just flush
+        against the window's bottom edge with zero padding, easy to
+        miss at a glance. The border_width below is the actual fix;
+        the widget swap just happened first and turned out harmless,
+        so it stayed.
+        """
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+        box.set_border_width(4)
 
         # Hand-drawn icons don't get theme colors for free the way the
         # standard "-symbolic" icon names below do - query the window's
@@ -259,17 +347,23 @@ class EditorWindow(Gtk.Window):
         self._tool_buttons = {}
         group_leader = None
         for tool, label in _TOOL_LABELS:
-            button = Gtk.RadioToolButton.new_from_widget(group_leader)
+            button = Gtk.RadioButton.new_from_widget(group_leader)
             if group_leader is None:
                 group_leader = button
-            button.set_icon_widget(tool_icon_image(tool, color=icon_color))
+            button.set_mode(False)  # flat icon toggle, not a radio-circle-plus-label
+            button.set_relief(Gtk.ReliefStyle.NONE)
+            button.set_image(tool_icon_image(tool, color=icon_color))
             button.set_tooltip_text(label)
             button.set_active(tool is self.tool)
             button.connect("toggled", self._on_tool_button_toggled, tool)
-            toolbar.insert(button, -1)
+            box.pack_start(button, False, False, 0)
             self._tool_buttons[tool] = button
 
-        toolbar.insert(Gtk.SeparatorToolItem(), -1)
+        return box
+
+    def _build_action_toolbar(self) -> Gtk.Toolbar:
+        toolbar = Gtk.Toolbar()
+        toolbar.set_style(Gtk.ToolbarStyle.ICONS)
 
         undo_button = Gtk.ToolButton(icon_widget=Gtk.Image.new_from_icon_name("edit-undo-symbolic", Gtk.IconSize.SMALL_TOOLBAR))
         undo_button.set_tooltip_text("Undo")
@@ -410,8 +504,40 @@ class EditorWindow(Gtk.Window):
             self.selected_shape = None
             self._drawing_area.queue_draw()
 
+    def _do_delete(self) -> None:
+        self._commit_text_editing_if_active()
+        if self.selected_shape is None:
+            return
+        shape = self.selected_shape
+        self.layer.remove(shape)
+        self.undo_redo.push(DeleteElementMemento(self.layer, shape))
+        self.selected_shape = None
+        self._drawing_area.queue_draw()
+
+    def _do_bring_to_front(self) -> None:
+        # Deliberately not undoable yet - Layer has no z-order memento
+        # type (only Add/Delete/ElementChange exist); reordering is
+        # rare enough, and easy enough to reverse manually (Send to
+        # Back once), that this is a documented simplification rather
+        # than something worth a new memento type for right now.
+        self._commit_text_editing_if_active()
+        if self.selected_shape is None:
+            return
+        self.layer.bring_to_front([self.selected_shape])
+        self._drawing_area.queue_draw()
+
+    def _do_send_to_back(self) -> None:
+        self._commit_text_editing_if_active()
+        if self.selected_shape is None:
+            return
+        self.layer.send_to_back([self.selected_shape])
+        self._drawing_area.queue_draw()
+
     def _composited_image(self) -> np.ndarray:
         return composite_to_numpy(self._base_image, self.layer)
+
+    def _next_step_number(self) -> int:
+        return sum(1 for shape in self.layer if isinstance(shape, StepLabelShape)) + 1
 
     def _do_copy(self) -> None:
         self._commit_text_editing_if_active()
@@ -598,7 +724,7 @@ class EditorWindow(Gtk.Window):
 
         hit = self.layer.topmost_at(x, y)
 
-        if hit is not None and isinstance(hit, TextShape) and event.type == Gdk.EventType._2BUTTON_PRESS:
+        if hit is not None and isinstance(hit, (TextShape, SpeechBubbleShape)) and event.type == Gdk.EventType._2BUTTON_PRESS:
             # A double-click's second press follows a first (single)
             # press that already ran the branch below and may have
             # started a move - cancel that, double-click means edit.
@@ -687,14 +813,15 @@ class EditorWindow(Gtk.Window):
                 shape = create_freehand_shape(self._drag_points, self._default_style)
             else:
                 shape = create_shape_from_drag(
-                    self.tool, self._drag_origin, (x, y), self._default_style, amount=self._default_obfuscate_amount
+                    self.tool, self._drag_origin, (x, y), self._default_style,
+                    amount=self._default_obfuscate_amount, next_step_number=self._next_step_number(),
                 )
             self._drag_origin = None
             self._drag_points = None
             self._drag_shape = None
             self.layer.add(shape)
             self.selected_shape = shape
-            if self.tool is Tool.TEXT:
+            if self.tool in (Tool.TEXT, Tool.SPEECH_BUBBLE):
                 # Editing starts immediately; AddElementMemento is only
                 # pushed once the text is committed (see
                 # _commit_text_editing), not per-keystroke.
@@ -716,6 +843,10 @@ class EditorWindow(Gtk.Window):
             # self.tool - this just keeps the toolbar's radio buttons
             # in sync with a keyboard-driven tool switch too.
             self._tool_buttons[tool].set_active(True)
+            return True
+
+        if event.keyval == Gdk.KEY_Delete:
+            self._do_delete()
             return True
 
         ctrl_held = bool(event.state & Gdk.ModifierType.CONTROL_MASK)

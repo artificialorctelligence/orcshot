@@ -53,15 +53,34 @@ class Tool(str, Enum):
     PIXELIZE = "pixelize"
     BLUR = "blur"
     TEXT = "text"
+    SPEECH_BUBBLE = "speech_bubble"
+    STEP_LABEL = "step_label"
 
 
-def create_shape_from_drag(tool: Tool, start: Point, end: Point, style: ShapeStyle, amount: int = 5):
+# How far below the bubble the tail's default target sits, in pixels -
+# SpeechBubbleShape has no dedicated handle to reposition just the
+# tail after creation (see shape_handles below: only bubble_bounds
+# gets handles, target moves along for the ride during a whole-shape
+# move), so creation has to pick a sensible one-shot default rather
+# than something degenerate like the drag's own start point (which
+# would put the target right on the bubble's own edge).
+_SPEECH_BUBBLE_TAIL_DROP = 30
+
+# StepLabelShape is click-to-place in the source, not drag-to-size -
+# always this fixed radius regardless of where a drag ends.
+_STEP_LABEL_RADIUS = 15
+
+
+def create_shape_from_drag(
+    tool: Tool, start: Point, end: Point, style: ShapeStyle, amount: int = 5, next_step_number: int = 1,
+):
     """For tools defined by a single start/end drag. Freehand is built
     incrementally from a point list instead - use create_freehand_shape.
     ``amount`` (blur radius / pixel size) only applies to Pixelize/Blur
-    and defaults to ObfuscateShape's own default; every other tool
-    ignores it, so callers can pass it unconditionally rather than
-    branching on the current tool first.
+    and defaults to ObfuscateShape's own default; ``next_step_number``
+    only applies to StepLabel; every other tool ignores whichever of
+    the two doesn't apply to it, so callers can pass both unconditionally
+    rather than branching on the current tool first.
     """
     if tool is Tool.RECTANGLE:
         return RectangleShape(Rect.from_points(*start, *end), style)
@@ -77,6 +96,15 @@ def create_shape_from_drag(tool: Tool, start: Point, end: Point, style: ShapeSty
         return ObfuscateShape(Rect.from_points(*start, *end), mode=ObfuscateMode.BLUR, amount=amount)
     if tool is Tool.TEXT:
         return TextShape(Rect.from_points(*start, *end), text="", style=style)
+    if tool is Tool.SPEECH_BUBBLE:
+        bubble_bounds = Rect.from_points(*start, *end)
+        target = (bubble_bounds.left, bubble_bounds.bottom + _SPEECH_BUBBLE_TAIL_DROP)
+        return SpeechBubbleShape(bubble_bounds=bubble_bounds, target=target, text="", style=style)
+    if tool is Tool.STEP_LABEL:
+        cx, cy = start
+        r = _STEP_LABEL_RADIUS
+        bounds = Rect(cx - r, cy - r, cx + r, cy + r)
+        return StepLabelShape(bounds=bounds, number=next_step_number)
     raise ValueError(f"{tool} is not created from a single start/end drag; use create_freehand_shape")
 
 

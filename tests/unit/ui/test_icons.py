@@ -48,7 +48,7 @@ def test_icons_for_different_tools_are_not_identical():
             assert not np.array_equal(surfaces[tool_a], surfaces[tool_b]), f"{tool_a} and {tool_b} look identical"
 
 
-_LINE_ART_TOOLS = [Tool.RECTANGLE, Tool.ELLIPSE, Tool.LINE, Tool.ARROW, Tool.FREEHAND, Tool.TEXT]
+_LINE_ART_TOOLS = [Tool.RECTANGLE, Tool.ELLIPSE, Tool.LINE, Tool.ARROW, Tool.FREEHAND, Tool.TEXT, Tool.SPEECH_BUBBLE]
 
 
 def test_line_art_icons_use_the_given_color():
@@ -79,3 +79,13 @@ def test_pixelize_and_blur_icons_ignore_the_color_param():
         white_image = cairo_surface_to_numpy(tool_icon_surface(tool, color=(255, 255, 255, 255)))
         black_image = cairo_surface_to_numpy(tool_icon_surface(tool, color=(0, 0, 0, 255)))
         assert np.array_equal(white_image, black_image), f"{tool} icon changed with the color param"
+
+
+def test_step_label_icon_ignores_the_color_param():
+    # StepLabelShape always renders in its own fixed dark-red/white
+    # style (see core/shapes.py), not the editor's adjustable line/
+    # fill color - the icon shouldn't pretend it's theme-colored line
+    # art the way Rectangle/Ellipse/etc. are.
+    white_image = cairo_surface_to_numpy(tool_icon_surface(Tool.STEP_LABEL, color=(255, 255, 255, 255)))
+    black_image = cairo_surface_to_numpy(tool_icon_surface(Tool.STEP_LABEL, color=(0, 0, 0, 255)))
+    assert np.array_equal(white_image, black_image)

@@ -119,6 +119,31 @@ class TestCreateShapeFromDrag:
         assert shape.text == ""
         assert shape.style is STYLE
 
+    def test_speech_bubble_starts_empty_with_a_tail_pointing_below_the_bubble(self):
+        shape = create_shape_from_drag(Tool.SPEECH_BUBBLE, (10, 40), (60, 10), STYLE)
+        assert isinstance(shape, SpeechBubbleShape)
+        assert shape.bubble_bounds == Rect(10, 10, 60, 40)
+        assert shape.text == ""
+        assert shape.style is STYLE
+        # tail aims somewhere below the bubble by default - there's no
+        # dedicated handle to reposition just the tail after creation
+        # (see core/tools.py's shape_handles), so this has to be a
+        # sensible one-shot default, not degenerate/zero-length.
+        assert shape.target[1] > shape.bubble_bounds.bottom
+
+    def test_step_label_is_a_fixed_size_circle_at_the_start_point_ignoring_drag_end(self):
+        shape = create_shape_from_drag(Tool.STEP_LABEL, (100, 100), (999, 999), STYLE, next_step_number=3)
+        assert isinstance(shape, StepLabelShape)
+        assert shape.number == 3
+        cx = (shape.bounds.left + shape.bounds.right) / 2
+        cy = (shape.bounds.top + shape.bounds.bottom) / 2
+        assert (cx, cy) == (100, 100)
+        assert shape.bounds.width == shape.bounds.height  # a circle, not an ellipse
+
+    def test_step_label_defaults_to_number_1(self):
+        shape = create_shape_from_drag(Tool.STEP_LABEL, (0, 0), (0, 0), STYLE)
+        assert shape.number == 1
+
 
 def test_create_freehand_shape():
     points = ((0, 0), (5, 5), (10, 0))
