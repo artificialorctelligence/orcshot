@@ -48,7 +48,10 @@ def test_icons_for_different_tools_are_not_identical():
             assert not np.array_equal(surfaces[tool_a], surfaces[tool_b]), f"{tool_a} and {tool_b} look identical"
 
 
-_LINE_ART_TOOLS = [Tool.RECTANGLE, Tool.ELLIPSE, Tool.LINE, Tool.ARROW, Tool.FREEHAND, Tool.TEXT, Tool.SPEECH_BUBBLE]
+_LINE_ART_TOOLS = [
+    Tool.SELECT, Tool.RECTANGLE, Tool.ELLIPSE, Tool.LINE, Tool.ARROW, Tool.FREEHAND, Tool.TEXT,
+    Tool.SPEECH_BUBBLE, Tool.EMOJI,
+]
 
 
 def test_line_art_icons_use_the_given_color():

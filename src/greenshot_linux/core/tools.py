@@ -45,6 +45,7 @@ _BOUNDS_RESIZABLE = (
 
 
 class Tool(str, Enum):
+    SELECT = "select"
     RECTANGLE = "rectangle"
     ELLIPSE = "ellipse"
     LINE = "line"
@@ -55,7 +56,13 @@ class Tool(str, Enum):
     TEXT = "text"
     SPEECH_BUBBLE = "speech_bubble"
     STEP_LABEL = "step_label"
+    EMOJI = "emoji"
 
+
+# The default emoji Emoji-tool shapes start with (a slightly smiling
+# face) - retype to pick a different one, same as backspacing and
+# typing new text on any other TextShape.
+_DEFAULT_EMOJI = "\U0001F642"
 
 # How far below the bubble the tail's default target sits, in pixels -
 # SpeechBubbleShape has no dedicated handle to reposition just the
@@ -96,6 +103,13 @@ def create_shape_from_drag(
         return ObfuscateShape(Rect.from_points(*start, *end), mode=ObfuscateMode.BLUR, amount=amount)
     if tool is Tool.TEXT:
         return TextShape(Rect.from_points(*start, *end), text="", style=style)
+    if tool is Tool.EMOJI:
+        # No dedicated shape type - Pango already renders emoji glyphs
+        # fine as text, so this reuses TextShape (and, in
+        # ui/editor_window.py, the exact same edit-in-place machinery
+        # Text/SpeechBubble already have) rather than a whole separate
+        # picker UI. Retyping the glyph picks a different emoji.
+        return TextShape(Rect.from_points(*start, *end), text=_DEFAULT_EMOJI, style=style)
     if tool is Tool.SPEECH_BUBBLE:
         bubble_bounds = Rect.from_points(*start, *end)
         target = (bubble_bounds.left, bubble_bounds.bottom + _SPEECH_BUBBLE_TAIL_DROP)

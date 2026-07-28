@@ -392,6 +392,33 @@ below).
   placement (Cursor - Windows embeds the actually-captured mouse cursor bitmap, which isn't
   something a toolbar tool naturally "adds" after the fact the way the others do).
 
+**Selection tool, Emoji tool, and style-panel label fixes — done**, from live review of a real
+Windows screenshot cross-checked against `ImageEditorForm.Designer.cs`.
+- **Select** (`Tool.SELECT`, first in the palette, default active tool - matches the source's
+  `btnCursor.Checked = true`): Windows' "Cursor" tool - clicking empty space does nothing, only
+  select/move/resize of existing shapes works. Changes the out-of-the-box behavior: a fresh capture
+  used to default to Rectangle (draw immediately), now defaults to Select like Windows does (pick a
+  tool first). No dedicated keyboard shortcut yet - there's no clear Windows precedent to port, and
+  every unclaimed letter would be an undocumented convention rather than a faithful port, so it's
+  toolbar-only pending explicit direction.
+- **Emoji** (`Tool.EMOJI`, key `M` - confirmed from the source's `btnEmoji.Text = "Emoji (M)"`): no
+  dedicated shape type - reuses `TextShape` pre-filled with a default glyph (🙂) instead of empty
+  text, through the exact same immediate-edit/double-click-to-re-edit machinery Text/Speech Bubble
+  already have (retype to pick a different emoji). The icon is a hand-drawn monochrome smiley, not
+  an actual emoji-font glyph - Cairo's toy text API has no reliable color-emoji-font support, and a
+  hand-drawn glyph stays visually consistent with the other single-color, theme-following tool icons
+  instead of looking like a mismatched color sticker among them.
+- Palette now has a separator between Select and the rest, matching the source's real grouping
+  (`toolsToolStrip.Items`: Cursor | sep | Rectangle...Emoji | sep | Highlight/Obfuscate/Effects | sep
+  | Crop/Rotate/Resize) - the later two groups are empty for now since they're not built yet (task
+  #36/#42).
+- Style panel: `Thickness:` renamed to `Line Thickness:`; the single generic `Obfuscate Amount:`
+  spinner's label now swaps to `Blur Radius:` or `Pixel Size:` depending on which tool is active,
+  matching the source's own two separate, mode-specific labeled controls (`blurRadiusLabel`/
+  `pixelSizeLabel`) rather than one generically-named field doing double duty. Still one shared
+  spinner underneath (not two separate controls like the source) - a smaller, cosmetic-only
+  simplification versus the label fix itself.
+
 ### Undo/redo
 **Status: done at the pure-data-model level** (`src/greenshot_linux/core/history.py`) — a generic
 `UndoRedoStack` engine plus mementos over `Layer` (add/delete/change an element, batched as one

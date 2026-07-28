@@ -141,9 +141,26 @@ _TOOL_KEYS = {
     Gdk.KEY_8: Tool.TEXT,
     Gdk.KEY_9: Tool.SPEECH_BUBBLE,
     Gdk.KEY_0: Tool.STEP_LABEL,
+    # Select has no dedicated key yet - no clear Windows precedent to
+    # port, and every unclaimed letter is a fresh, undocumented
+    # convention rather than a faithful port, so it's toolbar-only for
+    # now pending explicit direction. "M" for Emoji does have Windows
+    # precedent (ImageEditorForm.Designer.cs: btnEmoji.Text = "Emoji
+    # (M)") and doesn't collide with any existing Ctrl+ binding.
+    Gdk.KEY_m: Tool.EMOJI,
+    Gdk.KEY_M: Tool.EMOJI,
 }
 
+# Matches the real Windows editor's left-toolbar grouping
+# (ImageEditorForm.Designer.cs's toolsToolStrip.Items): Select alone,
+# then every drawing/annotation tool together. None=a separator after
+# this tool - Highlight/Obfuscate/Effects (task #36/#42) and
+# Crop/Rotate/Resize (task #36) are the next two groups in the real
+# toolbar but aren't built yet, so there's nothing to list for them
+# here yet.
 _TOOL_LABELS = [
+    (Tool.SELECT, "Select"),
+    None,
     (Tool.RECTANGLE, "Rectangle"),
     (Tool.ELLIPSE, "Ellipse"),
     (Tool.LINE, "Line"),
@@ -154,6 +171,7 @@ _TOOL_LABELS = [
     (Tool.TEXT, "Text"),
     (Tool.SPEECH_BUBBLE, "Speech Bubble"),
     (Tool.STEP_LABEL, "Step Label"),
+    (Tool.EMOJI, "Emoji"),
 ]
 
 _HANDLE_SIZE = 6
@@ -189,7 +207,11 @@ class EditorWindow(Gtk.Window):
 
         self.layer = Layer()
         self.undo_redo = UndoRedoStack()
-        self.tool = Tool.RECTANGLE
+        # Matches the Windows source's default (ImageEditorForm.
+        # Designer.cs: btnCursor.Checked = true) - the editor opens
+        # with Select active, not a drawing tool, so the first click
+        # on a fresh capture doesn't accidentally start drawing.
+        self.tool = Tool.SELECT
         self._default_style = ShapeStyle()
         self._default_obfuscate_amount = 5  # matches ObfuscateShape's own default
         self.selected_shape = None
@@ -346,7 +368,11 @@ class EditorWindow(Gtk.Window):
 
         self._tool_buttons = {}
         group_leader = None
-        for tool, label in _TOOL_LABELS:
+        for entry in _TOOL_LABELS:
+            if entry is None:
+                box.pack_start(Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL), False, False, 2)
+                continue
+            tool, label = entry
             button = Gtk.RadioButton.new_from_widget(group_leader)
             if group_leader is None:
                 group_leader = button
@@ -426,7 +452,7 @@ class EditorWindow(Gtk.Window):
         self._fill_color_button.connect("color-set", self._on_fill_color_changed)
         box.pack_start(self._fill_color_button, False, False, 0)
 
-        box.pack_start(Gtk.Label(label="Thickness:"), False, False, 0)
+        box.pack_start(Gtk.Label(label="Line Thickness:"), False, False, 0)
         adjustment = Gtk.Adjustment(
             value=self._default_style.line_thickness, lower=0, upper=20, step_increment=1
         )
@@ -439,7 +465,13 @@ class EditorWindow(Gtk.Window):
         self._shadow_check.connect("toggled", self._on_shadow_toggled)
         box.pack_start(self._shadow_check, False, False, 0)
 
-        box.pack_start(Gtk.Label(label="Obfuscate Amount:"), False, False, 0)
+        # Label text swaps with the active tool (see
+        # _obfuscate_amount_label_text) - matches Windows' own two
+        # separate, mode-specific controls ("Blur radius" for Blur,
+        # "Pixel size" for Pixelize - ImageEditorForm.Designer.cs)
+        # rather than a single generically-named field for both.
+        self._obfuscate_amount_label = Gtk.Label(label=self._obfuscate_amount_label_text(self.tool))
+        box.pack_start(self._obfuscate_amount_label, False, False, 0)
         obfuscate_adjustment = Gtk.Adjustment(
             value=self._default_obfuscate_amount, lower=2, upper=50, step_increment=1
         )
@@ -448,6 +480,14 @@ class EditorWindow(Gtk.Window):
         box.pack_start(self._obfuscate_amount_spin, False, False, 0)
 
         return box
+
+    @staticmethod
+    def _obfuscate_amount_label_text(tool: Tool) -> str:
+        if tool is Tool.BLUR:
+            return "Blur Radius:"
+        if tool is Tool.PIXELIZE:
+            return "Pixel Size:"
+        return "Obfuscate Amount:"
 
     def _on_obfuscate_amount_changed(self, spin: Gtk.SpinButton) -> None:
         amount = spin.get_value_as_int()
@@ -491,6 +531,7 @@ class EditorWindow(Gtk.Window):
     def _on_tool_button_toggled(self, button: Gtk.RadioToolButton, tool: Tool) -> None:
         if button.get_active():
             self.tool = tool
+            self._obfuscate_amount_label.set_text(self._obfuscate_amount_label_text(tool))
 
     def _do_undo(self) -> None:
         self._commit_text_editing_if_active()
@@ -740,7 +781,10 @@ class EditorWindow(Gtk.Window):
             self.selected_shape = hit
             self._move_shape = hit
             self._move_origin = (x, y)
-        else:
+        elif self.tool is not Tool.SELECT:
+            # Select (Windows' "Cursor" tool) only selects/moves/
+            # resizes existing shapes - clicking empty space with it
+            # active does nothing, unlike every drawing tool.
             self.selected_shape = None
             self._drag_origin = (x, y)
             if self.tool is Tool.FREEHAND:
@@ -750,6 +794,8 @@ class EditorWindow(Gtk.Window):
                 self._drag_shape = create_shape_from_drag(
                     self.tool, (x, y), (x, y), self._default_style, amount=self._default_obfuscate_amount
                 )
+        else:
+            self.selected_shape = None
         widget.queue_draw()
         return True
 
@@ -821,7 +867,7 @@ class EditorWindow(Gtk.Window):
             self._drag_shape = None
             self.layer.add(shape)
             self.selected_shape = shape
-            if self.tool in (Tool.TEXT, Tool.SPEECH_BUBBLE):
+            if self.tool in (Tool.TEXT, Tool.SPEECH_BUBBLE, Tool.EMOJI):
                 # Editing starts immediately; AddElementMemento is only
                 # pushed once the text is committed (see
                 # _commit_text_editing), not per-keystroke.

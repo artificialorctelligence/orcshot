@@ -119,6 +119,25 @@ class TestCreateShapeFromDrag:
         assert shape.text == ""
         assert shape.style is STYLE
 
+    def test_emoji_is_a_text_shape_prefilled_with_a_default_emoji(self):
+        # No dedicated shape type - Pango already renders emoji glyphs
+        # fine as text, and this reuses the exact same edit-in-place
+        # machinery Text/SpeechBubble already have (retype to pick a
+        # different emoji), rather than a whole separate picker UI.
+        shape = create_shape_from_drag(Tool.EMOJI, (10, 40), (60, 10), STYLE)
+        assert isinstance(shape, TextShape)
+        assert shape.bounds == Rect(10, 10, 60, 40)
+        assert shape.text == "\U0001F642"  # slightly smiling face
+        assert shape.style is STYLE
+
+    def test_select_tool_is_rejected_since_it_never_creates_a_shape(self):
+        # The Selection tool (Windows' "Cursor" button) only
+        # selects/moves/resizes existing shapes - ui/editor_window.py
+        # never calls create_shape_from_drag for it, but this guards
+        # against a caller trying to anyway.
+        with pytest.raises(ValueError):
+            create_shape_from_drag(Tool.SELECT, (10, 40), (60, 10), STYLE)
+
     def test_speech_bubble_starts_empty_with_a_tail_pointing_below_the_bubble(self):
         shape = create_shape_from_drag(Tool.SPEECH_BUBBLE, (10, 40), (60, 10), STYLE)
         assert isinstance(shape, SpeechBubbleShape)

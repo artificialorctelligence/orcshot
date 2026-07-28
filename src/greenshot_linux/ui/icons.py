@@ -176,7 +176,62 @@ def _step_label_icon(color: Color) -> cairo.ImageSurface:
     return surface
 
 
+def _select_icon(color: Color) -> cairo.ImageSurface:
+    """A classic mouse-pointer arrow, not the annotation Arrow tool's
+    straight line-with-arrowhead (that one points *at* something in
+    the image; this one represents "select/move" as a UI action, same
+    idea as any OS pointer cursor)."""
+    surface = _blank_surface()
+    ctx = cairo.Context(surface)
+    r, g, b, a = color
+    ctx.set_source_rgba(r / 255, g / 255, b / 255, a / 255)
+    points = [
+        (_MARGIN + 1, _MARGIN),
+        (_MARGIN + 1, ICON_SIZE - _MARGIN),
+        (_MARGIN + 7, ICON_SIZE - _MARGIN - 6),
+        (_MARGIN + 11, ICON_SIZE - _MARGIN + 1),
+        (_MARGIN + 14, ICON_SIZE - _MARGIN - 2),
+        (_MARGIN + 10, ICON_SIZE - _MARGIN - 8),
+        (ICON_SIZE - _MARGIN, ICON_SIZE - _MARGIN - 8),
+    ]
+    ctx.move_to(*points[0])
+    for point in points[1:]:
+        ctx.line_to(*point)
+    ctx.close_path()
+    ctx.fill_preserve()
+    ctx.set_source_rgba(0, 0, 0, 0.35)
+    ctx.set_line_width(1)
+    ctx.stroke()
+    return surface
+
+
+def _emoji_icon(color: Color) -> cairo.ImageSurface:
+    # A hand-drawn smiley (circle + eyes + smile curve) rather than
+    # relying on an emoji font glyph - Cairo's toy text API has no
+    # reliable color-emoji-font support, and a hand-drawn glyph stays
+    # consistent with every other line-art icon here (single color,
+    # follows the theme) instead of looking like a mismatched color
+    # sticker next to monochrome tool icons.
+    surface = _blank_surface()
+    ctx = cairo.Context(surface)
+    r, g, b, a = color
+    ctx.set_source_rgba(r / 255, g / 255, b / 255, a / 255)
+    cx, cy = ICON_SIZE / 2, ICON_SIZE / 2
+    radius = ICON_SIZE / 2 - _MARGIN
+    ctx.set_line_width(1.5)
+    ctx.arc(cx, cy, radius, 0, 2 * math.pi)
+    ctx.stroke()
+    eye_r = 1.3
+    for ex in (cx - radius * 0.45, cx + radius * 0.45):
+        ctx.arc(ex, cy - radius * 0.25, eye_r, 0, 2 * math.pi)
+        ctx.fill()
+    ctx.arc(cx, cy + radius * 0.05, radius * 0.55, 0.15 * math.pi, 0.85 * math.pi)
+    ctx.stroke()
+    return surface
+
+
 _TOOL_ICON_BUILDERS = {
+    Tool.SELECT: _select_icon,
     Tool.RECTANGLE: _rectangle_icon,
     Tool.ELLIPSE: _ellipse_icon,
     Tool.LINE: _line_icon,
@@ -187,6 +242,7 @@ _TOOL_ICON_BUILDERS = {
     Tool.TEXT: _text_icon,
     Tool.SPEECH_BUBBLE: _speech_bubble_icon,
     Tool.STEP_LABEL: _step_label_icon,
+    Tool.EMOJI: _emoji_icon,
 }
 
 
