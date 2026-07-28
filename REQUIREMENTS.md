@@ -419,6 +419,36 @@ Windows screenshot cross-checked against `ImageEditorForm.Designer.cs`.
   spinner underneath (not two separate controls like the source) - a smaller, cosmetic-only
   simplification versus the label fix itself.
 
+**Action toolbar reordered to match Windows, plus per-shape Cut/Copy/Paste, Settings, Help, and an
+external-editor button — done.** Real order confirmed from `ImageEditorForm.Designer.cs`'s
+`destinationsToolStrip.Items`: `Save, Copy(image), Print | Delete | Cut, Copy(shape), Paste, Undo,
+Redo | Settings | Help`.
+- **Per-shape Cut/Copy/Paste** (new): a single-shape clipboard (`EditorWindow._shape_clipboard`,
+  in-editor state, not the real system clipboard) - distinct from the existing whole-image "Copy"
+  button, which still copies the composited image to the real system clipboard unchanged. Paste
+  offsets the pasted copy by (20, 20) so repeated pastes don't stack exactly on top of the original.
+  Deliberately doesn't read an image *from* the system clipboard (Windows' Paste can also do that) -
+  `ClipboardBackend` here is write-only (`set_image`, no read-back), so that half is out of scope
+  until the port gains clipboard-read support.
+- **Delete** as a toolbar button too now (logic already existed via task #40's Object menu + Del
+  key, just needed a button).
+- **Settings** (new, gear icon): a small `Preferences` dialog - matches Windows' real Settings
+  button, but there isn't much to configure yet, so it's mostly a home for the existing Screenshot
+  Save Location control (moved here from being its own standalone toolbar button, which wasn't a
+  Windows button to begin with) rather than a Windows-parity settings surface.
+- **Help** (new, info icon): a small dialog listing keyboard shortcuts. Windows' own Help opens
+  online docs this port doesn't have, so this is a reasonable placeholder, not a port.
+- **Open in External Editor** (new, paint-palette icon) — **not a Windows feature**, Windows has no
+  such destination; built per explicit request, not a port. Checks for Krita first (specifically
+  requested), then GIMP, checking *both* a PATH executable and a Flatpak install for each - Flatpak
+  is a common install method on Mint (confirmed live: this dev machine's Krita is Flatpak-only, not
+  on PATH at all - a plain `shutil.which` check alone would have missed it entirely). Flatpak
+  detection uses a live `flatpak list --app` query rather than `locate`: `locate` depends on the
+  optional `mlocate`/`plocate` package being installed at all, and its index can be stale until the
+  next `updatedb` run, so a just-installed app might not show up yet; `flatpak list` is authoritative
+  and always current. Saves the composited image to a temp PNG and launches the editor
+  non-blockingly (`subprocess.Popen`), via `flatpak run <app-id>` when that's how it was found.
+
 ### Undo/redo
 **Status: done at the pure-data-model level** (`src/greenshot_linux/core/history.py`) — a generic
 `UndoRedoStack` engine plus mementos over `Layer` (add/delete/change an element, batched as one

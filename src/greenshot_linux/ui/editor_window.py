@@ -91,6 +91,10 @@ no handles - shape_handles returns {} for them.
 
 from __future__ import annotations
 
+import os
+import shutil
+import subprocess
+import tempfile
 from dataclasses import replace as dataclass_replace
 from pathlib import Path
 
@@ -215,6 +219,10 @@ class EditorWindow(Gtk.Window):
         self._default_style = ShapeStyle()
         self._default_obfuscate_amount = 5  # matches ObfuscateShape's own default
         self.selected_shape = None
+        # A single cut/copied shape (Windows' per-shape Cut/Copy/Paste,
+        # distinct from _do_copy's whole-image-to-system-clipboard) -
+        # not the system clipboard, just in-editor state.
+        self._shape_clipboard = None
 
         # drag-to-create state
         self._drag_origin = None
@@ -388,42 +396,43 @@ class EditorWindow(Gtk.Window):
         return box
 
     def _build_action_toolbar(self) -> Gtk.Toolbar:
+        """Matches the real Windows order (confirmed from
+        ImageEditorForm.Designer.cs's destinationsToolStrip.Items):
+        Save, Copy(image), Print | Delete | Cut, Copy(shape), Paste,
+        Undo, Redo | Settings | Help - with one addition of our own,
+        an external-editor button, placed after Settings since Windows
+        has nothing there to anchor a "correct" position for it.
+        """
         toolbar = Gtk.Toolbar()
         toolbar.set_style(Gtk.ToolbarStyle.ICONS)
 
-        undo_button = Gtk.ToolButton(icon_widget=Gtk.Image.new_from_icon_name("edit-undo-symbolic", Gtk.IconSize.SMALL_TOOLBAR))
-        undo_button.set_tooltip_text("Undo")
-        undo_button.connect("clicked", lambda _b: self._do_undo())
-        toolbar.insert(undo_button, -1)
+        def add_button(icon_name: str, tooltip: str, handler) -> Gtk.ToolButton:
+            button = Gtk.ToolButton(icon_widget=Gtk.Image.new_from_icon_name(icon_name, Gtk.IconSize.SMALL_TOOLBAR))
+            button.set_tooltip_text(tooltip)
+            button.connect("clicked", lambda _b: handler())
+            toolbar.insert(button, -1)
+            return button
 
-        redo_button = Gtk.ToolButton(icon_widget=Gtk.Image.new_from_icon_name("edit-redo-symbolic", Gtk.IconSize.SMALL_TOOLBAR))
-        redo_button.set_tooltip_text("Redo")
-        redo_button.connect("clicked", lambda _b: self._do_redo())
-        toolbar.insert(redo_button, -1)
-
-        toolbar.insert(Gtk.SeparatorToolItem(), -1)
-
-        copy_button = Gtk.ToolButton(icon_widget=Gtk.Image.new_from_icon_name("edit-copy-symbolic", Gtk.IconSize.SMALL_TOOLBAR))
-        copy_button.set_tooltip_text("Copy")
-        copy_button.connect("clicked", lambda _b: self._do_copy())
-        toolbar.insert(copy_button, -1)
-
-        save_button = Gtk.ToolButton(icon_widget=Gtk.Image.new_from_icon_name("document-save-symbolic", Gtk.IconSize.SMALL_TOOLBAR))
-        save_button.set_tooltip_text("Save")
-        save_button.connect("clicked", lambda _b: self._do_save())
-        toolbar.insert(save_button, -1)
-
-        print_button = Gtk.ToolButton(icon_widget=Gtk.Image.new_from_icon_name("document-print-symbolic", Gtk.IconSize.SMALL_TOOLBAR))
-        print_button.set_tooltip_text("Print")
-        print_button.connect("clicked", lambda _b: self._do_print())
-        toolbar.insert(print_button, -1)
+        add_button("document-save-symbolic", "Save", self._do_save)
+        add_button("edit-copy-symbolic", "Copy Image to Clipboard", self._do_copy)
+        add_button("document-print-symbolic", "Print", self._do_print)
 
         toolbar.insert(Gtk.SeparatorToolItem(), -1)
+        add_button("edit-delete-symbolic", "Delete", self._do_delete)
 
-        save_location_button = Gtk.ToolButton(icon_widget=Gtk.Image.new_from_icon_name("folder-symbolic", Gtk.IconSize.SMALL_TOOLBAR))
-        save_location_button.set_tooltip_text("Screenshot Save Location")
-        save_location_button.connect("clicked", lambda _b: self._do_choose_save_location())
-        toolbar.insert(save_location_button, -1)
+        toolbar.insert(Gtk.SeparatorToolItem(), -1)
+        add_button("edit-cut-symbolic", "Cut", self._do_cut_shape)
+        add_button("edit-copy-symbolic", "Copy Shape", self._do_copy_shape)
+        add_button("edit-paste-symbolic", "Paste Shape", self._do_paste_shape)
+        add_button("edit-undo-symbolic", "Undo", self._do_undo)
+        add_button("edit-redo-symbolic", "Redo", self._do_redo)
+
+        toolbar.insert(Gtk.SeparatorToolItem(), -1)
+        add_button("preferences-system-symbolic", "Preferences", self._do_show_settings)
+        add_button("applications-graphics-symbolic", "Open in External Editor", self._do_open_in_external_editor)
+
+        toolbar.insert(Gtk.SeparatorToolItem(), -1)
+        add_button("help-about-symbolic", "Help", self._do_show_help)
 
         return toolbar
 
@@ -555,6 +564,34 @@ class EditorWindow(Gtk.Window):
         self.selected_shape = None
         self._drawing_area.queue_draw()
 
+    def _do_cut_shape(self) -> None:
+        self._commit_text_editing_if_active()
+        if self.selected_shape is None:
+            return
+        self._shape_clipboard = self.selected_shape
+        self._do_delete()
+
+    def _do_copy_shape(self) -> None:
+        self._commit_text_editing_if_active()
+        if self.selected_shape is None:
+            return
+        self._shape_clipboard = self.selected_shape
+
+    def _do_paste_shape(self) -> None:
+        # Pastes the last cut/copied *shape*, not an image from the
+        # real system clipboard - Windows' Paste can also embed an
+        # image from the system clipboard, but ClipboardBackend here
+        # is write-only (set_image), with no read-back support built
+        # yet, so that half is out of scope for now.
+        self._commit_text_editing_if_active()
+        if self._shape_clipboard is None:
+            return
+        pasted = translate_shape(self._shape_clipboard, 20, 20)
+        self.layer.add(pasted)
+        self.selected_shape = pasted
+        self.undo_redo.push(AddElementMemento(self.layer, pasted))
+        self._drawing_area.queue_draw()
+
     def _do_bring_to_front(self) -> None:
         # Deliberately not undoable yet - Layer has no z-order memento
         # type (only Add/Delete/ElementChange exist); reordering is
@@ -627,6 +664,135 @@ class EditorWindow(Gtk.Window):
     def _do_print(self) -> None:
         self._commit_text_editing_if_active()
         print_image(self._composited_image(), parent=self)
+
+    def _do_show_settings(self) -> None:
+        """A minimal Preferences dialog - matches Windows' real
+        Settings button (btnSettings, ImageEditorForm.Designer.cs),
+        but there isn't much to configure here yet, so it's a small
+        home for the existing save-location control rather than a
+        Windows-parity settings surface. Grows as more settings show
+        up (see task list).
+        """
+        self._commit_text_editing_if_active()
+        dialog = Gtk.Dialog(title="Preferences", transient_for=self)
+        dialog.add_buttons(Gtk.STOCK_CLOSE, Gtk.ResponseType.CLOSE)
+        content = dialog.get_content_area()
+        content.set_border_width(12)
+        content.set_spacing(6)
+
+        row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        row.pack_start(Gtk.Label(label="Screenshot Save Location:"), False, False, 0)
+        location_label = Gtk.Label(label=str(get_output_directory()))
+        row.pack_start(location_label, True, True, 0)
+        change_button = Gtk.Button(label="Change...")
+
+        def on_change(_button):
+            self._do_choose_save_location()
+            location_label.set_text(str(get_output_directory()))
+
+        change_button.connect("clicked", on_change)
+        row.pack_start(change_button, False, False, 0)
+        content.pack_start(row, False, False, 0)
+
+        dialog.show_all()
+        dialog.run()
+        dialog.destroy()
+
+    # Not a Windows feature - Windows has no "open in an external
+    # editor" destination. A new addition, not a port, per explicit
+    # request. Krita is tried first since it was specifically
+    # requested, with GIMP as a fallback. (name, PATH command, Flatpak
+    # app ID) - checks both, since Flatpak is how at least one of
+    # these is commonly installed on Mint (confirmed live: this dev
+    # machine has Krita only via Flatpak, not on PATH - a plain
+    # shutil.which("krita") check alone would have missed it).
+    _EXTERNAL_EDITOR_CANDIDATES = (
+        ("Krita", "krita", "org.kde.krita"),
+        ("GIMP", "gimp", "org.gimp.GIMP"),
+    )
+
+    @staticmethod
+    def _installed_flatpak_apps() -> set:
+        if shutil.which("flatpak") is None:
+            return set()
+        try:
+            result = subprocess.run(
+                ["flatpak", "list", "--app", "--columns=application"],
+                capture_output=True, text=True, timeout=5, check=True,
+            )
+        except (subprocess.SubprocessError, OSError):
+            return set()
+        return {line.strip() for line in result.stdout.splitlines() if line.strip()}
+
+    def _find_external_editor_command(self):
+        """The argv prefix to launch the first available candidate
+        editor, or None if none are installed. Checks a plain PATH
+        executable first, then a Flatpak install for the same
+        candidate - preferring a live `flatpak list` query over
+        `locate`: `locate` depends on the mlocate/plocate package
+        being installed at all, and its index can be stale until the
+        next `updatedb` run, so a just-installed app might not show up
+        yet; `flatpak list` is authoritative and always current.
+        """
+        flatpak_apps = None
+        for _name, path_command, flatpak_id in self._EXTERNAL_EDITOR_CANDIDATES:
+            if shutil.which(path_command):
+                return [path_command]
+            if flatpak_apps is None:
+                flatpak_apps = self._installed_flatpak_apps()
+            if flatpak_id in flatpak_apps:
+                return ["flatpak", "run", flatpak_id]
+        return None
+
+    def _do_open_in_external_editor(self) -> None:
+        self._commit_text_editing_if_active()
+        command = self._find_external_editor_command()
+        if command is None:
+            dialog = Gtk.MessageDialog(
+                transient_for=self, message_type=Gtk.MessageType.INFO, buttons=Gtk.ButtonsType.OK,
+                text="No external image editor found",
+            )
+            names = ", ".join(name for name, _, _ in self._EXTERNAL_EDITOR_CANDIDATES)
+            dialog.format_secondary_text(f"Tried: {names} (checked both PATH and Flatpak). Install one of these to use this button.")
+            dialog.run()
+            dialog.destroy()
+            return
+        fd, path = tempfile.mkstemp(suffix=".png", prefix="greenshot-linux-")
+        os.close(fd)
+        save_image_to_file(self._composited_image(), path)
+        subprocess.Popen(command + [path])
+
+    _HELP_TEXT = (
+        "Tools\n"
+        "  1–0   Select a drawing tool\n"
+        "  M      Emoji tool\n"
+        "\n"
+        "Editing\n"
+        "  Delete           Delete the selected shape\n"
+        "  Double-click     Re-edit an existing text/speech bubble/emoji shape\n"
+        "  Enter            Commit a text/speech bubble/emoji edit\n"
+        "  Escape           Cancel a text/speech bubble/emoji edit\n"
+        "\n"
+        "Actions\n"
+        "  Ctrl+Z / Ctrl+Y  Undo / Redo\n"
+        "  Ctrl+C           Copy the whole image to the clipboard\n"
+        "  Ctrl+S           Save\n"
+        "  Ctrl+P           Print\n"
+    )
+
+    def _do_show_help(self) -> None:
+        self._commit_text_editing_if_active()
+        dialog = Gtk.Dialog(title="Greenshot Linux Help", transient_for=self)
+        dialog.add_buttons(Gtk.STOCK_CLOSE, Gtk.ResponseType.CLOSE)
+        content = dialog.get_content_area()
+        content.set_border_width(12)
+        label = Gtk.Label(label=self._HELP_TEXT)
+        label.set_xalign(0)
+        label.set_selectable(True)
+        content.pack_start(label, True, True, 0)
+        dialog.show_all()
+        dialog.run()
+        dialog.destroy()
 
     def _update_editing_text(self, new_text: str) -> None:
         old_shape = self._editing_text_shape
