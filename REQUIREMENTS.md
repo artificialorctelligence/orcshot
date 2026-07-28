@@ -57,6 +57,22 @@ captured mid-drag, and cropped from that same frozen copy rather than re-grabbin
 live selection rectangle with everything outside it dimmed (even-odd fill rule "hole", not clip-
 region combination); releasing crops and opens the editor; Escape cancels.
 
+**Magnifier loupe + selection size label — done** (`src/greenshot_linux/core/magnifier.py` for the
+pure positioning/sizing math, unit tested; `src/greenshot_linux/ui/magnifier.py` for the Cairo
+drawing, headlessly tested like `ui/render.py`). Ported from the Windows source's `CaptureForm.cs`
+(`DrawZoom`/`VerifyZoomAnimation`): a circular, nearest-neighbor-zoomed preview of the 25x25px
+region around the cursor (diameter = `min(screen_w, screen_h) // 5`, rounded down to a multiple of
+4), with a white ring border and a black-on-white precision crosshair marking the exact cursor
+pixel (a small gap right at that pixel, not a continuous cross, so it stays visible). Positioned
+20px from the cursor, trying Windows' own priority order (bottom-right, bottom-left, top-right,
+top-left of the cursor) for whichever quadrant both stays on screen and avoids the in-progress
+selection rectangle, falling back to allowing that overlap only if no quadrant can avoid it.
+Deliberately skips Windows' fade/slide-in animation for the loupe's appearance - polish, not core
+behavior. Also draws a "W x H" label near the cursor once a drag is in progress, matching the
+source's `sizeText`. Verified with `FakeCaptureBackend` (a synthetic coordinate-pattern image, no
+real X11 grab) and by calling `_on_draw` directly against an offscreen Cairo surface - consistent
+with this project's standing caution around not rendering live desktop content for inspection.
+
 **Full screen and Active window are also done.** `src/greenshot_linux/capture/modes.py` holds the
 pure "which Rect to grab" logic (`full_screen_region`, `active_window_region`), unit tested against
 `FakeCaptureBackend`/`FakeWindowEnumerator` — `active_window_region` clamps the focused window's

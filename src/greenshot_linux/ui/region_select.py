@@ -17,6 +17,20 @@ the final region from that same frozen copy rather than re-grabbing -
 both so the displayed backdrop can't drift from what's actually
 captured (the desktop could otherwise change mid-drag) and to avoid a
 second X11 round-trip.
+
+Also draws a magnifier loupe that follows the cursor (a circular,
+nearest-neighbor-zoomed preview of the pixels right around it, plus a
+precision crosshair marking the exact cursor pixel) and, once a drag
+is in progress, a "W x H" label showing the selection's current pixel
+dimensions - both ported from the Windows source's CaptureForm.cs; see
+core/magnifier.py and ui/magnifier.py's docstrings for the exact
+algorithm this was traced from. Positioning avoids the current
+selection rect where possible so the loupe doesn't cover what you're
+trying to see. Verified with a FakeCaptureBackend (synthetic
+coordinate-pattern image, no real X11 grab) and by calling _on_draw
+directly against an offscreen Cairo surface - never a real desktop
+capture for inspection, consistent with this project's standing
+caution around viewing live desktop content.
 """
 
 from __future__ import annotations
@@ -30,7 +44,9 @@ from gi.repository import Gdk, Gtk
 
 from greenshot_linux.capture.backend import CaptureBackend
 from greenshot_linux.core.geometry import Rect
+from greenshot_linux.core.magnifier import magnifier_diameter, magnifier_offset
 from greenshot_linux.ui.cairo_convert import numpy_to_cairo_surface
+from greenshot_linux.ui.magnifier import draw_magnifier
 
 _SELECTION_BORDER = (0.1, 0.6, 1.0)
 _DIM_ALPHA = 0.5
@@ -56,6 +72,7 @@ class RegionSelectWindow(Gtk.Window):
 
         self._drag_origin = None
         self._selection = None
+        self._cursor_pos = None
 
         self.set_app_paintable(True)
         self.set_keep_above(True)
@@ -99,7 +116,32 @@ class RegionSelectWindow(Gtk.Window):
             ctx.rectangle(s.left, s.top, s.width, s.height)
             ctx.stroke()
             ctx.restore()
+
+        if self._cursor_pos is not None:
+            diameter = magnifier_diameter(self._bounds.width, self._bounds.height)
+            screen_rect = Rect(0, 0, self._bounds.width, self._bounds.height)
+            offset = magnifier_offset(self._cursor_pos, screen_rect, self._selection, diameter)
+            draw_magnifier(ctx, self._frozen_image, self._cursor_pos, offset, diameter)
+            if self._selection is not None:
+                self._draw_size_label(ctx, self._selection)
         return False
+
+    def _draw_size_label(self, ctx, selection: Rect) -> None:
+        text = f"{selection.width} x {selection.height}"
+        cx, cy = self._cursor_pos
+        ctx.save()
+        ctx.select_font_face("sans-serif", cairo.FONT_SLANT_NORMAL, cairo.FONT_WEIGHT_BOLD)
+        ctx.set_font_size(13)
+        extents = ctx.text_extents(text)
+        pad = 4
+        x, y = cx + 14, cy + 28
+        ctx.set_source_rgba(0, 0, 0, 0.75)
+        ctx.rectangle(x - pad, y - extents.height - pad, extents.width + 2 * pad, extents.height + 2 * pad)
+        ctx.fill()
+        ctx.set_source_rgb(1, 1, 1)
+        ctx.move_to(x, y)
+        ctx.show_text(text)
+        ctx.restore()
 
     def _on_button_press(self, widget, event):
         self._drag_origin = (int(event.x), int(event.y))
@@ -108,10 +150,10 @@ class RegionSelectWindow(Gtk.Window):
         return True
 
     def _on_motion(self, widget, event):
-        if self._drag_origin is None:
-            return False
-        x0, y0 = self._drag_origin
-        self._selection = Rect.from_points(x0, y0, int(event.x), int(event.y))
+        self._cursor_pos = (int(event.x), int(event.y))
+        if self._drag_origin is not None:
+            x0, y0 = self._drag_origin
+            self._selection = Rect.from_points(x0, y0, int(event.x), int(event.y))
         widget.queue_draw()
         return True
 
