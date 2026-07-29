@@ -40,16 +40,23 @@ gi.require_version("Gdk", "3.0")
 from gi.repository import Gdk, Gtk
 
 from greenshot_linux.capture.backend import CaptureBackend
+from greenshot_linux.capture.cursor import CursorBackend
 from greenshot_linux.capture.window import WindowEnumerator
+from greenshot_linux.core.cursor_capture import cursor_shape_for_capture
 from greenshot_linux.core.geometry import Rect
 from greenshot_linux.ui.cairo_convert import numpy_to_cairo_surface
+from greenshot_linux.ui.capture_modes import should_capture_cursor
+from greenshot_linux.ui.render import render_cursor
 
 _SELECTION_BORDER = (0.1, 0.6, 1.0)
 _DIM_ALPHA = 0.5
 
 
 class WindowPickerWindow(Gtk.Window):
-    def __init__(self, capture_backend: CaptureBackend, window_enumerator: WindowEnumerator, on_window_selected, on_cancelled=None):
+    def __init__(
+        self, capture_backend: CaptureBackend, window_enumerator: WindowEnumerator, on_window_selected,
+        on_cancelled=None, capture_mouse_cursor: bool = True, cursor_backend: CursorBackend = None,
+    ):
         super().__init__(type=Gtk.WindowType.POPUP)
         self._on_window_selected = on_window_selected
         self._on_cancelled = on_cancelled
@@ -59,6 +66,24 @@ class WindowPickerWindow(Gtk.Window):
         self._surface = numpy_to_cairo_surface(self._frozen_image)
         self._windows = [w for w in window_enumerator.list_windows() if not w.is_minimized]
         self._hovered = None
+
+        # Same sampling/toggle scheme as region_select.py's
+        # RegionSelectWindow - see that module's __init__ docstring.
+        self._cursor_snapshot = None
+        self._cursor_preview_shape = None
+        if should_capture_cursor(capture_mouse_cursor):
+            if cursor_backend is None:
+                from greenshot_linux.capture.x11_cursor import X11CursorBackend
+
+                cursor_backend = X11CursorBackend()
+            self._cursor_snapshot = cursor_backend.cursor_snapshot()
+        if self._cursor_snapshot is not None:
+            snap = self._cursor_snapshot
+            self._cursor_preview_shape = cursor_shape_for_capture(
+                snap.image, snap.x, snap.y, snap.hotspot_x, snap.hotspot_y,
+                capture_rect=Rect(self._bounds.left, self._bounds.top, self._bounds.right, self._bounds.bottom),
+            )
+        self._cursor_visible = self._cursor_snapshot is not None
 
         self.set_app_paintable(True)
         self.set_keep_above(True)
@@ -112,6 +137,9 @@ class WindowPickerWindow(Gtk.Window):
             ctx.rectangle(r.left, r.top, r.width, r.height)
             ctx.stroke()
             ctx.restore()
+
+        if self._cursor_visible and self._cursor_preview_shape is not None:
+            render_cursor(ctx, self._cursor_preview_shape)
         return False
 
     def _on_motion(self, widget, event):
@@ -137,7 +165,14 @@ class WindowPickerWindow(Gtk.Window):
             return True
 
         cropped = self._frozen_image[clamped.top:clamped.bottom, clamped.left:clamped.right]
-        self._on_window_selected(cropped, hovered)
+        cursor_shape = None
+        if self._cursor_visible and self._cursor_snapshot is not None:
+            captured_rect = hovered.bounds.intersect(self._bounds)
+            snap = self._cursor_snapshot
+            cursor_shape = cursor_shape_for_capture(
+                snap.image, snap.x, snap.y, snap.hotspot_x, snap.hotspot_y, captured_rect,
+            )
+        self._on_window_selected(cropped, hovered, cursor_shape)
         return True
 
     def _on_key_press(self, widget, event):
@@ -146,11 +181,16 @@ class WindowPickerWindow(Gtk.Window):
             if self._on_cancelled is not None:
                 self._on_cancelled()
             return True
+        if event.keyval in (Gdk.KEY_m, Gdk.KEY_M) and self._cursor_snapshot is not None:
+            self._cursor_visible = not self._cursor_visible
+            widget.queue_draw()
+            return True
         return False
 
 
 def start_window_picker(
-    capture_backend: CaptureBackend = None, window_enumerator: WindowEnumerator = None, on_captured=None
+    capture_backend: CaptureBackend = None, window_enumerator: WindowEnumerator = None, on_captured=None,
+    capture_mouse_cursor: bool = True, cursor_backend: CursorBackend = None,
 ) -> WindowPickerWindow:
     """Show the overlay and show the destination picker on whichever
     window gets clicked. Both backends are injectable (for tests/fakes);
@@ -168,14 +208,17 @@ def start_window_picker(
 
         window_enumerator = X11WindowEnumerator()
 
-    def on_selected(image, window_info):
+    def on_selected(image, window_info, cursor_shape):
         if on_captured is not None:
             on_captured(window_info.bounds)
         from greenshot_linux.ui.destination_picker import show_destination_picker
 
-        show_destination_picker(image)
+        show_destination_picker(image, cursor_shape=cursor_shape)
 
-    window = WindowPickerWindow(capture_backend, window_enumerator, on_selected)
+    window = WindowPickerWindow(
+        capture_backend, window_enumerator, on_selected,
+        capture_mouse_cursor=capture_mouse_cursor, cursor_backend=cursor_backend,
+    )
     window.show_all()
     window.grab_focus()
     return window

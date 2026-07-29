@@ -43,17 +43,24 @@ gi.require_version("Gdk", "3.0")
 from gi.repository import Gdk, Gtk
 
 from greenshot_linux.capture.backend import CaptureBackend
+from greenshot_linux.capture.cursor import CursorBackend
+from greenshot_linux.core.cursor_capture import cursor_shape_for_capture
 from greenshot_linux.core.geometry import Rect
 from greenshot_linux.core.magnifier import magnifier_diameter, magnifier_offset
 from greenshot_linux.ui.cairo_convert import numpy_to_cairo_surface
+from greenshot_linux.ui.capture_modes import should_capture_cursor
 from greenshot_linux.ui.magnifier import draw_magnifier
+from greenshot_linux.ui.render import render_cursor
 
 _SELECTION_BORDER = (0.1, 0.6, 1.0)
 _DIM_ALPHA = 0.5
 
 
 class RegionSelectWindow(Gtk.Window):
-    def __init__(self, capture_backend: CaptureBackend, on_region_selected, on_cancelled=None):
+    def __init__(
+        self, capture_backend: CaptureBackend, on_region_selected, on_cancelled=None,
+        capture_mouse_cursor: bool = True, cursor_backend: CursorBackend = None,
+    ):
         # POPUP (X11 override-redirect) rather than TOPLEVEL: a normal
         # toplevel gets its size clamped by the window manager to a
         # single monitor's work area (confirmed empirically - a 4480x1440
@@ -69,6 +76,33 @@ class RegionSelectWindow(Gtk.Window):
         self._bounds = capture_backend.screen_layout().virtual_bounds
         self._frozen_image = capture_backend.grab(self._bounds)
         self._surface = numpy_to_cairo_surface(self._frozen_image)
+
+        # Sampled once, right here - matching Windows' own timing
+        # (CaptureHelper.cs samples the cursor before the interactive
+        # CaptureForm is even shown, CaptureHelper.cs:315-329), not
+        # wherever the drag happens to end. Placement math needs the
+        # final *selected* rect, not known until button-release, so
+        # only the raw snapshot is captured now; core.cursor_capture's
+        # placement+intersection check runs later in
+        # _on_button_release. cursor_visible is the live "M" key
+        # toggle's state (CaptureForm.cs:307-311) - starts at whatever
+        # should_capture_cursor decided, can flip during the drag.
+        self._cursor_snapshot = None
+        self._cursor_preview_shape = None
+        if should_capture_cursor(capture_mouse_cursor):
+            if cursor_backend is None:
+                from greenshot_linux.capture.x11_cursor import X11CursorBackend
+
+                cursor_backend = X11CursorBackend()
+            self._cursor_snapshot = cursor_backend.cursor_snapshot()
+        if self._cursor_snapshot is not None:
+            snap = self._cursor_snapshot
+            local_bounds = cursor_shape_for_capture(
+                snap.image, snap.x, snap.y, snap.hotspot_x, snap.hotspot_y,
+                capture_rect=Rect(self._bounds.left, self._bounds.top, self._bounds.right, self._bounds.bottom),
+            )
+            self._cursor_preview_shape = local_bounds
+        self._cursor_visible = self._cursor_snapshot is not None
 
         self._drag_origin = None
         self._selection = None
@@ -116,6 +150,12 @@ class RegionSelectWindow(Gtk.Window):
             ctx.rectangle(s.left, s.top, s.width, s.height)
             ctx.stroke()
             ctx.restore()
+
+        if self._cursor_visible and self._cursor_preview_shape is not None:
+            # live preview of the auto-captured cursor overlay, at its
+            # one sampled position (see __init__) - not the live mouse
+            # position, matching Windows' own CaptureForm.cs:1027-1030.
+            render_cursor(ctx, self._cursor_preview_shape)
 
         if self._cursor_pos is not None:
             diameter = magnifier_diameter(self._bounds.width, self._bounds.height)
@@ -170,7 +210,13 @@ class RegionSelectWindow(Gtk.Window):
                 local.left + self._bounds.left, local.top + self._bounds.top,
                 local.right + self._bounds.left, local.bottom + self._bounds.top,
             )
-            self._on_region_selected(cropped, absolute)
+            cursor_shape = None
+            if self._cursor_visible and self._cursor_snapshot is not None:
+                snap = self._cursor_snapshot
+                cursor_shape = cursor_shape_for_capture(
+                    snap.image, snap.x, snap.y, snap.hotspot_x, snap.hotspot_y, absolute,
+                )
+            self._on_region_selected(cropped, absolute, cursor_shape)
         elif self._on_cancelled is not None:
             self._on_cancelled()
         return True
@@ -181,10 +227,20 @@ class RegionSelectWindow(Gtk.Window):
             if self._on_cancelled is not None:
                 self._on_cancelled()
             return True
+        if event.keyval in (Gdk.KEY_m, Gdk.KEY_M) and self._cursor_snapshot is not None:
+            # matches Windows' own CaptureForm.cs:307-311 "M" toggle -
+            # only meaningful if there's an actual cursor snapshot to
+            # show or hide.
+            self._cursor_visible = not self._cursor_visible
+            widget.queue_draw()
+            return True
         return False
 
 
-def start_region_capture(capture_backend: CaptureBackend = None, on_captured=None) -> RegionSelectWindow:
+def start_region_capture(
+    capture_backend: CaptureBackend = None, on_captured=None,
+    capture_mouse_cursor: bool = True, cursor_backend: CursorBackend = None,
+) -> RegionSelectWindow:
     """Show the overlay and show the destination picker on whatever
     gets selected. capture_backend is injectable (for tests/fakes); the
     default constructs the real X11 adapter lazily so importing this
@@ -197,14 +253,16 @@ def start_region_capture(capture_backend: CaptureBackend = None, on_captured=Non
 
         capture_backend = X11CaptureBackend()
 
-    def on_selected(image, absolute_rect):
+    def on_selected(image, absolute_rect, cursor_shape):
         if on_captured is not None:
             on_captured(absolute_rect)
         from greenshot_linux.ui.destination_picker import show_destination_picker
 
-        show_destination_picker(image)
+        show_destination_picker(image, cursor_shape=cursor_shape)
 
-    window = RegionSelectWindow(capture_backend, on_selected)
+    window = RegionSelectWindow(
+        capture_backend, on_selected, capture_mouse_cursor=capture_mouse_cursor, cursor_backend=cursor_backend,
+    )
     window.show_all()
     window.grab_focus()
     return window

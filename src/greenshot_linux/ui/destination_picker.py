@@ -43,6 +43,19 @@ Anchoring to the screen's root window instead (always resolvable,
 regardless of what else is running) at the raw pointer coordinates
 fixes it; confirmed by reproducing the same scenario with this fix in
 place and observing the menu actually becomes visible/mapped.
+
+``cursor_shape``, if given (see ui/capture_modes.py's
+capture_cursor_shape), is the auto-captured mouse cursor as a
+CursorShape. Windows bakes the cursor into the Surface it exports
+regardless of destination (Surface.cs:552-565 adds it as an element
+before any destination runs), so every non-Edit destination here
+composites it into a flat copy of the image via ui/composite.py -
+the same rendering pipeline the live editor uses, so what gets
+saved/copied/printed is pixel-identical to what editing would show.
+Edit instead adds it as a live, movable/deletable/auto-selected Layer
+element (matching CursorContainer's real behavior - it's not baked
+into the base image there), the same tail pattern
+editor_window.py's _do_insert_image uses.
 """
 
 from __future__ import annotations
@@ -57,7 +70,10 @@ gi.require_version("Gdk", "3.0")
 from gi.repository import Gdk, Gtk
 
 from greenshot_linux.capture.clipboard import ClipboardBackend
+from greenshot_linux.core.drawing import Layer
+from greenshot_linux.core.shapes import CursorShape
 from greenshot_linux.settings import get_output_directory, quick_save_filename
+from greenshot_linux.ui.composite import composite_to_numpy
 from greenshot_linux.ui.file_export import save_image_to_file
 from greenshot_linux.ui.printing import print_image
 
@@ -68,20 +84,33 @@ def _default_clipboard_backend() -> ClipboardBackend:
     return X11ClipboardBackend()
 
 
-def _open_editor(image: np.ndarray) -> None:
+def _flattened(image: np.ndarray, cursor_shape: CursorShape = None) -> np.ndarray:
+    if cursor_shape is None:
+        return image
+    layer = Layer()
+    layer.add(cursor_shape)
+    return composite_to_numpy(image, layer)
+
+
+def _open_editor(image: np.ndarray, cursor_shape: CursorShape = None) -> None:
     from greenshot_linux.ui.editor_window import EditorWindow
+    from greenshot_linux.core.history import AddElementMemento
 
     editor = EditorWindow(image)
+    if cursor_shape is not None:
+        editor.layer.add(cursor_shape)
+        editor.selected_shape = cursor_shape
+        editor.undo_redo.push(AddElementMemento(editor.layer, cursor_shape))
     editor.show_all()
 
 
-def _quick_save(image: np.ndarray) -> None:
+def _quick_save(image: np.ndarray, cursor_shape: CursorShape = None) -> None:
     directory = get_output_directory()
     directory.mkdir(parents=True, exist_ok=True)
-    save_image_to_file(image, directory / quick_save_filename(datetime.now()))
+    save_image_to_file(_flattened(image, cursor_shape), directory / quick_save_filename(datetime.now()))
 
 
-def _save_as(image: np.ndarray) -> None:
+def _save_as(image: np.ndarray, cursor_shape: CursorShape = None) -> None:
     dialog = Gtk.FileChooserDialog(title="Save Screenshot As", action=Gtk.FileChooserAction.SAVE)
     dialog.add_buttons(
         Gtk.STOCK_CANCEL, Gtk.ResponseType.CANCEL,
@@ -92,12 +121,14 @@ def _save_as(image: np.ndarray) -> None:
     dialog.set_do_overwrite_confirmation(True)
     try:
         if dialog.run() == Gtk.ResponseType.OK:
-            save_image_to_file(image, dialog.get_filename())
+            save_image_to_file(_flattened(image, cursor_shape), dialog.get_filename())
     finally:
         dialog.destroy()
 
 
-def show_destination_picker(image: np.ndarray, clipboard_backend: ClipboardBackend = None) -> Gtk.Menu:
+def show_destination_picker(
+    image: np.ndarray, clipboard_backend: ClipboardBackend = None, cursor_shape: CursorShape = None
+) -> Gtk.Menu:
     """Pops up the picker at the current pointer position. Returns the
     Gtk.Menu - callers don't need it (GTK keeps it alive while shown),
     but tests/scripts may want to inspect it.
@@ -109,14 +140,14 @@ def show_destination_picker(image: np.ndarray, clipboard_backend: ClipboardBacke
 
     def add_item(label: str, handler) -> None:
         item = Gtk.MenuItem(label=label)
-        item.connect("activate", lambda _item: handler(image))
+        item.connect("activate", lambda _item: handler(image, cursor_shape))
         menu.append(item)
 
-    add_item("Copy to Clipboard", clipboard_backend.set_image)
+    add_item("Copy to Clipboard", lambda img, cs: clipboard_backend.set_image(_flattened(img, cs)))
     add_item("Save", _quick_save)
     add_item("Save As...", _save_as)
     add_item("Edit", _open_editor)
-    add_item("Print", print_image)
+    add_item("Print", lambda img, cs: print_image(_flattened(img, cs)))
 
     menu.show_all()
     seat = Gdk.Display.get_default().get_default_seat()

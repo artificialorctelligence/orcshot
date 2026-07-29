@@ -12,10 +12,21 @@ from typing import Optional, Sequence
 import numpy as np
 
 from greenshot_linux.capture.backend import Monitor, ScreenLayout
+from greenshot_linux.capture.cursor import CursorSnapshot
 from greenshot_linux.capture.window import WindowInfo, is_capturable
 from greenshot_linux.core.geometry import Rect
 
 DEFAULT_MONITORS = (Monitor("FAKE-1", Rect(0, 0, 1920, 1080), is_primary=True),)
+
+
+def _default_cursor_image() -> np.ndarray:
+    # a solid 4x4 opaque red square - deliberately not a realistic
+    # arrow-cursor silhouette, so a test can't mistake "the fake's
+    # default shape happens to look right" for real coverage of the
+    # placement math, which only cares about size/position/hotspot.
+    image = np.zeros((4, 4, 4), dtype=np.uint8)
+    image[:, :] = (255, 0, 0, 255)
+    return image
 
 
 def _coordinate_pattern(bounds: Rect) -> np.ndarray:
@@ -77,6 +88,17 @@ class FakeWindowEnumerator:
 
     def active_window(self) -> Optional[WindowInfo]:
         return self._active
+
+
+class FakeCursorBackend:
+    def __init__(self, snapshot: CursorSnapshot | None = None):
+        if snapshot is None:
+            image = _default_cursor_image()
+            snapshot = CursorSnapshot(image=image, x=0, y=0, hotspot_x=0, hotspot_y=0)
+        self._snapshot = snapshot
+
+    def cursor_snapshot(self) -> CursorSnapshot | None:
+        return self._snapshot
 
 
 class FakeClipboardBackend:

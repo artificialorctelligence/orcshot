@@ -119,7 +119,12 @@ from greenshot_linux.core.history import (
 from greenshot_linux.core.shapes import (
     ImageShape, ObfuscateShape, ShapeStyle, SpeechBubbleShape, StepLabelShape, SvgShape, TextShape,
 )
-from greenshot_linux.settings import get_output_directory, set_output_directory
+from greenshot_linux.settings import (
+    get_capture_mouse_cursor,
+    get_output_directory,
+    set_capture_mouse_cursor,
+    set_output_directory,
+)
 from greenshot_linux.resources import LOGO_PATH
 from greenshot_linux.core.tools import (
     Tool,
@@ -773,6 +778,15 @@ class EditorWindow(Gtk.Window):
         change_button.connect("clicked", on_change)
         row.pack_start(change_button, False, False, 0)
         content.pack_start(row, False, False, 0)
+
+        # Faithful port of Windows' "Capture mousepointer" checkbox
+        # (ICoreConfiguration.cs:79-81, default True) - see
+        # ui/capture_modes.py's module docstring for how this
+        # interacts with the tray-menu-vs-hotkey asymmetry.
+        cursor_check = Gtk.CheckButton(label="Capture mouse cursor")
+        cursor_check.set_active(get_capture_mouse_cursor())
+        cursor_check.connect("toggled", lambda btn: set_capture_mouse_cursor(btn.get_active()))
+        content.pack_start(cursor_check, False, False, 0)
 
         dialog.show_all()
         dialog.run()

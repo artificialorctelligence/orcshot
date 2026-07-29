@@ -136,6 +136,83 @@ Cinnamon/Muffin, silently cutting off the bottom of the taller monitor. `Gtk.Win
 giving exact geometry across the whole virtual screen — the standard technique other screenshot
 tools use for this kind of overlay, not something to rediscover per-adapter later.
 
+**Cursor auto-capture — done, faithfully replicating Windows including its tray-menu-vs-hotkey
+asymmetry.** Windows samples the mouse cursor via Win32 `GetCursorInfo`/`GetIconInfo`
+(`WindowCapture.CaptureCursor`, `Greenshot.Base/Core/WindowCapture.cs:81-101`); this port uses the
+X11 XFixes extension's `GetCursorImage` request instead (`capture/x11_cursor.py`, via `python-xlib`
+— already a project dependency), the direct protocol equivalent. Confirmed live against this
+machine's own real mouse pointer icon (never desktop content — just the small cursor bitmap, same
+precedent as the earlier Flatpak-detection live queries): pixel format is 32-bit premultiplied
+ARGB with alpha in the top byte, matching Cairo's own layout exactly — an opaque black cursor pixel
+round-tripped as `0xff000000` exactly as expected. Un-premultiplied on the way into this codebase's
+numpy RGBA arrays, since every other image source here synthesizes full opacity and this is the
+first one with genuinely partial-alpha (anti-aliased) pixels — see `ui/cairo_convert.py`'s
+documented premultiplication limitation, which this inherits rather than separately breaks.
+
+- **Setting**: "Capture mouse cursor" checkbox in the editor's Preferences dialog
+  (`editor_window.py`'s `_do_show_settings`), persisted via `settings.py`'s
+  `get_capture_mouse_cursor`/`set_capture_mouse_cursor` (default `True`) — faithful port of
+  `ICoreConfiguration.cs:79-81`'s `CaptureMousepointer` (also default `True`).
+- **Placement math** (`core/cursor_capture.py`, pure/tested): `cursor_bounds_in_capture` is a
+  direct port of `WindowCapture.cs:81-97`'s formula (cursor's absolute hotspot position, minus the
+  cursor bitmap's own hotspot offset, minus the capture region's screen origin).
+  `cursor_shape_for_capture` adds the intersection check ported from `Surface.cs:552-565` — a
+  cursor over a different monitor than the captured region is dropped, not clamped or shown
+  anyway.
+- **Not baked into the base image — a movable/deletable/auto-selected layer element for Edit,
+  composited only for the other four destinations.** Windows adds the cursor as a real
+  `CursorContainer` element on the `Surface` (`CaptureHelper.cs:736`'s comment: "elements can be
+  added automatically (like the mouse cursor)"), auto-selected, and every destination (Save/Copy/
+  Print included) exports that same rendered Surface. This port's Copy/Save/Save As/Print
+  destinations previously operated on a flat numpy array with no Layer at all
+  (`ui/destination_picker.py`) — extended to composite the cursor in via a one-shape `Layer` +
+  `ui/composite.py`'s existing `composite_to_numpy` (the exact same rendering pipeline the live
+  editor uses) for those four, while Edit instead adds the same `CursorShape` as a real, auto-
+  selected `Layer` element with undo support (`editor_window.py`'s `_do_insert_image` tail pattern)
+  — so cursor is present everywhere Windows shows it, movable/deletable only where Windows'
+  architecture would actually let you do that too (in the editor).
+- **Tray-menu-vs-hotkey asymmetry replicated exactly, per explicit decision** (not simplified away):
+  Windows hides the cursor unconditionally when a capture is triggered from `MainForm.cs`'s tray
+  icon/context menu (`_captureMouseCursor=false` at every one of those call sites — e.g. region:
+  `MainForm.cs:821/1269`, full screen: `845/1272`, window-interactive: `861/1275`), but respects the
+  Preferences setting for hotkey-triggered captures (`HotkeyHelper.cs` passes `true` at every
+  binding) — because by the time you've clicked the tray icon or a menu item, your mouse is over
+  the icon/menu, not your content. This port's tray items and hotkeys previously called the exact
+  same `GreenshotApplication.start_*_capture` methods with no way to distinguish source
+  (`app.py:151-177`) — now every one of those methods takes a `capture_mouse_cursor: bool = True`
+  parameter (mirroring `CaptureHelper.cs`'s own `_captureMouseCursor` constructor parameter, see
+  `PluginHelper.cs:141`'s doc comment), threaded down through `ui/capture_modes.py`,
+  `region_select.py`, and `window_picker.py`; the tray icon's default click and every tray menu item
+  now explicitly pass `capture_mouse_cursor=False`, while the CLI-option path used by the hotkey
+  daemon (`do_command_line`) uses the default `True`.
+- **Interactive modes (region select, window picker) sample the cursor once, at overlay
+  construction — not at drag-release, not tracking the live mouse.** Matches Windows' own timing:
+  `CaptureHelper.cs` samples the cursor before the interactive `CaptureForm` is even shown
+  (`CaptureHelper.cs:315-329`), so the cursor baked into the final result is wherever the mouse was
+  when the capture was *triggered*, not wherever the selection ends up. A live preview of the
+  sampled cursor is drawn on the frozen backdrop throughout the drag/hover (reusing
+  `ui/render.py`'s real `render_cursor`, so it can't visually drift from the final render), and an
+  "M" key toggle flips visibility live during selection — faithful port of
+  `CaptureForm.cs:307-311` — with the toggle's state at completion deciding whether the cursor
+  makes it into the final result. Live preview is a bounded scope decision: it shows the cursor's
+  one sampled position/appearance exactly once, not a moving/re-sampled preview — Windows' own
+  `CaptureForm` doesn't re-sample either.
+- **Full-screen/active-window/last-region modes** (`ui/capture_modes.py`) apply cursor capture
+  the same way, non-interactively — grab region, grab cursor, compute placement against that same
+  region, done in one pass.
+- Verified live end-to-end at every layer: the real XFixes mechanism against this machine's real
+  cursor icon (contract-tested, `tests/unit/capture/test_cursor_backend_contract.py`, parametrized
+  over both the fake and the real X11 backend); the Preferences checkbox round-tripping through a
+  sandboxed `XDG_CONFIG_HOME` (never the real config file); the full pipeline with
+  `FakeCaptureBackend`/`FakeCursorBackend` end to end for all five capture modes, confirming correct
+  placement, the intersection-drop case, the M-key toggle, and that Copy/Edit route the cursor
+  through their respective (composite vs. movable-element) paths correctly; the tray-vs-hotkey
+  `capture_mouse_cursor` threading through every `GreenshotApplication` method; and an offscreen
+  Cairo render of both interactive overlays' `_on_draw` (cursor preview + magnifier together) to
+  exercise the actual drawing path, not just the placement math. No real desktop content was ever
+  captured or viewed for any of this — only the small cursor icon (never a privacy concern) and
+  synthetic fake image data.
+
 ### Annotation tools (faithful port of `Greenshot.Editor/Drawing`)
 Rectangle, Ellipse, Line, Arrow, Freehand, Text, Speech bubble, Step-number labels, Highlight,
 Icon/stamp, Crop, Cursor overlay, embedded Image, embedded SVG, Blur filter, Pixelize filter.

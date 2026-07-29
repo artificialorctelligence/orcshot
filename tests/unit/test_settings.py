@@ -13,10 +13,12 @@ from greenshot_linux.settings import (
     CONFIG_FILENAME,
     config_file_path,
     default_output_directory,
+    get_capture_mouse_cursor,
     get_output_directory,
     is_first_run_setup_done,
     mark_first_run_setup_done,
     quick_save_filename,
+    set_capture_mouse_cursor,
     set_output_directory,
 )
 
@@ -80,6 +82,28 @@ class TestQuickSaveFilename:
         a = quick_save_filename(datetime(2026, 7, 26, 14, 23, 5))
         b = quick_save_filename(datetime(2026, 7, 26, 14, 23, 6))
         assert a != b
+
+
+class TestCaptureMouseCursor:
+    def test_defaults_to_true(self, tmp_path):
+        # matches Windows' CaptureMousepointer default (ICoreConfiguration.cs:79-81)
+        path = tmp_path / "config.json"
+        assert get_capture_mouse_cursor(path=path) is True
+
+    def test_set_false_then_get_round_trips(self, tmp_path):
+        path = tmp_path / "config.json"
+
+        set_capture_mouse_cursor(False, path=path)
+
+        assert get_capture_mouse_cursor(path=path) is False
+
+    def test_set_true_then_get_round_trips(self, tmp_path):
+        path = tmp_path / "config.json"
+        set_capture_mouse_cursor(False, path=path)
+
+        set_capture_mouse_cursor(True, path=path)
+
+        assert get_capture_mouse_cursor(path=path) is True
 
 
 class TestFirstRunSetupFlag:

@@ -114,8 +114,10 @@ class GreenshotApplication(Gtk.Application):
 
     def start_capture(self) -> None:
         """Kept as the default single-click tray action - region
-        select, matching Greenshot's Windows tray default."""
-        self.start_region_capture()
+        select, matching Greenshot's Windows tray default. Mouse
+        cursor forced off, same as every other tray-triggered capture
+        below - see start_region_capture's docstring."""
+        self.start_region_capture(capture_mouse_cursor=False)
 
     def _remember_region(self, rect) -> None:
         self.last_region = rect
@@ -148,33 +150,48 @@ class GreenshotApplication(Gtk.Application):
         self._open_editors[-1].present()
         return True
 
-    def start_region_capture(self) -> None:
+    def start_region_capture(self, capture_mouse_cursor: bool = True) -> None:
+        """``capture_mouse_cursor`` faithfully replicates Windows'
+        own asymmetry (CaptureHelper.cs's ``_captureMouseCursor``
+        parameter, see PluginHelper.cs:141): hotkey/CLI invocations
+        (do_command_line, the default True here) defer to the
+        Preferences "Capture mouse cursor" setting, but every
+        tray-icon-triggered capture below passes False, hardcoding
+        the cursor off regardless of that setting - matching
+        MainForm.cs's tray context-menu handlers, which do the same.
+        The reasoning carries over unchanged: by the time you've
+        clicked the tray icon or one of its menu items, your mouse is
+        over the icon/menu, not your content, so showing it there
+        would be misleading. See ui/capture_modes.py's module
+        docstring and REQUIREMENTS.md's cursor auto-capture section
+        for the full citation trail.
+        """
         if self._block_if_editor_open():
             return
-        start_region_capture(on_captured=self._remember_region)
+        start_region_capture(on_captured=self._remember_region, capture_mouse_cursor=capture_mouse_cursor)
 
-    def start_full_screen_capture(self) -> None:
+    def start_full_screen_capture(self, capture_mouse_cursor: bool = True) -> None:
         if self._block_if_editor_open():
             return
-        start_full_screen_capture(on_captured=self._remember_region)
+        start_full_screen_capture(on_captured=self._remember_region, capture_mouse_cursor=capture_mouse_cursor)
 
-    def start_active_window_capture(self) -> None:
+    def start_active_window_capture(self, capture_mouse_cursor: bool = True) -> None:
         if self._block_if_editor_open():
             return
-        start_active_window_capture(on_captured=self._remember_region)
+        start_active_window_capture(on_captured=self._remember_region, capture_mouse_cursor=capture_mouse_cursor)
 
-    def start_window_picker(self) -> None:
+    def start_window_picker(self, capture_mouse_cursor: bool = True) -> None:
         if self._block_if_editor_open():
             return
-        start_window_picker(on_captured=self._remember_region)
+        start_window_picker(on_captured=self._remember_region, capture_mouse_cursor=capture_mouse_cursor)
 
-    def start_last_region_capture(self) -> None:
+    def start_last_region_capture(self, capture_mouse_cursor: bool = True) -> None:
         if self._block_if_editor_open():
             return
         # Deliberately not chained through _remember_region: the
         # region being repeated already *is* self.last_region, so
         # there's nothing new to record.
-        start_last_region_capture(self.last_region)
+        start_last_region_capture(self.last_region, capture_mouse_cursor=capture_mouse_cursor)
 
     def _build_tray_icon(self) -> Gtk.StatusIcon:
         icon = Gtk.StatusIcon()
@@ -184,23 +201,27 @@ class GreenshotApplication(Gtk.Application):
 
         menu = Gtk.Menu()
         region_item = Gtk.MenuItem(label="Capture Region")
-        region_item.connect("activate", lambda _item: self.start_region_capture())
+        region_item.connect("activate", lambda _item: self.start_region_capture(capture_mouse_cursor=False))
         menu.append(region_item)
 
         full_screen_item = Gtk.MenuItem(label="Capture Full Screen")
-        full_screen_item.connect("activate", lambda _item: self.start_full_screen_capture())
+        full_screen_item.connect("activate", lambda _item: self.start_full_screen_capture(capture_mouse_cursor=False))
         menu.append(full_screen_item)
 
         active_window_item = Gtk.MenuItem(label="Capture Active Window")
-        active_window_item.connect("activate", lambda _item: self.start_active_window_capture())
+        active_window_item.connect(
+            "activate", lambda _item: self.start_active_window_capture(capture_mouse_cursor=False)
+        )
         menu.append(active_window_item)
 
         window_picker_item = Gtk.MenuItem(label="Capture Window...")
-        window_picker_item.connect("activate", lambda _item: self.start_window_picker())
+        window_picker_item.connect("activate", lambda _item: self.start_window_picker(capture_mouse_cursor=False))
         menu.append(window_picker_item)
 
         self._repeat_item = Gtk.MenuItem(label="Repeat Last Region")
-        self._repeat_item.connect("activate", lambda _item: self.start_last_region_capture())
+        self._repeat_item.connect(
+            "activate", lambda _item: self.start_last_region_capture(capture_mouse_cursor=False)
+        )
         self._repeat_item.set_sensitive(False)  # no region captured yet
         menu.append(self._repeat_item)
 

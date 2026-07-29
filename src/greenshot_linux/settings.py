@@ -23,6 +23,7 @@ from pathlib import Path
 CONFIG_FILENAME = "config.json"
 _OUTPUT_DIRECTORY_KEY = "output_directory"
 _FIRST_RUN_SETUP_DONE_KEY = "first_run_setup_done"
+_CAPTURE_MOUSE_CURSOR_KEY = "capture_mouse_cursor"
 _DEFAULT_OUTPUT_DIRNAME = "Screenshots"
 
 
@@ -80,6 +81,27 @@ def quick_save_filename(when: datetime) -> str:
     (region/full-screen capture don't).
     """
     return when.strftime("%Y-%m-%d %H_%M_%S") + ".png"
+
+
+def get_capture_mouse_cursor(path: Path = None) -> bool:
+    """Whether to draw the mouse cursor into new captures - faithful
+    port of Windows' "Capture mousepointer" Preferences checkbox
+    (ICoreConfiguration.cs:79-81, default True). See
+    ui/capture_modes.py etc. for where this is actually applied, and
+    app.py's tray-menu-vs-hotkey asymmetry, which this setting alone
+    doesn't fully determine.
+    """
+    if path is None:
+        path = config_file_path()
+    return _load(path).get(_CAPTURE_MOUSE_CURSOR_KEY, True)
+
+
+def set_capture_mouse_cursor(enabled: bool, path: Path = None) -> None:
+    if path is None:
+        path = config_file_path()
+    settings = _load(path)
+    settings[_CAPTURE_MOUSE_CURSOR_KEY] = enabled
+    _save(settings, path)
 
 
 def is_first_run_setup_done(path: Path = None) -> bool:
