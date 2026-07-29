@@ -559,6 +559,66 @@ already in `_BOUNDS_RESIZABLE`, so no extra work needed there). Confirmed live: 
   state the way scripted `set_filename()` + immediate `response()` does. Cancel-only dialog tests
   (used everywhere else so far) never exercised this path, which is why it hadn't shown up before.
 
+### Editor zoom (faithful port of `ImageEditorForm`/`Surface`'s zoom)
+**Status: done.** Initially flagged as "not yet checked against the Windows source" in this file's
+backlog - research confirmed it's a real, well-developed Windows feature (PR #201, Ctrl+wheel in PR
+#282 - `docs/changelogs/CHANGELOG-1.3.md:192-193`), not something to design from scratch.
+
+- **Fixed discrete levels** (`core/zoom.py`, pure/tested): 25/50/66/75/100/200/300/400/600%,
+  faithful port of `ImageEditorForm.cs:101-104`'s `ZOOM_VALUES`. Uses `fractions.Fraction` rather
+  than float, for the same reason Windows uses its own `Fraction` struct there - 66% (2/3) has no
+  exact float representation, and repeated zoom steps would drift.
+- **Canvas-only scaling, mouse coordinates un-scaled for hit-testing** - faithful port of `Surface`'s
+  single paint-time `ScaleTransform` (`Surface.cs:1865-1899`) plus `InverseZoomMouseCoordinates`
+  (`Surface.cs:1469-1470`): `_on_draw` applies one `ctx.scale(zoom, zoom)` before painting the base
+  image and every shape (all still rendered in image-space coordinates, so they can never visually
+  drift from what a click actually hits), and every mouse handler divides event coordinates by zoom
+  before hit-testing/dragging/creating shapes - drawing and clicking stay pixel-accurate at any zoom
+  level, not just 100%.
+- **Window resizes to fit zoomed content, like Windows - a deliberate choice, not the initial
+  instinct.** Before implementing, this was flagged as a real UX fork: Windows resizes
+  `ImageEditorForm` itself to fit the zoomed canvas (`GetOptimalWindowSize`/
+  `AlignCanvasPositionAfterResize`, `ImageEditorForm.cs:2012-2052,1971-2006`), clamped between a
+  650x530 minimum and the screen's available work area, only scrolling if even that doesn't fit -
+  versus the more typical Linux/GTK pattern of a fixed-size window with an always-scrollable canvas.
+  Asked directly; chose the faithful Windows behavior. `_set_zoom` (every zoom action funnels
+  through this one method, matching `ZoomSetValue`) measures "chrome" size (everything that isn't
+  the canvas - menu bar, toolbars, style panel, tool palette) dynamically from the current layout
+  rather than hardcoding it, resizes the drawing area to the new zoomed size, then resizes the
+  window via `core/zoom.py`'s pure `optimal_window_size` clamp helper. The canvas is still wrapped
+  in a `Gtk.ScrolledWindow` (`_canvas_scroller`) for the overflow case - matches Windows' own
+  `panel1`/`NonJumpingPanel`, which is always scrollable even though `ZoomSetValue` normally resizes
+  the window instead of relying on it.
+- **Zoom control lives in a status-bar dropdown, not a menu-bar entry** - Windows has no top-level
+  zoom menu either; only `zoomStatusDropDownBtn` (a status-bar button opening `zoomMenuStrip`,
+  `ImageEditorForm.Designer.cs:224,271-277`) plus keyboard shortcuts and Ctrl+wheel. Matched that
+  structure rather than inventing a "View" menu Windows doesn't have. The status bar
+  (`_build_status_bar`) also shows image pixel dimensions, matching Windows' `dimensionsLabel`.
+- **Keyboard shortcuts**: Ctrl+=/Ctrl+Numpad+ (zoom in), Ctrl+-/Ctrl+Numpad- (zoom out), Ctrl+0/
+  Ctrl+Numpad0 (Actual Size), Ctrl+9/Ctrl+Numpad9 (Best Fit) - matches
+  `ImageEditorForm.cs:1142-1157`'s exact bindings. Incidental fix made while wiring these in: the
+  existing (Linux-only, no Windows precedent) bare-number-key tool-switch shortcuts (`_TOOL_KEYS`,
+  e.g. bare `0`→Step Label, bare `9`→Speech Bubble) were checked *before* the Ctrl-held branch, so
+  Ctrl+0/Ctrl+9 would have been swallowed as tool switches instead of ever reaching the new zoom
+  shortcuts (GDK reports the same base keyval regardless of whether Ctrl is held). Fixed by checking
+  `ctrl_held` first and gating the tool-switch lookup on `not ctrl_held` - since none of those
+  digit-key tool shortcuts have Windows precedent to begin with, treating Ctrl+digit as a reserved
+  namespace (like virtually every other app) is a safe, minor consistency fix alongside the real
+  collision fix, not a faithfulness regression.
+- **Ctrl+wheel zoom, 100ms-throttled** - faithful port of `PanelMouseWheel`
+  (`ImageEditorForm.cs:1181-1200`) and its `_zoomStartTime` throttle (`ImageEditorForm.cs:96,1185-1187`):
+  a physical scroll wheel can send many events per detent, so without throttling one wheel click
+  could jump several zoom levels at once.
+- **Verification note**: live-testing `Gtk.Window.resize()` initially looked broken - calling it in
+  a rapid, unfocused headless test script had zero visible effect even after many `Gtk.main_iteration()`
+  pumps. Root-caused to a test-harness gap, not an app bug: confirmed via an isolated bare
+  `Gtk.Window` that `resize()` needs the window to actually have focus (`win.present()`) and needs
+  *real* wall-clock time for the X11 ConfigureRequest/ConfigureNotify round-trip with the window
+  manager to complete - a tight pump-loop with no real delay never gives the WM a chance to respond.
+  Re-verified with `present()` + real waits and the full zoom flow (in/out/actual-size/best-fit,
+  all four keyboard shortcuts, Ctrl+wheel with throttle, bare-digit tool-switch keys still working)
+  all confirmed correct.
+
 ### Undo/redo
 **Status: done at the pure-data-model level** (`src/greenshot_linux/core/history.py`) — a generic
 `UndoRedoStack` engine plus mementos over `Layer` (add/delete/change an element, batched as one

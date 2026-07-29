@@ -95,7 +95,9 @@ import os
 import shutil
 import subprocess
 import tempfile
+import time
 from dataclasses import replace as dataclass_replace
+from fractions import Fraction
 from pathlib import Path
 
 import gi
@@ -136,6 +138,15 @@ from greenshot_linux.core.tools import (
     shape_handles,
     translate_shape,
 )
+from greenshot_linux.core.zoom import (
+    ACTUAL_SIZE_ZOOM,
+    ZOOM_LEVELS,
+    best_fit_zoom,
+    optimal_window_size,
+    zoom_in,
+    zoom_out,
+    zoom_percent_label,
+)
 from greenshot_linux.ui.cairo_convert import numpy_to_cairo_surface
 from greenshot_linux.ui.composite import composite_to_numpy
 from greenshot_linux.ui.gdk_convert import pixbuf_to_numpy
@@ -143,6 +154,12 @@ from greenshot_linux.ui.file_export import save_image_to_file
 from greenshot_linux.ui.icons import tool_icon_image
 from greenshot_linux.ui.printing import print_image
 from greenshot_linux.ui.render import render_shape
+
+# ZoomSetValue's 100ms Ctrl+wheel throttle (ImageEditorForm.cs:96,1185-1187)
+_ZOOM_WHEEL_THROTTLE_SECONDS = 0.1
+# ImageEditorForm's MinimumSize (ImageEditorForm.Designer.cs)
+_MIN_WINDOW_WIDTH = 650
+_MIN_WINDOW_HEIGHT = 530
 
 _TOOL_KEYS = {
     Gdk.KEY_1: Tool.RECTANGLE,
@@ -221,6 +238,11 @@ class EditorWindow(Gtk.Window):
 
         self.layer = Layer()
         self.undo_redo = UndoRedoStack()
+        # Faithful port of ImageEditorForm/Surface's zoom (see
+        # core/zoom.py's module docstring for citations). Actual Size
+        # (100%) is Windows' own initial ZoomFactor too.
+        self._zoom = ACTUAL_SIZE_ZOOM
+        self._last_wheel_zoom_time = 0.0
         # Matches the Windows source's default (ImageEditorForm.
         # Designer.cs: btnCursor.Checked = true) - the editor opens
         # with Select active, not a drawing tool, so the first click
@@ -265,21 +287,32 @@ class EditorWindow(Gtk.Window):
             Gdk.EventMask.BUTTON_PRESS_MASK
             | Gdk.EventMask.BUTTON_RELEASE_MASK
             | Gdk.EventMask.POINTER_MOTION_MASK
+            | Gdk.EventMask.SCROLL_MASK
         )
         self._drawing_area.connect("draw", self._on_draw)
         self._drawing_area.connect("button-press-event", self._on_button_press)
         self._drawing_area.connect("motion-notify-event", self._on_motion)
         self._drawing_area.connect("button-release-event", self._on_button_release)
+        self._drawing_area.connect("scroll-event", self._on_scroll)
+
+        # Wraps the canvas so an over-max-window-size zoom level (see
+        # _set_zoom) is still reachable via scrolling - matches
+        # Windows' own panel1 (a NonJumpingPanel), which is always a
+        # scrollable container even though _set_zoom normally resizes
+        # the window instead of relying on it.
+        self._canvas_scroller = Gtk.ScrolledWindow()
+        self._canvas_scroller.add(self._drawing_area)
 
         content_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL)
         content_row.pack_start(self._build_tool_palette(), False, False, 0)
-        content_row.pack_start(self._drawing_area, True, True, 0)
+        content_row.pack_start(self._canvas_scroller, True, True, 0)
 
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
         box.pack_start(self._build_menu_bar(), False, False, 0)
         box.pack_start(self._build_action_toolbar(), False, False, 0)
         box.pack_start(self._build_style_panel(), False, False, 0)
         box.pack_start(content_row, True, True, 0)
+        box.pack_start(self._build_status_bar(), False, False, 0)
         self.add(box)
 
         self.connect("key-press-event", self._on_key_press)
@@ -977,22 +1010,140 @@ class EditorWindow(Gtk.Window):
             ctx.stroke()
             ctx.restore()
 
+    def _set_zoom(self, new_zoom: Fraction) -> None:
+        """Every zoom action (menu/dropdown pick, keyboard shortcut,
+        Ctrl+wheel) funnels through here - faithful port of
+        ZoomSetValue (ImageEditorForm.cs:2113-2164): resize the
+        drawing area to the new zoomed canvas size, then resize the
+        *window* to fit that (GetOptimalWindowSize,
+        ImageEditorForm.cs:2012-2052) - chrome size (everything that
+        isn't the canvas: menu bar, toolbars, style panel, tool
+        palette) is measured from the current layout rather than
+        hardcoded, since it doesn't vary with zoom but does vary with
+        which panels are shown. Only scrolls (via _canvas_scroller)
+        if even the screen-clamped window still can't fit the zoomed
+        canvas.
+        """
+        if new_zoom == self._zoom:
+            return
+        self._zoom = new_zoom
+        img_h, img_w = self._base_image.shape[:2]
+        canvas_w, canvas_h = round(img_w * new_zoom), round(img_h * new_zoom)
+        self._drawing_area.set_size_request(canvas_w, canvas_h)
+
+        window_alloc = self.get_allocation()
+        scroller_alloc = self._canvas_scroller.get_allocation()
+        chrome_w = max(0, window_alloc.width - scroller_alloc.width)
+        chrome_h = max(0, window_alloc.height - scroller_alloc.height)
+
+        display = Gdk.Display.get_default()
+        gdk_window = self.get_window()
+        monitor = display.get_monitor_at_window(gdk_window) if gdk_window is not None else None
+        if monitor is None:
+            monitor = display.get_primary_monitor() or display.get_monitor(0)
+        work_area = monitor.get_workarea()
+
+        total_w, total_h = optimal_window_size(
+            chrome_w, chrome_h, canvas_w, canvas_h,
+            _MIN_WINDOW_WIDTH, _MIN_WINDOW_HEIGHT, work_area.width, work_area.height,
+        )
+        self.resize(total_w, total_h)
+
+        self._zoom_label.set_text(zoom_percent_label(self._zoom))
+        self._drawing_area.queue_draw()
+
+    def _do_zoom_in(self) -> None:
+        self._set_zoom(zoom_in(self._zoom))
+
+    def _do_zoom_out(self) -> None:
+        self._set_zoom(zoom_out(self._zoom))
+
+    def _do_zoom_actual_size(self) -> None:
+        self._set_zoom(ACTUAL_SIZE_ZOOM)
+
+    def _do_zoom_best_fit(self) -> None:
+        img_h, img_w = self._base_image.shape[:2]
+        display = Gdk.Display.get_default()
+        gdk_window = self.get_window()
+        monitor = display.get_monitor_at_window(gdk_window) if gdk_window is not None else None
+        if monitor is None:
+            monitor = display.get_primary_monitor() or display.get_monitor(0)
+        work_area = monitor.get_workarea()
+        self._set_zoom(best_fit_zoom(img_w, img_h, work_area.width, work_area.height))
+
+    def _on_scroll(self, widget, event):
+        # Ctrl+wheel zoom (PanelMouseWheel, ImageEditorForm.cs:1181-1200),
+        # throttled to one step per 100ms the same way Windows is
+        # (_zoomStartTime, ImageEditorForm.cs:1185-1187) - a physical
+        # scroll wheel can send many events per detent otherwise.
+        if not event.state & Gdk.ModifierType.CONTROL_MASK:
+            return False
+        now = time.monotonic()
+        if now - self._last_wheel_zoom_time < _ZOOM_WHEEL_THROTTLE_SECONDS:
+            return True
+        self._last_wheel_zoom_time = now
+        if event.direction == Gdk.ScrollDirection.UP:
+            self._do_zoom_in()
+        elif event.direction == Gdk.ScrollDirection.DOWN:
+            self._do_zoom_out()
+        return True
+
+    def _build_status_bar(self) -> Gtk.Box:
+        """Bottom status bar - matches Windows' statusStrip1's
+        dimensionsLabel + zoomStatusDropDownBtn (ImageEditorForm.
+        Designer.cs:59,224,271-277). The zoom control lives here, not
+        in the menu bar - Windows has no top-level zoom menu either,
+        only this dropdown (opening the same zoomMenuStrip) plus
+        keyboard shortcuts and Ctrl+wheel.
+        """
+        bar = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        bar.set_border_width(2)
+
+        img_h, img_w = self._base_image.shape[:2]
+        dimensions_label = Gtk.Label(label=f"{img_w} x {img_h}")
+        bar.pack_start(dimensions_label, False, False, 4)
+
+        zoom_menu = Gtk.Menu()
+
+        def add_zoom_item(label: str, handler) -> None:
+            item = Gtk.MenuItem(label=label)
+            item.connect("activate", lambda _i: handler())
+            zoom_menu.append(item)
+
+        add_zoom_item("Zoom In", self._do_zoom_in)
+        add_zoom_item("Zoom Out", self._do_zoom_out)
+        add_zoom_item("Best Fit", self._do_zoom_best_fit)
+        zoom_menu.append(Gtk.SeparatorMenuItem())
+        for level in ZOOM_LEVELS:
+            label = zoom_percent_label(level) + (" - Actual Size" if level == ACTUAL_SIZE_ZOOM else "")
+            add_zoom_item(label, lambda level=level: self._set_zoom(level))
+        zoom_menu.show_all()
+
+        zoom_button = Gtk.MenuButton()
+        self._zoom_label = Gtk.Label(label=zoom_percent_label(self._zoom))
+        zoom_button.add(self._zoom_label)
+        zoom_button.set_popup(zoom_menu)
+        bar.pack_end(zoom_button, False, False, 0)
+        return bar
+
     def _content_offset(self) -> tuple:
         """How far the image is inset from the drawing area's top-left
-        corner. The drawing area can end up larger than the image - a
-        small capture is narrower than the toolbar's natural width, and
-        Gtk.Box (packed with fill=True) stretches every child to that
-        width - so without this, a small capture used to sit pinned to
-        the corner with a lopsided gap on the right/bottom instead of
-        looking centered.
+        corner. The drawing area can end up larger than the zoomed
+        image - a small/zoomed-out capture is narrower than the
+        toolbar's natural width, and Gtk.Box (packed with fill=True)
+        stretches every child to that width - so without this, a
+        small capture used to sit pinned to the corner with a
+        lopsided gap on the right/bottom instead of looking centered.
         """
         img_h, img_w = self._base_image.shape[:2]
+        zoomed_w, zoomed_h = round(img_w * self._zoom), round(img_h * self._zoom)
         alloc = self._drawing_area.get_allocation()
-        return max(0, (alloc.width - img_w) // 2), max(0, (alloc.height - img_h) // 2)
+        return max(0, (alloc.width - zoomed_w) // 2), max(0, (alloc.height - zoomed_h) // 2)
 
     def _on_draw(self, widget, ctx):
         offset_x, offset_y = self._content_offset()
         ctx.translate(offset_x, offset_y)
+        ctx.scale(float(self._zoom), float(self._zoom))
         ctx.set_source_surface(self._surface, 0, 0)
         ctx.paint()
         for shape in self.layer:
@@ -1013,7 +1164,11 @@ class EditorWindow(Gtk.Window):
     def _on_button_press(self, widget, event):
         self._commit_text_editing_if_active()
         offset_x, offset_y = self._content_offset()
-        x, y = int(event.x) - offset_x, int(event.y) - offset_y
+        # InverseZoomMouseCoordinates (Surface.cs:1469-1470): screen/
+        # widget pixels back into unscaled image-space coordinates, so
+        # drawing/hit-testing stays accurate at any zoom level.
+        zoom = float(self._zoom)
+        x, y = int((event.x - offset_x) / zoom), int((event.y - offset_y) / zoom)
 
         if self.selected_shape is not None:
             handle = handle_at(self.selected_shape, x, y)
@@ -1061,7 +1216,11 @@ class EditorWindow(Gtk.Window):
 
     def _on_motion(self, widget, event):
         offset_x, offset_y = self._content_offset()
-        x, y = int(event.x) - offset_x, int(event.y) - offset_y
+        # InverseZoomMouseCoordinates (Surface.cs:1469-1470): screen/
+        # widget pixels back into unscaled image-space coordinates, so
+        # drawing/hit-testing stays accurate at any zoom level.
+        zoom = float(self._zoom)
+        x, y = int((event.x - offset_x) / zoom), int((event.y - offset_y) / zoom)
         if self._resize_shape is not None:
             self._resize_preview = resize_shape(self._resize_shape, self._resize_handle, x, y)
             widget.queue_draw()
@@ -1085,7 +1244,11 @@ class EditorWindow(Gtk.Window):
 
     def _on_button_release(self, widget, event):
         offset_x, offset_y = self._content_offset()
-        x, y = int(event.x) - offset_x, int(event.y) - offset_y
+        # InverseZoomMouseCoordinates (Surface.cs:1469-1470): screen/
+        # widget pixels back into unscaled image-space coordinates, so
+        # drawing/hit-testing stays accurate at any zoom level.
+        zoom = float(self._zoom)
+        x, y = int((event.x - offset_x) / zoom), int((event.y - offset_y) / zoom)
         if self._resize_shape is not None:
             final = resize_shape(self._resize_shape, self._resize_handle, x, y)
             self.layer.replace(self._resize_shape, final)
@@ -1143,8 +1306,29 @@ class EditorWindow(Gtk.Window):
         if self._editing_text_shape is not None:
             return self._handle_text_editing_key(event)
 
+        ctrl_held = bool(event.state & Gdk.ModifierType.CONTROL_MASK)
+
+        # Checked before _TOOL_KEYS: plain 0/9 switch tools (Step
+        # Label/Speech Bubble), but Ctrl+0/Ctrl+9 are zoom shortcuts
+        # (Actual Size/Best Fit, ImageEditorForm.cs:1153-1157) - since
+        # GDK reports the same base keyval regardless of Ctrl, the
+        # tool-switch lookup below would otherwise swallow them first.
+        if ctrl_held:
+            if event.keyval in (Gdk.KEY_plus, Gdk.KEY_equal, Gdk.KEY_KP_Add):
+                self._do_zoom_in()
+                return True
+            if event.keyval in (Gdk.KEY_minus, Gdk.KEY_KP_Subtract):
+                self._do_zoom_out()
+                return True
+            if event.keyval in (Gdk.KEY_0, Gdk.KEY_KP_0):
+                self._do_zoom_actual_size()
+                return True
+            if event.keyval in (Gdk.KEY_9, Gdk.KEY_KP_9):
+                self._do_zoom_best_fit()
+                return True
+
         tool = _TOOL_KEYS.get(event.keyval)
-        if tool is not None:
+        if tool is not None and not ctrl_held:
             # set_active(True) fires "toggled", which itself sets
             # self.tool - this just keeps the toolbar's radio buttons
             # in sync with a keyboard-driven tool switch too.
@@ -1155,7 +1339,6 @@ class EditorWindow(Gtk.Window):
             self._do_delete()
             return True
 
-        ctrl_held = bool(event.state & Gdk.ModifierType.CONTROL_MASK)
         if not ctrl_held:
             return False
         if event.keyval in (Gdk.KEY_z, Gdk.KEY_Z):
