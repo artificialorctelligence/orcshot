@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import json
 import os
+from dataclasses import asdict, dataclass
 from datetime import datetime
 from pathlib import Path
 
@@ -24,6 +25,7 @@ CONFIG_FILENAME = "config.json"
 _OUTPUT_DIRECTORY_KEY = "output_directory"
 _FIRST_RUN_SETUP_DONE_KEY = "first_run_setup_done"
 _CAPTURE_MOUSE_CURSOR_KEY = "capture_mouse_cursor"
+_PRINT_OPTIONS_KEY = "print_options"
 _DEFAULT_OUTPUT_DIRNAME = "Screenshots"
 
 
@@ -101,6 +103,45 @@ def set_capture_mouse_cursor(enabled: bool, path: Path = None) -> None:
         path = config_file_path()
     settings = _load(path)
     settings[_CAPTURE_MOUSE_CURSOR_KEY] = enabled
+    _save(settings, path)
+
+
+@dataclass(frozen=True)
+class PrintOptions:
+    """Faithful port of PrintOptionsDialog's settings
+    (Greenshot/Forms/PrintOptionsDialog.cs, backed by
+    ICoreConfiguration.cs:166-209) - defaults match Windows' own.
+    Bundled as one dataclass rather than 9 separate get_x/set_x pairs,
+    since they're always edited together in one dialog
+    (ui/printing.py) and applied together to one print job.
+    """
+
+    prompt_options: bool = True  # OutputPrintPromptOptions
+    allow_shrink: bool = True  # OutputPrintAllowShrink
+    allow_enlarge: bool = False  # OutputPrintAllowEnlarge
+    allow_rotate: bool = False  # OutputPrintAllowRotate
+    center: bool = True  # OutputPrintCenter
+    footer: bool = True  # OutputPrintFooter
+    grayscale: bool = False  # OutputPrintGrayscale
+    monochrome: bool = False  # OutputPrintMonochrome
+    monochrome_threshold: int = 127  # OutputPrintMonochromeThreshold
+    inverted: bool = False  # OutputPrintInverted
+
+
+def get_print_options(path: Path = None) -> PrintOptions:
+    if path is None:
+        path = config_file_path()
+    saved = _load(path).get(_PRINT_OPTIONS_KEY, {})
+    defaults = asdict(PrintOptions())
+    defaults.update({k: v for k, v in saved.items() if k in defaults})
+    return PrintOptions(**defaults)
+
+
+def set_print_options(options: PrintOptions, path: Path = None) -> None:
+    if path is None:
+        path = config_file_path()
+    settings = _load(path)
+    settings[_PRINT_OPTIONS_KEY] = asdict(options)
     _save(settings, path)
 
 

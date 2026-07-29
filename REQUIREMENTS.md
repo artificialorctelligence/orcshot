@@ -803,6 +803,88 @@ yet — nothing in the UI performs a multi-shape action as a single undo step.
   user explicitly asked for this to be adjustable "in the editor," not just a config file. The
   editor's own pre-existing Save dialog also now starts from this folder.
 
+### Advanced print options (faithful port of `PrintOptionsDialog`/`PrintHelper`)
+**Status: done.** Research first corrected a speculative earlier backlog note (this file's own prior
+guess at scope) against the actual source, catching several wrong assumptions before implementing
+anything — e.g. the note assumed "grayscale/monochrome/invert" were one uniform effects set; the
+real source shows grayscale is a printer-driver flag with **no pixel processing at all** in Windows
+(`PrintHelper.cs:111-114`, `DefaultPageSettings.Color = false`), while monochrome and invert are
+real per-pixel effects. This port implements grayscale as a real pixel effect anyway (a deliberate,
+documented deviation) — there's no printer driver to delegate to for the
+`Gtk.PrintOperationAction.EXPORT` path this project verifies against, and it keeps grayscale
+consistent with how the editor's own Effects menu treats it.
+
+- **`core/print_layout.py`** (pure, tested): `compute_print_layout` faithfully ports
+  `PrintHelper.DrawImageForPrint`'s rotate/scale/center math (`PrintHelper.cs:183-264`) —
+  `should_rotate_for_orientation` checks a real page-vs-image orientation *mismatch*
+  (`PrintHelper.cs:222-225`), not a simple width>height comparison; shrink and enlarge are
+  independently gated booleans sharing one aspect-preserving fit computation
+  (`ScaleHelper.GetScaledSize`, min of width/height scale factors — aspect ratio is always
+  preserved); not centering aligns top-left, except Windows flips that to top-right after a
+  rotation to keep the result visually sane (`PrintHelper.cs:228-231`) — all faithfully ported.
+- **Color mode** (`core/effects.py`): reuses the *same* `grayscale_image`/`invert_image` the
+  editor's Effects menu uses (task #36), plus a new `monochrome_image` (threshold-based
+  black/white, default threshold 127 matching `OutputPrintMonochromeThreshold`,
+  `ICoreConfiguration.cs:198-201`) — confirmed via source it's a **flat, unweighted** RGB average
+  (`(R+G+B)/3 > threshold`), deliberately *not* the same luma-weighted formula grayscale uses; a
+  test exercises an input (pure green) where the two formulas actually disagree, to prove the
+  distinction is real and not accidentally identical. Monochrome and grayscale are mutually
+  exclusive radios (matching Windows), invert is an independent checkbox layered on top of either.
+- **Print options dialog** (`ui/printing.py`'s `_show_print_options_dialog`) — a standalone
+  `Gtk.Dialog` (matching every other options dialog in this project), shown before
+  `Gtk.PrintOperation.run()` unless `prompt_options` is off, with a "Page layout settings" group
+  (shrink/enlarge/rotate/center/footer, all matching Windows' real defaults: shrink **on**, enlarge
+  **off**, rotate **off**, center **on**, footer **on**) and a "Color settings" group (full color /
+  grayscale / monochrome radios + an independent invert checkbox), plus "Save options as default and
+  do not ask again" (checking it flips `prompt_options` off for future prints, matching
+  `PrintOptionsDialog.cs:46`). **Deliberately does not use `Gtk.PrintOperation`'s
+  `create-custom-widget` signal** (which would embed these controls as a tab inside the native print
+  dialog) — Windows itself shows its own separate dialog *after* the OS print dialog
+  (`PrintHelper.cs:105,139`), not merged into it, and a standalone dialog makes "don't ask again"
+  skip the dialog entirely on future prints, which `create-custom-widget` can't do (it always
+  renders whenever the native dialog is shown).
+- **Settings persistence** (`settings.py`'s `PrintOptions` dataclass + `get_print_options`/
+  `set_print_options`): bundled as one dataclass rather than 9 separate flat get/set function pairs,
+  since Windows always edits and applies all of them together too — stored as one nested JSON object
+  rather than 9 top-level keys.
+- **Footer text**: real, drawn via `context.create_pango_layout()` (not the editor's own
+  `ui/render.py` Pango helper, which is built for screen-DPI rendering) so it's sized correctly
+  against the print context's actual DPI, not screen DPI — confirmed this distinction matters via
+  research before implementing. Page height is reserved for the footer *before* the fit/center math
+  runs, matching `PrintHelper.cs:217`. **Simplified from Windows' own footer pattern** (a
+  configurable `${capturetime:d"D"} ${capturetime:d"T"} - ${title}` string,
+  `ICoreConfiguration.cs:207-209`) to a plain print-time timestamp with no `-${title}` suffix and no
+  configurable pattern — this port doesn't track a per-capture title/window-name metadata through to
+  printing the way Windows' `CaptureDetails` does. A deliberate, documented scope reduction.
+- **Rotation implementation**: physically rotates the numpy pixel array first (reusing task #36's
+  `rotate_90_image`, matching Windows' own `image.RotateFlip` approach of rotating the bitmap rather
+  than transforming the draw call), then does a plain scale+paint — avoided a much trickier live
+  Cairo rotation-transform derivation by reusing already-tested code instead of writing new,
+  unverified transform math.
+- **No custom printer-enumeration/selection UI** — confirmed live via introspection that
+  `Gtk.PrintUnixDialog`/`Gtk.Printer`/`Gtk.PrintJob` aren't exposed via GObject-Introspection at all
+  in this GTK3 build (`AttributeError` on each), a known limitation of `gtk_enumerate_printers()`'s
+  callback signature not being introspectable. `Gtk.PrintOperation.run()` already shows a complete
+  native dialog with its own printer picker, covering the same practical need. Windows' "one
+  destination menu item per installed printer" (`PrinterDestination.cs`) would need a new dependency
+  (`pycups`, confirmed available on this machine but not currently a project dependency) or shelling
+  out to `lpstat` just to replicate something the native dialog already provides — not implemented,
+  a deliberate scope reduction.
+- **A real GTK API bug caught during live verification, not assumed from docs**: initially called
+  `context.create_pango_layout(text)`, matching a plausible-looking pattern — failed immediately with
+  `TypeError: create_pango_layout() takes exactly 1 argument (2 given)`. The correct call is
+  `context.create_pango_layout()` (no arguments) followed by a separate `layout.set_text(text, -1)`
+  call - fixed and re-verified.
+- Verified live end-to-end: the print options dialog's real widgets (checkbox/radio defaults exactly
+  matching Windows, correct capture of changed values and the "don't ask again" flip); settings
+  persistence causing `print_image` to skip the dialog entirely on a subsequent call (sandboxed to a
+  temp `XDG_CONFIG_HOME`, never the real config file); color-mode pixel math; and the actual
+  Cairo/Pango drawing path via `Gtk.PrintOperationAction.EXPORT` to a real PDF, rendered back with
+  `pdftoppm` and checked **numerically** (never viewed as an image) — confirmed centered placement,
+  correct aspect-preserving scale, footer text presence, and a real 90-degree rotation (a landscape
+  100x40 source image correctly rendered as a tall 40x100 shape on a portrait page) - all with
+  synthetic solid-color test images, never real desktop content.
+
 ### Global activation (new requirement, not in original Windows feature parity list but matched
 to Windows defaults for familiarity)
 Default hotkeys, taken from the Windows source

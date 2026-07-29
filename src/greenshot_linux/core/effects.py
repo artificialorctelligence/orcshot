@@ -14,6 +14,9 @@ from __future__ import annotations
 
 import numpy as np
 
+from greenshot_linux.core.filters import box_blur as _region_box_blur
+from greenshot_linux.core.geometry import Rect
+
 
 def rotate_90_image(image: np.ndarray, clockwise: bool) -> np.ndarray:
     """Faithful port of RotateEffect (Greenshot.Base/Effects/
@@ -44,6 +47,26 @@ def invert_image(image: np.ndarray) -> np.ndarray:
     """
     result = image.copy()
     result[:, :, :3] = 255 - image[:, :, :3]
+    return result
+
+
+def monochrome_image(image: np.ndarray, threshold: int = 127) -> np.ndarray:
+    """Faithful port of ImageHelper.CreateMonochrome (ImageHelper.cs:998-1013):
+    a flat (unweighted) per-pixel average of R/G/B, hard-binarized
+    against ``threshold`` - ``(R+G+B)/3 > threshold ? white : black``,
+    alpha untouched. Deliberately *not* the same as grayscale_image's
+    luma weighting - Windows uses this plain average here specifically,
+    confirmed by reading the source rather than assumed. Only used for
+    print's "force black/white" option in this port (ui/printing.py) -
+    Windows itself never wires this into the editor's Effects menu
+    either, only print.
+    """
+    average = image[:, :, :3].astype(np.float64).mean(axis=2)
+    value = np.where(average > threshold, 255, 0).astype(np.uint8)
+    result = image.copy()
+    result[:, :, 0] = value
+    result[:, :, 1] = value
+    result[:, :, 2] = value
     return result
 
 
@@ -123,37 +146,6 @@ def enlarge_canvas_image(image: np.ndarray, left: int, right: int, top: int, bot
     return result
 
 
-def _box_blur_1d(arr: np.ndarray, radius: int, axis: int) -> np.ndarray:
-    kernel_size = 2 * radius + 1
-    pad_width = [(0, 0)] * arr.ndim
-    pad_width[axis] = (radius, radius)
-    padded = np.pad(arr, pad_width, mode="edge")
-    cumsum = np.cumsum(padded, axis=axis)
-    zeros_shape = list(cumsum.shape)
-    zeros_shape[axis] = 1
-    cumsum = np.concatenate([np.zeros(zeros_shape), cumsum], axis=axis)
-    hi = [slice(None)] * arr.ndim
-    hi[axis] = slice(kernel_size, None)
-    lo = [slice(None)] * arr.ndim
-    lo[axis] = slice(None, -kernel_size)
-    return (cumsum[tuple(hi)] - cumsum[tuple(lo)]) / kernel_size
-
-
-def box_blur(image: np.ndarray, radius: int) -> np.ndarray:
-    """Two-pass (horizontal+vertical) box blur, applied twice (4
-    passes total) - a cheap Gaussian approximation, faithful port of
-    ImageHelper.ApplyBoxBlur's fallback path (ImageHelper.cs:493-527,
-    used when native GDI+ blur isn't available).
-    """
-    if radius <= 0:
-        return image.copy()
-    result = image.astype(np.float64)
-    for _ in range(2):
-        result = _box_blur_1d(result, radius, axis=1)  # horizontal
-        result = _box_blur_1d(result, radius, axis=0)  # vertical
-    return np.clip(np.round(result), 0, 255).astype(np.uint8)
-
-
 def _paste_clipped(dst_channel: np.ndarray, src_channel: np.ndarray, left: int, top: int) -> None:
     """Like _alpha_composite but for a single plain channel (no alpha
     blending) - a direct, bounds-clipped overwrite. Used to place the
@@ -175,13 +167,16 @@ def drop_shadow_image(image: np.ndarray, darkness: float = 0.6, size: int = 7, o
     """Whole-image drop shadow - a good-faith reproduction of the
     *documented* algorithm behind ImageHelper.CreateShadow
     (ImageHelper.cs:830-893) - build a solid black silhouette of the
-    image's own alpha shape at ``darkness`` opacity, blur it
-    (box_blur), offset it, then paint the original image back on top -
-    using the same default parameters (darkness 0.6, size 7, offset
-    (-1,-1)), rather than a pixel-identical port of GDI+'s exact
-    blur/compositing internals, which aren't independently verifiable
-    without a reference render to diff against. ``size`` is forced
-    odd, matching the source.
+    image's own alpha shape at ``darkness`` opacity, blur it (reusing
+    core/filters.py's box_blur - the same already-Windows-verified
+    two-pass blur the Blur obfuscation tool uses, over the whole
+    canvas rather than a sub-rect, rather than a second, independently
+    written blur implementation), offset it, then paint the original
+    image back on top - using the same default parameters (darkness
+    0.6, size 7, offset (-1,-1)), rather than a pixel-identical port
+    of GDI+'s exact compositing internals, which aren't independently
+    verifiable without a reference render to diff against. ``size`` is
+    forced odd, matching the source.
     """
     if size % 2 == 0:
         size += 1
@@ -192,6 +187,7 @@ def drop_shadow_image(image: np.ndarray, darkness: float = 0.6, size: int = 7, o
     silhouette_alpha = np.clip(image[:, :, 3].astype(np.float64) * darkness, 0, 255).round().astype(np.uint8)
     _paste_clipped(silhouette[:, :, 3], silhouette_alpha, pad + offset[0], pad + offset[1])
 
-    blurred = box_blur(silhouette, size)
+    canvas_h, canvas_w = silhouette.shape[:2]
+    blurred = _region_box_blur(silhouette, Rect(0, 0, canvas_w, canvas_h), size)
     _alpha_composite(blurred, image, pad, pad)
     return blurred

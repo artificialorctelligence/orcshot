@@ -11,15 +11,18 @@ from pathlib import Path
 
 from greenshot_linux.settings import (
     CONFIG_FILENAME,
+    PrintOptions,
     config_file_path,
     default_output_directory,
     get_capture_mouse_cursor,
     get_output_directory,
+    get_print_options,
     is_first_run_setup_done,
     mark_first_run_setup_done,
     quick_save_filename,
     set_capture_mouse_cursor,
     set_output_directory,
+    set_print_options,
 )
 
 
@@ -104,6 +107,50 @@ class TestCaptureMouseCursor:
         set_capture_mouse_cursor(True, path=path)
 
         assert get_capture_mouse_cursor(path=path) is True
+
+
+class TestPrintOptions:
+    def test_defaults_match_windows(self, tmp_path):
+        path = tmp_path / "config.json"
+        options = get_print_options(path=path)
+        assert options == PrintOptions(
+            prompt_options=True, allow_shrink=True, allow_enlarge=False, allow_rotate=False,
+            center=True, footer=True, grayscale=False, monochrome=False,
+            monochrome_threshold=127, inverted=False,
+        )
+
+    def test_set_then_get_round_trips(self, tmp_path):
+        path = tmp_path / "config.json"
+        options = PrintOptions(
+            prompt_options=False, allow_shrink=False, allow_enlarge=True, allow_rotate=True,
+            center=False, footer=False, grayscale=True, monochrome=True,
+            monochrome_threshold=200, inverted=True,
+        )
+
+        set_print_options(options, path=path)
+
+        assert get_print_options(path=path) == options
+
+    def test_set_preserves_other_settings_already_present(self, tmp_path):
+        path = tmp_path / "config.json"
+        set_capture_mouse_cursor(False, path=path)
+
+        set_print_options(PrintOptions(allow_enlarge=True), path=path)
+
+        assert get_capture_mouse_cursor(path=path) is False
+
+    def test_loading_an_older_config_missing_newer_fields_still_works(self, tmp_path):
+        # simulates a config saved by an earlier version of this
+        # dataclass that didn't have every current field yet.
+        import json
+
+        path = tmp_path / "config.json"
+        path.write_text(json.dumps({"print_options": {"allow_shrink": False}}))
+
+        options = get_print_options(path=path)
+
+        assert options.allow_shrink is False
+        assert options.center is True  # falls back to the default
 
 
 class TestFirstRunSetupFlag:

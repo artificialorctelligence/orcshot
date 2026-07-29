@@ -7,12 +7,12 @@ import numpy as np
 
 from greenshot_linux.core.effects import (
     add_border_image,
-    box_blur,
     clear_image,
     drop_shadow_image,
     enlarge_canvas_image,
     grayscale_image,
     invert_image,
+    monochrome_image,
     remove_transparency_image,
     rotate_90_image,
 )
@@ -84,6 +84,40 @@ class TestInvertImage:
         assert np.array_equal(invert_image(invert_image(image)), image)
 
 
+class TestMonochromeImage:
+    def test_bright_pixel_becomes_white(self):
+        image = solid_image(2, 2, 200, 200, 200)
+        result = monochrome_image(image, threshold=127)
+        assert tuple(result[0, 0]) == (255, 255, 255, 255)
+
+    def test_dark_pixel_becomes_black(self):
+        image = solid_image(2, 2, 50, 50, 50)
+        result = monochrome_image(image, threshold=127)
+        assert tuple(result[0, 0]) == (0, 0, 0, 255)
+
+    def test_uses_a_flat_unweighted_average_not_luma_weights(self):
+        # pure blue (0,0,255): flat average = 85, below default
+        # threshold 127 -> black. Luma-weighted (0.11 weight for blue)
+        # would give an even lower value, still black here, so use a
+        # case that actually distinguishes the two: pure green
+        # (0,255,0) averages to 85 (black under flat average) but
+        # luma-weights green at .59, giving ~150 (white) - the two
+        # formulas disagree on this input.
+        image = solid_image(2, 2, 0, 255, 0)
+        result = monochrome_image(image, threshold=127)
+        assert tuple(result[0, 0])[:3] == (0, 0, 0)  # flat average (85) <= threshold
+
+    def test_alpha_is_untouched(self):
+        image = solid_image(2, 2, 200, 200, 200, a=77)
+        result = monochrome_image(image, threshold=127)
+        assert result[0, 0, 3] == 77
+
+    def test_threshold_is_configurable(self):
+        image = solid_image(2, 2, 100, 100, 100)  # average 100
+        assert tuple(monochrome_image(image, threshold=50)[0, 0])[:3] == (255, 255, 255)
+        assert tuple(monochrome_image(image, threshold=150)[0, 0])[:3] == (0, 0, 0)
+
+
 class TestRemoveTransparencyImage:
     def test_fully_transparent_pixel_becomes_the_fill_color(self):
         image = solid_image(2, 2, 255, 0, 0, a=0)
@@ -140,25 +174,6 @@ class TestEnlargeCanvasImage:
         image = solid_image(10, 8, 255, 0, 0)
         enlarged = enlarge_canvas_image(image, left=5, right=0, top=1, bottom=0)
         assert tuple(enlarged[1, 5]) == (255, 0, 0, 255)
-
-
-class TestBoxBlur:
-    def test_uniform_image_is_unaffected(self):
-        image = solid_image(20, 20, 100, 150, 200)
-        blurred = box_blur(image, radius=3)
-        assert np.array_equal(blurred, image)
-
-    def test_zero_radius_is_a_no_op(self):
-        image = solid_image(10, 10, 1, 2, 3)
-        assert np.array_equal(box_blur(image, radius=0), image)
-
-    def test_a_sharp_edge_gets_smoothed(self):
-        image = np.zeros((20, 20, 4), dtype=np.uint8)
-        image[:, 10:] = (255, 255, 255, 255)
-        blurred = box_blur(image, radius=3)
-        # right at the old edge, blurring should have pulled the value
-        # away from either pure extreme.
-        assert 0 < blurred[10, 10, 0] < 255
 
 
 class TestDropShadowImage:
