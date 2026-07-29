@@ -32,6 +32,7 @@ the "overwrite an existing binding" path.
 
 from __future__ import annotations
 
+import shutil
 import sys
 
 import gi
@@ -51,7 +52,19 @@ from greenshot_linux.hotkey_setup import (
 from greenshot_linux.settings import is_first_run_setup_done, mark_first_run_setup_done
 
 
-def _default_executable() -> str:
+def _default_executable(which=shutil.which) -> str:
+    """The command written into hotkey bindings and the autostart
+    entry. Prefers the installed console-script binary
+    (``greenshot-linux``, on PATH once packaged - see pyproject.toml's
+    ``[project.scripts]``) so a real .deb install doesn't keep wiring
+    hotkeys/autostart to a dev-only ``python3 -m`` invocation; falls
+    back to that form for a dev checkout with no such install.
+    ``which`` is injectable for tests, matching this project's
+    established convention for real-system-touching lookups.
+    """
+    installed = which("greenshot-linux")
+    if installed is not None:
+        return installed
     return f"{sys.executable} -m greenshot_linux.app"
 
 

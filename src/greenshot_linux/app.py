@@ -244,6 +244,13 @@ class GreenshotApplication(Gtk.Application):
 
 
 def main() -> int:
+    # Explicit rather than relying on argv[0]-basename inference (GTK/
+    # GLib's default): keeps WM_CLASS ("greenshot-linux") matching the
+    # packaged .desktop launcher's StartupWMClass regardless of how
+    # this entry point actually gets invoked (bare command on PATH,
+    # absolute path, a symlink, etc.) - a real gotcha for interpreted-
+    # language GTK apps, confirmed via research before packaging.
+    GLib.set_prgname("greenshot-linux")
     app = GreenshotApplication()
     return app.run(sys.argv)
 

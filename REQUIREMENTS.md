@@ -1077,9 +1077,82 @@ collision detection are wired up and trigger for real the first time the app is 
 ## Packaging
 
 **Decision: `.deb`.** Avoids Flatpak's sandbox tendency to force portal-mediated capture even
-under X11, which would fight the direct-X11-access priority. Packaging mechanics (debhelper vs
-`dh-virtualenv` vs a PyInstaller-built binary bundled into the `.deb`) not yet worked out — revisit
-once the app has enough surface area to package.
+under X11, which would fight the direct-X11-access priority.
+
+**Status: done for Mint/Cinnamon — a real `.deb` builds, lints clean, and installs/runs correctly.**
+Research first compared `debhelper`+`dh-python` (pybuild) against `dh-virtualenv` and a
+PyInstaller-bundled binary — the latter two were rejected as the wrong tool shape for this app
+specifically: PyGObject/GTK bindings load system `.typelib`/`.so` files at runtime via
+`gi.require_version()`, so a bundled venv either needs the system `gir1.2-*` packages present
+anyway (no benefit to bundling) or tries to vendor GTK itself (nobody does this, and it throws away
+Debian's own security updates for the GTK stack). Confirmed against two real Debian-archive
+packages with near-identical dependency shapes to this project (`mat2` for Rsvg/GdkPixbuf,
+`solaar` for GTK/cairo/X11) that plain `debhelper`+`dh-python` is how real apps like this are
+packaged.
+
+- **License decided**: GPLv3 (matching the original Windows Greenshot's own license, per this
+  file's own long-standing recommendation, now confirmed with the user rather than left open). A
+  `LICENSE` file was fetched verbatim from `gnu.org` via `curl` — deliberately not through a
+  web-fetch tool that summarizes/rewrites content through a model, since a legal document needs to
+  be byte-exact, not paraphrased.
+- **Two real prerequisites found and fixed before packaging could even start**, both confirmed by
+  research and both real bugs, not just packaging nice-to-haves:
+  - No `[project.scripts]` entry point existed — the app only ever ran via `python3 -m
+    greenshot_linux.app`. Added `greenshot-linux = "greenshot_linux.app:main"` to
+    `pyproject.toml`, giving a real `/usr/bin/greenshot-linux` once installed.
+  - `first_run_setup.py`'s `_default_executable()` hardcoded the `python3 -m` invocation into every
+    hotkey binding and the autostart entry it writes — meaning a `.deb` install would have kept
+    wiring hotkeys to a dev-only command that wouldn't exist on a machine without this project's
+    venv on `PATH`. Fixed to prefer the installed `greenshot-linux` binary (`shutil.which`,
+    injectable for tests) and fall back to the dev-mode form only when not installed - confirmed
+    live post-install that it now correctly resolves to `/usr/bin/greenshot-linux`.
+  - Also added an explicit `GLib.set_prgname("greenshot-linux")` in `app.py`'s `main()` — without
+    it, `WM_CLASS` is inferred from `argv[0]`'s basename, which can vary by invocation method
+    (bare command, absolute path, a symlink); setting it explicitly keeps it matching the packaged
+    `.desktop` launcher's `StartupWMClass` unconditionally, a known gotcha for interpreted-language
+    GTK apps confirmed by research before writing any packaging files.
+- **`debian/` contents**: `control` (Build-Depends deliberately includes the full runtime dependency
+  list too, plus `python3-pytest`/`python3-hypothesis`/`python3-scipy` — the test suite runs for
+  real as part of the package build via `dh_auto_test`, not skipped; a deliberate choice consistent
+  with this project's own TDD emphasis, catching real build-environment problems rather than hiding
+  them), `rules` (`dh $@ --buildsystem=pybuild`), `changelog`, `copyright` (DEP-5, GPL-3.0-or-later),
+  `source/format` (`3.0 (native)` — this project *is* the upstream, no separate orig tarball),
+  `greenshot-linux.desktop` (the menu launcher — `Icon=greenshot-linux` as a theme name, not the
+  absolute path the app's own runtime tray/window icon code uses, since those are two different
+  lookup mechanisms; `StartupNotify=false` since no window is shown on a plain launch;
+  `StartupWMClass=greenshot-linux`; a single `Categories=Graphics;` — an earlier `Graphics;Utility;`
+  tripped a real `desktop-file-validate` hint about apps with two main categories potentially
+  appearing twice in the menu, fixed after being caught), and `greenshot-linux.install` (installs
+  the launcher + a copy of the bundled icon into `/usr/share/icons/hicolor/128x128/apps/` for
+  icon-theme lookup — the bundled PNG is actually 155x126, not a standard icon size, so this is the
+  closest bucket, not a pixel-perfect fit; a `lintian` `icon-size-and-directory-name-mismatch`
+  warning documents this, not silently ignored).
+- **No `postinst`/`postrm` script was written** - confirmed in the built `.deb` that `dh_python3`
+  auto-generates one anyway (routine bytecode compilation on install/removal, nothing this project
+  authored), so no hotkey/autostart writes happen at install time - consistent with this project's
+  standing policy that only a human clicking through the in-app first-run dialog may ever write
+  those for real.
+- **Full local build/lint/install verified live**: `dpkg-buildpackage -us -uc -b` (all 656 tests ran
+  for real during the build via `dh_auto_test`/pybuild, not just the dev venv's own suite) produced
+  `greenshot-linux_0.1.0-1_all.deb`; `lintian` on it found zero errors, three harmless warnings (the
+  icon-size mismatch above, `initial-upload-closes-no-bugs` - only relevant for real Debian-archive
+  uploads, and `no-manual-page` - a nice-to-have not yet written); `dpkg -c`/`dpkg -I` confirmed
+  every expected file landed in the right place with the right `Depends:` line; a real
+  `sudo apt install <path-to-deb>` (run by the user, not automated - installing packages is a real
+  system change) succeeded, the desktop-file/icon-theme/menu-cache triggers all fired correctly, and
+  the installed `/usr/bin/greenshot-linux` binary launched cleanly. The real first-run-setup flag
+  was checked (read-only) *before* any launch to confirm it was already `true` from earlier genuine
+  user interaction, specifically to avoid ever triggering an unsupervised real first-run dialog -
+  consistent with the standing rule that only a human may click through that dialog for real.
+- **Two full `sudo apt-get install` cycles were needed** to get from "files written" to "package
+  actually builds": the build-tooling itself (`debhelper`, `dh-python`, `pybuild-plugin-pyproject`,
+  `python3-hatchling`, `devscripts`, `lintian`, plus the runtime dep `python3-shapely`), then
+  separately `python3-all` (a `Build-Depends` entry initially missed) and `python3-pytest`/
+  `python3-hypothesis` (needed only once the decision was made to actually run the real test suite
+  during the build rather than skip it). Every `apt install`/`dpkg -i` step was run by the user
+  directly, never automated - installing packages and modifying the system are exactly the kind of
+  actions this project's standing safety rules require checking first for, and `sudo` in this
+  environment genuinely requires an interactive password this agent cannot supply anyway.
 
 ## Open questions (not yet decided)
 
@@ -1109,7 +1182,9 @@ that's actually been done.
 
 ## Licensing
 
-Greenshot (Windows) is GPLv3. This is a derivative work — same name, same feature set, same
-design lineage — even though no source code is shared. Recommendation (not yet confirmed with
-user): license this repo GPLv3 as well and credit the upstream Greenshot project in the README.
-Flag if a different license or a distinct product name is intended instead.
+**Status: decided — GPLv3.** Greenshot (Windows) is GPLv3; this is a derivative work — same name,
+same feature set, same design lineage — even though no source code is shared. Confirmed with the
+user (not just this file's own recommendation) when a real `LICENSE` file became a genuine blocker
+for `debian/copyright` during packaging. `LICENSE` at the repo root is the verbatim text from
+`gnu.org`, fetched via `curl` rather than a web-fetch tool that summarizes content through a model —
+a legal document needs to be byte-exact, not paraphrased.

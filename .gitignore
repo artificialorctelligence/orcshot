@@ -7,3 +7,16 @@ build/
 dist/
 .coverage
 htmlcov/
+
+# debian package build artifacts - regenerated fresh by dpkg-buildpackage,
+# never the hand-written packaging files themselves (debian/control, rules,
+# changelog, copyright, source/format, *.install, *.desktop)
+.pybuild/
+debian/.debhelper/
+debian/debhelper-build-stamp
+debian/files
+debian/greenshot-linux/
+debian/greenshot-linux.debhelper.log
+debian/greenshot-linux.postinst.debhelper
+debian/greenshot-linux.prerm.debhelper
+debian/greenshot-linux.substvars

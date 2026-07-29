@@ -6,6 +6,8 @@ build-backend = "hatchling.build"
 name = "greenshot-linux"
 version = "0.1.0"
 description = "A Linux Mint port of Greenshot"
+readme = "README.md"
+license = "GPL-3.0-or-later"
 requires-python = ">=3.10"
 dependencies = [
     "PyGObject>=3.42",
@@ -14,6 +16,9 @@ dependencies = [
     "python-xlib>=0.33",
     "shapely>=2.0",
 ]
+
+[project.scripts]
+greenshot-linux = "greenshot_linux.app:main"
 
 [project.optional-dependencies]
 dev = [

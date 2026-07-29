@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=Greenshot Linux
+Comment=Screenshot capture and annotation tool
+Exec=greenshot-linux
+Icon=greenshot-linux
+Terminal=false
+StartupNotify=false
+StartupWMClass=greenshot-linux
+Categories=Graphics;

@@ -1,0 +1,52 @@
+Source: greenshot-linux
+Section: graphics
+Priority: optional
+Maintainer: Greenshot Linux <314918217+greenshotlinux@users.noreply.github.com>
+Build-Depends: debhelper-compat (= 13),
+               dh-python,
+               pybuild-plugin-pyproject,
+               python3-all,
+               python3-hatchling,
+               python3-pytest,
+               python3-hypothesis,
+               python3-scipy,
+               python3-gi,
+               python3-gi-cairo,
+               python3-cairo,
+               python3-numpy,
+               python3-shapely,
+               python3-xlib,
+               gir1.2-gtk-3.0,
+               gir1.2-rsvg-2.0,
+               gir1.2-gdkpixbuf-2.0,
+               gir1.2-pango-1.0,
+               gir1.2-glib-2.0
+Standards-Version: 4.6.2
+Rules-Requires-Root: no
+
+Package: greenshot-linux
+Architecture: all
+Depends: ${python3:Depends},
+         ${misc:Depends},
+         python3-gi,
+         python3-gi-cairo,
+         python3-cairo,
+         python3-numpy,
+         python3-shapely,
+         python3-xlib,
+         gir1.2-gtk-3.0,
+         gir1.2-rsvg-2.0,
+         gir1.2-gdkpixbuf-2.0,
+         gir1.2-pango-1.0,
+         gir1.2-glib-2.0
+Description: Screenshot capture and annotation tool
+ A Linux Mint (Cinnamon) port of Windows Greenshot: region, window,
+ and full-screen capture; an annotation editor (shapes, text, whole-
+ image effects); configurable global capture hotkeys; and autostart-
+ on-login integration.
+ .
+ Automatic hotkey configuration (offered once, on first run) is
+ Cinnamon-specific, using org.cinnamon.desktop.keybindings. The
+ application itself runs on any GTK3 desktop environment under X11;
+ on non-Cinnamon desktops, hotkeys can still be bound manually to the
+ same command-line capture options this package provides.

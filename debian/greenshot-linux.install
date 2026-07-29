@@ -1,0 +1,2 @@
+debian/greenshot-linux.desktop usr/share/applications/
+src/greenshot_linux/resources/greenshot-linux.png usr/share/icons/hicolor/128x128/apps/
