@@ -162,6 +162,7 @@ from greenshot_linux.core.zoom import (
     zoom_percent_label,
 )
 from greenshot_linux.ui.cairo_convert import numpy_to_cairo_surface
+from greenshot_linux.ui.color_dialog import show_color_picker
 from greenshot_linux.ui.composite import composite_to_numpy
 from greenshot_linux.ui.effects import resize_image, torn_edge_image
 from greenshot_linux.ui.gdk_convert import pixbuf_to_numpy
@@ -223,13 +224,6 @@ _TOOL_LABELS = [
 _HANDLE_SIZE = 6
 _HANDLE_FILL = (1.0, 1.0, 1.0)
 _HANDLE_STROKE = (0.1, 0.4, 0.9)
-
-
-def _color_to_rgba(color) -> Gdk.RGBA:
-    r, g, b, a = color
-    rgba = Gdk.RGBA()
-    rgba.red, rgba.green, rgba.blue, rgba.alpha = r / 255, g / 255, b / 255, a / 255
-    return rgba
 
 
 def _rgba_to_color(rgba: Gdk.RGBA):
@@ -559,6 +553,39 @@ class EditorWindow(Gtk.Window):
 
         return toolbar
 
+    def _build_color_button(self, get_color, on_picked):
+        """A small button showing ``get_color()`` as a solid swatch,
+        opening the Greenshot-style color dialog (ui/color_dialog.py)
+        on click - faithful port of ToolStripColorButton
+        (Greenshot.Editor.Controls.ToolStripColorButton.cs:76-96),
+        which opens the same custom palette dialog for both line-color
+        and fill-color - replaces the plain Gtk.ColorButton (a generic
+        system color dialog) this used to open. Returns (button,
+        swatch) - the swatch is exposed so callers can queue_draw() it
+        after a color change from elsewhere.
+        """
+        button = Gtk.Button()
+        swatch = Gtk.DrawingArea()
+        swatch.set_size_request(24, 16)
+        button.add(swatch)
+
+        def on_draw(widget, ctx):
+            r, g, b, a = get_color()
+            ctx.set_source_rgba(r / 255, g / 255, b / 255, a / 255)
+            ctx.paint()
+            return False
+
+        swatch.connect("draw", on_draw)
+
+        def on_clicked(_button):
+            picked = show_color_picker(self, get_color())
+            if picked is not None:
+                on_picked(picked)
+                swatch.queue_draw()
+
+        button.connect("clicked", on_clicked)
+        return button, swatch
+
     def _build_style_panel(self) -> Gtk.Box:
         """Color/thickness/shadow controls that update self._default_style,
         plus a separate obfuscate-amount spinner (blur radius / pixel
@@ -571,18 +598,16 @@ class EditorWindow(Gtk.Window):
         box.set_border_width(4)
 
         box.pack_start(Gtk.Label(label="Line:"), False, False, 0)
-        self._line_color_button = Gtk.ColorButton()
-        self._line_color_button.set_use_alpha(True)
-        self._line_color_button.set_rgba(_color_to_rgba(self._default_style.line_color))
-        self._line_color_button.connect("color-set", self._on_line_color_changed)
-        box.pack_start(self._line_color_button, False, False, 0)
+        line_button, self._line_color_swatch = self._build_color_button(
+            lambda: self._default_style.line_color, self._on_line_color_changed,
+        )
+        box.pack_start(line_button, False, False, 0)
 
         box.pack_start(Gtk.Label(label="Fill:"), False, False, 0)
-        self._fill_color_button = Gtk.ColorButton()
-        self._fill_color_button.set_use_alpha(True)
-        self._fill_color_button.set_rgba(_color_to_rgba(self._default_style.fill_color))
-        self._fill_color_button.connect("color-set", self._on_fill_color_changed)
-        box.pack_start(self._fill_color_button, False, False, 0)
+        fill_button, self._fill_color_swatch = self._build_color_button(
+            lambda: self._default_style.fill_color, self._on_fill_color_changed,
+        )
+        box.pack_start(fill_button, False, False, 0)
 
         box.pack_start(Gtk.Label(label="Line Thickness:"), False, False, 0)
         adjustment = Gtk.Adjustment(
@@ -648,11 +673,11 @@ class EditorWindow(Gtk.Window):
             self.selected_shape = restyled
             self._drawing_area.queue_draw()
 
-    def _on_line_color_changed(self, button: Gtk.ColorButton) -> None:
-        self._apply_style_change(dataclass_replace(self._default_style, line_color=_rgba_to_color(button.get_rgba())))
+    def _on_line_color_changed(self, color) -> None:
+        self._apply_style_change(dataclass_replace(self._default_style, line_color=color))
 
-    def _on_fill_color_changed(self, button: Gtk.ColorButton) -> None:
-        self._apply_style_change(dataclass_replace(self._default_style, fill_color=_rgba_to_color(button.get_rgba())))
+    def _on_fill_color_changed(self, color) -> None:
+        self._apply_style_change(dataclass_replace(self._default_style, fill_color=color))
 
     def _on_thickness_changed(self, spin: Gtk.SpinButton) -> None:
         self._apply_style_change(dataclass_replace(self._default_style, line_thickness=spin.get_value_as_int()))

@@ -17,12 +17,14 @@ from greenshot_linux.settings import (
     get_capture_mouse_cursor,
     get_output_directory,
     get_print_options,
+    get_recent_colors,
     is_first_run_setup_done,
     mark_first_run_setup_done,
     quick_save_filename,
     set_capture_mouse_cursor,
     set_output_directory,
     set_print_options,
+    set_recent_colors,
 )
 
 
@@ -107,6 +109,29 @@ class TestCaptureMouseCursor:
         set_capture_mouse_cursor(True, path=path)
 
         assert get_capture_mouse_cursor(path=path) is True
+
+
+class TestRecentColors:
+    def test_defaults_to_empty(self, tmp_path):
+        path = tmp_path / "config.json"
+        assert get_recent_colors(path=path) == []
+
+    def test_set_then_get_round_trips_as_tuples(self, tmp_path):
+        path = tmp_path / "config.json"
+        colors = [(255, 0, 0, 255), (0, 255, 0, 255)]
+
+        set_recent_colors(colors, path=path)
+
+        assert get_recent_colors(path=path) == colors
+        assert all(isinstance(c, tuple) for c in get_recent_colors(path=path))
+
+    def test_set_preserves_other_settings_already_present(self, tmp_path):
+        path = tmp_path / "config.json"
+        set_capture_mouse_cursor(False, path=path)
+
+        set_recent_colors([(1, 2, 3, 255)], path=path)
+
+        assert get_capture_mouse_cursor(path=path) is False
 
 
 class TestPrintOptions:

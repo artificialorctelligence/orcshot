@@ -619,6 +619,63 @@ backlog - research confirmed it's a real, well-developed Windows feature (PR #20
   all four keyboard shortcuts, Ctrl+wheel with throttle, bare-digit tool-switch keys still working)
   all confirmed correct.
 
+### Color picker (faithful port of `Greenshot.Editor.Forms.ColorDialog`)
+**Status: done.** Replaces the line-color/fill-color style-panel buttons' original implementation
+(plain `Gtk.ColorButton`, opening GTK's generic system color chooser). Research first corrected an
+assumption in this feature's own task description ("a dropdown palette of preset/recent colors plus
+a 'more colors...' option") — the real Windows control (`ToolStripColorButton`) opens one custom
+`ColorDialog` directly, no two-stage dropdown-then-dialog flow; the "palette" lives entirely inside
+that one dialog alongside RGB/hex fields, a Transparent button, and an eyedropper. Both line-color
+and fill-color buttons share the exact same dialog and behavior in Windows — no field-specific
+logic anywhere, confirmed by reading the source — so this port's version does too.
+
+- **Palette grid** (`core/color_palette.py`, pure/tested): 13 columns x 11 rows, faithful port of
+  `CreateColorPalette`/`CreateColorButtonColumn` (`ColorDialog.cs:68-109`) — 12 hue columns (red,
+  orange, yellow, chartreuse, green, spring green, cyan, azure, blue, violet, magenta, rose) each
+  shaded black→pure-hue→white, plus a greyscale column. Got the exact formula (including Windows'
+  *truncating* integer division, not rounded) directly from the source rather than approximating —
+  the visual grid is directly observable/checkable, so getting the literal algorithm right mattered
+  more here than for e.g. drop-shadow's blur, which isn't independently verifiable without a
+  reference render. A test hand-traces the entire red column's 11 exact RGB values end to end.
+- **Recent colors** (`core/color_palette.py`'s `add_recent_color` + `settings.py`'s
+  `get_recent_colors`/`set_recent_colors`): classic MRU (remove-if-present, insert at front, cap at
+  12), faithful port of `AddToRecentColors` (`ColorDialog.cs:182-192`) and
+  `IEditorConfiguration.RecentColors` (`IEditorConfiguration.cs:36-42`, ini-backed — this port's
+  equivalent is the same JSON settings file everything else in `settings.py` uses). Persists across
+  app restarts, matching Windows. One simplification: Windows pre-allocates 12 disabled/transparent
+  placeholder swatches and enables them as history accumulates; this port just shows however many
+  colors actually exist (0 to 12), avoiding a "disabled swatch" visual state for no real benefit.
+- **The dialog itself** (`ui/color_dialog.py`): a `Gtk.Dialog` with the palette grid, recent-colors
+  row, a live preview swatch, RGB/Alpha spinbuttons + a hex entry (two-way synced, guarded against
+  update loops the same way the Resize effect dialog's aspect-lock is), a Transparent quick-pick,
+  and an Eyedropper button, plus Cancel/Apply. Single-clicking a swatch previews it (updates the
+  preview + fields without closing); double-clicking applies and closes in one action — faithful
+  port of `ColorButtonDoubleClick` (`ColorDialog.cs:133-137`).
+- **Eyedropper** (`ui/eyedropper.py`) — press-and-hold on the eyedropper button, drag anywhere on
+  screen (not confined to the dialog's own window), a magnified preview follows the cursor, release
+  commits the color under the cursor, Escape cancels: faithful port of
+  `Greenshot.Editor.Controls.Pipette`/`MovableShowColorForm`. Built almost entirely from *existing*
+  infrastructure rather than a new subsystem: the screen-wide drag uses a fullscreen invisible
+  `Gtk.WindowType.POPUP` overlay (the same technique `region_select.py`/`window_picker.py` already
+  use for exact multi-monitor geometry) plus `Gdk.Seat.grab()` (confirmed live, in isolation before
+  writing any dialog code, that a grab initiated from one widget's button-press correctly redirects
+  the in-progress drag's motion/release events to a *different* window — exactly the "press started
+  on the small eyedropper button, drag continues anywhere on screen" case this needs); pixel reading
+  reuses `CaptureBackend.grab()` (the same real X11 mechanism every capture mode already uses, just
+  a tiny clamped patch instead of a full region); the magnified preview reuses `ui/magnifier.py`'s
+  existing `draw_magnifier` (the same one region-select's own magnifier loupe uses) unchanged.
+- Verified live end-to-end: cancel returns nothing changed; hex-entry and RGB-spinbutton edits
+  correctly two-way sync and commit; the Transparent button; the palette grid's exact widget count
+  (143 = 13×11); double-click-applies-and-closes on a real swatch; recent-colors persistence
+  (sandboxed to a temp `XDG_CONFIG_HOME`) correctly accumulating in MRU order; the editor's
+  line-color button correctly opening the dialog and propagating a picked color into
+  `_default_style`; and the eyedropper's pixel-sampling + edge-clamping logic (never crashes near
+  screen edges, always returns a full-size patch) against `FakeCaptureBackend` synthetic content —
+  never real desktop pixels, consistent with this project's standing privacy rule. The
+  `Gdk.Seat.grab()` mechanism itself was confirmed against the real X11 session (a grab succeeding
+  reveals no content, unlike a screen capture, so this was safe to verify for real) but the full
+  pixel-sampling logic was verified only against fake content.
+
 ### Whole-image effects (faithful port of `Greenshot.Base/Effects`)
 **Status: done.** Operations on the *entire* captured image, distinct from drawn annotation shapes
 (`core/tools.py`) — grouped in a dedicated "Image" menu (`_build_menu_bar`) rather than Windows'

@@ -26,6 +26,7 @@ _OUTPUT_DIRECTORY_KEY = "output_directory"
 _FIRST_RUN_SETUP_DONE_KEY = "first_run_setup_done"
 _CAPTURE_MOUSE_CURSOR_KEY = "capture_mouse_cursor"
 _PRINT_OPTIONS_KEY = "print_options"
+_RECENT_COLORS_KEY = "recent_colors"
 _DEFAULT_OUTPUT_DIRNAME = "Screenshots"
 
 
@@ -103,6 +104,29 @@ def set_capture_mouse_cursor(enabled: bool, path: Path = None) -> None:
         path = config_file_path()
     settings = _load(path)
     settings[_CAPTURE_MOUSE_CURSOR_KEY] = enabled
+    _save(settings, path)
+
+
+def get_recent_colors(path: Path = None) -> list:
+    """Up to 12 (RECENT_COLORS_MAX, core/color_palette.py) most-
+    recently-picked colors from the editor's color dialog, newest
+    first - faithful port of IEditorConfiguration.RecentColors
+    (IEditorConfiguration.cs:36-42), an ini-backed list that survives
+    app restarts on Windows too. Stored as JSON lists (no tuple type
+    in JSON), converted back to (r, g, b, a) tuples on load to match
+    core/color_palette.py's Color type.
+    """
+    if path is None:
+        path = config_file_path()
+    saved = _load(path).get(_RECENT_COLORS_KEY, [])
+    return [tuple(color) for color in saved]
+
+
+def set_recent_colors(colors: list, path: Path = None) -> None:
+    if path is None:
+        path = config_file_path()
+    settings = _load(path)
+    settings[_RECENT_COLORS_KEY] = [list(color) for color in colors]
     _save(settings, path)
 
 
