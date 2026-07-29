@@ -619,6 +619,107 @@ backlog - research confirmed it's a real, well-developed Windows feature (PR #20
   all four keyboard shortcuts, Ctrl+wheel with throttle, bare-digit tool-switch keys still working)
   all confirmed correct.
 
+### Whole-image effects (faithful port of `Greenshot.Base/Effects`)
+**Status: done.** Operations on the *entire* captured image, distinct from drawn annotation shapes
+(`core/tools.py`) — grouped in a dedicated "Image" menu (`_build_menu_bar`) rather than Windows'
+toolbar split-button, matching how this port already puts other toolbar-button actions (Insert
+Image, Print) in the menu bar instead. Research (before implementing) inventoried every effect
+Windows actually wires into its editor UI, citing `Greenshot.Base/Effects/*.cs` and
+`Greenshot.Base/Core/ImageHelper.cs` for each — `AdjustEffect`/`MonochromeEffect`/
+`ReduceColorsEffect` were found defined but with no UI call site anywhere in `ImageEditorForm.cs`,
+so they're correctly out of scope, not missing.
+
+- **Pure numpy pixel effects** (`core/effects.py`, tested): `rotate_90_image` (90° only, matching
+  `RotateEffect.cs:32-68` — arbitrary angles throw `NotSupportedException` there too),
+  `grayscale_image` (NTSC luma weights R=.3/G=.59/B=.11, `ImageHelper.cs:1133-1161`),
+  `invert_image` (`out = 255 - in` per RGB channel, `ImageHelper.cs:900-928`),
+  `add_border_image` (fixed 2px black default, no dialog — matches Windows' own left-click-only
+  behavior, `ImageHelper.cs:1024-1060`), `enlarge_canvas_image` (fixed 25px pad, transparent fill,
+  `ImageHelper.cs:1399-1410`), `remove_transparency_image`, `clear_image`, `box_blur` (two-pass
+  horizontal+vertical, applied twice — 4 passes total, a Gaussian approximation faithfully porting
+  `ImageHelper.ApplyBoxBlur`'s fallback path, `ImageHelper.cs:493-527`), and `drop_shadow_image`
+  (darkness 0.6 / size 7 / offset (-1,-1) defaults, matching `DropShadowEffect.cs:48-53`) — the last
+  one explicitly documented as a *good-faith reproduction* of the described algorithm (silhouette +
+  blur + composite), not a pixel-identical port of GDI+'s exact blur/compositing internals, which
+  aren't independently verifiable without a reference render to diff against.
+- **Autocrop / "Shrink Canvas"** (`core/crop.py`'s `autocrop_rect`, tested) — deliberately
+  *simplified* from Windows' own description ("for each corner, grow a region, keep the largest"):
+  attempting a literal 4-corner "grow and pick best" implementation revealed a real structural
+  problem caught by testing, not assumed — since every edge scan spans the image's full width/height,
+  a single differently-colored corner (exactly the scenario multi-corner sampling is meant to handle)
+  poisons its own row *and* column scan for every hypothesis tried, degenerating to unhelpful results
+  in precisely the case it's supposed to make more robust. Simplified to one well-defined hypothesis
+  (the most common of the 4 sampled corner colors) instead of an under-specified 4-way scheme that
+  didn't reliably deliver on its own intent — documented as a known, inherent limitation (a stray
+  pixel exactly at a corner can still block trimming its two adjacent edges), not silently dropped.
+  `crop_to_rect` (already existed, built for the still-unbuilt interactive Crop tool) is reused
+  directly to apply the result — no new crop-application logic needed.
+- **Resize (resample)** (`ui/effects.py`'s `resize_image`, live-verified) — dialog with width/height
+  in pixels and an aspect-ratio lock (auto-syncing the other field live); Windows also offers percent-
+  based entry, deliberately not ported — a scope reduction to keep the dialog simple, since pixel
+  entry alone covers the effect's actual behavior faithfully. Uses `GdkPixbuf.InterpType.HYPER`
+  (GdkPixbuf's own highest-quality/anti-aliased filter) as the closest available equivalent to
+  Windows' `InterpolationMode.HighQualityBicubic` — GdkPixbuf has no bicubic filter, and this isn't a
+  pixel-identical port of GDI+'s exact resampling kernel.
+- **Torn Edge** (`ui/effects.py`'s `torn_edge_image`, live-verified) — the most speculative effect:
+  a jagged Cairo path (each edge divided into tooth-range-wide regions, each boundary randomly
+  displaced inward by `[1, tooth_height)`, matching Windows' own *unseeded* `Random.Next` per
+  application — every application looks organically different, by design, same as Windows, not
+  nondeterminism to fix) filled with the source image, optionally piped through `drop_shadow_image`
+  when `generate_shadow` is set (Windows: `TornEdgeEffect` extends `DropShadowEffect`,
+  `GenerateShadow` defaults true) — confirmed live this compounds the padding (tear's own
+  `shadow_size` pad, plus another full `shadow_size` pad from the chained shadow call, so a 100×200
+  image becomes 128×228 with defaults, not 114×214 — traced and confirmed correct, not a bug, the
+  first time it came up during verification).
+- **Remove Transparency, Resize, Drop Shadow, Torn Edge all have settings dialogs** — Remove
+  Transparency's is a plain `Gtk.ColorChooserDialog` (matching Windows' own bare `ColorDialog`, no
+  custom UI beyond the fill color); Drop Shadow/Torn Edge follow Windows' real left-click-instant
+  vs. right-click-opens-settings split (`_do_drop_shadow`/`_do_torn_edge` instant-apply the last-used
+  settings; `_do_drop_shadow_settings`/`_do_torn_edge_settings` open a dialog, then apply) — except
+  triggered from separate menu items here (`Drop Shadow` / `Drop Shadow Settings...`) rather than a
+  left/right-click distinction on one toolbar button, since this port uses menus, not that toolbar
+  widget, for these actions. **Settings are session-only** (an instance dict, `self._drop_shadow_settings`/
+  `self._torn_edge_settings` in `EditorWindow.__init__`), not persisted across app restarts the way
+  Windows' `EditorConfiguration.DropShadowEffectSettings`/`TornEdgeEffectSettings` are — a deliberate
+  scope reduction, not silently dropped.
+- **Enlarge Canvas / Shrink Canvas have no menu entry at all** — faithfully matching Windows, which
+  has no menu/toolbar button for either, only `Ctrl+Shift++`/`Ctrl+Shift+-`
+  (`ImageEditorForm.cs:1164-1171`). A real disambiguation problem surfaced implementing this: GDK
+  reports the *already-shifted* keyval for a character like `+` (unlike Windows' separate
+  KeyCode/Modifiers model), so "Ctrl++" (zoom in) and "Ctrl+Shift++" (enlarge canvas) can report the
+  identical keyval on keyboards where typing `+` itself requires Shift — resolved by checking Shift
+  state explicitly to route between the two pairs, not by keyval alone. `Ctrl+Delete` (Clear,
+  matching `ClearToolStripMenuItem`'s shortcut) vs. plain `Delete` (removes the selected shape,
+  pre-existing) needed the same kind of explicit modifier-based disambiguation — previously `Delete`
+  fired unconditionally regardless of Ctrl.
+- **Undo/redo — a new memento type, now genuinely in scope.** `core/history.py`'s own module
+  docstring previously said `SurfaceBackgroundChangeMemento` (undoing a whole-image effect) was "out
+  of scope... needs a 'Surface' document concept (base image + Layer) that doesn't exist yet" —
+  revisited now that `EditorWindow` provides exactly that. `BackgroundChangeMemento` restores both
+  the base image *and* every annotation element the effect repositioned (via `core/tools.py`'s new
+  `scale_shape`/`rotate_shape_90`, added alongside the pre-existing `translate_shape`, all three
+  following the identical per-shape-type dispatch pattern) — never merges, matching the source
+  (`Merge()` always `false`; every effect application is its own separate undo step). A genuine bug
+  caught by the round-trip test before this ever reached the UI: the first implementation swapped
+  `before_image`/`after_image` in the memento `restore()` returns, so redo silently re-applied the
+  *undo* instead of the original effect — `TestBackgroundChangeMemento::test_full_undo_redo_round_trip_via_the_stack`
+  failed immediately, exactly the kind of bug this session's TDD-first discipline exists to catch
+  before live verification, not during it.
+- **`EditorWindow.base_image` is now a property**, not a plain attribute — its setter rebuilds the
+  cached Cairo surface, resizes the canvas/window to the new image's dimensions (reusing zoom's own
+  `_resize_canvas_and_window`, factored out of `_set_zoom` for this), and updates the status bar's
+  dimensions label, all in one place — so `BackgroundChangeMemento.restore()` on undo/redo gets
+  correct resizing "for free" just by assigning `target.base_image = ...`, with no separate
+  undo/redo-specific resize logic needed anywhere.
+- Verified live end-to-end for every effect: pixel correctness (grayscale/invert exact values),
+  canvas growth/shrinkage amounts, element repositioning (translate for border/enlarge/shrink/shadow/
+  torn-edge, scale for resize, rotate for rotate-90 — including a full 4-rotations-returns-to-original
+  property test), full undo/redo round trips restoring image + elements + canvas/window size +
+  dimensions label together, every keyboard shortcut (including the Ctrl+Z-vs-bare-Z and
+  Ctrl+Delete-vs-Delete and Ctrl++-vs-Ctrl+Shift++ disambiguations), the aspect-ratio-lock live
+  auto-sync in the Resize dialog, and that every "Image" menu item actually invokes its handler —
+  all with synthetic image data, never real desktop content.
+
 ### Undo/redo
 **Status: done at the pure-data-model level** (`src/greenshot_linux/core/history.py`) — a generic
 `UndoRedoStack` engine plus mementos over `Layer` (add/delete/change an element, batched as one

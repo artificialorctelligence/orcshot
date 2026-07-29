@@ -36,6 +36,8 @@ from greenshot_linux.core.tools import (
     default_insert_bounds,
     handle_at,
     resize_shape,
+    rotate_shape_90,
+    scale_shape,
     shape_handles,
     translate_shape,
 )
@@ -250,6 +252,82 @@ class TestTranslateShape:
         shape = RectangleShape(Rect(10, 10, 50, 50), STYLE)
         translate_shape(shape, 5, 5)
         assert shape.bounds == Rect(10, 10, 50, 50)
+
+
+class TestScaleShape:
+    def test_rectangle_bounds_scale_around_origin(self):
+        shape = RectangleShape(Rect(10, 10, 50, 50), STYLE)
+        scaled = scale_shape(shape, 2, 2)
+        assert scaled.bounds == Rect(20, 20, 100, 100)
+
+    def test_non_uniform_scale(self):
+        shape = RectangleShape(Rect(10, 20, 50, 60), STYLE)
+        scaled = scale_shape(shape, 0.5, 2)
+        assert scaled.bounds == Rect(5, 40, 25, 120)
+
+    def test_line_endpoints_scale(self):
+        shape = LineShape(start=(10, 10), end=(20, 30), style=STYLE)
+        scaled = scale_shape(shape, 2, 3)
+        assert scaled.start == (20, 30)
+        assert scaled.end == (40, 90)
+
+    def test_freehand_points_scale(self):
+        shape = FreehandShape(points=((10, 10), (20, 20)), style=STYLE)
+        scaled = scale_shape(shape, 2, 2)
+        assert scaled.points == ((20, 20), (40, 40))
+
+    def test_speech_bubble_bubble_bounds_and_target_scale(self):
+        shape = SpeechBubbleShape(Rect(10, 10, 50, 50), target=(100, 100), text="hi")
+        scaled = scale_shape(shape, 2, 2)
+        assert scaled.bubble_bounds == Rect(20, 20, 100, 100)
+        assert scaled.target == (200, 200)
+
+    def test_unsupported_shape_type_raises(self):
+        with pytest.raises(NotImplementedError):
+            scale_shape(NotARealShape(), 2, 2)
+
+    def test_original_shape_is_unchanged(self):
+        shape = RectangleShape(Rect(10, 10, 50, 50), STYLE)
+        scale_shape(shape, 2, 2)
+        assert shape.bounds == Rect(10, 10, 50, 50)
+
+
+class TestRotateShape90:
+    def test_clockwise_top_left_corner_moves_to_top_right(self):
+        # a 1x1 shape at the old canvas's top-left corner ends up at
+        # the new (rotated) canvas's top-right corner.
+        shape = RectangleShape(Rect(0, 0, 1, 1), STYLE)
+        rotated = rotate_shape_90(shape, old_width=100, old_height=60, clockwise=True)
+        assert rotated.bounds == Rect(59, 0, 60, 1)
+
+    def test_counterclockwise_top_left_corner_moves_to_bottom_left(self):
+        shape = RectangleShape(Rect(0, 0, 1, 1), STYLE)
+        rotated = rotate_shape_90(shape, old_width=100, old_height=60, clockwise=False)
+        assert rotated.bounds == Rect(0, 99, 1, 100)
+
+    def test_rotating_the_full_canvas_rect_fills_the_new_canvas(self):
+        shape = RectangleShape(Rect(0, 0, 100, 60), STYLE)
+        rotated = rotate_shape_90(shape, old_width=100, old_height=60, clockwise=True)
+        assert rotated.bounds == Rect(0, 0, 60, 100)
+
+    def test_line_endpoints_rotate(self):
+        shape = LineShape(start=(0, 0), end=(100, 60), style=STYLE)
+        rotated = rotate_shape_90(shape, old_width=100, old_height=60, clockwise=True)
+        assert rotated.start == (60, 0)
+        assert rotated.end == (0, 100)
+
+    def test_four_clockwise_rotations_return_to_the_original_bounds(self):
+        shape = RectangleShape(Rect(10, 5, 40, 25), STYLE)
+        w, h = 100, 60
+        for _ in range(4):
+            shape = rotate_shape_90(shape, old_width=w, old_height=h, clockwise=True)
+            w, h = h, w
+        assert shape.bounds == Rect(10, 5, 40, 25)
+        assert (w, h) == (100, 60)
+
+    def test_unsupported_shape_type_raises(self):
+        with pytest.raises(NotImplementedError):
+            rotate_shape_90(NotARealShape(), old_width=100, old_height=60, clockwise=True)
 
 
 _offset = st.integers(min_value=-500, max_value=500)

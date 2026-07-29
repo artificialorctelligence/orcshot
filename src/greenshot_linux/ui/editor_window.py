@@ -111,9 +111,21 @@ import numpy as np
 from gi.repository import Gdk, GdkPixbuf, Gio, GLib, Gtk, Rsvg
 
 from greenshot_linux.capture.clipboard import ClipboardBackend
+from greenshot_linux.core.crop import autocrop_rect, crop_to_rect
 from greenshot_linux.core.drawing import Layer
+from greenshot_linux.core.effects import (
+    add_border_image,
+    clear_image,
+    drop_shadow_image,
+    enlarge_canvas_image,
+    grayscale_image,
+    invert_image,
+    remove_transparency_image,
+    rotate_90_image,
+)
 from greenshot_linux.core.history import (
     AddElementMemento,
+    BackgroundChangeMemento,
     DeleteElementMemento,
     ElementChangeMemento,
     UndoRedoStack,
@@ -135,6 +147,8 @@ from greenshot_linux.core.tools import (
     default_insert_bounds,
     handle_at,
     resize_shape,
+    rotate_shape_90,
+    scale_shape,
     shape_handles,
     translate_shape,
 )
@@ -149,6 +163,7 @@ from greenshot_linux.core.zoom import (
 )
 from greenshot_linux.ui.cairo_convert import numpy_to_cairo_surface
 from greenshot_linux.ui.composite import composite_to_numpy
+from greenshot_linux.ui.effects import resize_image, torn_edge_image
 from greenshot_linux.ui.gdk_convert import pixbuf_to_numpy
 from greenshot_linux.ui.file_export import save_image_to_file
 from greenshot_linux.ui.icons import tool_icon_image
@@ -251,6 +266,20 @@ class EditorWindow(Gtk.Window):
         self._default_style = ShapeStyle()
         self._default_obfuscate_amount = 5  # matches ObfuscateShape's own default
         self.selected_shape = None
+        # Last-used whole-image effect settings (DropShadowEffectSettings/
+        # TornEdgeEffectSettings, IEditorConfiguration.cs:86-90) - a
+        # left-click/keyboard-shortcut re-applies these, a right-click
+        # opens the settings dialog to change them first. Session-only
+        # here (not persisted across app restarts via settings.py) -
+        # a deliberate scope reduction, unlike Windows' ini-backed
+        # persistence. Defaults match Windows' own (DropShadowEffect.cs:48-53,
+        # TornEdgeEffect.cs defaults).
+        self._drop_shadow_settings = {"darkness": 0.6, "size": 7, "offset": (-1, -1)}
+        self._torn_edge_settings = {
+            "tooth_height": 12, "horizontal_tooth_range": 20, "vertical_tooth_range": 20,
+            "edges": (True, True, True, True), "generate_shadow": True,
+            "shadow_size": 7, "darkness": 0.6, "offset": (-1, -1),
+        }
         # A single cut/copied shape (Windows' per-shape Cut/Copy/Paste,
         # distinct from _do_copy's whole-image-to-system-clipboard) -
         # not the system clipboard, just in-editor state.
@@ -331,6 +360,27 @@ class EditorWindow(Gtk.Window):
             app.register_editor_window(self)
         self.connect("destroy", self._on_destroy)
 
+    @property
+    def base_image(self) -> np.ndarray:
+        return self._base_image
+
+    @base_image.setter
+    def base_image(self, image: np.ndarray) -> None:
+        """The only place _surface (the composited-onto Cairo surface)
+        gets rebuilt from a new base image, and the canvas/window
+        resized to match - so BackgroundChangeMemento (core/history.py)
+        restoring a previous (possibly differently-sized) image on
+        undo/redo gets correct resizing "for free" just by assigning
+        here, the same as every whole-image effect below. Bypassed by
+        __init__, which sets self._base_image directly before
+        _drawing_area/_canvas_scroller exist to resize.
+        """
+        self._base_image = image
+        self._surface = numpy_to_cairo_surface(image)
+        self._resize_canvas_and_window()
+        img_h, img_w = image.shape[:2]
+        self._dimensions_label.set_text(f"{img_w} x {img_h}")
+
     def _build_menu_bar(self) -> Gtk.MenuBar:
         """File/Edit/Object/Help, matching Windows Greenshot's editor
         menu structure - only the items applicable to this port's
@@ -375,6 +425,33 @@ class EditorWindow(Gtk.Window):
         object_menu.append(Gtk.SeparatorMenuItem())
         add_item(object_menu, "Bring to Front", self._do_bring_to_front)
         add_item(object_menu, "Send to Back", self._do_send_to_back)
+
+        # Whole-image effects (core/effects.py + ui/effects.py) -
+        # Windows exposes these via a toolbar split-button + separate
+        # toolbar buttons (toolStripSplitButton1/btnCrop/rotateCw.../
+        # btnResize, ImageEditorForm.Designer.cs:334-355,491-499), not
+        # a menu - grouped into a dedicated menu here instead, matching
+        # how this port already puts some toolbar-button actions
+        # (Insert Image, Print) in File instead. "Enlarge Canvas"/
+        # "Shrink Canvas" deliberately have no item here - Windows
+        # itself has no menu/toolbar entry for either, keyboard-only
+        # (Ctrl+Shift++ / Ctrl+Shift+-, see _on_key_press).
+        image_menu = add_menu("Image")
+        add_item(image_menu, "Rotate Clockwise", self._do_rotate_cw)
+        add_item(image_menu, "Rotate Counterclockwise", self._do_rotate_ccw)
+        add_item(image_menu, "Resize...", self._do_resize)
+        image_menu.append(Gtk.SeparatorMenuItem())
+        add_item(image_menu, "Grayscale", self._do_grayscale)
+        add_item(image_menu, "Invert Colors", self._do_invert)
+        add_item(image_menu, "Remove Transparency...", self._do_remove_transparency)
+        image_menu.append(Gtk.SeparatorMenuItem())
+        add_item(image_menu, "Border", self._do_border)
+        add_item(image_menu, "Drop Shadow", self._do_drop_shadow)
+        add_item(image_menu, "Drop Shadow Settings...", self._do_drop_shadow_settings)
+        add_item(image_menu, "Torn Edge", self._do_torn_edge)
+        add_item(image_menu, "Torn Edge Settings...", self._do_torn_edge_settings)
+        image_menu.append(Gtk.SeparatorMenuItem())
+        add_item(image_menu, "Clear", self._do_clear)
 
         help_menu = add_menu("Help")
         add_item(help_menu, "About Greenshot Linux", self._do_show_about)
@@ -1010,25 +1087,24 @@ class EditorWindow(Gtk.Window):
             ctx.stroke()
             ctx.restore()
 
-    def _set_zoom(self, new_zoom: Fraction) -> None:
-        """Every zoom action (menu/dropdown pick, keyboard shortcut,
-        Ctrl+wheel) funnels through here - faithful port of
-        ZoomSetValue (ImageEditorForm.cs:2113-2164): resize the
-        drawing area to the new zoomed canvas size, then resize the
-        *window* to fit that (GetOptimalWindowSize,
-        ImageEditorForm.cs:2012-2052) - chrome size (everything that
-        isn't the canvas: menu bar, toolbars, style panel, tool
-        palette) is measured from the current layout rather than
-        hardcoded, since it doesn't vary with zoom but does vary with
-        which panels are shown. Only scrolls (via _canvas_scroller)
-        if even the screen-clamped window still can't fit the zoomed
-        canvas.
+    def _resize_canvas_and_window(self) -> None:
+        """Resizes the drawing area to the current base image's size
+        at the current zoom level, then resizes the *window* to fit
+        that (GetOptimalWindowSize, ImageEditorForm.cs:2012-2052) -
+        chrome size (everything that isn't the canvas: menu bar,
+        toolbars, style panel, tool palette) is measured from the
+        current layout rather than hardcoded, since it doesn't vary
+        with zoom/canvas size but does vary with which panels are
+        shown. Only scrolls (via _canvas_scroller) if even the
+        screen-clamped window still can't fit the canvas. Shared by
+        _set_zoom (zoom changed, image size didn't) and every
+        whole-image effect that changes the canvas's own dimensions
+        (rotate/border/resize/etc., core/effects.py) - either way the
+        drawing area's on-screen size needs to track "image size *
+        zoom" freshly.
         """
-        if new_zoom == self._zoom:
-            return
-        self._zoom = new_zoom
         img_h, img_w = self._base_image.shape[:2]
-        canvas_w, canvas_h = round(img_w * new_zoom), round(img_h * new_zoom)
+        canvas_w, canvas_h = round(img_w * self._zoom), round(img_h * self._zoom)
         self._drawing_area.set_size_request(canvas_w, canvas_h)
 
         window_alloc = self.get_allocation()
@@ -1048,9 +1124,18 @@ class EditorWindow(Gtk.Window):
             _MIN_WINDOW_WIDTH, _MIN_WINDOW_HEIGHT, work_area.width, work_area.height,
         )
         self.resize(total_w, total_h)
-
-        self._zoom_label.set_text(zoom_percent_label(self._zoom))
         self._drawing_area.queue_draw()
+
+    def _set_zoom(self, new_zoom: Fraction) -> None:
+        """Every zoom action (menu/dropdown pick, keyboard shortcut,
+        Ctrl+wheel) funnels through here - faithful port of
+        ZoomSetValue (ImageEditorForm.cs:2113-2164).
+        """
+        if new_zoom == self._zoom:
+            return
+        self._zoom = new_zoom
+        self._resize_canvas_and_window()
+        self._zoom_label.set_text(zoom_percent_label(self._zoom))
 
     def _do_zoom_in(self) -> None:
         self._set_zoom(zoom_in(self._zoom))
@@ -1100,8 +1185,8 @@ class EditorWindow(Gtk.Window):
         bar.set_border_width(2)
 
         img_h, img_w = self._base_image.shape[:2]
-        dimensions_label = Gtk.Label(label=f"{img_w} x {img_h}")
-        bar.pack_start(dimensions_label, False, False, 4)
+        self._dimensions_label = Gtk.Label(label=f"{img_w} x {img_h}")
+        bar.pack_start(self._dimensions_label, False, False, 4)
 
         zoom_menu = Gtk.Menu()
 
@@ -1125,6 +1210,269 @@ class EditorWindow(Gtk.Window):
         zoom_button.set_popup(zoom_menu)
         bar.pack_end(zoom_button, False, False, 0)
         return bar
+
+    # --- Whole-image effects (core/effects.py + ui/effects.py) --------
+    #
+    # None of these are drawn annotation shapes - they transform the
+    # entire captured image, faithfully porting Greenshot.Base/Effects/*
+    # (see REQUIREMENTS.md's "Whole-image effects" section for the
+    # full per-effect citation trail). Grouped in a dedicated "Image"
+    # menu below (_build_menu_bar) rather than Windows' toolbar split-
+    # button - this port already uses a menu bar where Windows uses
+    # toolbar buttons for several other things (Insert Image, Print),
+    # so that's the established, consistent choice here, not a new one.
+
+    def _apply_background_effect(self, new_image: np.ndarray, transform=None) -> None:
+        """Applies any whole-image effect as one undoable step -
+        faithful port of Surface.ApplyBitmapEffect (Surface.cs:1093-1127):
+        transforms every existing element to match, if the effect
+        moved/resized the canvas (``transform``: shape -> shape, e.g.
+        a partial application of translate_shape/scale_shape/
+        rotate_shape_90 - None for pixel-only effects like grayscale/
+        invert, which never touch element positions), then swaps in
+        the new image - the base_image property setter keeps
+        rendering/canvas size/window size/the dimensions label all in
+        sync automatically, including on undo/redo - and pushes one
+        BackgroundChangeMemento.
+        """
+        self._commit_text_editing_if_active()
+        before_image = self.base_image
+        element_pairs = []
+        if transform is not None:
+            for shape in list(self.layer):
+                new_shape = transform(shape)
+                self.layer.replace(shape, new_shape)
+                element_pairs.append((shape, new_shape))
+                if self.selected_shape is shape:
+                    self.selected_shape = new_shape
+        self.base_image = new_image
+        self.undo_redo.push(BackgroundChangeMemento(self, self.layer, before_image, new_image, element_pairs))
+        self._drawing_area.queue_draw()
+
+    def _do_rotate_cw(self) -> None:
+        h, w = self._base_image.shape[:2]
+        new_image = rotate_90_image(self._base_image, clockwise=True)
+        self._apply_background_effect(new_image, transform=lambda s: rotate_shape_90(s, w, h, clockwise=True))
+
+    def _do_rotate_ccw(self) -> None:
+        h, w = self._base_image.shape[:2]
+        new_image = rotate_90_image(self._base_image, clockwise=False)
+        self._apply_background_effect(new_image, transform=lambda s: rotate_shape_90(s, w, h, clockwise=False))
+
+    def _do_grayscale(self) -> None:
+        self._apply_background_effect(grayscale_image(self._base_image))
+
+    def _do_invert(self) -> None:
+        self._apply_background_effect(invert_image(self._base_image))
+
+    _BORDER_WIDTH = 2  # Windows' own fixed default (AddBorderToolStripMenuItemClick) - no dialog
+
+    def _do_border(self) -> None:
+        width = self._BORDER_WIDTH
+        new_image = add_border_image(self._base_image, width=width, color=(0, 0, 0, 255))
+        self._apply_background_effect(new_image, transform=lambda s: translate_shape(s, width, width))
+
+    _ENLARGE_CANVAS_PAD = 25  # matches ImageEditorForm.cs:1817-1821's fixed 25px
+
+    def _do_enlarge_canvas(self) -> None:
+        pad = self._ENLARGE_CANVAS_PAD
+        new_image = enlarge_canvas_image(self._base_image, left=pad, right=pad, top=pad, bottom=pad)
+        self._apply_background_effect(new_image, transform=lambda s: translate_shape(s, pad, pad))
+
+    def _do_shrink_canvas(self) -> None:
+        rect = autocrop_rect(self._base_image)
+        if rect is None:
+            return
+        new_image = crop_to_rect(self._base_image, rect)
+        self._apply_background_effect(new_image, transform=lambda s: translate_shape(s, -rect.left, -rect.top))
+
+    def _do_clear(self) -> None:
+        h, w = self._base_image.shape[:2]
+        self._apply_background_effect(clear_image(w, h))
+
+    def _do_remove_transparency(self) -> None:
+        self._commit_text_editing_if_active()
+        dialog = Gtk.ColorChooserDialog(title="Remove Transparency", transient_for=self)
+        dialog.set_use_alpha(False)
+        try:
+            if dialog.run() != Gtk.ResponseType.OK:
+                return
+            fill_color = _rgba_to_color(dialog.get_rgba())
+        finally:
+            dialog.destroy()
+        self._apply_background_effect(remove_transparency_image(self._base_image, fill_color=fill_color))
+
+    def _do_resize(self) -> None:
+        """Opens ResizeSettingsForm's equivalent - width/height in
+        pixels with an aspect-ratio lock. Windows also offers a
+        percent-based entry mode; not ported here, a deliberate scope
+        reduction to keep the dialog simple - pixel entry alone covers
+        the effect's actual behavior faithfully.
+        """
+        self._commit_text_editing_if_active()
+        h, w = self._base_image.shape[:2]
+        dialog = Gtk.Dialog(title="Resize Image", transient_for=self)
+        dialog.add_buttons(Gtk.STOCK_CANCEL, Gtk.ResponseType.CANCEL, Gtk.STOCK_OK, Gtk.ResponseType.OK)
+        content = dialog.get_content_area()
+        content.set_border_width(12)
+        content.set_spacing(6)
+
+        grid = Gtk.Grid(row_spacing=6, column_spacing=6)
+        grid.attach(Gtk.Label(label="Width:"), 0, 0, 1, 1)
+        width_spin = Gtk.SpinButton.new_with_range(1, 10000, 1)
+        width_spin.set_value(w)
+        grid.attach(width_spin, 1, 0, 1, 1)
+        grid.attach(Gtk.Label(label="Height:"), 0, 1, 1, 1)
+        height_spin = Gtk.SpinButton.new_with_range(1, 10000, 1)
+        height_spin.set_value(h)
+        grid.attach(height_spin, 1, 1, 1, 1)
+        aspect_check = Gtk.CheckButton(label="Maintain aspect ratio")
+        aspect_check.set_active(True)
+        grid.attach(aspect_check, 0, 2, 2, 1)
+        content.pack_start(grid, False, False, 0)
+
+        updating = [False]
+
+        def on_width_changed(spin):
+            if updating[0] or not aspect_check.get_active():
+                return
+            updating[0] = True
+            height_spin.set_value(round(spin.get_value() * h / w))
+            updating[0] = False
+
+        def on_height_changed(spin):
+            if updating[0] or not aspect_check.get_active():
+                return
+            updating[0] = True
+            width_spin.set_value(round(spin.get_value() * w / h))
+            updating[0] = False
+
+        width_spin.connect("value-changed", on_width_changed)
+        height_spin.connect("value-changed", on_height_changed)
+
+        dialog.show_all()
+        try:
+            if dialog.run() != Gtk.ResponseType.OK:
+                return
+            new_w, new_h = int(width_spin.get_value()), int(height_spin.get_value())
+        finally:
+            dialog.destroy()
+
+        new_image = resize_image(self._base_image, new_w, new_h)
+        scale_x, scale_y = new_w / w, new_h / h
+        self._apply_background_effect(new_image, transform=lambda s: scale_shape(s, scale_x, scale_y))
+
+    def _do_drop_shadow(self) -> None:
+        """Instant-apply with the last-used (or default) settings -
+        Windows' own left-click behavior (Ctrl+Q too); right-click
+        equivalent is _do_drop_shadow_settings below.
+        """
+        settings = self._drop_shadow_settings
+        new_image = drop_shadow_image(self._base_image, **settings)
+        pad = settings["size"]
+        self._apply_background_effect(new_image, transform=lambda s: translate_shape(s, pad, pad))
+
+    def _do_drop_shadow_settings(self) -> None:
+        self._commit_text_editing_if_active()
+        settings = self._drop_shadow_settings
+        dialog = Gtk.Dialog(title="Drop Shadow Settings", transient_for=self)
+        dialog.add_buttons(Gtk.STOCK_CANCEL, Gtk.ResponseType.CANCEL, Gtk.STOCK_OK, Gtk.ResponseType.OK)
+        content = dialog.get_content_area()
+        content.set_border_width(12)
+        content.set_spacing(6)
+
+        grid = Gtk.Grid(row_spacing=6, column_spacing=6)
+        grid.attach(Gtk.Label(label="Darkness:"), 0, 0, 1, 1)
+        darkness_spin = Gtk.SpinButton.new_with_range(0, 1, 0.05)
+        darkness_spin.set_digits(2)
+        darkness_spin.set_value(settings["darkness"])
+        grid.attach(darkness_spin, 1, 0, 1, 1)
+        grid.attach(Gtk.Label(label="Size:"), 0, 1, 1, 1)
+        size_spin = Gtk.SpinButton.new_with_range(1, 50, 1)
+        size_spin.set_value(settings["size"])
+        grid.attach(size_spin, 1, 1, 1, 1)
+        grid.attach(Gtk.Label(label="Offset X:"), 0, 2, 1, 1)
+        offset_x_spin = Gtk.SpinButton.new_with_range(-50, 50, 1)
+        offset_x_spin.set_value(settings["offset"][0])
+        grid.attach(offset_x_spin, 1, 2, 1, 1)
+        grid.attach(Gtk.Label(label="Offset Y:"), 0, 3, 1, 1)
+        offset_y_spin = Gtk.SpinButton.new_with_range(-50, 50, 1)
+        offset_y_spin.set_value(settings["offset"][1])
+        grid.attach(offset_y_spin, 1, 3, 1, 1)
+        content.pack_start(grid, False, False, 0)
+
+        dialog.show_all()
+        try:
+            if dialog.run() != Gtk.ResponseType.OK:
+                return
+            settings["darkness"] = darkness_spin.get_value()
+            settings["size"] = int(size_spin.get_value())
+            settings["offset"] = (int(offset_x_spin.get_value()), int(offset_y_spin.get_value()))
+        finally:
+            dialog.destroy()
+        self._do_drop_shadow()
+
+    def _do_torn_edge(self) -> None:
+        """Instant-apply with the last-used (or default) settings -
+        same left-click/Ctrl+T pattern as drop shadow.
+        """
+        settings = self._torn_edge_settings
+        new_image = torn_edge_image(self._base_image, **settings)
+        pad = settings["shadow_size"]
+        if settings["generate_shadow"]:
+            pad *= 2  # torn_edge_image pads once for the tear, again for the shadow it chains into
+        self._apply_background_effect(new_image, transform=lambda s: translate_shape(s, pad, pad))
+
+    def _do_torn_edge_settings(self) -> None:
+        self._commit_text_editing_if_active()
+        settings = self._torn_edge_settings
+        dialog = Gtk.Dialog(title="Torn Edge Settings", transient_for=self)
+        dialog.add_buttons(Gtk.STOCK_CANCEL, Gtk.ResponseType.CANCEL, Gtk.STOCK_OK, Gtk.ResponseType.OK)
+        content = dialog.get_content_area()
+        content.set_border_width(12)
+        content.set_spacing(6)
+
+        grid = Gtk.Grid(row_spacing=6, column_spacing=6)
+        grid.attach(Gtk.Label(label="Tooth height:"), 0, 0, 1, 1)
+        tooth_spin = Gtk.SpinButton.new_with_range(1, 50, 1)
+        tooth_spin.set_value(settings["tooth_height"])
+        grid.attach(tooth_spin, 1, 0, 1, 1)
+        grid.attach(Gtk.Label(label="Horizontal tooth range:"), 0, 1, 1, 1)
+        h_range_spin = Gtk.SpinButton.new_with_range(2, 200, 1)
+        h_range_spin.set_value(settings["horizontal_tooth_range"])
+        grid.attach(h_range_spin, 1, 1, 1, 1)
+        grid.attach(Gtk.Label(label="Vertical tooth range:"), 0, 2, 1, 1)
+        v_range_spin = Gtk.SpinButton.new_with_range(2, 200, 1)
+        v_range_spin.set_value(settings["vertical_tooth_range"])
+        grid.attach(v_range_spin, 1, 2, 1, 1)
+        content.pack_start(grid, False, False, 0)
+
+        edge_labels = ("Top", "Right", "Bottom", "Left")
+        edge_checks = []
+        edge_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        for label, enabled in zip(edge_labels, settings["edges"]):
+            check = Gtk.CheckButton(label=label)
+            check.set_active(enabled)
+            edge_checks.append(check)
+            edge_box.pack_start(check, False, False, 0)
+        content.pack_start(edge_box, False, False, 0)
+
+        shadow_check = Gtk.CheckButton(label="Generate shadow")
+        shadow_check.set_active(settings["generate_shadow"])
+        content.pack_start(shadow_check, False, False, 0)
+
+        dialog.show_all()
+        try:
+            if dialog.run() != Gtk.ResponseType.OK:
+                return
+            settings["tooth_height"] = int(tooth_spin.get_value())
+            settings["horizontal_tooth_range"] = int(h_range_spin.get_value())
+            settings["vertical_tooth_range"] = int(v_range_spin.get_value())
+            settings["edges"] = tuple(c.get_active() for c in edge_checks)
+            settings["generate_shadow"] = shadow_check.get_active()
+        finally:
+            dialog.destroy()
+        self._do_torn_edge()
 
     def _content_offset(self) -> tuple:
         """How far the image is inset from the drawing area's top-left
@@ -1307,25 +1655,39 @@ class EditorWindow(Gtk.Window):
             return self._handle_text_editing_key(event)
 
         ctrl_held = bool(event.state & Gdk.ModifierType.CONTROL_MASK)
+        shift_held = bool(event.state & Gdk.ModifierType.SHIFT_MASK)
 
         # Checked before _TOOL_KEYS: plain 0/9 switch tools (Step
         # Label/Speech Bubble), but Ctrl+0/Ctrl+9 are zoom shortcuts
         # (Actual Size/Best Fit, ImageEditorForm.cs:1153-1157) - since
         # GDK reports the same base keyval regardless of Ctrl, the
         # tool-switch lookup below would otherwise swallow them first.
-        if ctrl_held:
-            if event.keyval in (Gdk.KEY_plus, Gdk.KEY_equal, Gdk.KEY_KP_Add):
+        #
+        # Zoom in/out (Ctrl++/Ctrl+-) vs Enlarge/Shrink Canvas
+        # (Ctrl+Shift++/Ctrl+Shift+-, ImageEditorForm.cs:1164-1171)
+        # share the same physical +/- key and, on keyboards where
+        # typing "+" itself requires Shift, the same GDK keyval too -
+        # GDK reports the already-shifted character, unlike Windows'
+        # separate KeyCode/Modifiers model, so Shift state (not the
+        # keyval alone) is what disambiguates these two pairs.
+        if ctrl_held and event.keyval in (Gdk.KEY_plus, Gdk.KEY_equal, Gdk.KEY_KP_Add):
+            if shift_held:
+                self._do_enlarge_canvas()
+            else:
                 self._do_zoom_in()
-                return True
-            if event.keyval in (Gdk.KEY_minus, Gdk.KEY_KP_Subtract):
+            return True
+        if ctrl_held and event.keyval in (Gdk.KEY_minus, Gdk.KEY_KP_Subtract):
+            if shift_held:
+                self._do_shrink_canvas()
+            else:
                 self._do_zoom_out()
-                return True
-            if event.keyval in (Gdk.KEY_0, Gdk.KEY_KP_0):
-                self._do_zoom_actual_size()
-                return True
-            if event.keyval in (Gdk.KEY_9, Gdk.KEY_KP_9):
-                self._do_zoom_best_fit()
-                return True
+            return True
+        if ctrl_held and not shift_held and event.keyval in (Gdk.KEY_0, Gdk.KEY_KP_0):
+            self._do_zoom_actual_size()
+            return True
+        if ctrl_held and not shift_held and event.keyval in (Gdk.KEY_9, Gdk.KEY_KP_9):
+            self._do_zoom_best_fit()
+            return True
 
         tool = _TOOL_KEYS.get(event.keyval)
         if tool is not None and not ctrl_held:
@@ -1336,7 +1698,22 @@ class EditorWindow(Gtk.Window):
             return True
 
         if event.keyval == Gdk.KEY_Delete:
-            self._do_delete()
+            # Ctrl+Delete clears the whole image (Surface.Clear,
+            # ImageEditorForm.cs:1134); plain Delete removes the
+            # selected shape (_do_delete) - matching Windows' own
+            # ClearToolStripMenuItem shortcut vs the object-delete key.
+            if ctrl_held:
+                self._do_clear()
+            else:
+                self._do_delete()
+            return True
+
+        # Resize's own shortcut is bare "Z", no modifier
+        # (ImageEditorForm.cs:1104's BtnResizeClick binding) - only
+        # outside text-editing (already guarded above) and without
+        # Ctrl, so it doesn't collide with anything else here.
+        if not ctrl_held and event.keyval in (Gdk.KEY_z, Gdk.KEY_Z):
+            self._do_resize()
             return True
 
         if not ctrl_held:
@@ -1355,6 +1732,27 @@ class EditorWindow(Gtk.Window):
             return True
         if event.keyval in (Gdk.KEY_p, Gdk.KEY_P):
             self._do_print()
+            return True
+        if event.keyval in (Gdk.KEY_g, Gdk.KEY_G):
+            self._do_grayscale()
+            return True
+        if event.keyval in (Gdk.KEY_i, Gdk.KEY_I):
+            self._do_invert()
+            return True
+        if event.keyval in (Gdk.KEY_b, Gdk.KEY_B):
+            self._do_border()
+            return True
+        if event.keyval in (Gdk.KEY_q, Gdk.KEY_Q):
+            self._do_drop_shadow()
+            return True
+        if event.keyval in (Gdk.KEY_t, Gdk.KEY_T):
+            self._do_torn_edge()
+            return True
+        if event.keyval == Gdk.KEY_comma:
+            self._do_rotate_ccw()
+            return True
+        if event.keyval == Gdk.KEY_period:
+            self._do_rotate_cw()
             return True
         return False
 

@@ -2,9 +2,15 @@
 
 Behavioral port of IMemento and Surface's Undo/Redo/MakeUndoable. See
 the module docstring in test_history.py for the architecture: why three
-C# memento types collapse into ElementChangeMemento here, why
-SurfaceBackgroundChangeMemento is out of scope, and the merge-must-
-absorb subtlety that drove ElementChangeMemento's design.
+C# memento types collapse into ElementChangeMemento here, and the
+merge-must-absorb subtlety that drove ElementChangeMemento's design.
+
+BackgroundChangeMemento (undoing a whole-image effect) was originally
+out of scope, per that same docstring, because it "needs a 'Surface'
+document concept (base image + Layer) that doesn't exist yet" - now in
+scope since ui/editor_window.py's EditorWindow provides exactly that
+(a `base_image` property + `layer`), needed once core/effects.py's
+whole-image effects (rotate/border/shadow/etc.) landed.
 """
 
 from __future__ import annotations
@@ -130,6 +136,48 @@ class ElementChangeMemento:
             return False
         self.after = other.after
         return True
+
+
+class BackgroundChangeMemento:
+    """Restoring undoes a whole-image effect (rotate/border/shadow/
+    autocrop/etc., core/effects.py): swaps the base image back to what
+    it was, and swaps every element the effect repositioned back to
+    its pre-effect version too, so annotations stay aligned with
+    whichever effect moved or resized the canvas. Faithful port of
+    SurfaceBackgroundChangeMemento (Greenshot.Editor/Memento/
+    SurfaceBackgroundChangeMemento.cs) - see the module docstring for
+    why it's in scope now. Never merges, matching the source (Merge()
+    always returns false - every effect application is its own undo
+    step, none coalesce).
+
+    ``target`` is anything exposing a settable ``base_image`` (only
+    ui/editor_window.py's EditorWindow today). ``element_pairs`` is a
+    sequence of (old_shape, new_shape) for every element the effect
+    repositioned/rescaled - built by the caller using
+    core/tools.py's translate_shape/scale_shape/rotate_shape_90, since
+    only the caller knows which transform a given effect applied; an
+    effect that only changes pixels (grayscale, invert) passes an
+    empty sequence.
+    """
+
+    def __init__(self, target, layer: Layer, before_image, after_image, element_pairs=()):
+        self.target = target
+        self.layer = layer
+        self.before_image = before_image
+        self.after_image = after_image
+        self.element_pairs = list(element_pairs)
+
+    def restore(self) -> "BackgroundChangeMemento":
+        self.target.base_image = self.before_image
+        for old_shape, new_shape in self.element_pairs:
+            self.layer.replace(new_shape, old_shape)
+        return BackgroundChangeMemento(
+            self.target, self.layer, before_image=self.after_image, after_image=self.before_image,
+            element_pairs=[(new, old) for old, new in self.element_pairs],
+        )
+
+    def merge(self, other: Memento) -> bool:
+        return False
 
 
 class CompositeMemento:

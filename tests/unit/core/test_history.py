@@ -33,6 +33,7 @@ from greenshot_linux.core.drawing import Layer
 from greenshot_linux.core.geometry import Rect
 from greenshot_linux.core.history import (
     AddElementMemento,
+    BackgroundChangeMemento,
     CompositeMemento,
     DeleteElementMemento,
     ElementChangeMemento,
@@ -371,6 +372,86 @@ class TestCompositeMemento:
 
         stack.redo()
         assert list(layer) == [a]
+
+
+class FakeSurfaceLikeTarget:
+    """Stands in for ui/editor_window.py's EditorWindow - the only
+    thing BackgroundChangeMemento needs from its target is a settable
+    ``base_image``.
+    """
+
+    def __init__(self, base_image):
+        self.base_image = base_image
+
+
+class TestBackgroundChangeMemento:
+    def test_restore_swaps_the_base_image_back(self):
+        target = FakeSurfaceLikeTarget(base_image="after")
+        memento = BackgroundChangeMemento(target, Layer(), before_image="before", after_image="after")
+
+        memento.restore()
+
+        assert target.base_image == "before"
+
+    def test_restore_returns_the_opposite_memento(self):
+        target = FakeSurfaceLikeTarget(base_image="after")
+        memento = BackgroundChangeMemento(target, Layer(), before_image="before", after_image="after")
+
+        opposite = memento.restore()
+        opposite.restore()
+
+        assert target.base_image == "after"
+
+    def test_restore_swaps_repositioned_elements_back_too(self):
+        layer = Layer()
+        old_shape, new_shape = shape("old"), shape("new")
+        layer.add(new_shape)
+        target = FakeSurfaceLikeTarget(base_image="after")
+
+        memento = BackgroundChangeMemento(
+            target, layer, before_image="before", after_image="after",
+            element_pairs=[(old_shape, new_shape)],
+        )
+        memento.restore()
+
+        assert list(layer) == [old_shape]
+
+    def test_pixel_only_effects_pass_no_element_pairs(self):
+        layer = Layer()
+        a = shape("a")
+        layer.add(a)
+        target = FakeSurfaceLikeTarget(base_image="after")
+
+        memento = BackgroundChangeMemento(target, layer, before_image="before", after_image="after")
+        memento.restore()
+
+        assert list(layer) == [a]  # untouched - no element_pairs given
+
+    def test_never_merges(self):
+        target = FakeSurfaceLikeTarget(base_image="after")
+        m1 = BackgroundChangeMemento(target, Layer(), before_image="a", after_image="b")
+        m2 = BackgroundChangeMemento(target, Layer(), before_image="b", after_image="c")
+        assert m1.merge(m2) is False
+
+    def test_full_undo_redo_round_trip_via_the_stack(self):
+        layer = Layer()
+        old_shape, new_shape = shape("old"), shape("new")
+        layer.add(new_shape)
+        target = FakeSurfaceLikeTarget(base_image="after")
+        stack = UndoRedoStack()
+
+        stack.push(BackgroundChangeMemento(
+            target, layer, before_image="before", after_image="after",
+            element_pairs=[(old_shape, new_shape)],
+        ))
+
+        stack.undo()
+        assert target.base_image == "before"
+        assert list(layer) == [old_shape]
+
+        stack.redo()
+        assert target.base_image == "after"
+        assert list(layer) == [new_shape]
 
 
 # --- Property-based tests -------------------------------------------------

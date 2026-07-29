@@ -153,6 +153,77 @@ def translate_shape(shape, dx: int, dy: int):
     raise NotImplementedError(f"no move support yet for {type(shape).__name__}")
 
 
+def scale_shape(shape, scale_x: float, scale_y: float):
+    """A copy of ``shape`` with every coordinate scaled around the
+    canvas origin (0, 0) - not around the shape's own center. Used by
+    whole-image Resize (core/effects.py) to keep annotations aligned
+    with a resampled canvas, the same role Windows' Matrix-based
+    element transform plays in Surface.ApplyBitmapEffect
+    (Surface.cs:1106). Same per-type dispatch as translate_shape.
+    """
+    def sx(x):
+        return round(x * scale_x)
+
+    def sy(y):
+        return round(y * scale_y)
+
+    if isinstance(shape, LineShape):  # also covers ArrowShape
+        return replace(
+            shape,
+            start=(sx(shape.start[0]), sy(shape.start[1])),
+            end=(sx(shape.end[0]), sy(shape.end[1])),
+        )
+    if isinstance(shape, FreehandShape):
+        return replace(shape, points=tuple((sx(x), sy(y)) for x, y in shape.points))
+    if isinstance(shape, SpeechBubbleShape):
+        b = shape.bubble_bounds
+        return replace(
+            shape,
+            bubble_bounds=Rect(sx(b.left), sy(b.top), sx(b.right), sy(b.bottom)),
+            target=(sx(shape.target[0]), sy(shape.target[1])),
+        )
+    if isinstance(shape, _BOUNDS_RESIZABLE):
+        b = shape.bounds
+        return replace(shape, bounds=Rect(sx(b.left), sy(b.top), sx(b.right), sy(b.bottom)))
+    raise NotImplementedError(f"no scale support yet for {type(shape).__name__}")
+
+
+def rotate_shape_90(shape, old_width: int, old_height: int, clockwise: bool):
+    """A copy of ``shape`` rotated the same 90 degrees as a whole-image
+    Rotate effect (core/effects.py), so annotations stay aligned with
+    the rotated canvas - Windows does the same via a Matrix rotate+
+    translate (WindowCapture... actually RotateEffect,
+    Greenshot.Base/Effects/RotateEffect.cs:32-68). ``old_width``/
+    ``old_height`` are the canvas size *before* rotation (the new
+    canvas is old_height x old_width). Same per-type dispatch as
+    translate_shape/scale_shape.
+    """
+    def rotate_point(x, y):
+        if clockwise:
+            return old_height - y, x
+        return y, old_width - x
+
+    if isinstance(shape, LineShape):  # also covers ArrowShape
+        return replace(shape, start=rotate_point(*shape.start), end=rotate_point(*shape.end))
+    if isinstance(shape, FreehandShape):
+        return replace(shape, points=tuple(rotate_point(x, y) for x, y in shape.points))
+    if isinstance(shape, SpeechBubbleShape):
+        b = shape.bubble_bounds
+        x1, y1 = rotate_point(b.left, b.top)
+        x2, y2 = rotate_point(b.right, b.bottom)
+        return replace(
+            shape,
+            bubble_bounds=Rect.from_points(x1, y1, x2, y2),
+            target=rotate_point(*shape.target),
+        )
+    if isinstance(shape, _BOUNDS_RESIZABLE):
+        b = shape.bounds
+        x1, y1 = rotate_point(b.left, b.top)
+        x2, y2 = rotate_point(b.right, b.bottom)
+        return replace(shape, bounds=Rect.from_points(x1, y1, x2, y2))
+    raise NotImplementedError(f"no rotate support yet for {type(shape).__name__}")
+
+
 def _handles_for_rect(rect: Rect) -> Dict[str, Point]:
     cx, cy = (rect.left + rect.right) / 2, (rect.top + rect.bottom) / 2
     return {

@@ -32,7 +32,7 @@ GDI+ path geometry).
 
 import numpy as np
 
-from greenshot_linux.core.crop import crop_out_horizontal_strip, crop_out_vertical_strip, crop_to_rect
+from greenshot_linux.core.crop import autocrop_rect, crop_out_horizontal_strip, crop_out_vertical_strip, crop_to_rect
 from greenshot_linux.core.geometry import Rect
 
 
@@ -129,6 +129,58 @@ class TestCropOutHorizontalStrip:
         image = row_marked_image(10)
         result = crop_out_horizontal_strip(image, Rect(0, -5, 1, 3))
         assert list(result[:, 0, 0]) == [3, 4, 5, 6, 7, 8, 9]
+
+
+class TestAutocropRect:
+    def _bordered_image(self, border_color=(255, 255, 255, 255), content_color=(10, 20, 30, 255)):
+        image = np.zeros((20, 20, 4), dtype=np.uint8)
+        image[:, :] = border_color
+        image[5:15, 5:15] = content_color
+        return image
+
+    def test_finds_a_solid_uniform_border(self):
+        image = self._bordered_image()
+        rect = autocrop_rect(image)
+        assert rect == Rect(5, 5, 15, 15)
+
+    def test_applying_the_result_with_crop_to_rect_removes_the_border(self):
+        image = self._bordered_image()
+        rect = autocrop_rect(image)
+        cropped = crop_to_rect(image, rect)
+        assert cropped.shape == (10, 10, 4)
+        assert np.all(cropped == (10, 20, 30, 255))
+
+    def test_a_fully_uniform_image_has_nothing_to_crop(self):
+        image = np.full((10, 10, 4), (1, 2, 3, 255), dtype=np.uint8)
+        assert autocrop_rect(image) is None
+
+    def test_difference_threshold_tolerates_near_matching_border_colors(self):
+        image = self._bordered_image(border_color=(250, 250, 250, 255))
+        image[0, 5] = (245, 245, 245, 255)  # within default difference of 10
+        rect = autocrop_rect(image, difference=10)
+        assert rect == Rect(5, 5, 15, 15)
+
+    def test_zero_difference_requires_an_exact_match(self):
+        image = self._bordered_image(border_color=(250, 250, 250, 255))
+        image[0, 5] = (245, 245, 245, 255)
+        rect = autocrop_rect(image, difference=0)
+        # the stray pixel sits in row 0, so the top edge can't trim at
+        # all under an exact-match requirement - but left/right/bottom,
+        # whose scans don't include that pixel, still trim normally.
+        assert rect == Rect(5, 0, 15, 15)
+
+    def test_uses_the_majority_corner_color_when_one_corner_disagrees(self):
+        # 3 of 4 corners are white, 1 (bottom-right) is black - the
+        # majority (white) is used as the background hypothesis, not
+        # the odd one out. Top/left, whose scans never touch the
+        # anomalous pixel, trim all the way to the real content
+        # boundary; bottom/right, whose full-width/height scans do
+        # include it, can't trim past it - the documented limitation
+        # of whole-row/column matching, not a bug in this test.
+        image = self._bordered_image()
+        image[19, 19] = (0, 0, 0, 255)
+        rect = autocrop_rect(image)
+        assert rect == Rect(5, 5, 20, 20)
 
 
 # --- Property-based tests -------------------------------------------------
