@@ -59,6 +59,99 @@ class Tool(str, Enum):
     EMOJI = "emoji"
 
 
+# Named style-panel fields, matching Windows' own FieldType names for
+# the same controls (LINE_COLOR, FILL_COLOR, LINE_THICKNESS, SHADOW)
+# plus this port's own OBFUSCATE_AMOUNT (Blur Radius/Pixel Size,
+# Windows' separate BLUR_RADIUS/PIXEL_SIZE collapsed into one field -
+# see core/shapes.py's ObfuscateShape docstring for why) and
+# OBFUSCATE_MODE (the Blur-vs-Pixelize picker - Windows' own
+# obfuscateModeButton, which lives in propertiesToolStrip alongside
+# blurRadiusLabel/pixelSizeLabel and shares the same visibility rule -
+# ImageEditorForm.cs:1402's `obfuscateModeButton.Visible =
+# props.HasFieldValue(FieldType.PREPARED_FILTER_OBFUSCATE)` sits right
+# next to the BLUR_RADIUS/PIXEL_SIZE visibility checks - hence
+# grouping it into _OBFUSCATE_STYLE_FIELDS below rather than giving it
+# its own always-separate visibility rule).
+STYLE_FIELD_LINE_COLOR = "line_color"
+STYLE_FIELD_FILL_COLOR = "fill_color"
+STYLE_FIELD_LINE_THICKNESS = "line_thickness"
+STYLE_FIELD_SHADOW = "shadow"
+STYLE_FIELD_OBFUSCATE_AMOUNT = "obfuscate_amount"
+STYLE_FIELD_OBFUSCATE_MODE = "obfuscate_mode"
+
+_FULL_STYLE_FIELDS = frozenset({
+    STYLE_FIELD_LINE_COLOR, STYLE_FIELD_FILL_COLOR, STYLE_FIELD_LINE_THICKNESS, STYLE_FIELD_SHADOW,
+})
+_LINE_ONLY_STYLE_FIELDS = frozenset({STYLE_FIELD_LINE_COLOR, STYLE_FIELD_LINE_THICKNESS, STYLE_FIELD_SHADOW})
+_FREEHAND_STYLE_FIELDS = frozenset({STYLE_FIELD_LINE_COLOR, STYLE_FIELD_LINE_THICKNESS})
+_OBFUSCATE_STYLE_FIELDS = frozenset({STYLE_FIELD_OBFUSCATE_AMOUNT, STYLE_FIELD_OBFUSCATE_MODE})
+_NO_STYLE_FIELDS = frozenset()
+
+# Which style-panel fields each tool's shape actually has, cross-
+# checked against the real Windows source's own per-container AddField
+# calls (RectangleContainer.cs/EllipseContainer.cs/LineContainer.cs/
+# ArrowContainer.cs/FreehandContainer.cs/TextContainer.cs/
+# StepLabelContainer.cs/ImageContainer.cs) and, since this port has
+# already made some deliberate rendering simplifications versus those,
+# against what ui/render.py's own renderers actually use per shape -
+# e.g. Line/Arrow have no FILL_COLOR in the real source and this port's
+# render_arrow fills the arrowhead with line_color rather than a
+# separate fill_color the way it might look like it should; Freehand
+# has neither fill nor shadow in either the source or this port
+# (render_freehand, FreehandContainer.cs). An explicit table rather
+# than deriving it from shape construction, so it stays one easy-to-
+# audit place to revisit against a future Windows source update.
+_TOOL_STYLE_FIELDS = {
+    Tool.SELECT: _NO_STYLE_FIELDS,  # no fields of its own - see visible_style_fields
+    Tool.RECTANGLE: _FULL_STYLE_FIELDS,
+    Tool.ELLIPSE: _FULL_STYLE_FIELDS,
+    Tool.LINE: _LINE_ONLY_STYLE_FIELDS,
+    Tool.ARROW: _LINE_ONLY_STYLE_FIELDS,
+    Tool.FREEHAND: _FREEHAND_STYLE_FIELDS,
+    Tool.PIXELIZE: _OBFUSCATE_STYLE_FIELDS,
+    Tool.BLUR: _OBFUSCATE_STYLE_FIELDS,
+    Tool.TEXT: _FULL_STYLE_FIELDS,
+    Tool.SPEECH_BUBBLE: _FULL_STYLE_FIELDS,
+    Tool.STEP_LABEL: _FULL_STYLE_FIELDS,
+    Tool.EMOJI: _FULL_STYLE_FIELDS,  # reuses TextShape - see create_shape_from_drag
+}
+
+
+def _shape_style_fields(shape) -> frozenset:
+    if isinstance(shape, ObfuscateShape):
+        return _OBFUSCATE_STYLE_FIELDS
+    if isinstance(shape, FreehandShape):
+        return _FREEHAND_STYLE_FIELDS
+    if isinstance(shape, LineShape):  # also covers ArrowShape, a subclass
+        return _LINE_ONLY_STYLE_FIELDS
+    if isinstance(shape, (RectangleShape, EllipseShape, TextShape, SpeechBubbleShape, StepLabelShape)):
+        return _FULL_STYLE_FIELDS
+    return _NO_STYLE_FIELDS  # IconShape/CursorShape/ImageShape/SvgShape have no style fields
+
+
+def visible_style_fields(tool: Tool, selected_shape=None) -> frozenset:
+    """Which style-panel controls (line/fill color, thickness, shadow,
+    obfuscate amount) are relevant right now.
+
+    Faithful port of the real editor's RefreshFieldControls
+    (ImageEditorForm.cs:1375), which drives each control's .Visible
+    from FieldAggregator.HasFieldValue against whichever's actually
+    selected or active - not, as this port previously did, always
+    showing every control regardless of relevance.
+
+    A selected shape's own fields take priority over the active tool's
+    (so selecting an existing Line while Rectangle is the active tool
+    still shows Line's fields, matching Windows' FieldAggregator
+    aggregating the *selection's* fields when there is one). Tool.SELECT
+    with nothing selected shows nothing at all, also matching Windows
+    (RefreshFieldControls' `HasSelectedElements || DrawingMode !=
+    None` check, else HideToolstripItems()).
+    """
+    if selected_shape is not None:
+        return _shape_style_fields(selected_shape)
+    return _TOOL_STYLE_FIELDS.get(tool, _NO_STYLE_FIELDS)
+
+
 # The default emoji Emoji-tool shapes start with (a slightly smiling
 # face) - retype to pick a different one, same as backspacing and
 # typing new text on any other TextShape.

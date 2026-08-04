@@ -6,6 +6,18 @@ machine (every one of the four defaults collided with something)
 motivated that question existing at all - this dialog is the only
 place in this codebase where the user actually answers it.
 
+Hotkey auto-configuration only ever runs on Cinnamon - checked via
+hotkey_setup.cinnamon_keybindings_available before touching any of it,
+never assumed. Confirmed live that skipping this check is fatal, not
+just wrong: on a real GNOME desktop (Ubuntu 26.04), reaching
+GioSettingsBackend for a Cinnamon-only schema that isn't installed
+crashed the entire app with an uncatchable GLib abort before this
+dialog even had a chance to show. Autostart is offered regardless
+(a plain XDG autostart .desktop entry, not Cinnamon-specific); when
+hotkeys aren't available, the dialog says so and points to manual
+configuration via the same CLI flags instead of silently doing
+nothing when "Enable" is clicked.
+
 Tracked via settings.py's first_run_setup_done flag so it only ever
 asks once, matching REQUIREMENTS.md's "automatically on first run with
 a one-time user confirmation". Whichever choices the user makes (or
@@ -45,6 +57,7 @@ from greenshot_linux.hotkey_setup import (
     DEFAULT_HOTKEYS,
     GioSettingsBackend,
     check_all_conflicts,
+    cinnamon_keybindings_available,
     clear_conflict,
     configure_all_hotkeys,
     resolve_hotkey_choices,
@@ -83,7 +96,16 @@ def maybe_run_first_run_setup(parent: Gtk.Window = None, executable: str = None,
 
 
 def _run_dialog(parent, executable: str, settings_backend) -> None:
-    conflicts = check_all_conflicts(settings_backend)
+    # Checked first and unconditionally: reaching GioSettingsBackend (or
+    # check_all_conflicts, which calls it) on a desktop without Cinnamon's
+    # keybinding schemas is a hard, uncatchable process abort, not a
+    # Python exception - confirmed live crashing the whole app before
+    # this dialog even had a chance to show (see
+    # hotkey_setup.cinnamon_keybindings_available's docstring). Autostart
+    # itself doesn't depend on Cinnamon at all (a plain XDG autostart
+    # .desktop file), so it's still offered either way.
+    hotkeys_available = cinnamon_keybindings_available()
+    conflicts = check_all_conflicts(settings_backend) if hotkeys_available else {}
 
     dialog = Gtk.Dialog(title="Greenshot Linux Setup", transient_for=parent)
     dialog.add_buttons(
@@ -96,11 +118,9 @@ def _run_dialog(parent, executable: str, settings_backend) -> None:
     content.set_border_width(12)
     content.set_spacing(8)
 
-    content.pack_start(Gtk.Label(
-        label="Set up Greenshot Linux to start automatically at login, and enable "
-              "its capture keyboard shortcuts?",
-        wrap=True, xalign=0,
-    ), False, False, 0)
+    intro = "Set up Greenshot Linux to start automatically at login"
+    intro += ", and enable its capture keyboard shortcuts?" if hotkeys_available else "?"
+    content.pack_start(Gtk.Label(label=intro, wrap=True, xalign=0), False, False, 0)
 
     autostart_check = Gtk.CheckButton(label="Start automatically at login")
     autostart_check.set_active(True)
@@ -109,19 +129,31 @@ def _run_dialog(parent, executable: str, settings_backend) -> None:
     content.pack_start(Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL), False, False, 4)
 
     binding_checks = {}
-    for hb in DEFAULT_HOTKEYS:
-        hb_conflicts = conflicts.get(hb.name, [])
-        if hb_conflicts:
-            sources = ", ".join(c.source for c in hb_conflicts)
-            label = f"{hb.name} ({hb.binding}) — overwrite {sources}?"
-            default_active = False
-        else:
-            label = f"{hb.name} ({hb.binding})"
-            default_active = True
-        check = Gtk.CheckButton(label=label)
-        check.set_active(default_active)
-        content.pack_start(check, False, False, 0)
-        binding_checks[hb.name] = check
+    if hotkeys_available:
+        for hb in DEFAULT_HOTKEYS:
+            hb_conflicts = conflicts.get(hb.name, [])
+            if hb_conflicts:
+                sources = ", ".join(c.source for c in hb_conflicts)
+                label = f"{hb.name} ({hb.binding}) — overwrite {sources}?"
+                default_active = False
+            else:
+                label = f"{hb.name} ({hb.binding})"
+                default_active = True
+            check = Gtk.CheckButton(label=label)
+            check.set_active(default_active)
+            content.pack_start(check, False, False, 0)
+            binding_checks[hb.name] = check
+    else:
+        # No dedicated GNOME-native hotkey backend yet (task #38) -
+        # honest about the gap rather than silently doing nothing when
+        # "Enable" is clicked.
+        manual_lines = "\n".join(f"  {hb.name}: {executable} {hb.cli_flag}" for hb in DEFAULT_HOTKEYS)
+        content.pack_start(Gtk.Label(
+            label="Automatic keyboard shortcut setup needs Cinnamon and isn't available "
+                  "on this desktop. You can bind shortcuts to these manually instead:\n"
+                  + manual_lines,
+            wrap=True, xalign=0,
+        ), False, False, 0)
 
     dialog.show_all()
     response = dialog.run()
@@ -130,11 +162,12 @@ def _run_dialog(parent, executable: str, settings_backend) -> None:
         if autostart_check.get_active():
             install_autostart_entry(executable)
 
-        enabled_names = {name for name, check in binding_checks.items() if check.get_active()}
-        skip, to_clear = resolve_hotkey_choices(enabled_names, conflicts)
-        for conflict in to_clear:
-            clear_conflict(settings_backend, conflict)
-        configure_all_hotkeys(settings_backend, executable, skip=skip)
+        if hotkeys_available:
+            enabled_names = {name for name, check in binding_checks.items() if check.get_active()}
+            skip, to_clear = resolve_hotkey_choices(enabled_names, conflicts)
+            for conflict in to_clear:
+                clear_conflict(settings_backend, conflict)
+            configure_all_hotkeys(settings_backend, executable, skip=skip)
 
     mark_first_run_setup_done()
     dialog.destroy()

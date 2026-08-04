@@ -9,11 +9,14 @@ conversion code: drawing pure red via Cairo's own APIs and reading the
 raw surface bytes back out gave [0, 0, 255, 255], i.e. B=0, G=0, R=255,
 A=255.
 
-Premultiplication is a no-op for every image this app produces: capture
-backends always synthesize full opacity (alpha=255), and 255/255=1, so
-straight and premultiplied are identical. This module does not handle
-partial transparency correctly for that reason — documented, not
-silently assumed — see test_premultiplication_is_not_handled_for_partial_alpha.
+Premultiplication was a no-op for every image this app produced until
+the auto-captured cursor (capture/x11_cursor.py) - the first source
+with genuinely partial-alpha pixels (anti-aliased edges), which
+surfaced this as a real visible bug (color fringing at cursor edges)
+rather than a latent one. This module now premultiplies on the way
+into a Cairo surface and un-premultiplies on the way back out, mirroring
+x11_cursor.py's own _unpremultiply - see
+test_partial_alpha_round_trips_correctly.
 
 cairo.ImageSurface is a pure in-memory/software surface — no X11
 connection needed, so these tests run headless like the rest of core.
@@ -109,18 +112,40 @@ class TestCairoSurfaceToNumpy:
         assert result.dtype == np.uint8
 
 
-def test_premultiplication_is_not_handled_for_partial_alpha():
-    # Documents the known limitation rather than hiding it: at alpha=255
-    # premultiplied and straight are identical (255/255=1), which is
-    # every image this app produces (captures are always fully opaque).
-    # A genuinely translucent pixel would round-trip incorrectly, since
-    # this conversion does not un-premultiply on the way back out.
-    image = solid_image(1, 1, 200, 100, 50, a=128)  # translucent
+def test_numpy_to_cairo_surface_premultiplies_partial_alpha():
+    # 100 at alpha=128 premultiplies to round(100 * 128/255) = 50 -
+    # confirms the stored bytes are actually scaled by alpha, not just
+    # passed through (a round-trip-only test could pass by accident if
+    # premultiply and un-premultiply were both silently no-ops).
+    image = solid_image(1, 1, 100, 100, 100, a=128)
+    surface = numpy_to_cairo_surface(image)
+    surface.flush()
+    assert list(surface.get_data())[:4] == [50, 50, 50, 128]
+
+
+def test_partial_alpha_round_trips_correctly():
+    # White at ~50% alpha: premultiplied channel = straight * alpha/255
+    # = 255 * 128/255 = 128 exactly (no rounding error, since the 255
+    # cancels) - same case test_x11_cursor.py's own unpremultiply test
+    # uses, for an exact assertion rather than an approximate one.
+    image = solid_image(1, 1, 255, 255, 255, a=128)
     surface = numpy_to_cairo_surface(image)
     result = cairo_surface_to_numpy(surface)
-    # RGB channels pass through as stored, NOT un-premultiplied against
-    # the 128 alpha the way correct partial-transparency handling would.
-    assert tuple(result[0, 0]) == (200, 100, 50, 128)
+    assert tuple(result[0, 0]) == (255, 255, 255, 128)
+
+
+def test_partial_alpha_round_trip_is_within_one_of_the_original():
+    # Not every value cancels as cleanly as the white/alpha=128 case
+    # above - 8-bit premultiplied alpha is inherently lossy for a
+    # translucent pixel, same as x11_cursor.py's own _unpremultiply.
+    # Documented rather than hidden: this asserts the tolerance, not
+    # exact equality.
+    image = solid_image(1, 1, 200, 100, 50, a=128)
+    surface = numpy_to_cairo_surface(image)
+    result = cairo_surface_to_numpy(surface)
+    for original, recovered in zip((200, 100, 50), result[0, 0, :3]):
+        assert abs(int(recovered) - original) <= 1
+    assert result[0, 0, 3] == 128
 
 
 # --- Property-based tests -------------------------------------------------
@@ -137,3 +162,29 @@ def test_opaque_images_always_round_trip_exactly(width, height, r, g, b):
     original = solid_image(width, height, r, g, b, a=255)
     result = cairo_surface_to_numpy(numpy_to_cairo_surface(original))
     assert np.array_equal(result, original)
+
+
+_nonzero_alpha = st.integers(min_value=1, max_value=255)
+
+
+@given(_dim, _dim, _channel, _channel, _channel, _nonzero_alpha)
+def test_partial_alpha_round_trip_error_is_bounded_by_alpha_precision(width, height, r, g, b, a):
+    # Alpha itself always round-trips exactly (never premultiplied).
+    # RGB precision loss is inherent to 8-bit premultiplied alpha and
+    # scales with 1/alpha: premultiplying rounds to the nearest integer
+    # (max error 0.5) in *premultiplied* space, and un-premultiplying
+    # divides back out by alpha/255, amplifying that error by roughly
+    # 255/alpha - at very low alpha (e.g. alpha=1, ~0.4% opacity) most
+    # of the original color is genuinely unrecoverable. Same property
+    # any 8-bit premultiplied-alpha pipeline has (including Cairo's own
+    # native compositing), not something this conversion could avoid -
+    # the handpicked test above covers the realistic anti-aliased-edge
+    # case (alpha=128) with a tight bound; this one just confirms the
+    # error stays a well-behaved function of alpha rather than blowing
+    # up unboundedly or leaking into the alpha channel itself.
+    original = solid_image(width, height, r, g, b, a=a)
+    result = cairo_surface_to_numpy(numpy_to_cairo_surface(original))
+    assert np.array_equal(result[:, :, 3], original[:, :, 3])
+    max_error = 256 // a + 2  # generous margin over the ~127.5/a + 1 worst case
+    diff = np.abs(result[:, :, :3].astype(int) - original[:, :, :3].astype(int))
+    assert np.all(diff <= max_error)

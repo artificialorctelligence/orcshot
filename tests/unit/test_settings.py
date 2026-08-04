@@ -11,10 +11,12 @@ from pathlib import Path
 
 from greenshot_linux.settings import (
     CONFIG_FILENAME,
+    EXTERNAL_EDITOR_AUTO,
     PrintOptions,
     config_file_path,
     default_output_directory,
     get_capture_mouse_cursor,
+    get_external_editor_preference,
     get_output_directory,
     get_print_options,
     get_recent_colors,
@@ -22,6 +24,7 @@ from greenshot_linux.settings import (
     mark_first_run_setup_done,
     quick_save_filename,
     set_capture_mouse_cursor,
+    set_external_editor_preference,
     set_output_directory,
     set_print_options,
     set_recent_colors,
@@ -109,6 +112,28 @@ class TestCaptureMouseCursor:
         set_capture_mouse_cursor(True, path=path)
 
         assert get_capture_mouse_cursor(path=path) is True
+
+
+class TestExternalEditorPreference:
+    def test_defaults_to_auto(self, tmp_path):
+        path = tmp_path / "config.json"
+        assert get_external_editor_preference(path=path) == EXTERNAL_EDITOR_AUTO
+
+    def test_set_then_get_round_trips(self, tmp_path):
+        path = tmp_path / "config.json"
+
+        set_external_editor_preference("Krita", path=path)
+
+        assert get_external_editor_preference(path=path) == "Krita"
+
+    def test_set_preserves_other_settings_already_present(self, tmp_path):
+        path = tmp_path / "config.json"
+        set_capture_mouse_cursor(False, path=path)
+
+        set_external_editor_preference("GIMP", path=path)
+
+        assert get_capture_mouse_cursor(path=path) is False
+        assert get_external_editor_preference(path=path) == "GIMP"
 
 
 class TestRecentColors:

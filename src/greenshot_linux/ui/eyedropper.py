@@ -162,4 +162,9 @@ def start_eyedropper(
     overlay = _EyedropperOverlay(capture_backend, on_picked, on_cancelled)
     overlay.show_all()
     seat = Gdk.Display.get_default().get_default_seat()
-    seat.grab(overlay.get_window(), Gdk.SeatCapabilities.ALL_POINTING, False, None, press_event, None)
+    # ALL, not ALL_POINTING: this overlay is a POPUP window (bypasses
+    # the window manager, never gets real X keyboard focus on its own -
+    # see region_select.py's start_region_capture for how this was
+    # confirmed empirically) and its own Escape handler needs actual
+    # keyboard events delivered to work, not just pointer/motion.
+    seat.grab(overlay.get_window(), Gdk.SeatCapabilities.ALL, False, None, press_event, None)

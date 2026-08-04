@@ -92,6 +92,35 @@ def next_available_slot(existing_slots: Sequence[str]) -> str:
     return f"custom{n}"
 
 
+def cinnamon_keybindings_available() -> bool:
+    """Whether org.cinnamon.desktop.keybindings is actually installed on
+    this system - a read-only Gio.SettingsSchemaSource lookup, no
+    Gio.Settings object ever constructed here (same "read-only
+    introspection, never a write" precedent this module's own docstring
+    already established for verifying schema/path layout).
+
+    Callers MUST check this before ever touching GioSettingsBackend or
+    any of CUSTOM_LIST_SCHEMA/CUSTOM_KEYBINDING_SCHEMA/MEDIA_KEYS_SCHEMA
+    for real. Gio.Settings.new() on a schema that isn't installed is a
+    hard, uncatchable process abort, not a Python exception: confirmed
+    live on a real (non-Cinnamon) GNOME desktop - GLib logs
+    `GLib-GIO-ERROR **: Settings schema '...' is not installed` and
+    unconditionally calls abort() afterward (that's what a GLib
+    g_error()-level log message means), crashing the entire app with no
+    Python traceback at all, before ui/first_run_setup.py's dialog even
+    had a chance to show. This function is the fix: check first, skip
+    hotkey auto-configuration entirely (still offer autostart, which is
+    desktop-agnostic) rather than reaching Cinnamon-only schemas on a
+    desktop that doesn't have them.
+    """
+    import gi
+
+    gi.require_version("Gio", "2.0")
+    from gi.repository import Gio
+
+    return Gio.SettingsSchemaSource.get_default().lookup(CUSTOM_LIST_SCHEMA, True) is not None
+
+
 @runtime_checkable
 class SettingsBackend(Protocol):
     def get_strv(self, schema: str, path: str, key: str) -> list:

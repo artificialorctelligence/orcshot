@@ -57,6 +57,7 @@ from typing import Callable
 
 import cairo
 import gi
+import numpy as np
 
 gi.require_version("Pango", "1.0")
 gi.require_version("PangoCairo", "1.0")
@@ -564,7 +565,13 @@ def render_obfuscate(ctx: cairo.Context, shape: ObfuscateShape, base_image, rng=
     if shape.mode is ObfuscateMode.BLUR:
         filtered = box_blur(base_image, shape.bounds, shape.amount)
     else:
-        filtered = pixelize(base_image, shape.bounds, shape.amount, rng=rng)
+        # No explicit override (the normal, non-test path): derive from
+        # the shape's own pinned seed rather than pixelize's default
+        # fresh-random-every-call behavior, so repeated redraws of the
+        # same unchanged shape don't visibly reshuffle the noise - see
+        # ObfuscateShape.seed's docstring for why this is still safe.
+        pixelize_rng = rng if rng is not None else np.random.default_rng(shape.seed)
+        filtered = pixelize(base_image, shape.bounds, shape.amount, rng=pixelize_rng)
 
     region = filtered[apply_rect.top : apply_rect.bottom, apply_rect.left : apply_rect.right]
     surface = numpy_to_cairo_surface(region)

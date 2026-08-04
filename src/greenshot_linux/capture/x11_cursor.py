@@ -60,6 +60,26 @@ def cursor_image_to_rgba(width: int, height: int, cursor_image) -> np.ndarray:
     return rgba
 
 
+def _clamp_hotspot(hotspot_x: int, hotspot_y: int, width: int, height: int) -> tuple[int, int]:
+    """XFixesGetCursorImage can legitimately report a hotspot outside
+    its own image's bounds - observed live for a genuinely-invisible
+    cursor (a 1x1 fully-transparent pixel with hotspot (1, 1), valid
+    range (0, 0) only): something producing a blank/hidden cursor via
+    a degenerate pixmap doesn't need to bother clamping its hotspot
+    either, since nothing renders regardless of where it points.
+    core/cursor_capture.py's cursor_bounds_in_capture only ever uses
+    the hotspot arithmetically (never as an array index), so this was
+    never a crash risk - but an unclamped hotspot could still visibly
+    mis-place a real, *visible* rendered cursor for some other
+    malformed reply. Clamped here, at the X11 boundary, rather than
+    trusting the X server's reply unconditionally.
+    """
+    return (
+        max(0, min(hotspot_x, width - 1)),
+        max(0, min(hotspot_y, height - 1)),
+    )
+
+
 class X11CursorBackend:
     def __init__(self):
         self._display = display.Display()
@@ -72,4 +92,5 @@ class X11CursorBackend:
         if reply is None or reply.width == 0 or reply.height == 0:
             return None
         image = cursor_image_to_rgba(reply.width, reply.height, reply.cursor_image)
-        return CursorSnapshot(image=image, x=reply.x, y=reply.y, hotspot_x=reply.xhot, hotspot_y=reply.yhot)
+        hotspot_x, hotspot_y = _clamp_hotspot(reply.xhot, reply.yhot, reply.width, reply.height)
+        return CursorSnapshot(image=image, x=reply.x, y=reply.y, hotspot_x=hotspot_x, hotspot_y=hotspot_y)

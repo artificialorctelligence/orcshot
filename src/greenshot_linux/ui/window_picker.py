@@ -151,6 +151,7 @@ class WindowPickerWindow(Gtk.Window):
 
     def _on_button_press(self, widget, event):
         hovered = self._hovered
+        self._release_grab()
         self.destroy()
         if hovered is None:
             if self._on_cancelled is not None:
@@ -177,6 +178,7 @@ class WindowPickerWindow(Gtk.Window):
 
     def _on_key_press(self, widget, event):
         if event.keyval == Gdk.KEY_Escape:
+            self._release_grab()
             self.destroy()
             if self._on_cancelled is not None:
                 self._on_cancelled()
@@ -186,6 +188,9 @@ class WindowPickerWindow(Gtk.Window):
             widget.queue_draw()
             return True
         return False
+
+    def _release_grab(self) -> None:
+        Gdk.Display.get_default().get_default_seat().ungrab()
 
 
 def start_window_picker(
@@ -221,4 +226,10 @@ def start_window_picker(
     )
     window.show_all()
     window.grab_focus()
+    # See region_select.py's start_region_capture for why this explicit
+    # keyboard grab is required - POPUP windows never get real X
+    # keyboard focus from grab_focus() alone.
+    Gdk.Display.get_default().get_default_seat().grab(
+        window.get_window(), Gdk.SeatCapabilities.KEYBOARD, True, None, None, None, None,
+    )
     return window

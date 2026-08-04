@@ -30,6 +30,12 @@ from greenshot_linux.core.shapes import (
     TextShape,
 )
 from greenshot_linux.core.tools import (
+    STYLE_FIELD_FILL_COLOR,
+    STYLE_FIELD_LINE_COLOR,
+    STYLE_FIELD_LINE_THICKNESS,
+    STYLE_FIELD_OBFUSCATE_AMOUNT,
+    STYLE_FIELD_OBFUSCATE_MODE,
+    STYLE_FIELD_SHADOW,
     Tool,
     create_freehand_shape,
     create_shape_from_drag,
@@ -40,6 +46,7 @@ from greenshot_linux.core.tools import (
     scale_shape,
     shape_handles,
     translate_shape,
+    visible_style_fields,
 )
 
 STYLE = ShapeStyle(line_thickness=3, line_color=(1, 2, 3, 255))
@@ -173,6 +180,64 @@ def test_create_freehand_shape():
     assert isinstance(shape, FreehandShape)
     assert shape.points == points
     assert shape.style is STYLE
+
+
+_FULL_FIELDS = frozenset({
+    STYLE_FIELD_LINE_COLOR, STYLE_FIELD_FILL_COLOR, STYLE_FIELD_LINE_THICKNESS, STYLE_FIELD_SHADOW,
+})
+_LINE_ONLY_FIELDS = frozenset({STYLE_FIELD_LINE_COLOR, STYLE_FIELD_LINE_THICKNESS, STYLE_FIELD_SHADOW})
+_FREEHAND_FIELDS = frozenset({STYLE_FIELD_LINE_COLOR, STYLE_FIELD_LINE_THICKNESS})
+_OBFUSCATE_FIELDS = frozenset({STYLE_FIELD_OBFUSCATE_AMOUNT, STYLE_FIELD_OBFUSCATE_MODE})
+
+
+class TestVisibleStyleFields:
+    @pytest.mark.parametrize("tool,expected", [
+        (Tool.RECTANGLE, _FULL_FIELDS),
+        (Tool.ELLIPSE, _FULL_FIELDS),
+        (Tool.TEXT, _FULL_FIELDS),
+        (Tool.SPEECH_BUBBLE, _FULL_FIELDS),
+        (Tool.STEP_LABEL, _FULL_FIELDS),
+        (Tool.EMOJI, _FULL_FIELDS),
+        (Tool.LINE, _LINE_ONLY_FIELDS),
+        (Tool.ARROW, _LINE_ONLY_FIELDS),
+        (Tool.FREEHAND, _FREEHAND_FIELDS),
+        (Tool.PIXELIZE, _OBFUSCATE_FIELDS),
+        (Tool.BLUR, _OBFUSCATE_FIELDS),
+    ])
+    def test_tool_without_a_selection(self, tool, expected):
+        assert visible_style_fields(tool) == expected
+
+    def test_select_tool_with_nothing_selected_shows_nothing(self):
+        # Matches Windows' RefreshFieldControls: no selection and no
+        # active drawing mode means HideToolstripItems(), not "every
+        # control visible" (this port's own previous behavior).
+        assert visible_style_fields(Tool.SELECT) == frozenset()
+        assert visible_style_fields(Tool.SELECT, selected_shape=None) == frozenset()
+
+    @pytest.mark.parametrize("shape,expected", [
+        (RectangleShape(Rect(0, 0, 10, 10), STYLE), _FULL_FIELDS),
+        (EllipseShape(Rect(0, 0, 10, 10), STYLE), _FULL_FIELDS),
+        (TextShape(Rect(0, 0, 10, 10), text="hi", style=STYLE), _FULL_FIELDS),
+        (StepLabelShape(bounds=Rect(0, 0, 10, 10), number=1, style=STYLE), _FULL_FIELDS),
+        (LineShape(start=(0, 0), end=(5, 5), style=STYLE), _LINE_ONLY_FIELDS),
+        (ArrowShape(start=(0, 0), end=(5, 5), style=STYLE), _LINE_ONLY_FIELDS),
+        (FreehandShape(points=((0, 0), (5, 5)), style=STYLE), _FREEHAND_FIELDS),
+        (ObfuscateShape(Rect(0, 0, 10, 10), mode=ObfuscateMode.BLUR), _OBFUSCATE_FIELDS),
+        (ObfuscateShape(Rect(0, 0, 10, 10), mode=ObfuscateMode.PIXELIZE), _OBFUSCATE_FIELDS),
+        (IconShape(bounds=Rect(0, 0, 10, 10), image=rgba_image()), frozenset()),
+        (CursorShape(bounds=Rect(0, 0, 10, 10), image=rgba_image()), frozenset()),
+        (ImageShape(bounds=Rect(0, 0, 10, 10), image=rgba_image()), frozenset()),
+        (SvgShape(bounds=Rect(0, 0, 10, 10), svg_data="<svg/>"), frozenset()),
+    ])
+    def test_selected_shape_fields(self, shape, expected):
+        # A selected shape's own fields, regardless of what tool
+        # happens to be active - selecting an existing Line while
+        # Rectangle is the active tool still shows Line's fields.
+        assert visible_style_fields(Tool.RECTANGLE, selected_shape=shape) == expected
+
+    def test_selection_overrides_the_active_tool(self):
+        line = LineShape(start=(0, 0), end=(5, 5), style=STYLE)
+        assert visible_style_fields(Tool.PIXELIZE, selected_shape=line) == _LINE_ONLY_FIELDS
 
 
 class TestTranslateShape:

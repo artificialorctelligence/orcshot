@@ -17,6 +17,7 @@ doesn't need yet.
 
 from __future__ import annotations
 
+import secrets
 from dataclasses import dataclass, field, replace
 from enum import Enum
 from typing import Sequence, Tuple
@@ -385,8 +386,25 @@ class ObfuscateShape:
     gives BlurFilter and PixelizationFilter independent fields
     (BLUR_RADIUS=3, PIXEL_SIZE=5) that keep their own values
     independently as you switch between them.
+
+    ``seed`` drives Pixelize's jittered-noise RNG (filters.py's
+    pixelize) when nothing else overrides it - drawn fresh from the OS
+    CSPRNG once, at shape creation (ui/render.py's render_obfuscate
+    still honors an explicit rng= override for tests). Pinning it here
+    means the same shape renders identical pixelization noise on every
+    redraw instead of reshuffling on every unrelated repaint (moving
+    any other shape triggers a full canvas redraw); it stays *between*
+    shapes and sessions genuinely unpredictable, matching the real
+    Windows PixelizationFilter's own security intent (a fresh
+    CryptoRandomBuffer per Apply() call - see filters.py's
+    _default_rng docstring), since each shape still gets an
+    independent, never-reused random draw of its own. compare=False:
+    two shapes with the same bounds/mode/amount are still the same
+    shape as far as equality/undo-redo care, regardless of which
+    random seed happens to back their pixelization.
     """
 
     bounds: Rect
     mode: ObfuscateMode = ObfuscateMode.PIXELIZE
     amount: int = 5
+    seed: int = field(default_factory=lambda: secrets.randbits(128), compare=False)

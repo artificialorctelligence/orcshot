@@ -49,3 +49,20 @@ class TestObfuscateShape:
         a = ObfuscateShape(bounds=Rect(0, 0, 10, 10))
         b = ObfuscateShape(bounds=Rect(0, 0, 10, 10))
         assert a == b
+
+    def test_default_seed_is_random_per_instance(self):
+        # Not a shared/fixed default - each shape gets its own draw
+        # from the OS CSPRNG (see the seed field's own docstring).
+        a = ObfuscateShape(bounds=Rect(0, 0, 10, 10))
+        b = ObfuscateShape(bounds=Rect(0, 0, 10, 10))
+        assert a.seed != b.seed
+
+    def test_seed_is_excluded_from_equality(self):
+        # Two shapes are still "the same shape" for equality/undo-redo
+        # purposes regardless of which random seed backs their
+        # pixelization noise - covered too by test_is_frozen_and_
+        # comparable above, but explicit here since it's the one field
+        # deliberately excluded from dataclass equality.
+        a = ObfuscateShape(bounds=Rect(0, 0, 10, 10), seed=1)
+        b = ObfuscateShape(bounds=Rect(0, 0, 10, 10), seed=2)
+        assert a == b

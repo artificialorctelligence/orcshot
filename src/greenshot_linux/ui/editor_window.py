@@ -131,16 +131,25 @@ from greenshot_linux.core.history import (
     UndoRedoStack,
 )
 from greenshot_linux.core.shapes import (
-    ImageShape, ObfuscateShape, ShapeStyle, SpeechBubbleShape, StepLabelShape, SvgShape, TextShape,
+    ImageShape, ObfuscateMode, ObfuscateShape, ShapeStyle, SpeechBubbleShape, StepLabelShape, SvgShape, TextShape,
 )
 from greenshot_linux.settings import (
+    EXTERNAL_EDITOR_AUTO,
     get_capture_mouse_cursor,
+    get_external_editor_preference,
     get_output_directory,
     set_capture_mouse_cursor,
+    set_external_editor_preference,
     set_output_directory,
 )
 from greenshot_linux.resources import LOGO_PATH
 from greenshot_linux.core.tools import (
+    STYLE_FIELD_FILL_COLOR,
+    STYLE_FIELD_LINE_COLOR,
+    STYLE_FIELD_LINE_THICKNESS,
+    STYLE_FIELD_OBFUSCATE_AMOUNT,
+    STYLE_FIELD_OBFUSCATE_MODE,
+    STYLE_FIELD_SHADOW,
     Tool,
     create_freehand_shape,
     create_shape_from_drag,
@@ -151,6 +160,7 @@ from greenshot_linux.core.tools import (
     scale_shape,
     shape_handles,
     translate_shape,
+    visible_style_fields,
 )
 from greenshot_linux.core.zoom import (
     ACTUAL_SIZE_ZOOM,
@@ -201,10 +211,21 @@ _TOOL_KEYS = {
 # Matches the real Windows editor's left-toolbar grouping
 # (ImageEditorForm.Designer.cs's toolsToolStrip.Items): Select alone,
 # then every drawing/annotation tool together. None=a separator after
-# this tool - Highlight/Obfuscate/Effects (task #36/#42) and
-# Crop/Rotate/Resize (task #36) are the next two groups in the real
-# toolbar but aren't built yet, so there's nothing to list for them
-# here yet.
+# this tool - Highlight/Effects (task #36/#42) and Crop/Rotate/Resize
+# (task #36) are the next two groups in the real toolbar but aren't
+# built yet, so there's nothing to list for them here yet.
+#
+# _OBFUSCATE_GROUP is a sentinel, not a (Tool, label) pair: Windows has
+# one "Obfuscate" toolbar button (btnObfuscate) plus a small attached
+# dropdown (obfuscateModeButton) to pick which filter it currently
+# applies - Blur or Pixelize (ImageEditorForm.Designer.cs:481-486,
+# 1111-1121; ObfuscateContainer.cs:34 - "a FilterContainer for the
+# obfuscator filters like blur and pixelate"). Tool.PIXELIZE/Tool.BLUR
+# themselves are unchanged (core/tools.py still dispatches on them
+# directly) - this only changes how the palette *presents* choosing
+# between them; see _build_tool_palette's handling of this sentinel.
+_OBFUSCATE_GROUP = "obfuscate_group"
+
 _TOOL_LABELS = [
     (Tool.SELECT, "Select"),
     None,
@@ -213,8 +234,7 @@ _TOOL_LABELS = [
     (Tool.LINE, "Line"),
     (Tool.ARROW, "Arrow"),
     (Tool.FREEHAND, "Freehand"),
-    (Tool.PIXELIZE, "Pixelize"),
-    (Tool.BLUR, "Blur"),
+    _OBFUSCATE_GROUP,
     (Tool.TEXT, "Text"),
     (Tool.SPEECH_BUBBLE, "Speech Bubble"),
     (Tool.STEP_LABEL, "Step Label"),
@@ -259,7 +279,17 @@ class EditorWindow(Gtk.Window):
         self.tool = Tool.SELECT
         self._default_style = ShapeStyle()
         self._default_obfuscate_amount = 5  # matches ObfuscateShape's own default
-        self.selected_shape = None
+        # Which filter the single Obfuscate toolbar button currently
+        # applies - matches ObfuscateContainer.InitializeFields's own
+        # default (PreparedFilter.PIXELIZE), same as ObfuscateShape's
+        # own mode default just above.
+        self._default_obfuscate_mode = Tool.PIXELIZE
+        # Bypasses the selected_shape property below - same reason the
+        # base_image property's docstring gives for __init__ setting
+        # self._base_image directly: its setter refreshes the
+        # obfuscate-amount label, but _obfuscate_amount_label doesn't
+        # exist yet this early in construction.
+        self._selected_shape = None
         # Last-used whole-image effect settings (DropShadowEffectSettings/
         # TornEdgeEffectSettings, IEditorConfiguration.cs:86-90) - a
         # left-click/keyboard-shortcut re-applies these, a right-click
@@ -353,6 +383,58 @@ class EditorWindow(Gtk.Window):
         if app is not None:
             app.register_editor_window(self)
         self.connect("destroy", self._on_destroy)
+
+    @property
+    def selected_shape(self):
+        return self._selected_shape
+
+    @selected_shape.setter
+    def selected_shape(self, shape) -> None:
+        """Keeps the style panel in sync with whichever shape/tool is
+        actually relevant right now - see _refresh_style_panel.
+        Centralizing this in the property setter (rather than a call
+        at each of the many call sites that assign self.selected_shape
+        throughout this file) means it can't be missed by a future
+        one. Bypassed by __init__ - see self._selected_shape's own
+        comment there.
+        """
+        self._selected_shape = shape
+        self._refresh_style_panel()
+
+    def _refresh_style_panel(self) -> None:
+        """Two things that both depend on the same (active tool,
+        selected shape) pair, refreshed together:
+
+        1. The obfuscate-amount spinner's label reflects the
+           *selected* ObfuscateShape's own mode when there is one - so
+           re-selecting an existing Blur box shows "Blur Radius:" even
+           if some other tool is currently active - falling back to
+           the active tool's mode otherwise.
+        2. Which style-panel controls are even visible
+           (visible_style_fields, core/tools.py) - faithful port of
+           RefreshFieldControls (ImageEditorForm.cs:1375): a Rectangle
+           shows Line/Fill/Thickness/Shadow but not Amount; Pixelize
+           shows Amount but nothing else; Select with nothing selected
+           shows nothing at all. Each field's label+control live
+           together in one Gtk.Box "cell" (self._style_field_widgets,
+           built in _build_style_panel) so hiding a field hides both
+           at once.
+        """
+        shape = self._selected_shape
+        if isinstance(shape, ObfuscateShape):
+            amount_tool = Tool.BLUR if shape.mode is ObfuscateMode.BLUR else Tool.PIXELIZE
+        else:
+            amount_tool = self.tool
+        self._obfuscate_amount_label.set_text(self._obfuscate_amount_label_text(amount_tool))
+
+        visible_fields = visible_style_fields(self.tool, shape)
+        for field_name, cell in self._style_field_widgets.items():
+            cell.set_visible(field_name in visible_fields)
+        # The separator only makes sense while Amount is showing (style
+        # fields and obfuscate_amount are never visible at the same
+        # time - see visible_style_fields - so it'd otherwise just
+        # dangle before an empty style-fields cluster).
+        self._style_separator.set_visible(STYLE_FIELD_OBFUSCATE_AMOUNT in visible_fields)
 
     @property
     def base_image(self) -> np.ndarray:
@@ -497,6 +579,9 @@ class EditorWindow(Gtk.Window):
             if entry is None:
                 box.pack_start(Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL), False, False, 2)
                 continue
+            if entry is _OBFUSCATE_GROUP:
+                group_leader = self._build_obfuscate_control(box, group_leader, icon_color)
+                continue
             tool, label = entry
             button = Gtk.RadioButton.new_from_widget(group_leader)
             if group_leader is None:
@@ -511,6 +596,152 @@ class EditorWindow(Gtk.Window):
             self._tool_buttons[tool] = button
 
         return box
+
+    def _build_obfuscate_control(self, box: Gtk.Box, group_leader, icon_color) -> Gtk.RadioButton:
+        """The single "Obfuscate" palette entry: a plain radio-toggle
+        button, just like every other tool button, that activates
+        whichever mode is currently prepared (self._default_obfuscate_mode)
+        when clicked. Both Tool.PIXELIZE and Tool.BLUR map to this same
+        button in self._tool_buttons, so anything that looks a tool up
+        by value (keyboard shortcuts, _on_tool_button_toggled's
+        callers) still finds a real widget for either.
+
+        The mode picker itself is *not* here - Windows' real
+        obfuscateModeButton lives in propertiesToolStrip (this port's
+        style panel, see _build_style_panel's STYLE_FIELD_OBFUSCATE_MODE
+        cell), not attached to btnObfuscate in the tools toolbar
+        (confirmed from ImageEditorForm.Designer.cs's own
+        toolsToolStrip.Items/propertiesToolStrip.Items lists - they're
+        two separate toolbars). An earlier version of this control
+        attached a dropdown directly here, which was closer to a guess
+        than a citation; moved once the real layout was confirmed.
+
+        Icon fixed at the Pixelize glyph (the default prepared mode)
+        rather than swapping with the mode - Windows' own
+        btnObfuscate.Image is likewise a single static icon, never
+        reassigned anywhere in the source; only obfuscateModeButton's
+        icon swaps, which is where this port's dynamic feedback lives
+        too now (the style panel's mode-picker button label).
+
+        Returns the (possibly newly-established) group leader, same
+        contract as the main loop in _build_tool_palette.
+        """
+        button = Gtk.RadioButton.new_from_widget(group_leader)
+        if group_leader is None:
+            group_leader = button
+        button.set_mode(False)
+        button.set_relief(Gtk.ReliefStyle.NONE)
+        button.set_image(tool_icon_image(Tool.PIXELIZE, color=icon_color))
+        button.set_tooltip_text("Obfuscate")
+        button.set_active(self.tool in (Tool.PIXELIZE, Tool.BLUR))
+        button.connect("toggled", self._on_obfuscate_button_toggled)
+        box.pack_start(button, False, False, 0)
+        self._obfuscate_button = button
+        self._tool_buttons[Tool.PIXELIZE] = button
+        self._tool_buttons[Tool.BLUR] = button
+        return group_leader
+
+    @staticmethod
+    def _obfuscate_mode_label(mode: Tool) -> str:
+        return "Blur" if mode is Tool.BLUR else "Pixelize"
+
+    def _build_obfuscate_mode_menu(self) -> Gtk.Menu:
+        menu = Gtk.Menu()
+        self._obfuscate_mode_items = {}
+        item_group_leader = None
+        for mode in (Tool.PIXELIZE, Tool.BLUR):
+            item = Gtk.RadioMenuItem.new_with_label_from_widget(item_group_leader, self._obfuscate_mode_label(mode))
+            if item_group_leader is None:
+                item_group_leader = item
+            item.set_active(mode is self._default_obfuscate_mode)
+            item.connect("toggled", self._on_obfuscate_mode_item_toggled, mode)
+            menu.append(item)
+            self._obfuscate_mode_items[mode] = item
+        menu.show_all()
+        return menu
+
+    def _on_obfuscate_button_toggled(self, button: Gtk.RadioButton) -> None:
+        if button.get_active():
+            self.tool = self._default_obfuscate_mode
+            self._refresh_style_panel()
+
+    def _on_obfuscate_mode_item_toggled(self, item: Gtk.RadioMenuItem, mode: Tool) -> None:
+        if item.get_active():
+            self._set_obfuscate_mode(mode)
+
+    def _set_obfuscate_mode(self, mode: Tool) -> None:
+        """Changes which filter Obfuscate will use next - does NOT
+        activate the tool. Faithful to the real Windows editor: the
+        mode dropdown (obfuscateModeButton) is bidirectionally bound
+        only to the prepared-filter value (ImageEditorForm.cs:1366,
+        `new BidirectionalBinding(obfuscateModeButton, "SelectedTag",
+        ..., "Value")`), and BindableToolStripDropDownButton.
+        OnDropDownItemClicked just swaps its own tag/icon - neither
+        ever touches DrawingMode. Only the main button (or, in this
+        port, a keyboard shortcut - see _select_and_activate_
+        obfuscate_mode) actually starts drawing.
+
+        A selected ObfuscateShape's own mode is retroactively updated
+        too, the same way every other style-panel control already
+        restyles the current selection (_apply_style_change,
+        _on_obfuscate_amount_changed) - matches Windows' FieldAggregator,
+        which reads and writes back through the *selected* element's
+        own field when there is one, not just a "next new shape"
+        preference (missed when this control was first split out;
+        the amount spinner already did this correctly).
+
+        Otherwise, if Obfuscate already *is* the active tool (and
+        nothing's selected), its own fields still update live (the
+        amount label swaps between "Blur Radius:"/"Pixel Size:"
+        immediately) - that mirrors Windows' FieldAggregator reflecting
+        the newly prepared filter's fields right away, even though
+        nothing here changes *whether* Obfuscate is active.
+        """
+        self._default_obfuscate_mode = mode
+        self._obfuscate_mode_button.set_label(self._obfuscate_mode_label(mode))
+        if not self._obfuscate_mode_items[mode].get_active():
+            self._obfuscate_mode_items[mode].set_active(True)
+
+        shape = self.selected_shape
+        if isinstance(shape, ObfuscateShape):
+            obfuscate_mode = ObfuscateMode.BLUR if mode is Tool.BLUR else ObfuscateMode.PIXELIZE
+            updated = dataclass_replace(shape, mode=obfuscate_mode)
+            self.layer.replace(shape, updated)
+            self.undo_redo.push(ElementChangeMemento(self.layer, before=shape, after=updated))
+            self.selected_shape = updated  # setter already calls _refresh_style_panel
+            self._drawing_area.queue_draw()
+        elif self.tool in (Tool.PIXELIZE, Tool.BLUR):
+            self.tool = mode
+            self._refresh_style_panel()
+            self._drawing_area.queue_draw()
+
+    def _activate_obfuscate_tool(self) -> None:
+        """What clicking the main Obfuscate button does - starts
+        drawing with whichever mode is currently prepared
+        (self._default_obfuscate_mode). Mirrors BtnObfuscateClick
+        (ImageEditorForm.cs) exactly: only this (never the mode
+        dropdown - see _set_obfuscate_mode) changes DrawingMode.
+        """
+        if self._obfuscate_button.get_active():
+            # Already the active tool - "toggled" won't refire (GTK
+            # only emits it on an actual state change), so do directly
+            # what _on_obfuscate_button_toggled would have.
+            self.tool = self._default_obfuscate_mode
+            self._refresh_style_panel()
+        else:
+            self._obfuscate_button.set_active(True)  # fires "toggled" -> _on_obfuscate_button_toggled
+
+    def _select_and_activate_obfuscate_mode(self, mode: Tool) -> None:
+        """The 6/7 keyboard shortcuts (_TOOL_KEYS) - unlike the mode
+        dropdown, a keyboard shortcut is expected to actually do
+        something immediately, so this both prepares the mode and
+        activates the tool in one step. No direct Windows equivalent:
+        Windows has only one Obfuscate drawing mode with no per-
+        sub-mode shortcut, so there's nothing to be unfaithful to here
+        - this is this port's own convenience addition.
+        """
+        self._set_obfuscate_mode(mode)
+        self._activate_obfuscate_tool()
 
     def _build_action_toolbar(self) -> Gtk.Toolbar:
         """Matches the real Windows order (confirmed from
@@ -593,34 +824,68 @@ class EditorWindow(Gtk.Window):
         has no style field. Both affect shapes created *after* a
         change, and also retroactively restyle the current selection
         if it has the relevant field.
+
+        Each field's label+control(s) live together in their own
+        Gtk.Box "cell", keyed by field name in self._style_field_widgets
+        - see _refresh_style_panel, which shows/hides whole cells at
+        once based on visible_style_fields (core/tools.py), rather than
+        this port's previous always-show-everything panel.
         """
         box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
         box.set_border_width(4)
+        self._style_field_widgets = {}
 
-        box.pack_start(Gtk.Label(label="Line:"), False, False, 0)
+        def add_cell(field_name: str, *widgets: Gtk.Widget) -> None:
+            cell = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+            for widget in widgets:
+                cell.pack_start(widget, False, False, 0)
+            box.pack_start(cell, False, False, 0)
+            self._style_field_widgets[field_name] = cell
+
+        line_label = Gtk.Label(label="Line:")
         line_button, self._line_color_swatch = self._build_color_button(
             lambda: self._default_style.line_color, self._on_line_color_changed,
         )
-        box.pack_start(line_button, False, False, 0)
+        add_cell(STYLE_FIELD_LINE_COLOR, line_label, line_button)
 
-        box.pack_start(Gtk.Label(label="Fill:"), False, False, 0)
+        fill_label = Gtk.Label(label="Fill:")
         fill_button, self._fill_color_swatch = self._build_color_button(
             lambda: self._default_style.fill_color, self._on_fill_color_changed,
         )
-        box.pack_start(fill_button, False, False, 0)
+        add_cell(STYLE_FIELD_FILL_COLOR, fill_label, fill_button)
 
-        box.pack_start(Gtk.Label(label="Line Thickness:"), False, False, 0)
+        thickness_label = Gtk.Label(label="Line Thickness:")
         adjustment = Gtk.Adjustment(
             value=self._default_style.line_thickness, lower=0, upper=20, step_increment=1
         )
         self._thickness_spin = Gtk.SpinButton(adjustment=adjustment)
         self._thickness_spin.connect("value-changed", self._on_thickness_changed)
-        box.pack_start(self._thickness_spin, False, False, 0)
+        add_cell(STYLE_FIELD_LINE_THICKNESS, thickness_label, self._thickness_spin)
 
         self._shadow_check = Gtk.CheckButton(label="Shadow")
         self._shadow_check.set_active(self._default_style.shadow)
         self._shadow_check.connect("toggled", self._on_shadow_toggled)
-        box.pack_start(self._shadow_check, False, False, 0)
+        add_cell(STYLE_FIELD_SHADOW, self._shadow_check)
+
+        # Only shown while Obfuscate's own fields (mode/amount) are -
+        # see _refresh_style_panel. Style fields and obfuscate fields
+        # are never visible together (visible_style_fields), so this
+        # would otherwise dangle before an empty style-fields cluster.
+        self._style_separator = Gtk.Separator(orientation=Gtk.Orientation.VERTICAL)
+        box.pack_start(self._style_separator, False, False, 4)
+
+        # Windows' real obfuscateModeButton (the Blur/Pixelize picker)
+        # lives here, in propertiesToolStrip, not attached to
+        # btnObfuscate in the tools toolbar - see _build_obfuscate_
+        # control's docstring for the source citation. Button label
+        # text (not an icon) shows the current mode, updated by
+        # _set_obfuscate_mode - simpler than swapping an icon glyph
+        # and consistent with every other control in this panel being
+        # text, not icons (icons are only in the tool palette).
+        mode_label = Gtk.Label(label="Mode:")
+        self._obfuscate_mode_button = Gtk.MenuButton(label=self._obfuscate_mode_label(self._default_obfuscate_mode))
+        self._obfuscate_mode_button.set_popup(self._build_obfuscate_mode_menu())
+        add_cell(STYLE_FIELD_OBFUSCATE_MODE, mode_label, self._obfuscate_mode_button)
 
         # Label text swaps with the active tool (see
         # _obfuscate_amount_label_text) - matches Windows' own two
@@ -628,14 +893,14 @@ class EditorWindow(Gtk.Window):
         # "Pixel size" for Pixelize - ImageEditorForm.Designer.cs)
         # rather than a single generically-named field for both.
         self._obfuscate_amount_label = Gtk.Label(label=self._obfuscate_amount_label_text(self.tool))
-        box.pack_start(self._obfuscate_amount_label, False, False, 0)
         obfuscate_adjustment = Gtk.Adjustment(
             value=self._default_obfuscate_amount, lower=2, upper=50, step_increment=1
         )
         self._obfuscate_amount_spin = Gtk.SpinButton(adjustment=obfuscate_adjustment)
         self._obfuscate_amount_spin.connect("value-changed", self._on_obfuscate_amount_changed)
-        box.pack_start(self._obfuscate_amount_spin, False, False, 0)
+        add_cell(STYLE_FIELD_OBFUSCATE_AMOUNT, self._obfuscate_amount_label, self._obfuscate_amount_spin)
 
+        self._refresh_style_panel()
         return box
 
     @staticmethod
@@ -644,7 +909,7 @@ class EditorWindow(Gtk.Window):
             return "Blur Radius:"
         if tool is Tool.PIXELIZE:
             return "Pixel Size:"
-        return "Obfuscate Amount:"
+        return "Amount:"
 
     def _on_obfuscate_amount_changed(self, spin: Gtk.SpinButton) -> None:
         amount = spin.get_value_as_int()
@@ -688,7 +953,7 @@ class EditorWindow(Gtk.Window):
     def _on_tool_button_toggled(self, button: Gtk.RadioToolButton, tool: Tool) -> None:
         if button.get_active():
             self.tool = tool
-            self._obfuscate_amount_label.set_text(self._obfuscate_amount_label_text(tool))
+            self._refresh_style_panel()
 
     def _do_undo(self) -> None:
         self._commit_text_editing_if_active()
@@ -923,6 +1188,28 @@ class EditorWindow(Gtk.Window):
         cursor_check.connect("toggled", lambda btn: set_capture_mouse_cursor(btn.get_active()))
         content.pack_start(cursor_check, False, False, 0)
 
+        # Not a Windows setting - "Open in External Editor" itself
+        # isn't a Windows feature (see _EXTERNAL_EDITOR_CANDIDATES).
+        # IDs match settings.get/set_external_editor_preference's
+        # values directly (EXTERNAL_EDITOR_AUTO, or a candidate name).
+        editor_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        editor_row.pack_start(Gtk.Label(label="External Image Editor:"), False, False, 0)
+        editor_combo = Gtk.ComboBoxText()
+        editor_combo.append(EXTERNAL_EDITOR_AUTO, "Auto (Krita, then GIMP)")
+        for name, _path_command, _flatpak_id in self._EXTERNAL_EDITOR_CANDIDATES:
+            editor_combo.append(name, name)
+        current_preference = get_external_editor_preference()
+        if editor_combo.set_active_id(current_preference) is False:
+            # A stale preference naming a candidate that no longer
+            # exists in _EXTERNAL_EDITOR_CANDIDATES - falls back to
+            # Auto in the UI (matches _find_external_editor_command's
+            # own fallback behavior for the same case) rather than
+            # showing nothing selected.
+            editor_combo.set_active_id(EXTERNAL_EDITOR_AUTO)
+        editor_combo.connect("changed", lambda combo: set_external_editor_preference(combo.get_active_id()))
+        editor_row.pack_start(editor_combo, False, False, 0)
+        content.pack_start(editor_row, False, False, 0)
+
         dialog.show_all()
         dialog.run()
         dialog.destroy()
@@ -930,11 +1217,13 @@ class EditorWindow(Gtk.Window):
     # Not a Windows feature - Windows has no "open in an external
     # editor" destination. A new addition, not a port, per explicit
     # request. Krita is tried first since it was specifically
-    # requested, with GIMP as a fallback. (name, PATH command, Flatpak
-    # app ID) - checks both, since Flatpak is how at least one of
-    # these is commonly installed on Mint (confirmed live: this dev
-    # machine has Krita only via Flatpak, not on PATH - a plain
-    # shutil.which("krita") check alone would have missed it).
+    # requested, with GIMP as a fallback (overridable - see
+    # settings.get_external_editor_preference and _do_show_settings).
+    # (name, PATH command, Flatpak app ID) - checks both, since Flatpak
+    # is how at least one of these is commonly installed on Mint
+    # (confirmed live: this dev machine has Krita only via Flatpak, not
+    # on PATH - a plain shutil.which("krita") check alone would have
+    # missed it).
     _EXTERNAL_EDITOR_CANDIDATES = (
         ("Krita", "krita", "org.kde.krita"),
         ("GIMP", "gimp", "org.gimp.GIMP"),
@@ -953,25 +1242,78 @@ class EditorWindow(Gtk.Window):
             return set()
         return {line.strip() for line in result.stdout.splitlines() if line.strip()}
 
-    def _find_external_editor_command(self):
-        """The argv prefix to launch the first available candidate
-        editor, or None if none are installed. Checks a plain PATH
-        executable first, then a Flatpak install for the same
-        candidate - preferring a live `flatpak list` query over
-        `locate`: `locate` depends on the mlocate/plocate package
-        being installed at all, and its index can be stale until the
-        next `updatedb` run, so a just-installed app might not show up
-        yet; `flatpak list` is authoritative and always current.
-        """
-        flatpak_apps = None
-        for _name, path_command, flatpak_id in self._EXTERNAL_EDITOR_CANDIDATES:
-            if shutil.which(path_command):
-                return [path_command]
-            if flatpak_apps is None:
-                flatpak_apps = self._installed_flatpak_apps()
-            if flatpak_id in flatpak_apps:
-                return ["flatpak", "run", flatpak_id]
+    def _command_for_candidate(self, path_command: str, flatpak_id: str, flatpak_apps: set):
+        if shutil.which(path_command):
+            return [path_command]
+        if flatpak_id in flatpak_apps:
+            return ["flatpak", "run", flatpak_id]
         return None
+
+    def _find_external_editor_command(self):
+        """The argv prefix to launch an available candidate editor, or
+        None if none are installed. Checks a plain PATH executable
+        first, then a Flatpak install for the same candidate -
+        preferring a live `flatpak list` query over `locate`: `locate`
+        depends on the mlocate/plocate package being installed at all,
+        and its index can be stale until the next `updatedb` run, so a
+        just-installed app might not show up yet; `flatpak list` is
+        authoritative and always current.
+
+        Tries settings.get_external_editor_preference()'s choice
+        first if it names a specific candidate; falls through to the
+        normal Krita-then-GIMP order either way (whether the
+        preference is "auto", names a candidate not in
+        _EXTERNAL_EDITOR_CANDIDATES, or names one that's no longer
+        installed) so an uninstalled preference doesn't leave this
+        button permanently broken.
+        """
+        flatpak_apps = self._installed_flatpak_apps()
+        preferred = get_external_editor_preference()
+        for name, path_command, flatpak_id in self._EXTERNAL_EDITOR_CANDIDATES:
+            if name != preferred:
+                continue
+            command = self._command_for_candidate(path_command, flatpak_id, flatpak_apps)
+            if command is not None:
+                return command
+        for _name, path_command, flatpak_id in self._EXTERNAL_EDITOR_CANDIDATES:
+            command = self._command_for_candidate(path_command, flatpak_id, flatpak_apps)
+            if command is not None:
+                return command
+        return None
+
+    @staticmethod
+    def _external_editor_cache_dir() -> Path:
+        """Where the exported temp PNG for "Open in External Editor"
+        lives - $XDG_CACHE_HOME/greenshot-linux, *not* system /tmp.
+
+        Confirmed live (`flatpak run org.kde.krita ls /tmp`, an empty
+        listing) that a Flatpak sandbox's /tmp is its own private
+        tmpfs regardless of the "filesystems=host" permission Krita's
+        Flatpak actually has (`flatpak info --show-permissions
+        org.kde.krita`) - bubblewrap always isolates /tmp specifically,
+        host permission or not. A file this app writes to /tmp is
+        therefore invisible inside the sandbox even though it exists
+        on the real filesystem, which is exactly the "file does not
+        exist" error Krita reported. The home directory, by contrast,
+        genuinely is shared (`flatpak run org.kde.krita ls ~` shows
+        the real host home) - so $XDG_CACHE_HOME (under home) is used
+        instead, matching this project's existing XDG-dir convention
+        (settings.config_file_path).
+        """
+        cache_home = Path(os.environ.get("XDG_CACHE_HOME", Path.home() / ".cache"))
+        directory = cache_home / "greenshot-linux"
+        # mode=0o700 rather than relying on umask: the exported PNGs
+        # here can contain sensitive screen content, and while
+        # tempfile.mkstemp already forces 0600 on each individual file
+        # regardless of umask, the *directory* itself would otherwise
+        # inherit whatever the umask allows (typically 0755 -
+        # world-listable) - restricting it too means even filenames/
+        # mtimes in here aren't enumerable by another local user on a
+        # system with looser-than-default home permissions. Only takes
+        # effect on first creation - doesn't retroactively fix a
+        # pre-existing directory from before this restriction existed.
+        directory.mkdir(mode=0o700, parents=True, exist_ok=True)
+        return directory
 
     def _do_open_in_external_editor(self) -> None:
         self._commit_text_editing_if_active()
@@ -986,10 +1328,22 @@ class EditorWindow(Gtk.Window):
             dialog.run()
             dialog.destroy()
             return
-        fd, path = tempfile.mkstemp(suffix=".png", prefix="greenshot-linux-")
+        # Cleans up the previous export before writing a new one -
+        # unique filenames (not one fixed path) avoid a second export
+        # clobbering a file a still-open first editor session has
+        # already loaded; deleting the old one here (rather than never
+        # cleaning up) avoids that pile growing unbounded across a long
+        # editing session, since ~/.cache/greenshot-linux isn't
+        # OS-managed transient storage the way /tmp is.
+        previous = getattr(self, "_external_editor_temp_path", None)
+        if previous is not None:
+            previous.unlink(missing_ok=True)
+        fd, path_str = tempfile.mkstemp(suffix=".png", prefix="greenshot-linux-", dir=str(self._external_editor_cache_dir()))
         os.close(fd)
+        path = Path(path_str)
+        self._external_editor_temp_path = path
         save_image_to_file(self._composited_image(), path)
-        subprocess.Popen(command + [path])
+        subprocess.Popen(command + [str(path)])
 
     _HELP_TEXT = (
         "Tools\n"
@@ -1716,10 +2070,19 @@ class EditorWindow(Gtk.Window):
 
         tool = _TOOL_KEYS.get(event.keyval)
         if tool is not None and not ctrl_held:
-            # set_active(True) fires "toggled", which itself sets
-            # self.tool - this just keeps the toolbar's radio buttons
-            # in sync with a keyboard-driven tool switch too.
-            self._tool_buttons[tool].set_active(True)
+            if tool in (Tool.PIXELIZE, Tool.BLUR):
+                # Both keys route through the same shared Obfuscate
+                # button (self._tool_buttons[Tool.PIXELIZE] is
+                # self._tool_buttons[Tool.BLUR]) - set_active(True)
+                # alone wouldn't reliably pick the right mode if it's
+                # already the active tool (see
+                # _select_and_activate_obfuscate_mode).
+                self._select_and_activate_obfuscate_mode(tool)
+            else:
+                # set_active(True) fires "toggled", which itself sets
+                # self.tool - this just keeps the toolbar's radio
+                # buttons in sync with a keyboard-driven tool switch.
+                self._tool_buttons[tool].set_active(True)
             return True
 
         if event.keyval == Gdk.KEY_Delete:

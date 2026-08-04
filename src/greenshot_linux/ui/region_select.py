@@ -26,11 +26,24 @@ dimensions - both ported from the Windows source's CaptureForm.cs; see
 core/magnifier.py and ui/magnifier.py's docstrings for the exact
 algorithm this was traced from. Positioning avoids the current
 selection rect where possible so the loupe doesn't cover what you're
-trying to see. Verified with a FakeCaptureBackend (synthetic
-coordinate-pattern image, no real X11 grab) and by calling _on_draw
-directly against an offscreen Cairo surface - never a real desktop
-capture for inspection, consistent with this project's standing
-caution around viewing live desktop content.
+trying to see.
+
+Before a drag starts (not once one's in progress), also draws a
+full-screen dotted aiming crosshair through the cursor plus a small
+"X x Y" coordinate tooltip - faithful port of CaptureForm.cs:1154-1182
+(colors, dash style, and tooltip layout all taken from that block
+directly: LightSeaGreen #20B2AA dotted lines, a SeaGreen #2E8B57
+tooltip border/text on a light mint background). Deliberately not
+shared with window_picker.py: the real source gates this exact branch
+with `!(_mouseDown || _captureMode == CaptureMode.Window || ...)` -
+Window-mode capture never reaches it either, even though CaptureForm
+is nominally one shared class across capture modes.
+
+Verified with a FakeCaptureBackend (synthetic coordinate-pattern
+image, no real X11 grab) and by calling _on_draw directly against an
+offscreen Cairo surface - never a real desktop capture for inspection,
+consistent with this project's standing caution around viewing live
+desktop content.
 """
 
 from __future__ import annotations
@@ -54,6 +67,15 @@ from greenshot_linux.ui.render import render_cursor
 
 _SELECTION_BORDER = (0.1, 0.6, 1.0)
 _DIM_ALPHA = 0.5
+
+# CaptureForm.cs:1154-1182's aiming-crosshair colors, converted from
+# System.Drawing's named colors to 0-1 RGB: LightSeaGreen (#20B2AA)
+# for the crosshair lines, SeaGreen (#2E8B57) for the coordinate
+# tooltip's border/text, and its light-mint background
+# (FromArgb(200, 217, 240, 227), alpha included).
+_CROSSHAIR_COLOR = (32 / 255, 178 / 255, 170 / 255)
+_COORD_TOOLTIP_BORDER = (46 / 255, 139 / 255, 87 / 255)
+_COORD_TOOLTIP_BG = (217 / 255, 240 / 255, 227 / 255, 200 / 255)
 
 
 class RegionSelectWindow(Gtk.Window):
@@ -157,6 +179,9 @@ class RegionSelectWindow(Gtk.Window):
             # position, matching Windows' own CaptureForm.cs:1027-1030.
             render_cursor(ctx, self._cursor_preview_shape)
 
+        if self._cursor_pos is not None and self._drag_origin is None:
+            self._draw_aiming_crosshair(ctx)
+
         if self._cursor_pos is not None:
             diameter = magnifier_diameter(self._bounds.width, self._bounds.height)
             screen_rect = Rect(0, 0, self._bounds.width, self._bounds.height)
@@ -183,6 +208,47 @@ class RegionSelectWindow(Gtk.Window):
         ctx.show_text(text)
         ctx.restore()
 
+    def _draw_aiming_crosshair(self, ctx) -> None:
+        """Full-screen dotted crosshair through the cursor, plus a
+        small coordinate tooltip - faithful port of CaptureForm.cs:
+        1154-1182 (see this module's docstring for why it's only drawn
+        before a drag starts, and only here, not window_picker.py).
+        Coordinates in the tooltip are absolute screen position
+        (self._bounds.left/top + the local cursor position), matching
+        WinForms' Cursor.Position being screen-space, not form-relative.
+        """
+        x, y = self._cursor_pos
+        ctx.save()
+        ctx.set_source_rgb(*_CROSSHAIR_COLOR)
+        ctx.set_line_width(1)
+        ctx.set_dash([1, 3])
+        ctx.move_to(x + 0.5, 0)
+        ctx.line_to(x + 0.5, self._bounds.height)
+        ctx.stroke()
+        ctx.move_to(0, y + 0.5)
+        ctx.line_to(self._bounds.width, y + 0.5)
+        ctx.stroke()
+        ctx.restore()
+
+        text = f"{self._bounds.left + x} x {self._bounds.top + y}"
+        ctx.save()
+        ctx.select_font_face("sans-serif", cairo.FONT_SLANT_NORMAL, cairo.FONT_WEIGHT_NORMAL)
+        ctx.set_font_size(11)
+        extents = ctx.text_extents(text)
+        pad = 3
+        box_x, box_y = x + 5, y + 5
+        box_w, box_h = extents.width + 2 * pad, extents.height + 2 * pad
+        ctx.set_source_rgba(*_COORD_TOOLTIP_BG)
+        ctx.rectangle(box_x, box_y, box_w, box_h)
+        ctx.fill_preserve()
+        ctx.set_source_rgb(*_COORD_TOOLTIP_BORDER)
+        ctx.set_line_width(1)
+        ctx.set_dash([])
+        ctx.stroke()
+        ctx.move_to(box_x + pad, box_y + pad + extents.height)
+        ctx.show_text(text)
+        ctx.restore()
+
     def _on_button_press(self, widget, event):
         self._drag_origin = (int(event.x), int(event.y))
         self._selection = Rect.from_points(*self._drag_origin, *self._drag_origin)
@@ -203,6 +269,7 @@ class RegionSelectWindow(Gtk.Window):
         x0, y0 = self._drag_origin
         local = Rect.from_points(x0, y0, int(event.x), int(event.y))
         self._drag_origin = None
+        self._release_grab()
         self.destroy()
         if local.width > 0 and local.height > 0:
             cropped = self._frozen_image[local.top:local.bottom, local.left:local.right]
@@ -223,6 +290,7 @@ class RegionSelectWindow(Gtk.Window):
 
     def _on_key_press(self, widget, event):
         if event.keyval == Gdk.KEY_Escape:
+            self._release_grab()
             self.destroy()
             if self._on_cancelled is not None:
                 self._on_cancelled()
@@ -235,6 +303,9 @@ class RegionSelectWindow(Gtk.Window):
             widget.queue_draw()
             return True
         return False
+
+    def _release_grab(self) -> None:
+        Gdk.Display.get_default().get_default_seat().ungrab()
 
 
 def start_region_capture(
@@ -265,4 +336,23 @@ def start_region_capture(
     )
     window.show_all()
     window.grab_focus()
+    # POPUP (override-redirect) windows bypass the window manager, so
+    # nothing ever hands them real X keyboard focus - grab_focus() only
+    # sets GTK's own bookkeeping. Without an explicit keyboard grab,
+    # Escape silently goes to whatever window last had focus instead of
+    # this overlay. Confirmed empirically: has_toplevel_focus()/
+    # XGetInputFocus both stayed false after grab_focus() alone; a
+    # Gdk.Seat KEYBOARD grab is what actually redirects key events here
+    # regardless of nominal X focus.
+    Gdk.Display.get_default().get_default_seat().grab(
+        window.get_window(), Gdk.SeatCapabilities.KEYBOARD, True, None, None, None, None,
+    )
+    # Faithful port of CaptureForm.Designer.cs:61's `this.Cursor =
+    # Cursors.Cross` - the real OS mouse pointer itself becomes a
+    # crosshair for the whole selection gesture, separate from (and in
+    # addition to) the full-screen guide lines RegionSelectWindow's own
+    # _on_draw already draws. Gdk.CursorType.CROSSHAIR is the same
+    # X cursor-font glyph Cursors.Cross maps to.
+    crosshair = Gdk.Cursor.new_for_display(Gdk.Display.get_default(), Gdk.CursorType.CROSSHAIR)
+    window.get_window().set_cursor(crosshair)
     return window

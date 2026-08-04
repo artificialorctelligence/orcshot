@@ -73,6 +73,36 @@ source's `sizeText`. Verified with `FakeCaptureBackend` (a synthetic coordinate-
 real X11 grab) and by calling `_on_draw` directly against an offscreen Cairo surface - consistent
 with this project's standing caution around not rendering live desktop content for inspection.
 
+**Full-screen aiming crosshair + coordinate tooltip — done**, added per explicit request after
+"you replaced my cursor with crosshairs" turned out to be a real Windows feature this port had
+missed. Faithful port of `CaptureForm.cs:1154-1182`: before a drag starts (once one's in progress
+this is replaced by the selection rect + "W x H" label above, matching the source's own
+`if (_mouseDown || ...) {...} else {<crosshair>}` branch), a dotted `LightSeaGreen` (`#20B2AA`)
+line spans the full screen width and height through the cursor, plus a small `SeaGreen` (`#2E8B57`)
+-bordered "X x Y" coordinate tooltip on a light-mint background just past the cursor. Coordinates
+shown are absolute screen position, matching WinForms' `Cursor.Position` being screen-space rather
+than form-relative. Deliberately *not* added to `window_picker.py`: `CaptureForm.cs` is nominally
+one shared class across capture modes, but this exact branch's own gating condition
+(`!(_mouseDown || _captureMode == CaptureMode.Window || IsAnimating(_windowAnimator))`) explicitly
+excludes `CaptureMode.Window` - real Windows never shows this crosshair during window-picker-style
+capture either, so giving it to `window_picker.py` too would have been a deviation, not the
+"share it like Windows does" the user actually asked for. Verified with `FakeCaptureBackend`
+(synthetic image) and `_on_draw` called directly against an offscreen surface: no crash before any
+mouse movement (`_cursor_pos` still `None`); both crosshair lines and the coordinate tooltip render
+once the cursor moves; the crosshair correctly disappears the moment a drag starts.
+
+**Initially missed one piece: the real OS cursor icon itself, since fixed.** User feedback from
+actually using real Windows Greenshot the same day caught this - the drawn guide lines above aren't
+the whole picture. `CaptureForm.Designer.cs:61` (the designer-generated half, not the hand-written
+`.cs` logic already checked) sets `this.Cursor = Cursors.Cross` for the whole capture form: the real
+mouse pointer itself becomes a crosshair icon for the entire selection gesture, on top of (not
+instead of) the drawn lines. Fixed in `start_region_capture` (`ui/region_select.py`) by setting the
+`RegionSelectWindow`'s `GdkWindow` cursor to `Gdk.CursorType.CROSSHAIR` right after `show_all()` -
+the same underlying X cursor-font glyph (`XC_crosshair`, index 34) `Cursors.Cross` maps to on
+Windows. Verified live against a synthetic-content window (`FakeCaptureBackend`, no real desktop
+capture): `window.get_window().get_cursor().get_cursor_type() == Gdk.CursorType.CROSSHAIR`, raw
+value `34`, confirming the real glyph was actually applied, not just that the call didn't raise.
+
 **Full screen and Active window are also done.** `src/greenshot_linux/capture/modes.py` holds the
 pure "which Rect to grab" logic (`full_screen_region`, `active_window_region`), unit tested against
 `FakeCaptureBackend`/`FakeWindowEnumerator` — `active_window_region` clamps the focused window's
@@ -212,6 +242,24 @@ documented premultiplication limitation, which this inherits rather than separat
   exercise the actual drawing path, not just the placement math. No real desktop content was ever
   captured or viewed for any of this — only the small cursor icon (never a privacy concern) and
   synthetic fake image data.
+- **Real X11 cursor hotspot isn't trusted unconditionally — clamped at the boundary.** The live
+  contract test (`test_cursor_backend_contract.py::test_snapshot_hotspot_is_within_the_image_bounds
+  [x11]`) failed twice against this machine's real cursor: `XFixesGetCursorImage` reported a
+  genuinely-invisible cursor as a 1x1 fully-transparent pixel with hotspot `(1, 1)` - out of bounds
+  for a 1-pixel image, whose only valid coordinate is `(0, 0)`. Diagnosed rather than dismissed as
+  flaky: something producing a blank/hidden cursor via a degenerate pixmap apparently doesn't bother
+  clamping its hotspot either, since nothing renders regardless of where it points - a legitimate,
+  if unusual, real-world X11 reply, not a bug in this port's own parsing. Checked whether it could
+  actually break anything: `cursor_bounds_in_capture` (`core/cursor_capture.py`) only ever uses the
+  hotspot arithmetically, never as an array index, so this specific case was never a crash risk -
+  but an unclamped hotspot could still visibly mis-place a real, *visible* cursor for some other
+  malformed reply. Fixed with `x11_cursor.py`'s `_clamp_hotspot`, applied in `cursor_snapshot()`
+  before constructing the `CursorSnapshot`, so the boundary validates the X server's reply instead
+  of trusting it unconditionally - the live contract test's invariant now holds by construction
+  (confirmed with 5 consecutive clean runs) rather than by hoping live X11 state cooperates. Added a
+  deterministic unit test reproducing the exact observed case (`_clamp_hotspot(1, 1, width=1,
+  height=1) == (0, 0)`) plus the general boundary cases, so this doesn't depend on live hardware
+  state recurring to stay covered.
 
 ### Annotation tools (faithful port of `Greenshot.Editor/Drawing`)
 Rectangle, Ellipse, Line, Arrow, Freehand, Text, Speech bubble, Step-number labels, Highlight,
@@ -252,6 +300,26 @@ filtered patch and dragging that around. `render_shape`/`render_layer` take an o
 `ObfuscateShape` is rendered without one). Verified live: moving a pixelize/blur box reveals a
 freshly-filtered version of whatever's now underneath it, matching the source's per-frame
 `Apply()` semantics rather than a static drag.
+
+**Pixelize's noise pattern is now stable across redraws of the same shape — fix, not a port
+deviation in spirit.** `filters.py`'s `pixelize` draws fresh CSPRNG randomness by default
+(`_default_rng`, deliberately — the noise exists to defeat depixelation attacks, so it must not be
+predictable) and previously nothing pinned that per shape, so every redraw (which fires on *any*
+canvas activity, since moving one shape repaints the whole layer) reshuffled the block-jitter
+pattern - reported as the pixelization looking like it randomly "changed when other items moved."
+Checked against the real Windows source before changing anything: `PixelizationFilter.cs:56`
+creates a fresh `CryptoRandomBuffer` inside `Apply()` too, with nothing cached at the container
+level, and `DrawableContainer.cs:443/456` calls `Apply()` on every repaint - so the reshuffling was
+a faithfully-ported quirk, not a bug introduced here. Fixed anyway, since it's jarring in practice:
+`ObfuscateShape` grew a `seed: int` field (`compare=False` - two shapes with the same
+bounds/mode/amount are still equal regardless of which random seed happens to back their
+pixelization), drawn once from `secrets.randbits(128)` at shape creation. `render_obfuscate` now
+derives Pixelize's `rng` from `shape.seed` when no explicit override is given (tests can still pass
+one, e.g. `ZeroRng`, for determinism) instead of falling through to a fresh draw every call. Each
+shape still gets its own independent, never-reused random seed - genuinely unpredictable between
+shapes and sessions, same as before, just now *stable* for one shape's own repeated redraws. Also
+consistent with `composite.py`'s own stated WYSIWYG guarantee (exported output pixel-identical to
+the live editor) - a export-time-only re-randomization would have violated that.
 
 **Live editor window (`src/greenshot_linux/ui/editor_window.py`): create + select/move + resize +
 toolbar + text entry, for Rectangle/Ellipse/Line/Arrow/Freehand/Pixelize/Blur/Text.** `EditorWindow`
@@ -487,14 +555,147 @@ Windows screenshot cross-checked against `ImageEditorForm.Designer.cs`.
   instead of looking like a mismatched color sticker among them.
 - Palette now has a separator between Select and the rest, matching the source's real grouping
   (`toolsToolStrip.Items`: Cursor | sep | Rectangle...Emoji | sep | Highlight/Obfuscate/Effects | sep
-  | Crop/Rotate/Resize) - the later two groups are empty for now since they're not built yet (task
-  #36/#42).
+  | Crop/Rotate/Resize) - Highlight/Effects and Crop/Rotate/Resize are still empty for now since
+  they're not built yet (task #36/#42); Obfuscate itself is now built (see below).
 - Style panel: `Thickness:` renamed to `Line Thickness:`; the single generic `Obfuscate Amount:`
   spinner's label now swaps to `Blur Radius:` or `Pixel Size:` depending on which tool is active,
   matching the source's own two separate, mode-specific labeled controls (`blurRadiusLabel`/
   `pixelSizeLabel`) rather than one generically-named field doing double duty. Still one shared
   spinner underneath (not two separate controls like the source) - a smaller, cosmetic-only
-  simplification versus the label fix itself.
+  simplification versus the label fix itself. **Since revised** (see "Obfuscate toolbar control"
+  below): the fallback text is now the shorter `Amount:`, the label follows the *selected shape's*
+  mode when one's selected rather than just the active tool, and a vertical separator now sits
+  between the Shadow checkbox and this label/spinner pair.
+
+**Obfuscate toolbar control now matches Windows' actual layout, not two separate buttons — done.**
+Originally built as two independent toolbar buttons, Pixelize and Blur. Reading the real source
+closer (`DrawingModes.cs`, `ImageEditorForm.Designer.cs`, `ObfuscateContainer.cs:34` - *"a
+FilterContainer for the obfuscator filters like blur and pixelate"*) showed Windows has exactly one
+`Obfuscate` drawing mode and one toolbar button (`btnObfuscate`) for it, plus a separate small
+dropdown (`obfuscateModeButton`, items `pixelizeToolStripMenuItem`/`blurToolStripMenuItem`) that
+picks which filter (`PreparedFilter.BLUR`/`PIXELIZE`) it currently applies — Blur/Pixelize are
+sub-modes of one tool, not two tools. Rebuilt to match: a single "Obfuscate" radio button in the
+palette (icon reflects whichever mode is currently prepared, defaulting to Pixelize per
+`ObfuscateContainer.InitializeFields`) plus a small attached `Gtk.MenuButton` dropdown to switch
+modes. `core/tools.py` is untouched - `Tool.PIXELIZE`/`Tool.BLUR` still exist and still drive
+`create_shape_from_drag` exactly as before; only the palette's *presentation* changed, both tool
+values now map to the same shared button widget in `self._tool_buttons`. Keyboard shortcuts 6
+(Pixelize)/7 (Blur) still work, now routed through `_select_and_activate_obfuscate_mode` so they
+behave correctly even when Obfuscate is already the active tool (GTK's own `"toggled"` signal
+doesn't refire when a radio button's active state doesn't change, so that path updates
+`self.tool`/the icon/the label directly rather than relying solely on the signal).
+
+**Revised again to decouple the dropdown from tool activation, after checking the real binding
+Windows uses.** The first cut had picking a mode from the dropdown *also* activate the tool - close,
+but not what Windows actually does. `ImageEditorForm.cs:1366` binds `obfuscateModeButton`'s
+`SelectedTag` bidirectionally *only* to the `PREPARED_FILTER_OBFUSCATE` field
+(`BidirectionalBinding`), and `BindableToolStripDropDownButton.OnDropDownItemClicked`
+(`Controls/BindableToolStripDropDownButton.cs`) just swaps the button's own tag/icon - neither ever
+touches `DrawingMode`. Only `BtnObfuscateClick` (the *main* button) sets
+`_surface.DrawingMode = DrawingModes.Obfuscate`. So in real Windows the dropdown is a pure
+preference: picking Blur while Rectangle is the active tool just changes what Obfuscate will use
+*next time*, without switching you into drawing mode. Split accordingly:
+`_set_obfuscate_mode` (dropdown menu items - changes the prepared mode only, though it does update
+the amount label/icon live if Obfuscate already happens to be active, matching Windows' field
+aggregator reflecting the newly prepared filter's fields immediately even though nothing about
+*whether* it's active changed) vs. `_activate_obfuscate_tool` (the main button - starts drawing with
+whichever mode is prepared, mirrors `BtnObfuscateClick` exactly). The 6/7 keyboard shortcuts are the
+one intentional exception - they call both in sequence (`_select_and_activate_obfuscate_mode`) since
+a keyboard shortcut is expected to do something immediately, and Windows has no per-sub-mode
+shortcut to be unfaithful to there in the first place (only one `Obfuscate` drawing mode exists).
+Verified live (synthetic image, no real desktop capture): picking a mode from the dropdown while
+Rectangle is the active tool leaves the active tool as Rectangle and only updates
+`self._default_obfuscate_mode`; clicking the main button afterward correctly picks up that newly
+prepared mode; picking a different mode while Obfuscate *is* already active updates the label live
+without needing a separate activation step; selecting an existing Pixelize `ObfuscateShape` while a
+different tool (Rectangle) is active correctly shows `Pixel Size:` without switching the active tool
+out from under the user.
+
+**Moved again, to the correct toolbar entirely.** The dropdown had been attached directly to
+`btnObfuscate` in the tool palette this whole time - closer to a plausible guess than something
+actually checked against the source. It doesn't live there in Windows: `toolsToolStrip.Items`
+(`ImageEditorForm.Designer.cs:334-353`) has `btnObfuscate` alone, no attached dropdown, in the same
+row as every other draw tool; `obfuscateModeButton` is in a *different* toolbar entirely,
+`propertiesToolStrip.Items` (`:1076`), the same row as `btnFillColor`/`btnLineColor`/
+`lineThicknessLabel`/`blurRadiusLabel` - Windows' equivalent of this port's style panel, not the tool
+palette. And it follows the exact same visibility rule as those: `obfuscateModeButton.Visible =
+props.HasFieldValue(FieldType.PREPARED_FILTER_OBFUSCATE)` sits right next to the
+`BLUR_RADIUS`/`PIXEL_SIZE` checks in `RefreshFieldControls`. Moved to match: `STYLE_FIELD_OBFUSCATE_MODE`
+added to `core/tools.py`'s `_OBFUSCATE_STYLE_FIELDS` (so it shows/hides together with `obfuscate_amount`
+- both driven by the same "is Obfuscate relevant" condition, matching Windows grouping them under the
+same field-aggregator check), and the dropdown itself moved into `_build_style_panel` as an ordinary
+conditionally-visible cell, right before the Amount cell. `_build_obfuscate_control` (the palette
+entry) goes back to a plain button like every other tool, no attached widget. Icon-swapping moved
+with it: Windows' `btnObfuscate.Image` is a single static icon, never reassigned anywhere in the
+source - only `obfuscateModeButton.Image` swaps
+(`BindableToolStripDropDownButton.OnDropDownItemClicked`, `Image = clickedItem.Image`) - so the
+palette button's icon is now fixed (at the Pixelize glyph, the default mode; this port has no
+separate generic "Obfuscate" icon asset, matching Windows not having a dynamic one there either), and
+the moved dropdown shows the live mode instead - as button *text* ("Pixelize"/"Blur"), not a swapped
+icon, since every other style-panel control is text already and this port has no per-mode icon
+that'd look right at that small size next to text labels. Verified live (synthetic image): the
+palette button has no dropdown attached and no `MenuButton` anywhere near it; the mode cell lives in
+`self._style_field_widgets`, hidden by default (Select tool, nothing selected), shown alongside
+Amount only once Obfuscate is relevant; picking a mode while Rectangle is the active tool still
+leaves Rectangle active (the decoupling above still holds from its new location) while correctly
+updating the prepared mode for later.
+
+**Missed on the first pass: a selected ObfuscateShape's own mode wasn't retroactively updated by
+the dropdown - fixed.** Every other style-panel control already restyles the current selection when
+changed (`_apply_style_change` for line/fill/thickness/shadow; `_on_obfuscate_amount_changed` for
+Amount) - the mode dropdown didn't, an oversight from when it was first split into its own method,
+not a deliberate choice. Real usage caught it: select an existing Blur box, switch the dropdown to
+Pixelize, and the selected shape stayed Blur. `_set_obfuscate_mode` now checks `self.selected_shape`
+first - if it's an `ObfuscateShape`, retroactively replaces its `mode` field (`dataclass_replace` +
+`ElementChangeMemento`, same pattern as the amount handler, undoable), preserving `amount`/`bounds`
+and leaving the active tool untouched (doesn't jump into drawing mode just because a shape got
+retagged) - only falling through to the "update `self.tool` live" branch when *nothing's* selected
+but Obfuscate is already the active tool. Verified live: selected an existing Blur shape, switched
+the dropdown to Pixelize - the shape's mode updated in place (amount and bounds preserved), the
+active tool stayed Select, the label swapped to "Pixel Size:", and undo correctly restored the Blur
+version.
+
+**Style panel now shows/hides each control per tool/selection, not always every control — done,**
+fixing a real complaint: the obfuscate-amount spinner ("Amount:") stayed visible and functionally
+inert on every non-Obfuscate tool, since nothing but Pixelize/Blur ever read
+`self._default_obfuscate_amount`. Checked the real source rather than just hiding that one control:
+`ImageEditorForm.cs:1375`'s `RefreshFieldControls` shows/hides *every* style-panel control
+individually, driven by `FieldAggregator.HasFieldValue` against whichever's actually selected or
+active - `blurRadiusLabel`/`pixelSizeLabel` are only two of many (`btnFillColor`, `btnLineColor`,
+`lineThicknessLabel`, `shadowButton`, etc. all get the same treatment) - and with nothing selected
+and no drawing mode active, *everything* is hidden (`HideToolstripItems()`), not shown. This port's
+panel was built once and left permanently visible regardless of context, a simplification that
+predates this session and wasn't specific to the obfuscate-amount complaint - implementing it
+properly meant per-field visibility for the whole panel, not a special case.
+
+Added `core/tools.py`'s `visible_style_fields(tool, selected_shape=None)`: a selected shape's own
+fields take priority over the active tool's (matching Windows' aggregator reflecting the
+*selection's* fields when there is one), falling back to the active tool's fields, with
+`Tool.SELECT` + nothing selected showing nothing. Field sets per tool/shape are an explicit table
+(`_TOOL_STYLE_FIELDS`/`_shape_style_fields`) cross-checked against the real per-container
+`AddField` calls (`RectangleContainer.cs`/`EllipseContainer.cs`/`LineContainer.cs`/
+`ArrowContainer.cs`/`FreehandContainer.cs`/`TextContainer.cs`/`StepLabelContainer.cs`/
+`ImageContainer.cs`) *and* against what this port's own `ui/render.py` renderers actually use per
+shape, since some of this port's rendering already diverges from the source in ways that matter
+here - e.g. `render_arrow` fills the arrowhead with `line_color`, not a separate `fill_color`, so
+Arrow gets Line's field set (no Fill control) even though `ArrowContainer.cs` does have a
+`FILL_COLOR` field in the real source; `render_freehand` never draws a shadow or fill, matching
+`FreehandContainer.cs` having neither field either. Deliberately an explicit table rather than
+derived indirectly from shape construction, so it stays one easy-to-audit place to revisit next time
+someone compares this against a newer Windows source. `ui/editor_window.py`'s `_build_style_panel`
+groups each field's label+control into its own `Gtk.Box` "cell" (`self._style_field_widgets`, keyed
+by field name) so a whole field can be shown/hidden in one `set_visible()` call;
+`_refresh_style_panel` (replacing the older `_refresh_obfuscate_amount_label`, called from the same
+places: the `selected_shape` property setter and every tool-switch path) drives both the amount
+label's text and every cell's visibility together, since they depend on the same (tool, selected
+shape) pair. The vertical separator (see the style-panel bullet above) only shows while Amount is
+visible, since style fields and `obfuscate_amount` are never visible at the same time - it would
+otherwise dangle before an empty, fully-hidden style-fields cluster. Full unit test coverage in
+`core/tools.py` (pure, no GTK) plus live verification of the GTK wiring: Select-with-nothing-selected
+hides the whole panel; Rectangle shows Line/Fill/Thickness/Shadow with Amount hidden; Line hides Fill
+only; Obfuscate shows only Amount; selecting an existing Line while Rectangle is the active tool
+shows Line's fields (selection overriding tool); selecting an `IconShape` (no style fields at all)
+hides everything; deselecting falls back to the active tool's fields again.
 
 **Action toolbar reordered to match Windows, plus per-shape Cut/Copy/Paste, Settings, Help, and an
 external-editor button — done.** Real order confirmed from `ImageEditorForm.Designer.cs`'s
@@ -525,6 +726,38 @@ Redo | Settings | Help`.
   next `updatedb` run, so a just-installed app might not show up yet; `flatpak list` is authoritative
   and always current. Saves the composited image to a temp PNG and launches the editor
   non-blockingly (`subprocess.Popen`), via `flatpak run <app-id>` when that's how it was found.
+  - **Fixed a real bug: the temp PNG went to system `/tmp`, which a Flatpak-sandboxed editor can't
+    see even with broad `filesystems=host` permission.** Reported as Krita saying *"The file
+    /tmp/greenshot-linux-....png does not exist"* immediately after clicking the button. Checked
+    Krita's actual granted permissions first rather than guessing (`flatpak info
+    --show-permissions org.kde.krita` → `filesystems=host;xdg-run/gvfs;`) - `host` looked like it
+    should cover `/tmp`, but doesn't: bubblewrap always gives a Flatpak sandbox its own private,
+    empty `/tmp` tmpfs regardless of `host` access (a well-known Flatpak/bubblewrap-specific
+    carve-out). Confirmed empirically both ways rather than assumed: `flatpak run --command=ls
+    org.kde.krita /tmp` came back empty (the sandbox's own private `/tmp`, not the host's, which
+    has real files) while `flatpak run --command=ls org.kde.krita ~` showed the real host home
+    directory. Fixed by writing the temp PNG to `$XDG_CACHE_HOME/greenshot-linux/` instead (matching
+    `settings.py`'s existing `$XDG_CONFIG_HOME` convention) - confirmed genuinely visible inside the
+    sandbox the same way (`flatpak run --command=cat org.kde.krita
+    ~/.cache/greenshot-linux/<file>` read it back correctly). The previous export's file is deleted
+    right before a new one is written (unique filenames still, so a second export mid-edit can't
+    clobber a file a still-open first editor session already loaded into memory), since
+    `~/.cache/greenshot-linux` isn't OS-managed transient storage the way `/tmp` is and would
+    otherwise accumulate one PNG per click for the life of the session.
+  - **Which editor is preferred is now configurable, not just hardcoded Krita-then-GIMP.** A new
+    `settings.py` key (`get_external_editor_preference`/`set_external_editor_preference`, default
+    `EXTERNAL_EDITOR_AUTO`) picked from a `Gtk.ComboBoxText` in the Preferences dialog
+    ("Auto (Krita, then GIMP)" / "Krita" / "GIMP"). `_find_external_editor_command` tries the
+    preferred candidate first, then always falls through to the normal auto-detect order regardless
+    of *why* the preferred one didn't match (set to "auto", names a candidate that's since been
+    uninstalled, or names something no longer in `_EXTERNAL_EDITOR_CANDIDATES`) - a stale preference
+    can never leave the button silently broken. Verified live (mocked `subprocess.Popen` and
+    `config_file_path`, no real editor launched): preference round-trips through the combo box
+    including the stale-ID fallback case (`Gtk.ComboBoxText.set_active_id` returns `False` for an ID
+    that isn't in the list, confirmed rather than assumed, falling back to Auto in the UI); against
+    this dev machine's real installed state (Krita via Flatpak, GIMP not installed at all),
+    preferring "GIMP" or an unknown name both correctly fall back to finding Krita rather than
+    returning nothing.
 
 **Insert Image / Insert SVG — done, folds in what would otherwise be Icon/Cursor support.**
 Windows has no dedicated "insert image" *toolbar tool* — `DrawingModes.Bitmap` is defined in the
@@ -1060,6 +1293,36 @@ collision detection are wired up and trigger for real the first time the app is 
   `dialog.response()`), then re-confirmed against this machine's *real* gsettings and
   `~/.config/greenshot-linux/` that nothing real was touched by any of that verification.
 
+**Fixed a real crash on non-Cinnamon desktops: hotkey auto-configuration now checks schema
+availability first, instead of hard-aborting the whole app.** Found by actually installing the
+rebuilt `.deb` on Ubuntu 26.04/GNOME in a VirtualBox VM (first real cross-distro test since this
+project targeted Mint specifically) — the app died on launch, before the first-run dialog even had
+a chance to appear:
+```
+GLib-GIO-ERROR **: Settings schema 'org.cinnamon.desktop.keybindings.media-keys' is not installed
+Aborted (core dumped)
+```
+`GLib-GIO-ERROR` (as opposed to `-CRITICAL`/`-WARNING`) means GLib called `g_error()` internally,
+which unconditionally calls `abort()` afterward — a hard C-level process termination, not a Python
+exception, so nothing in this codebase's own `try`/`except` could ever have caught it regardless of
+where it was placed. `hotkey_setup.py`'s `check_all_conflicts` (called from `first_run_setup.py`
+before the dialog is built) reaches `GioSettingsBackend` for `MEDIA_KEYS_SCHEMA`
+(`org.cinnamon.desktop.keybindings.media-keys`), which doesn't exist outside Cinnamon at all. Fixed
+with `hotkey_setup.cinnamon_keybindings_available()` - a read-only `Gio.SettingsSchemaSource.get_
+default().lookup(CUSTOM_LIST_SCHEMA, True)` check (confirmed live: returns a real schema object for
+`org.cinnamon.desktop.keybindings` on this Mint machine, `None` for a made-up nonexistent schema) -
+checked in `_run_dialog` *before* `check_all_conflicts` or `GioSettingsBackend` are ever reached.
+When unavailable, hotkey checkboxes are replaced with an explanatory message and manual-binding
+instructions (the exact `executable --capture-*` command for each of the four `DEFAULT_HOTKEYS`) -
+autostart is still offered either way, since `install_autostart_entry` is a plain XDG `.desktop`
+file with no Cinnamon dependency. Verified with the real fix: rebuilt the `.deb`, reinstalled it in
+the same VM, confirmed the app now launches and shows the fallback dialog correctly instead of
+crashing. A separate, non-fatal `Gtk-CRITICAL **: gtk_widget_get_scale_factor: assertion
+'GTK_IS_WIDGET (widget)' failed` still appears on that same GNOME desktop even with this fix in
+place - not called anywhere in this codebase (only `Gdk.Monitor.get_scale_factor()` exists, in
+`capture/x11.py`, a different function entirely), likely internal-GTK/theme-engine, not reproducible
+on the Mint dev machine, tracked separately rather than guessed at.
+
 ### Explicitly cut (not ported)
 - Email destination
 - Windows 10 OCR / Share integrations
@@ -1073,6 +1336,37 @@ collision detection are wired up and trigger for real the first time the app is 
   grayscale/monochrome/invert print effects, footer timestamp, "prompt for print options" dialog
 - Zoom in the editor - not yet checked against the Windows source for whether/how it behaved there;
   needs that check before implementing, to decide faithful behavior vs. a from-scratch design.
+
+### Wayland (task #49) — real findings, not yet implemented
+
+First actual test against a Wayland session (Ubuntu 26.04 desktop in a VirtualBox VM, confirmed via
+`$XDG_SESSION_TYPE=wayland`), installing the real `.deb` and running `greenshot-linux
+--capture-region` for real. Scoped precisely what does and doesn't work, rather than assuming
+"Wayland = broken":
+
+- **Works fine via XWayland compatibility**: the overlay window itself, the OS crosshair cursor,
+  the full-screen guide-line crosshair + coordinate tooltip, the magnifier loupe chrome, drag-to-
+  select tracking and the live "W x H" size label, releasing into the destination picker, opening
+  the editor. All genuine GTK/X11-protocol interaction, handled transparently.
+- **Cursor auto-capture (XFixes) still works** even under Wayland - the auto-captured cursor glyph
+  showed up correctly composited into the (otherwise black) captured image. `XFixesGetCursorImage`
+  apparently isn't blocked the way core screen-content reading is.
+- **Actual screen pixel capture returns black/empty.** `capture/x11.py`'s `X11CaptureBackend.grab`
+  uses the classic `XGetImage`-style X11 API to read screen content - Wayland's compositor
+  deliberately blocks that for any client (X11 or native) as a core security/anti-spying feature,
+  by design, not a bug to patch in the existing path. This is the actual, now-confirmed reason
+  Wayland support needs a fundamentally different capture mechanism - the XDG Desktop Portal's
+  ScreenCast API via PipeWire, not a fix to `X11CaptureBackend`.
+- **A second, related limitation**: `Gdk-Message: Window 0x... is a temporary window without
+  parent, application will not be able to position it on screen` - client-side absolute window
+  positioning (`region_select.py`'s `RegionSelectWindow.move()`, needed for the POPUP overlay's
+  exact multi-monitor geometry) is also restricted by the Wayland compositor, separate from the
+  capture issue. Whatever eventually replaces the capture mechanism will likely need to address
+  overlay positioning too.
+
+Net: the interactive/UI layer of this app is largely Wayland-ready already, almost by accident (GTK3
++ XWayland compatibility carries most of it); the actual pixel-capture and precise-overlay-placement
+mechanisms are the real, now well-scoped work for whenever task #49 gets picked up.
 
 ## Packaging
 
@@ -1157,6 +1451,49 @@ packaged.
 ## Open questions (not yet decided)
 
 - Exact CI setup — to be established once there's a build worth gating.
+
+## Security considerations
+
+Not vulnerabilities in this app's own code (no injection surface found - every `subprocess` call
+uses list-form argv, never `shell=True` or string-built commands; no privilege escalation; no
+network exposure; settings are non-sensitive), but two real caveats about what the tool does and
+doesn't protect against, surfaced from a general "does this have security issues" question rather
+than a targeted audit:
+
+- **Blur/Pixelize are not cryptographically secure redaction.** Both deliberately preserve some
+  correlated information about the underlying content - that's what distinguishes them from an
+  opaque blackout - and block-average pixelization in particular is well-documented as reversible
+  (tools like [Depix](https://github.com/beurtschipper/Depix) recover redacted text, including
+  passwords, from pixelized screenshots by correlating block patterns). Real Windows Greenshot is
+  aware of this: `PixelizationFilter.cs` adds cryptographically-random per-block/per-pixel noise
+  specifically "to defeat depixelation attacks" (confirmed reading the source), and this port
+  faithfully replicates that (`filters.py`'s `_default_rng`, `core/shapes.py`'s `ObfuscateShape.seed`
+  docstring). Noise raises the bar against casual depixelation; it does not make either transform
+  irreversible against a determined attacker. See task tracker for the follow-up: investigate a
+  genuinely irreversible solid-fill "Redact" mode as a third `ObfuscateMode`, since true
+  irreversibility isn't really compatible with "blur/pixelize" as a concept.
+- **X11 has no per-app screen-capture isolation.** Any X11 client can, in principle, capture any
+  window or the whole screen (there's no Wayland-style compositor-mediated permission model) - true
+  of every X11 screenshot tool, including real Windows Greenshot's own Linux-adjacent equivalents,
+  not something specific to a bug in this codebase. Relevant context for task #49 (Wayland support),
+  which would change this story via portal-mediated capture once Mint ships it.
+
+A manual review of this whole session's diff (the packaged `/security-review` skill couldn't run in
+this repo - its preamble hardcodes a comparison against an `origin/HEAD` remote-tracking ref, and
+this repo has no remote configured at all) found one real, low-severity issue, since fixed:
+**`_external_editor_cache_dir` (`ui/editor_window.py`) created `~/.cache/greenshot-linux/` with
+umask-controlled permissions instead of an explicit restrictive mode.** The exported screenshot
+*files* were always correctly protected (`tempfile.mkstemp` forces `0600` on each one regardless of
+umask), but the directory itself would inherit whatever the umask allowed (typically `0755` -
+world-listable) - on a system with looser-than-default home-directory permissions, another local
+user could enumerate filenames/mtimes in there, though never read contents. Fixed with an explicit
+`mode=0o700` on creation (only takes effect on first creation, confirmed via a real
+`XDG_CACHE_HOME`-redirected creation - `oct(dir.stat().st_mode & 0o777) == '0o700'`). Everything else
+in the diff checked out clean: every `subprocess.Popen` call uses list-form argv built from fixed,
+hardcoded candidates (the external-editor preference only *selects* among them, never injects a
+string); the new settings key is non-sensitive plain JSON; the X11 keyboard grabs added for the
+Escape-cancel fix are released on every exit path found, and X11 releases any grab automatically on
+client disconnect regardless (crash-safe).
 
 ## Unverified assumptions
 

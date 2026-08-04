@@ -27,7 +27,9 @@ _FIRST_RUN_SETUP_DONE_KEY = "first_run_setup_done"
 _CAPTURE_MOUSE_CURSOR_KEY = "capture_mouse_cursor"
 _PRINT_OPTIONS_KEY = "print_options"
 _RECENT_COLORS_KEY = "recent_colors"
+_EXTERNAL_EDITOR_KEY = "external_editor"
 _DEFAULT_OUTPUT_DIRNAME = "Screenshots"
+EXTERNAL_EDITOR_AUTO = "auto"
 
 
 def config_file_path(config_home: Path = None) -> Path:
@@ -166,6 +168,28 @@ def set_print_options(options: PrintOptions, path: Path = None) -> None:
         path = config_file_path()
     settings = _load(path)
     settings[_PRINT_OPTIONS_KEY] = asdict(options)
+    _save(settings, path)
+
+
+def get_external_editor_preference(path: Path = None) -> str:
+    """Which editor ui/editor_window.py's "Open in External Editor"
+    button should prefer - a name from EditorWindow's own
+    _EXTERNAL_EDITOR_CANDIDATES (e.g. "Krita", "GIMP"), or
+    EXTERNAL_EDITOR_AUTO (the default) for the original try-Krita-
+    then-GIMP behavior. Not a Windows setting - this whole feature is
+    a new addition, not a port (see editor_window.py's own comment on
+    _EXTERNAL_EDITOR_CANDIDATES).
+    """
+    if path is None:
+        path = config_file_path()
+    return _load(path).get(_EXTERNAL_EDITOR_KEY, EXTERNAL_EDITOR_AUTO)
+
+
+def set_external_editor_preference(name: str, path: Path = None) -> None:
+    if path is None:
+        path = config_file_path()
+    settings = _load(path)
+    settings[_EXTERNAL_EDITOR_KEY] = name
     _save(settings, path)
 
 

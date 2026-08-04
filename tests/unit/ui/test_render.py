@@ -191,6 +191,38 @@ class TestRenderObfuscate:
         region = expected[bounds.top:bounds.bottom, bounds.left:bounds.right]
         assert np.array_equal(result[bounds.top:bounds.bottom, bounds.left:bounds.right], region)
 
+    def test_pixelize_with_no_explicit_rng_is_stable_across_repeated_renders(self):
+        # Without an explicit rng= override (the normal editor-redraw
+        # path), the same unchanged shape must render identically every
+        # time - it's driven by the shape's own pinned seed, not a
+        # fresh random draw per render call. Previously this reshuffled
+        # the jitter pattern on every redraw, which fired on *any*
+        # canvas activity (moving an unrelated shape triggers a full
+        # repaint), making the pixelization look like it was randomly
+        # flickering.
+        base_image = noisy_base_image()
+        bounds = Rect(5, 5, 35, 35)
+        shape = ObfuscateShape(bounds, mode=ObfuscateMode.PIXELIZE, amount=6)
+
+        first = render_to_numpy(50, 50, lambda ctx: render_shape(ctx, shape, base_image=base_image))
+        second = render_to_numpy(50, 50, lambda ctx: render_shape(ctx, shape, base_image=base_image))
+
+        assert np.array_equal(first, second)
+
+    def test_pixelize_with_no_explicit_rng_differs_between_distinct_shapes(self):
+        # Not just a hardcoded/shared fallback seed - two independently
+        # created shapes (each gets its own fresh seed - see
+        # ObfuscateShape.seed) still render different noise.
+        base_image = noisy_base_image()
+        bounds = Rect(5, 5, 35, 35)
+        shape_a = ObfuscateShape(bounds, mode=ObfuscateMode.PIXELIZE, amount=6)
+        shape_b = ObfuscateShape(bounds, mode=ObfuscateMode.PIXELIZE, amount=6)
+
+        result_a = render_to_numpy(50, 50, lambda ctx: render_shape(ctx, shape_a, base_image=base_image))
+        result_b = render_to_numpy(50, 50, lambda ctx: render_shape(ctx, shape_b, base_image=base_image))
+
+        assert not np.array_equal(result_a, result_b)
+
     def test_blur_matches_the_filters_module_exactly(self):
         base_image = noisy_base_image()
         bounds = Rect(5, 5, 35, 35)
