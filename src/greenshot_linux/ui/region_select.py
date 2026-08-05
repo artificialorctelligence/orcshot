@@ -320,9 +320,9 @@ def start_region_capture(
     uses this to remember the region for "repeat last region".
     """
     if capture_backend is None:
-        from greenshot_linux.capture.x11 import X11CaptureBackend
+        from greenshot_linux.capture.backend_select import default_capture_backend
 
-        capture_backend = X11CaptureBackend()
+        capture_backend = default_capture_backend()
 
     def on_selected(image, absolute_rect, cursor_shape):
         if on_captured is not None:

@@ -25,6 +25,7 @@ trail.
 from __future__ import annotations
 
 from greenshot_linux.capture.backend import CaptureBackend
+from greenshot_linux.capture.backend_select import default_capture_backend
 from greenshot_linux.capture.cursor import CursorBackend
 from greenshot_linux.capture.modes import active_window_region, full_screen_region
 from greenshot_linux.capture.window import WindowEnumerator
@@ -32,12 +33,6 @@ from greenshot_linux.core.cursor_capture import cursor_shape_for_capture
 from greenshot_linux.core.geometry import Rect
 from greenshot_linux.core.shapes import CursorShape
 from greenshot_linux.settings import get_capture_mouse_cursor
-
-
-def _default_capture_backend() -> CaptureBackend:
-    from greenshot_linux.capture.x11 import X11CaptureBackend
-
-    return X11CaptureBackend()
 
 
 def _default_window_enumerator() -> WindowEnumerator:
@@ -102,7 +97,7 @@ def start_full_screen_capture(
     region for "repeat last region".
     """
     if capture_backend is None:
-        capture_backend = _default_capture_backend()
+        capture_backend = default_capture_backend()
     region = full_screen_region(capture_backend)
     image = capture_backend.grab(region)
     if on_captured is not None:
@@ -120,7 +115,7 @@ def start_active_window_capture(
     active window to capture - e.g. focus is on the desktop itself.
     """
     if capture_backend is None:
-        capture_backend = _default_capture_backend()
+        capture_backend = default_capture_backend()
     if window_enumerator is None:
         window_enumerator = _default_window_enumerator()
     region = active_window_region(capture_backend, window_enumerator)
@@ -147,7 +142,7 @@ def start_last_region_capture(
     if last_region is None:
         return None
     if capture_backend is None:
-        capture_backend = _default_capture_backend()
+        capture_backend = default_capture_backend()
     clamped = capture_backend.screen_layout().clamp(last_region)
     if clamped is None:
         return None

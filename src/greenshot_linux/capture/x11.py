@@ -15,7 +15,8 @@ gi.require_version("Gdk", "3.0")
 import numpy as np
 from gi.repository import Gdk
 
-from greenshot_linux.capture.backend import Monitor, ScreenLayout
+from greenshot_linux.capture.backend import ScreenLayout
+from greenshot_linux.capture.gdk_screen_layout import gdk_screen_layout
 from greenshot_linux.core.geometry import Rect
 
 
@@ -53,31 +54,7 @@ class X11CaptureBackend:
         self._display = display
 
     def screen_layout(self) -> ScreenLayout:
-        monitors = []
-        primary = self._display.get_primary_monitor()
-        for index in range(self._display.get_n_monitors()):
-            gdk_monitor = self._display.get_monitor(index)
-            geometry = gdk_monitor.get_geometry()
-            # Geometry is in application pixels; on a scaled display the
-            # framebuffer is scale_factor times larger in each direction.
-            scale = gdk_monitor.get_scale_factor()
-            monitors.append(
-                Monitor(
-                    name=gdk_monitor.get_model() or f"monitor-{index}",
-                    bounds=Rect(
-                        geometry.x * scale,
-                        geometry.y * scale,
-                        (geometry.x + geometry.width) * scale,
-                        (geometry.y + geometry.height) * scale,
-                    ),
-                    is_primary=(
-                        gdk_monitor.is_primary()
-                        if primary is None
-                        else gdk_monitor == primary
-                    ),
-                )
-            )
-        return ScreenLayout(monitors)
+        return gdk_screen_layout(self._display)
 
     def grab(self, rect: Rect) -> np.ndarray:
         bounds = self.screen_layout().virtual_bounds

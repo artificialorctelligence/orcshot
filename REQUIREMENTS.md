@@ -1337,7 +1337,7 @@ on the Mint dev machine, tracked separately rather than guessed at.
 - Zoom in the editor - not yet checked against the Windows source for whether/how it behaved there;
   needs that check before implementing, to decide faithful behavior vs. a from-scratch design.
 
-### Wayland (task #49) — real findings, not yet implemented
+### Wayland (task #49)
 
 First actual test against a Wayland session (Ubuntu 26.04 desktop in a VirtualBox VM, confirmed via
 `$XDG_SESSION_TYPE=wayland`), installing the real `.deb` and running `greenshot-linux
@@ -1355,18 +1355,70 @@ First actual test against a Wayland session (Ubuntu 26.04 desktop in a VirtualBo
   uses the classic `XGetImage`-style X11 API to read screen content - Wayland's compositor
   deliberately blocks that for any client (X11 or native) as a core security/anti-spying feature,
   by design, not a bug to patch in the existing path. This is the actual, now-confirmed reason
-  Wayland support needs a fundamentally different capture mechanism - the XDG Desktop Portal's
-  ScreenCast API via PipeWire, not a fix to `X11CaptureBackend`.
+  Wayland support needs a fundamentally different capture mechanism.
 - **A second, related limitation**: `Gdk-Message: Window 0x... is a temporary window without
   parent, application will not be able to position it on screen` - client-side absolute window
   positioning (`region_select.py`'s `RegionSelectWindow.move()`, needed for the POPUP overlay's
   exact multi-monitor geometry) is also restricted by the Wayland compositor, separate from the
-  capture issue. Whatever eventually replaces the capture mechanism will likely need to address
-  overlay positioning too.
+  capture issue. Not yet addressed - out of scope for the capture backend itself.
 
 Net: the interactive/UI layer of this app is largely Wayland-ready already, almost by accident (GTK3
-+ XWayland compatibility carries most of it); the actual pixel-capture and precise-overlay-placement
-mechanisms are the real, now well-scoped work for whenever task #49 gets picked up.
++ XWayland compatibility carries most of it); pixel capture was the real blocker.
+
+**Capture mechanism: `org.freedesktop.portal.Screenshot`, not `ScreenCast`+PipeWire.** Initial
+assumption was ScreenCast (video-stream-oriented), corrected after checking the actual portal
+interface spec: `Screenshot` (v3) is the purpose-built one-shot capture API - no new dependency
+beyond `Gio`, already used elsewhere in this project (`hotkey_setup.py`'s GSettings calls). The
+D-Bus mechanism (call `Screenshot`, get a `Request` object path back, wait for its `Response`
+signal, bridged to a synchronous call via a nested `GLib.MainLoop` - the same category of trick
+`Gtk.Dialog.run()` already relies on) was validated with a standalone script against the real
+portal backend (Mutter, Ubuntu 26.04) before writing any production code: it returned
+`response_code=0` and a real, valid PNG uri (`file:///home/.../Pictures/Screenshot.png`, 1366x768
+RGBA), confirmed independently by inspecting the file on disk. No permission dialog appeared during
+that test - open question whether that's specific to this unsandboxed/non-Flatpak deployment mode,
+a policy the portal backend remembered, or something else; not yet explained.
+
+**Implemented**: `capture/wayland_portal.py` (`request_screenshot()` - the D-Bus mechanics, cleaned
+up from the validated prototype) and `capture/wayland.py` (`WaylandCaptureBackend`, implementing the
+same `CaptureBackend` protocol as `X11CaptureBackend`: `screen_layout()` delegates to the
+now-shared `capture/gdk_screen_layout.py` - extracted from `x11.py` since monitor enumeration is
+pure GDK, not X11-specific, so both backends need the identical logic; `grab(rect)` requests a full
+screenshot from the portal, loads the returned PNG, and crops to `rect` client-side, since the
+portal has no notion of "just this rect"). `capture/backend_select.py` centralizes backend choice
+(checks `XDG_SESSION_TYPE` once, used by all four of this app's capture call sites) rather than each
+call site (`capture_modes.py`, `eyedropper.py`, `window_picker.py`, `region_select.py`) picking
+X11 individually - this can't be "try X11, fall back on failure": a Wayland root-window read
+doesn't raise, it silently returns black, so there's nothing to catch.
+
+The crop math assumes the portal's returned image starts at the virtual screen's own origin
+(`bounds.left`, `bounds.top`) - true for the VM's single monitor (`bounds.left == 0`), **not yet
+verified against a real multi-monitor Wayland session**, where a monitor left of the primary gives
+`bounds.left < 0`.
+
+**Live-verified end to end** (Ubuntu 26.04 VM, real portal backend): `WaylandCaptureBackend`
+imported and exercised directly (not just the raw D-Bus prototype) - `screen_layout()` reported one
+1366x768 monitor; `grab(virtual_bounds)` returned a `(768, 1366, 4)` uint8 array; `grab()` on a
+100x80 sub-region returned the correct shape, and its pixels matched the corresponding slice of the
+full-screen grab exactly (0.0000 fraction differing) - confirming the crop-offset math is correct
+against a real captured screenshot, not just the synthetic unit-test data. Verification script only
+ever printed shape/dtype/numeric summaries, never rendered or saved the captured content.
+
+**Minor open finding from that same run**: the VM's single monitor reported `is_primary=False` from
+GDK (`display.get_primary_monitor()` returned None, and the monitor's own `is_primary()` was also
+False) - `ScreenLayout.primary` already falls back to the first monitor when none is marked primary,
+so this didn't break anything for a single-monitor session, but it suggests GDK's primary-monitor
+concept may not be reliably reported under Wayland. Only matters once there's a real multi-monitor
+Wayland setup to test full-screen-capture's primary-monitor logic against - not investigated further
+since it's outside what task #67 needed to prove.
+
+**Still unresolved** (separate from capture, tracked here for visibility): window enumeration
+(`capture_modes.py`'s active-window capture and `window_picker.py` both still use
+`X11WindowEnumerator` unconditionally - Wayland has no portable window-enumeration API, confirmed via
+research: `wlr-foreign-toplevel-management` is wlroots-only and not implemented by Mutter,
+`org.gnome.Shell.Eval` is access-restricted, and the GNOME Shell extension that provides this isn't
+bundled by default so can't be a required dependency); the overlay absolute-positioning warning noted
+above; the multi-monitor crop-offset assumption, still unverified against a real multi-monitor
+Wayland session.
 
 ## Packaging
 

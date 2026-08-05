@@ -155,9 +155,9 @@ def start_eyedropper(
     pixels anywhere on screen, not just within the small color dialog.
     """
     if capture_backend is None:
-        from greenshot_linux.capture.x11 import X11CaptureBackend
+        from greenshot_linux.capture.backend_select import default_capture_backend
 
-        capture_backend = X11CaptureBackend()
+        capture_backend = default_capture_backend()
 
     overlay = _EyedropperOverlay(capture_backend, on_picked, on_cancelled)
     overlay.show_all()
