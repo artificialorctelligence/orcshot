@@ -32,6 +32,8 @@ windows after the stacking-order fix.
 
 from __future__ import annotations
 
+import time
+
 import cairo
 import gi
 
@@ -41,7 +43,7 @@ from gi.repository import Gdk, Gtk
 
 from greenshot_linux.capture.backend import CaptureBackend
 from greenshot_linux.capture.cursor import CursorBackend
-from greenshot_linux.capture.window import WindowEnumerator
+from greenshot_linux.capture.window import WindowActivator, WindowEnumerator
 from greenshot_linux.core.cursor_capture import cursor_shape_for_capture
 from greenshot_linux.core.geometry import Rect
 from greenshot_linux.ui.cairo_convert import numpy_to_cairo_surface
@@ -56,10 +58,13 @@ class WindowPickerWindow(Gtk.Window):
     def __init__(
         self, capture_backend: CaptureBackend, window_enumerator: WindowEnumerator, on_window_selected,
         on_cancelled=None, capture_mouse_cursor: bool = True, cursor_backend: CursorBackend = None,
+        window_activator: WindowActivator = None,
     ):
         super().__init__(type=Gtk.WindowType.POPUP)
         self._on_window_selected = on_window_selected
         self._on_cancelled = on_cancelled
+        self._capture_backend = capture_backend
+        self._window_activator = window_activator
 
         self._bounds = capture_backend.screen_layout().virtual_bounds
         self._frozen_image = capture_backend.grab(self._bounds)
@@ -158,20 +163,31 @@ class WindowPickerWindow(Gtk.Window):
                 self._on_cancelled()
             return True
 
-        local = self._local_rect(hovered.bounds)
-        clamped = local.intersect(Rect(0, 0, self._bounds.width, self._bounds.height))
-        if clamped is None:
+        absolute_rect = hovered.bounds.intersect(self._bounds)
+        if absolute_rect is None:
             if self._on_cancelled is not None:
                 self._on_cancelled()
             return True
 
-        cropped = self._frozen_image[clamped.top:clamped.bottom, clamped.left:clamped.right]
+        if self._window_activator is not None:
+            # No portable way to know which window is really topmost
+            # under Wayland (see capture/window.py's WindowActivator
+            # docstring) - force the clicked window to the front, then
+            # grab it fresh, rather than trusting the frozen backdrop's
+            # hover-highlight guess, which may be showing an occluded
+            # window's stale content.
+            self._window_activator.activate(hovered.window_id)
+            time.sleep(0.15)
+            cropped = self._capture_backend.grab(absolute_rect)
+        else:
+            local = self._local_rect(absolute_rect)
+            cropped = self._frozen_image[local.top:local.bottom, local.left:local.right]
+
         cursor_shape = None
         if self._cursor_visible and self._cursor_snapshot is not None:
-            captured_rect = hovered.bounds.intersect(self._bounds)
             snap = self._cursor_snapshot
             cursor_shape = cursor_shape_for_capture(
-                snap.image, snap.x, snap.y, snap.hotspot_x, snap.hotspot_y, captured_rect,
+                snap.image, snap.x, snap.y, snap.hotspot_x, snap.hotspot_y, absolute_rect,
             )
         self._on_window_selected(cropped, hovered, cursor_shape)
         return True
@@ -196,11 +212,12 @@ class WindowPickerWindow(Gtk.Window):
 def start_window_picker(
     capture_backend: CaptureBackend = None, window_enumerator: WindowEnumerator = None, on_captured=None,
     capture_mouse_cursor: bool = True, cursor_backend: CursorBackend = None,
+    window_activator: WindowActivator = None,
 ) -> WindowPickerWindow:
     """Show the overlay and show the destination picker on whichever
-    window gets clicked. Both backends are injectable (for tests/fakes);
-    the defaults construct the real X11 adapters lazily so importing
-    this module doesn't require a display. ``on_captured(absolute_rect)``,
+    window gets clicked. Backends are injectable (for tests/fakes); the
+    defaults construct the real adapters lazily so importing this
+    module doesn't require a display. ``on_captured(absolute_rect)``,
     if given, fires right before the picker opens - GreenshotApplication
     uses this to remember the region for "repeat last region".
     """
@@ -209,9 +226,9 @@ def start_window_picker(
 
         capture_backend = default_capture_backend()
     if window_enumerator is None:
-        from greenshot_linux.capture.x11_window import X11WindowEnumerator
+        from greenshot_linux.capture.backend_select import default_window_enumerator_and_activator
 
-        window_enumerator = X11WindowEnumerator()
+        window_enumerator, window_activator = default_window_enumerator_and_activator()
 
     def on_selected(image, window_info, cursor_shape):
         if on_captured is not None:
@@ -223,6 +240,7 @@ def start_window_picker(
     window = WindowPickerWindow(
         capture_backend, window_enumerator, on_selected,
         capture_mouse_cursor=capture_mouse_cursor, cursor_backend=cursor_backend,
+        window_activator=window_activator,
     )
     window.show_all()
     window.grab_focus()

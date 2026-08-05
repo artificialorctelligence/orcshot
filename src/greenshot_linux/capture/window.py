@@ -72,3 +72,26 @@ class WindowEnumerator(Protocol):
 
     def active_window(self) -> Optional[WindowInfo]:
         """The currently focused window, or None if none is focused."""
+
+
+@runtime_checkable
+class WindowActivator(Protocol):
+    """Raises a specific window to the front, by window_id.
+
+    X11's window-picker never needs this: it crops the picked window's
+    rect out of a single frozen full-screen grab taken when the overlay
+    opened, so whichever window is actually on top at that moment is
+    already baked into the pixels, occlusion and all. Wayland has no
+    equivalent of that frozen-crop trick's correctness guarantee (no
+    portable API tells a picker which window is really topmost - see
+    REQUIREMENTS.md's Wayland window-picker section) - the answer there
+    is to activate the *clicked* window first, then grab it fresh, so
+    the captured pixels are correct regardless of what was visible (or
+    guessed) during hover.
+    """
+
+    def activate(self, window_id: int) -> None:
+        """Raise and focus the given window. Best-effort: callers should
+        still tolerate the window not actually coming to the front (a
+        fresh grab afterwards is correct either way, just possibly of
+        whatever ended up on top)."""

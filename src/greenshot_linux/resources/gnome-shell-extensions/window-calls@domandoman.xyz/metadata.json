@@ -1,0 +1,15 @@
+{
+  "name": "Window Calls",
+  "description": "Adds dbus calls which can: return list of windows, move, resize, close, make/unmake above",
+  "uuid": "window-calls@domandoman.xyz",
+  "shell-version": [
+    "45",
+    "46",
+    "47",
+    "48",
+    "49",
+    "50"
+  ],
+  "version": 1.17,
+  "url": "https://github.com/ickyicky/window-calls"
+}

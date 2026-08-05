@@ -36,9 +36,10 @@ from greenshot_linux.settings import get_capture_mouse_cursor
 
 
 def _default_window_enumerator() -> WindowEnumerator:
-    from greenshot_linux.capture.x11_window import X11WindowEnumerator
+    from greenshot_linux.capture.backend_select import default_window_enumerator_and_activator
 
-    return X11WindowEnumerator()
+    enumerator, _activator = default_window_enumerator_and_activator()
+    return enumerator
 
 
 def _default_cursor_backend() -> CursorBackend:

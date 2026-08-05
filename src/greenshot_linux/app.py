@@ -216,6 +216,14 @@ class GreenshotApplication(Gtk.Application):
 
         window_picker_item = Gtk.MenuItem(label="Capture Window...")
         window_picker_item.connect("activate", lambda _item: self.start_window_picker(capture_mouse_cursor=False))
+        from greenshot_linux.capture.backend_select import window_picker_supported
+
+        if not window_picker_supported():
+            window_picker_item.set_sensitive(False)
+            window_picker_item.set_tooltip_text(
+                "Not available on this Wayland session - enable window capture support "
+                "in Preferences, or use Capture Region instead."
+            )
         menu.append(window_picker_item)
 
         self._repeat_item = Gtk.MenuItem(label="Repeat Last Region")

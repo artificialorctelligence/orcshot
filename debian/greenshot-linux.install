@@ -1,2 +1,4 @@
 debian/greenshot-linux.desktop usr/share/applications/
 src/greenshot_linux/resources/greenshot-linux.png usr/share/icons/hicolor/128x128/apps/
+src/greenshot_linux/resources/gnome-shell-extensions/window-calls@domandoman.xyz/extension.js usr/share/gnome-shell/extensions/window-calls@domandoman.xyz/
+src/greenshot_linux/resources/gnome-shell-extensions/window-calls@domandoman.xyz/metadata.json usr/share/gnome-shell/extensions/window-calls@domandoman.xyz/

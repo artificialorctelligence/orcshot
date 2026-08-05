@@ -90,6 +90,14 @@ class FakeWindowEnumerator:
         return self._active
 
 
+class FakeWindowActivator:
+    def __init__(self):
+        self.activated: list[int] = []
+
+    def activate(self, window_id: int) -> None:
+        self.activated.append(window_id)
+
+
 class FakeCursorBackend:
     def __init__(self, snapshot: CursorSnapshot | None = None):
         if snapshot is None:

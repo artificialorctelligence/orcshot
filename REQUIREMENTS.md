@@ -1411,14 +1411,81 @@ concept may not be reliably reported under Wayland. Only matters once there's a 
 Wayland setup to test full-screen-capture's primary-monitor logic against - not investigated further
 since it's outside what task #67 needed to prove.
 
-**Still unresolved** (separate from capture, tracked here for visibility): window enumeration
-(`capture_modes.py`'s active-window capture and `window_picker.py` both still use
-`X11WindowEnumerator` unconditionally - Wayland has no portable window-enumeration API, confirmed via
-research: `wlr-foreign-toplevel-management` is wlroots-only and not implemented by Mutter,
-`org.gnome.Shell.Eval` is access-restricted, and the GNOME Shell extension that provides this isn't
-bundled by default so can't be a required dependency); the overlay absolute-positioning warning noted
-above; the multi-monitor crop-offset assumption, still unverified against a real multi-monitor
-Wayland session.
+**Still unresolved**: the overlay absolute-positioning warning noted above (task #68 - needs a
+per-monitor multi-window rebuild of the region-select/window-picker/eyedropper overlays, since
+Wayland forbids clients from setting absolute screen position at all, the same category of
+restriction as direct capture); the multi-monitor crop-offset assumption, still unverified against a
+real multi-monitor Wayland session. Window enumeration (below) is resolved for GNOME specifically.
+
+### Window-picker under Wayland (task #69)
+
+Wayland has no portable window-enumeration API - confirmed via research before building anything:
+`wlr-foreign-toplevel-management` is wlroots-only and not implemented by Mutter (GNOME's compositor);
+`org.gnome.Shell.Eval` is access-restricted; AT-SPI (the accessibility bus) *does* report real window
+positions live-tested on both X11 and the Ubuntu 26.04 VM (toolkit-level, not compositor-level, so it
+isn't blocked by Wayland's security model the way direct enumeration is), but its `grab_focus()`
+comprehensively failed live on Wayland - every single accessible object in a real test window's whole
+tree (the frame, every button, panel, label) raised an identical `atspi_error`, and its `layer`/`zorder`
+fields don't carry real cross-application stacking order either. Ruled out after live testing, not
+assumed from documentation.
+
+**What works, live-verified on the Ubuntu 26.04 VM**: the third-party GNOME Shell extension
+[window-calls](https://github.com/ickyicky/window-calls) (GPL-2.0-or-later; bundled in this repo, see
+THIRD_PARTY_NOTICES.md) exposes `List()` (real per-window `id`/`wm_class`/`x`/`y`/`width`/`height`),
+`Details()`, and - the key one - `Activate(winid)`, which genuinely raises and focuses an arbitrary
+*background* window. Found and fixed three real bugs in the published extension along the way (a
+`ReferenceError` that broke `Details`/`Activate`/etc. entirely, `List()` requesting geometry via
+methods that don't exist on `Meta.Window`, and `Activate()` granting keyboard focus without a
+stacking-order raise - Mutter treats those as separate concepts, confirmed live: the target window
+kept focus but visually stayed behind another window until an explicit `win.raise()` was added). All
+three fixes are documented in a comment block at the top of the bundled `extension.js` itself, per
+GPL's own requirement to mark changed files.
+
+**Design**: `capture/window.py` gained a `WindowActivator` Protocol (`activate(window_id)`) alongside
+the existing `WindowEnumerator` - X11's window-picker never needs one, since it already gets correct
+content for free by cropping a single frozen full-screen grab taken when the overlay opened (whatever
+was actually on top at that moment is already baked into the pixels). Wayland has no equivalent
+guarantee, so instead of trusting hover-highlight accuracy, `WindowPickerWindow._on_button_press`
+activates the clicked window, waits briefly, and does a **fresh** grab of just that window's rect
+(`capture/gnome_window_calls.py`'s `GnomeWindowCallsBackend`, implementing both protocols) - correct
+regardless of what was visible or guessed during hover. `capture/backend_select.py`'s
+`default_window_enumerator_and_activator()` centralizes the X11-vs-GNOME-Wayland choice (probing
+`is_available()` empirically rather than assuming from session/desktop name - a GNOME Wayland session
+with the extension not installed or not enabled looks identical from the outside otherwise), reused by
+both `window_picker.py` and `capture_modes.py`'s active-window capture (which had the same latent gap,
+silently finding nothing rather than crashing).
+
+**Packaging and consent**: the `.deb` installs the extension's files to
+`/usr/share/gnome-shell/extensions/window-calls@domandoman.xyz/` unconditionally (`debian/greenshot-
+linux.install`) - that alone is not a settings change, just files on disk. Enabling it is a real write
+to the user's `org.gnome.shell` `enabled-extensions` gsettings key (`gnome_extension_setup.py`), which
+this project's standing rule (see feedback memory on real system-settings writes) says must only ever
+happen from the user's own confirmation click - so it's offered as an opt-in checkbox in the existing
+first-run setup dialog, shown only when the session is actually GNOME Wayland
+(`gnome_shell_present()`), checked by default, with an explicit "requires logging out and back in to
+take effect" note rather than implying it works immediately. Confirmed live that this is a real
+requirement, not overcaution: GNOME Shell caches the extension's imported JS module in memory and
+won't pick up a freshly-installed extension's code even after a `disable()`/`enable()` toggle - only a
+full logout/login forces a fresh read from disk. If declined (or on any Wayland session where the
+extension isn't available - a non-GNOME compositor, GNOME without the extension enabled, etc.), the
+tray menu's "Capture Window..." item is shown greyed out with an explanatory tooltip
+(`backend_select.window_picker_supported()`) rather than silently doing nothing or capturing wrong
+content - matching this project's "if it can't work correctly, don't ship it looking like it works"
+bar rather than a half-working feature.
+
+**Cinnamon/Mint scope note, for whenever this becomes relevant**: this entire mechanism is GNOME
+Shell-specific - it talks to `org.gnome.Shell` on the session bus and uses GNOME Shell's own
+extension-loading system. Cinnamon is a long-diverged fork with a completely separate shell process
+and an incompatible extension ecosystem ("Cinnamon Spices," not GNOME Shell extensions) - confirmed
+via research, not assumed. Cinnamon's own Wayland session is still unreleased as of this writing
+(landing in Cinnamon 6.8 / Linux Mint 23, and even then X11 remains the default), so this has been
+deliberately left out of scope rather than researched further. The *capture* mechanism (task #67,
+`WaylandCaptureBackend` via the XDG portal) is desktop-environment-agnostic and will work on Cinnamon
+Wayland automatically, with zero changes, the moment `XDG_SESSION_TYPE=wayland` is set in that
+session - `capture/backend_select.py` already checks that fresh on every capture call, not once at
+startup. Window-picker specifically will not, and will need its own, separate Cinnamon-specific
+mechanism investigated whenever that becomes real - do not assume the window-calls extension approach
+transfers.
 
 ## Packaging
 

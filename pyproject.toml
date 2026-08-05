@@ -29,6 +29,13 @@ dev = [
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/greenshot_linux"]
+# GNOME Shell extension resources are OS-packaging data only (copied to
+# /usr/share/gnome-shell/extensions/ via debian/greenshot-linux.install,
+# which reads straight from the source tree, not the wheel) - nothing
+# in the Python package itself ever reads them at a package-relative
+# path the way resources/greenshot-linux.png is, so there's no reason
+# for them to also end up duplicated under dist-packages/.
+exclude = ["src/greenshot_linux/resources/gnome-shell-extensions"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
