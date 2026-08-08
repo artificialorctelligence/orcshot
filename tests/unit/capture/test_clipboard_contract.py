@@ -1,10 +1,11 @@
 """One contract every clipboard backend must satisfy.
 
 Runs against the in-memory fake always, and against the real GTK/X11
-adapter whenever a display is available - verified with a genuine
-in-process clipboard round-trip (Gtk.Clipboard resolves a set_image
-locally without needing another process to request the data, checked
-manually before writing this test), not just "doesn't raise".
+and GTK/Wayland adapters whenever a matching display is available -
+verified with a genuine in-process clipboard round-trip (Gtk.Clipboard
+resolves a set_image locally without needing another process to
+request the data, checked manually before writing this test), not
+just "doesn't raise".
 """
 
 import os
@@ -16,7 +17,12 @@ from greenshot_linux.capture.clipboard import ClipboardBackend
 from greenshot_linux.capture.fake import FakeClipboardBackend
 
 pytestmark = pytest.mark.parametrize(
-    "backend_name", ["fake", pytest.param("x11", marks=pytest.mark.x11)]
+    "backend_name",
+    [
+        "fake",
+        pytest.param("x11", marks=pytest.mark.x11),
+        pytest.param("wayland", marks=pytest.mark.wayland),
+    ],
 )
 
 
@@ -28,6 +34,12 @@ def backend(backend_name):
         from greenshot_linux.capture.x11_clipboard import X11ClipboardBackend
 
         return X11ClipboardBackend()
+    if backend_name == "wayland":
+        if not os.environ.get("WAYLAND_DISPLAY"):
+            pytest.skip("no Wayland display available")
+        from greenshot_linux.capture.wayland_clipboard import WaylandClipboardBackend
+
+        return WaylandClipboardBackend()
     return FakeClipboardBackend()
 
 

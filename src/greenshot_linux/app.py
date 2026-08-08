@@ -32,6 +32,7 @@ desktop configuration, and only via a human clicking a real button.
 
 from __future__ import annotations
 
+import os
 import sys
 
 import gi
@@ -121,6 +122,16 @@ class GreenshotApplication(Gtk.Application):
 
     def _remember_region(self, rect) -> None:
         self.last_region = rect
+        # Eager, not deferred to the tray menu's own "show" signal:
+        # confirmed live that AppIndicator3 (Wayland) exports the menu
+        # structure to the shell once and renders its own copy from
+        # then on, so our local Gtk.Menu's "show" only ever fires at
+        # construction time, never on a real subsequent open - "show"
+        # is not a reliable place to refresh state for that mechanism.
+        # Updating the item directly the moment last_region actually
+        # changes works identically on both platforms instead.
+        if self._repeat_item is not None:
+            self._repeat_item.set_sensitive(True)
 
     def register_editor_window(self, editor) -> None:
         self._open_editors.append(editor)
@@ -193,12 +204,64 @@ class GreenshotApplication(Gtk.Application):
         # there's nothing new to record.
         start_last_region_capture(self.last_region, capture_mouse_cursor=capture_mouse_cursor)
 
-    def _build_tray_icon(self) -> Gtk.StatusIcon:
+    def _build_tray_icon(self):
+        """Returns a Gtk.StatusIcon (X11) or an AyatanaAppIndicator3.
+        Indicator (Wayland) - deliberately not unified onto one
+        mechanism for both platforms, see the branch below for why.
+        """
+        menu = self._build_tray_menu()
+
+        if os.environ.get("XDG_SESSION_TYPE") == "wayland":
+            # Gtk.StatusIcon relies on XEmbed, which doesn't exist
+            # under Wayland - confirmed live it never actually embeds
+            # (is_embedded() == False), and its internal icon-scaling
+            # code throws a Gtk-CRITICAL (gtk_widget_get_scale_factor:
+            # assertion 'GTK_IS_WIDGET' failed) trying to render an
+            # icon with no real widget behind it (task #66). Ayatana
+            # AppIndicator3 is the portable, D-Bus-based
+            # (StatusNotifierItem) replacement that actually works
+            # here - confirmed live, icon renders and the menu opens.
+            #
+            # Deliberately kept X11-only for Gtk.StatusIcon rather
+            # than switching both platforms to this: confirmed live
+            # that AppIndicator has no distinct left-click ("activate")
+            # action once a menu is attached - the real desktop
+            # indicator host shows the same menu regardless of which
+            # button was clicked (a long-documented AppIndicator
+            # design limitation, not something fixable from here - see
+            # https://bugs.launchpad.net/bugs/1910521). Switching X11
+            # over too would lose the left-click-for-instant-capture
+            # shortcut that already works correctly there today
+            # (matching Windows Greenshot's own tray default - see
+            # start_capture's docstring) for no benefit, since nothing
+            # is broken on X11 to begin with.
+            import gi
+
+            gi.require_version("AyatanaAppIndicator3", "0.1")
+            from gi.repository import AyatanaAppIndicator3
+
+            indicator = AyatanaAppIndicator3.Indicator.new(
+                "greenshot-linux", LOGO_PATH.stem, AyatanaAppIndicator3.IndicatorCategory.APPLICATION_STATUS,
+            )
+            # set_icon (not set_icon_full/an installed icon-theme name):
+            # this app ships one bundled PNG rather than installing
+            # into the system icon theme - set_icon_theme_path points
+            # the indicator at that file's own directory so the plain
+            # name (no extension) it was constructed with resolves.
+            indicator.set_icon_theme_path(str(LOGO_PATH.parent))
+            indicator.set_title("Greenshot Linux")
+            indicator.set_status(AyatanaAppIndicator3.IndicatorStatus.ACTIVE)
+            indicator.set_menu(menu)
+            return indicator
+
         icon = Gtk.StatusIcon()
         icon.set_from_file(str(LOGO_PATH))
         icon.set_tooltip_text("Greenshot Linux")
         icon.connect("activate", lambda _icon: self.start_capture())
+        icon.connect("popup-menu", lambda _icon, button, time: self._show_tray_menu(menu, button, time))
+        return icon
 
+    def _build_tray_menu(self) -> Gtk.Menu:
         menu = Gtk.Menu()
         region_item = Gtk.MenuItem(label="Capture Region")
         region_item.connect("activate", lambda _item: self.start_region_capture(capture_mouse_cursor=False))
@@ -239,15 +302,9 @@ class GreenshotApplication(Gtk.Application):
         quit_item.connect("activate", lambda _item: self.quit())
         menu.append(quit_item)
         menu.show_all()
-
-        icon.connect(
-            "popup-menu",
-            lambda _icon, button, time: self._show_tray_menu(menu, button, time),
-        )
-        return icon
+        return menu
 
     def _show_tray_menu(self, menu: Gtk.Menu, button: int, time: int) -> None:
-        self._repeat_item.set_sensitive(self.last_region is not None)
         menu.popup(None, None, None, None, button, time)
 
 

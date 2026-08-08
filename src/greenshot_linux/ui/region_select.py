@@ -48,6 +48,8 @@ desktop content.
 
 from __future__ import annotations
 
+import os
+
 import cairo
 import gi
 
@@ -311,25 +313,44 @@ class RegionSelectWindow(Gtk.Window):
 def start_region_capture(
     capture_backend: CaptureBackend = None, on_captured=None,
     capture_mouse_cursor: bool = True, cursor_backend: CursorBackend = None,
-) -> RegionSelectWindow:
+):
     """Show the overlay and show the destination picker on whatever
     gets selected. capture_backend is injectable (for tests/fakes); the
     default constructs the real X11 adapter lazily so importing this
     module doesn't require a display. ``on_captured(absolute_rect)``,
     if given, fires right before the picker opens - GreenshotApplication
     uses this to remember the region for "repeat last region".
+
+    Under Wayland, delegates entirely to WaylandRegionSelect (a
+    per-monitor multi-window overlay - see
+    ui/region_select_wayland.py's module docstring for why a single
+    POPUP window, this function's X11 path below, doesn't work there).
     """
     if capture_backend is None:
         from greenshot_linux.capture.backend_select import default_capture_backend
 
         capture_backend = default_capture_backend()
 
-    def on_selected(image, absolute_rect, cursor_shape):
+    def on_selected(image, absolute_rect, cursor_shape, anchor_monitor_window=None, anchor_local_pos=None):
         if on_captured is not None:
             on_captured(absolute_rect)
         from greenshot_linux.ui.destination_picker import show_destination_picker
 
-        show_destination_picker(image, cursor_shape=cursor_shape)
+        gdk_anchor = anchor_monitor_window.get_window() if anchor_monitor_window is not None else None
+        menu = show_destination_picker(
+            image, cursor_shape=cursor_shape, anchor_window=gdk_anchor, anchor_local_pos=anchor_local_pos,
+        )
+        if anchor_monitor_window is not None:
+            menu.connect("deactivate", lambda _menu: anchor_monitor_window.destroy())
+
+    if os.environ.get("XDG_SESSION_TYPE") == "wayland":
+        from greenshot_linux.ui.region_select_wayland import WaylandRegionSelect
+
+        overlay = WaylandRegionSelect(
+            capture_backend, on_selected, capture_mouse_cursor=capture_mouse_cursor, cursor_backend=cursor_backend,
+        )
+        overlay.show()
+        return overlay
 
     window = RegionSelectWindow(
         capture_backend, on_selected, capture_mouse_cursor=capture_mouse_cursor, cursor_backend=cursor_backend,

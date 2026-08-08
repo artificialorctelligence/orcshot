@@ -6,8 +6,9 @@ click, never a test.
 """
 
 from greenshot_linux.gnome_extension_setup import (
-    EXTENSION_UUID,
-    enable_window_calls_extension,
+    CLIPBOARD_EXTENSION_UUID,
+    WINDOW_CALLS_EXTENSION_UUID,
+    enable_extension,
     enabled_extensions_after_adding,
 )
 
@@ -38,18 +39,26 @@ class TestEnabledExtensionsAfterAdding:
         assert enabled_extensions_after_adding(current, "d@w") == ["a@x", "b@y", "c@z", "d@w"]
 
 
-class TestEnableWindowCallsExtension:
+class TestEnableExtension:
     def test_adds_the_extension_uuid(self):
         backend = FakeSettingsBackend()
-        enable_window_calls_extension(backend)
-        assert backend.get_strv("org.gnome.shell", "/", "enabled-extensions") == [EXTENSION_UUID]
+        enable_extension(backend, WINDOW_CALLS_EXTENSION_UUID)
+        assert backend.get_strv("org.gnome.shell", "/", "enabled-extensions") == [WINDOW_CALLS_EXTENSION_UUID]
 
     def test_preserves_other_already_enabled_extensions(self):
         backend = FakeSettingsBackend({("org.gnome.shell", "/", "enabled-extensions"): ["other@ext"]})
-        enable_window_calls_extension(backend)
-        assert backend.get_strv("org.gnome.shell", "/", "enabled-extensions") == ["other@ext", EXTENSION_UUID]
+        enable_extension(backend, WINDOW_CALLS_EXTENSION_UUID)
+        assert backend.get_strv("org.gnome.shell", "/", "enabled-extensions") == ["other@ext", WINDOW_CALLS_EXTENSION_UUID]
 
     def test_is_idempotent(self):
-        backend = FakeSettingsBackend({("org.gnome.shell", "/", "enabled-extensions"): [EXTENSION_UUID]})
-        enable_window_calls_extension(backend)
-        assert backend.get_strv("org.gnome.shell", "/", "enabled-extensions") == [EXTENSION_UUID]
+        backend = FakeSettingsBackend({("org.gnome.shell", "/", "enabled-extensions"): [WINDOW_CALLS_EXTENSION_UUID]})
+        enable_extension(backend, WINDOW_CALLS_EXTENSION_UUID)
+        assert backend.get_strv("org.gnome.shell", "/", "enabled-extensions") == [WINDOW_CALLS_EXTENSION_UUID]
+
+    def test_can_enable_both_bundled_extensions_independently(self):
+        backend = FakeSettingsBackend()
+        enable_extension(backend, WINDOW_CALLS_EXTENSION_UUID)
+        enable_extension(backend, CLIPBOARD_EXTENSION_UUID)
+        assert backend.get_strv("org.gnome.shell", "/", "enabled-extensions") == [
+            WINDOW_CALLS_EXTENSION_UUID, CLIPBOARD_EXTENSION_UUID,
+        ]

@@ -13,10 +13,10 @@ from greenshot_linux.ui.magnifier import draw_magnifier
 CANVAS = 200
 
 
-def render(frozen_image, cursor=(100, 100), offset=(20, 20), diameter=60, source_size=25):
+def render(frozen_image, cursor=(100, 100), offset=(20, 20), diameter=60, source_size=25, dest_pos=None):
     surface = cairo.ImageSurface(cairo.FORMAT_ARGB32, CANVAS, CANVAS)
     ctx = cairo.Context(surface)
-    draw_magnifier(ctx, frozen_image, cursor, offset, diameter, source_size)
+    draw_magnifier(ctx, frozen_image, cursor, offset, diameter, source_size, dest_pos=dest_pos)
     return cairo_surface_to_numpy(surface)
 
 
@@ -74,3 +74,36 @@ class TestDrawMagnifier:
         small_opaque = (small[:, :, 3] > 0).sum()
         large_opaque = (large[:, :, 3] > 0).sum()
         assert large_opaque > small_opaque
+
+    def test_dest_pos_decouples_where_it_draws_from_the_crop_source(self):
+        # eyedropper.py/eyedropper_wayland.py pass an already-small,
+        # pre-cropped patch as frozen_image, where cursor's position
+        # *within that patch* has nothing to do with where the loupe
+        # should be drawn on the real overlay window - confirmed live
+        # that omitting dest_pos pinned the loupe near the origin
+        # regardless of the real cursor position; this is the
+        # regression test for that fix.
+        patch = solid_image((10, 200, 30, 255), size=25)
+        small_cursor_in_patch = (12, 12)
+        far_away_dest = (150, 150)
+
+        image = render(
+            patch, cursor=small_cursor_in_patch, offset=(5, 5), diameter=40, source_size=25,
+            dest_pos=far_away_dest,
+        )
+
+        # nothing painted near the origin (where it would land without
+        # dest_pos, since cursor + offset would be ~(17, 17))
+        assert image[10:20, 10:20, 3].max() == 0
+        # something painted at the real destination instead
+        assert image[far_away_dest[1] + 20, far_away_dest[0] + 20, 3] > 0
+
+    def test_dest_pos_defaults_to_cursor_when_not_given(self):
+        # region_select.py's usage: frozen_image and the drawing
+        # context share a coordinate space, so cursor alone is already
+        # the correct draw position - must stay unchanged.
+        with_default = render(solid_image((10, 200, 30, 255)), cursor=(100, 100), offset=(20, 20), diameter=60)
+        explicit_same = render(
+            solid_image((10, 200, 30, 255)), cursor=(100, 100), offset=(20, 20), diameter=60, dest_pos=(100, 100),
+        )
+        assert np.array_equal(with_default, explicit_same)

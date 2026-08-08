@@ -41,4 +41,5 @@ exclude = ["src/greenshot_linux/resources/gnome-shell-extensions"]
 testpaths = ["tests"]
 markers = [
     "x11: needs a running X server (skipped when DISPLAY is unset)",
+    "wayland: needs a running Wayland session (skipped when WAYLAND_DISPLAY is unset)",
 ]

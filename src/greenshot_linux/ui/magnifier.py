@@ -55,18 +55,39 @@ def _clamped_crop(image: np.ndarray, cursor: Point, size: int) -> Tuple[np.ndarr
 
 
 def draw_magnifier(
-    ctx: cairo.Context, frozen_image: np.ndarray, cursor: Point, offset: Point, diameter: int, source_size: int = 25,
+    ctx: cairo.Context, frozen_image: np.ndarray, cursor: Point, offset: Point, diameter: int,
+    source_size: int = 25, dest_pos: Point = None,
 ) -> None:
-    """Draws the loupe at ``cursor`` + ``offset`` (top-left corner),
-    ``diameter`` pixels across, previewing a ``source_size`` x
-    ``source_size`` crop of ``frozen_image`` centered on ``cursor``.
+    """Draws the loupe at ``dest_pos`` (or ``cursor`` if not given) +
+    ``offset`` (top-left corner), ``diameter`` pixels across,
+    previewing a ``source_size`` x ``source_size`` crop of
+    ``frozen_image`` centered on ``cursor``.
+
+    ``cursor`` and ``dest_pos`` are separate parameters because they
+    don't always share a coordinate space. region_select.py passes the
+    whole virtual-screen backdrop as ``frozen_image``, where the
+    cursor's position on the drawing context *is* also its position
+    within that backdrop - there, the default (``dest_pos=None``,
+    falling back to ``cursor``) is correct and this parameter can be
+    ignored. eyedropper.py/eyedropper_wayland.py instead pass an
+    already-small, pre-cropped patch as ``frozen_image`` (for X11: a
+    small live grab taken fresh each motion event rather than a full
+    frozen backdrop at all; for Wayland: a slice of one), where the
+    cursor's position *within that tiny patch* has nothing to do with
+    where the loupe should actually be drawn on the much larger overlay
+    window - passing the real on-window cursor position as ``dest_pos``
+    is required there. Confirmed live: omitting this made the eyedropper
+    loupe always render pinned near the drawing context's own origin,
+    regardless of the real cursor position.
     """
     crop, cursor_in_crop = _clamped_crop(frozen_image, cursor, source_size)
     crop_h, crop_w = crop.shape[:2]
     if crop_h == 0 or crop_w == 0:
         return
 
-    dest_x, dest_y = cursor[0] + offset[0], cursor[1] + offset[1]
+    if dest_pos is None:
+        dest_pos = cursor
+    dest_x, dest_y = dest_pos[0] + offset[0], dest_pos[1] + offset[1]
     radius = diameter / 2
     center_x, center_y = dest_x + radius, dest_y + radius
 

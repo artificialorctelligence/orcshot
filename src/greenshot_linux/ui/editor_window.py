@@ -260,9 +260,9 @@ class EditorWindow(Gtk.Window):
         height, width = image.shape[:2]
 
         if clipboard_backend is None:
-            from greenshot_linux.capture.x11_clipboard import X11ClipboardBackend
+            from greenshot_linux.capture.backend_select import default_clipboard_backend
 
-            clipboard_backend = X11ClipboardBackend()
+            clipboard_backend = default_clipboard_backend()
         self._clipboard = clipboard_backend
 
         self.layer = Layer()
@@ -953,7 +953,15 @@ class EditorWindow(Gtk.Window):
     def _on_tool_button_toggled(self, button: Gtk.RadioToolButton, tool: Tool) -> None:
         if button.get_active():
             self.tool = tool
-            self._refresh_style_panel()
+            # Picking a tool from the palette means "draw something new
+            # with it", not "keep editing whatever was selected before" -
+            # without this, a residual selection (including the
+            # auto-inserted cursor shape every editor opens with) shadows
+            # the newly-chosen tool's own style fields, since
+            # visible_style_fields always prioritizes a selected shape
+            # over the active tool. The setter below already calls
+            # _refresh_style_panel().
+            self.selected_shape = None
 
     def _do_undo(self) -> None:
         self._commit_text_editing_if_active()

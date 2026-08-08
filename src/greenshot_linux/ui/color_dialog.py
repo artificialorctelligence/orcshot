@@ -177,11 +177,10 @@ def show_color_picker(
 
     eyedropper_button = Gtk.Button(label="Eyedropper")
 
-    def on_eyedropper_press(widget, event):
-        start_eyedropper(widget, event, apply_color, capture_backend=capture_backend)
-        return True
+    def on_eyedropper_clicked(widget):
+        start_eyedropper(widget, apply_color, capture_backend=capture_backend)
 
-    eyedropper_button.connect("button-press-event", on_eyedropper_press)
+    eyedropper_button.connect("clicked", on_eyedropper_clicked)
     right_box.pack_start(eyedropper_button, False, False, 0)
 
     main_row.pack_start(right_box, True, True, 0)

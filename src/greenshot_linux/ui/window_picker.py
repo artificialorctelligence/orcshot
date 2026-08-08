@@ -32,6 +32,7 @@ windows after the stacking-order fix.
 
 from __future__ import annotations
 
+import os
 import time
 
 import cairo
@@ -213,13 +214,19 @@ def start_window_picker(
     capture_backend: CaptureBackend = None, window_enumerator: WindowEnumerator = None, on_captured=None,
     capture_mouse_cursor: bool = True, cursor_backend: CursorBackend = None,
     window_activator: WindowActivator = None,
-) -> WindowPickerWindow:
+):
     """Show the overlay and show the destination picker on whichever
     window gets clicked. Backends are injectable (for tests/fakes); the
     defaults construct the real adapters lazily so importing this
     module doesn't require a display. ``on_captured(absolute_rect)``,
     if given, fires right before the picker opens - GreenshotApplication
     uses this to remember the region for "repeat last region".
+
+    Under Wayland, delegates to WaylandWindowPicker (a per-monitor
+    multi-window overlay - see ui/window_picker_wayland.py's module
+    docstring and region_select.py's start_region_capture for why a
+    single POPUP window, this function's X11 path below, doesn't work
+    there).
     """
     if capture_backend is None:
         from greenshot_linux.capture.backend_select import default_capture_backend
@@ -230,12 +237,31 @@ def start_window_picker(
 
         window_enumerator, window_activator = default_window_enumerator_and_activator()
 
-    def on_selected(image, window_info, cursor_shape):
+    def on_selected(
+        image, window_info, cursor_shape, anchor_monitor_window=None, anchor_local_pos=None, refresh_image=None,
+    ):
         if on_captured is not None:
             on_captured(window_info.bounds)
         from greenshot_linux.ui.destination_picker import show_destination_picker
 
-        show_destination_picker(image, cursor_shape=cursor_shape)
+        gdk_anchor = anchor_monitor_window.get_window() if anchor_monitor_window is not None else None
+        menu = show_destination_picker(
+            image, cursor_shape=cursor_shape, anchor_window=gdk_anchor, anchor_local_pos=anchor_local_pos,
+            refresh_image=refresh_image,
+        )
+        if anchor_monitor_window is not None:
+            menu.connect("deactivate", lambda _menu: anchor_monitor_window.destroy())
+
+    if os.environ.get("XDG_SESSION_TYPE") == "wayland":
+        from greenshot_linux.ui.window_picker_wayland import WaylandWindowPicker
+
+        overlay = WaylandWindowPicker(
+            capture_backend, window_enumerator, on_selected,
+            capture_mouse_cursor=capture_mouse_cursor, cursor_backend=cursor_backend,
+            window_activator=window_activator,
+        )
+        overlay.show()
+        return overlay
 
     window = WindowPickerWindow(
         capture_backend, window_enumerator, on_selected,

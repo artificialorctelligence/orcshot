@@ -78,12 +78,6 @@ from greenshot_linux.ui.file_export import save_image_to_file
 from greenshot_linux.ui.printing import print_image
 
 
-def _default_clipboard_backend() -> ClipboardBackend:
-    from greenshot_linux.capture.x11_clipboard import X11ClipboardBackend
-
-    return X11ClipboardBackend()
-
-
 def _flattened(image: np.ndarray, cursor_shape: CursorShape = None) -> np.ndarray:
     if cursor_shape is None:
         return image
@@ -127,20 +121,53 @@ def _save_as(image: np.ndarray, cursor_shape: CursorShape = None) -> None:
 
 
 def show_destination_picker(
-    image: np.ndarray, clipboard_backend: ClipboardBackend = None, cursor_shape: CursorShape = None
+    image: np.ndarray, clipboard_backend: ClipboardBackend = None, cursor_shape: CursorShape = None,
+    anchor_window: Gdk.Window = None, anchor_local_pos: tuple[int, int] = None,
+    refresh_image=None,
 ) -> Gtk.Menu:
     """Pops up the picker at the current pointer position. Returns the
     Gtk.Menu - callers don't need it (GTK keeps it alive while shown),
     but tests/scripts may want to inspect it.
+
+    ``anchor_window``/``anchor_local_pos`` are for Wayland callers only
+    (see ui/region_select_wayland.py): the screen's root window - the
+    default anchor below, and the only option that works under X11 -
+    isn't a valid popup parent under Wayland at all ("Couldn't map as
+    window ... as popup because it doesn't have a parent", confirmed
+    live), so a real, still-alive window and a position already local
+    to it must be supplied instead there.
+
+    ``refresh_image``, given by Wayland's window-picker only (see
+    window_picker_wayland.py's module docstring), is a zero-argument
+    callable that fetches the real, activated-window pixels - called
+    lazily, only once the user actually picks a destination, instead
+    of ``image`` (used as an immediate placeholder in that case).
+    Wayland's popup grab must be requested synchronously from within
+    the input event that triggered it (confirmed live: deferring the
+    popup call itself broke it - "no trigger event for menu popup"),
+    but the activate()+fresh-grab portal round trip that produces the
+    real pixels can't safely run from inside that same handler either
+    (confirmed live: hangs indefinitely - a reentrancy problem, not
+    latency). Showing the menu immediately with a placeholder, then
+    resolving the real pixels only once an item is chosen - itself a
+    fresh, non-nested dispatch by the time it fires - satisfies both
+    constraints at once.
     """
     if clipboard_backend is None:
-        clipboard_backend = _default_clipboard_backend()
+        from greenshot_linux.capture.backend_select import default_clipboard_backend
+
+        clipboard_backend = default_clipboard_backend()
 
     menu = Gtk.Menu()
 
     def add_item(label: str, handler) -> None:
         item = Gtk.MenuItem(label=label)
-        item.connect("activate", lambda _item: handler(image, cursor_shape))
+
+        def on_activate(_item):
+            final_image = refresh_image() if refresh_image is not None else image
+            handler(final_image, cursor_shape)
+
+        item.connect("activate", on_activate)
         menu.append(item)
 
     add_item("Copy to Clipboard", lambda img, cs: clipboard_backend.set_image(_flattened(img, cs)))
@@ -150,10 +177,14 @@ def show_destination_picker(
     add_item("Print", lambda img, cs: print_image(_flattened(img, cs)))
 
     menu.show_all()
-    seat = Gdk.Display.get_default().get_default_seat()
-    _screen, x, y = seat.get_pointer().get_position()
-    root = Gdk.Screen.get_default().get_root_window()
+    if anchor_window is not None:
+        x, y = anchor_local_pos
+        anchor = anchor_window
+    else:
+        seat = Gdk.Display.get_default().get_default_seat()
+        _screen, x, y = seat.get_pointer().get_position()
+        anchor = Gdk.Screen.get_default().get_root_window()
     rect = Gdk.Rectangle()
     rect.x, rect.y, rect.width, rect.height = x, y, 1, 1
-    menu.popup_at_rect(root, rect, Gdk.Gravity.NORTH_WEST, Gdk.Gravity.NORTH_WEST, None)
+    menu.popup_at_rect(anchor, rect, Gdk.Gravity.NORTH_WEST, Gdk.Gravity.NORTH_WEST, None)
     return menu

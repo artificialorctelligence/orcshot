@@ -1411,11 +1411,363 @@ concept may not be reliably reported under Wayland. Only matters once there's a 
 Wayland setup to test full-screen-capture's primary-monitor logic against - not investigated further
 since it's outside what task #67 needed to prove.
 
-**Still unresolved**: the overlay absolute-positioning warning noted above (task #68 - needs a
-per-monitor multi-window rebuild of the region-select/window-picker/eyedropper overlays, since
-Wayland forbids clients from setting absolute screen position at all, the same category of
-restriction as direct capture); the multi-monitor crop-offset assumption, still unverified against a
-real multi-monitor Wayland session. Window enumeration (below) is resolved for GNOME specifically.
+**Still unresolved as of 2026-08-04**: the overlay absolute-positioning warning noted above (task
+#68 - needs a per-monitor multi-window rebuild of the region-select/window-picker/eyedropper
+overlays, since Wayland forbids clients from setting absolute screen position at all, the same
+category of restriction as direct capture); the multi-monitor crop-offset assumption, still
+unverified against a real multi-monitor Wayland session. Window enumeration (below) is resolved for
+GNOME specifically.
+
+#### Task #68 progress (2026-08-05): region-select and window-picker done, eyedropper in progress
+
+Built the multi-window architecture this was scoped to need: `ui/monitor_window.py`'s
+`MonitorWindow` - one `Gtk.WindowType.TOPLEVEL` per monitor, each `fullscreen_on_monitor()`'d onto
+its own output instead of the single `POPUP`+absolute-`move()` trick X11 uses. No cross-window
+pointer grab needed for region-select/window-picker: whichever window is physically under the
+cursor naturally receives its own events (guaranteed compositor behavior), each window translating
+its own local coordinates to/from the shared global (virtual-screen) coordinate space at the
+boundary. `ui/region_select_wayland.py` and `ui/window_picker_wayland.py` are the two working
+implementations; `ui/eyedropper_wayland.py` is still being debugged (see below). X11's existing
+single-window implementations are completely untouched.
+
+Real findings along the way, not assumptions:
+
+- **No keyboard grab needed, unlike X11.** X11's overlays need an explicit `Gdk.Seat` keyboard grab
+  because `POPUP` (override-redirect) windows never get real window-manager focus at all. These are
+  plain `TOPLEVEL` windows, which Mutter focuses normally on mapping (confirmed live, same session
+  that found GNOME auto-focuses newly-shown windows regardless of hints - see the window-picker
+  section above). Grabbing anyway also triggers Wayland's keyboard-shortcuts-inhibit permission
+  dialog (a real, easy-to-miss async consent prompt: "Allow inhibiting shortcuts") for no benefit.
+- **Wayland popup menus need a real, still-alive anchor window, not the root window.** The
+  destination picker's `Gtk.Menu.popup_at_rect()` call already anchored to
+  `Gdk.Screen.get_default().get_root_window()` for X11 (its own earlier fix, see that module's
+  docstring) - under Wayland this fails outright (`Gdk-WARNING: Couldn't map as window ... as popup
+  because it doesn't have a parent`), landing the menu at some fallback position instead of where
+  requested. Fix: `destination_picker.py` gained an `anchor_window`/`anchor_local_pos` pair; the
+  Wayland overlays keep whichever one of their `MonitorWindow`s covers the release point alive
+  (destroying the rest immediately) specifically to serve as that anchor, then destroy it once the
+  menu's `deactivate` signal fires.
+- **Calling the portal from inside an already-active event handler hangs indefinitely - confirmed a
+  genuine reentrancy problem, not latency.** Window-picker's `Activate()`+fresh-grab (task #69) run
+  directly inside `button-press-event` hung for several minutes with no response, including its own
+  120s internal timeout never firing - meaning the nested `GLib.MainLoop` the portal call spins up
+  wasn't processing *any* of its own sources, not just waiting on the compositor. Fix pattern:
+  `GLib.idle_add()` the actual portal work so it runs on a fresh top-level main-loop iteration,
+  *after* the triggering event has fully finished dispatching - but see the eyedropper notes below
+  for where this pattern alone isn't sufficient.
+- **Wayland's popup grab must be requested synchronously within the triggering input event -
+  deferring it breaks it ("no trigger event for menu popup").** This directly conflicts with the
+  reentrancy fix above for anything that needs to *both* show a popup *and* call the portal in
+  response to the same click. Resolution for window-picker: show the destination picker immediately
+  (synchronously, using the frozen-backdrop crop as a placeholder image), and only resolve the real
+  `Activate()`+fresh-grab pixels once the user actually picks a menu item - itself a fresh,
+  non-nested dispatch by the time it fires, not subject to either constraint.
+  `destination_picker.py`'s new `refresh_image` parameter (a zero-arg callable, called lazily) is
+  the general mechanism for this.
+- **Fullscreen surfaces are forced opaque by Mutter - deliberately, not a bug.** The eyedropper is
+  the one overlay that actually needs live transparency (it shows the real desktop through a mostly
+  invisible window, with just a magnifier loupe drawn on top). Confirmed live: even with an explicit
+  RGBA visual *and* an explicit empty opaque-region hint *and* clearing to `rgba(0,0,0,0)` via
+  `OPERATOR_SOURCE`, a `fullscreen_on_monitor()`'d window still renders solid black everywhere except
+  what's explicitly painted. This is Mutter's own documented policy, not a client-fixable bug -
+  confirmed against Mutter's own GitLab tracker ("Transparent fullscreen windows render black
+  background", #2520) and matching Ubuntu/Fedora bug reports, with the maintainers' own stated
+  reasoning: avoiding a performance hit for fullscreen games that accidentally used RGBA instead of
+  RGBX. The protocol that would give real transparency instead (`wlr-layer-shell`, what
+  `gtk-layer-shell`-based tools use on every other major compositor) is explicitly not implemented by
+  Mutter (GNOME's own tracking issue, #973, is still an open feature request). Resolution: the
+  Wayland eyedropper paints a frozen backdrop instead, exactly like region-select/window-picker
+  already do - not a compromise unique to this project, the same tradeoff other real tools
+  (Flameshot) make on GNOME specifically by delegating to the portal's native picker instead.
+  Concrete user-facing consequence, documented for whoever revisits this: the picked colour reflects
+  screen content at the moment the eyedropper drag *started*, not the moment of release (a hover-
+  state colour change under the cursor wouldn't be reflected) - a live per-motion portal re-grab
+  would be far too slow for a smooth drag anyway.
+
+Two genuinely pre-existing, cross-platform bugs were found and fixed along the way - neither is
+Wayland-specific, both would affect X11/Cinnamon too, just hadn't been exercised/noticed before:
+
+- **`editor_window.py`'s tool-palette buttons never cleared `selected_shape`.** `visible_style_fields`
+  (task #57) always prioritizes a selected shape's own fields over the active tool's - correct for
+  clicking an *existing* shape on the canvas, but `_on_tool_button_toggled` was also hitting this
+  path, meaning any residual selection (including the auto-inserted cursor shape every editor opens
+  with) shadowed whatever tool was actually just clicked, hiding the whole style panel for every real
+  drawing tool. Fixed: picking a tool now also clears `selected_shape`.
+- **`draw_magnifier`'s single `cursor` parameter conflated two different coordinate spaces.** It's
+  used both as the crop-center within `frozen_image` and as the on-canvas draw position - these only
+  coincide when `frozen_image` and the drawing context share a coordinate space, true for
+  region_select.py's usage (the whole virtual-screen backdrop) but not eyedropper.py's (an
+  already-small, pre-cropped patch). Confirmed live: the eyedropper's loupe always rendered pinned
+  near the drawing context's own origin, never actually following the cursor. Fixed with a new
+  optional `dest_pos` parameter, defaulting to `cursor` (preserving region-select's behavior
+  unchanged) but explicitly overridden by both eyedropper.py and eyedropper_wayland.py.
+
+**Eyedropper: done (2026-08-07), after three distinct real bugs found and fixed via live
+debugging.** Backdrop loading, colour sampling, and loupe positioning were confirmed working early
+on; getting an actual pick to complete without corrupting state took three separate fixes:
+
+1. **Widget-lifecycle race.** `_load_backdrop`'s `GLib.idle_add` callback isn't scoped to whichever
+   main loop was active when it was scheduled - it can still be pending when a fast click-release
+   tears the overlay down, then fires later against already-destroyed `MonitorWindow`s on the very
+   next idle slot (however that got triggered - confirmed live it could be a completely unrelated
+   later click). Symptom: a cascade of `Gtk-CRITICAL **: assertion 'GTK_IS_WIDGET' failed` errors.
+   Fixed with a `self._alive` flag, set `False` at the start of both teardown paths
+   (`_on_button_release`/`_on_key_press`) and checked at the top of `_load_backdrop` before it
+   touches anything.
+2. **`Gdk.Seat.grab()` doesn't redirect an in-progress gesture to a `TOPLEVEL` window under
+   Wayland.** The original design mirrored X11's single continuous press-hold-drag-release (matching
+   Windows' `Pipette.cs:111-136`, which uses `SetCapture` for the same effect) via
+   `Gdk.Seat.grab(..., Gdk.SeatCapabilities.ALL, ..., press_event, ...)`. Confirmed live: motion and
+   release events kept going to the original Eyedropper button, never reaching the overlay - no
+   loupe ever appeared, "hangs until Escape." **Redesigned the interaction on both platforms**
+   (deliberate divergence from Windows, not just a Wayland workaround - matches how most other
+   eyedropper implementations behave anyway): clicking "Eyedropper" now just opens the picking
+   overlay; the actual sample happens via a *fresh* press-drag-release that starts within the
+   overlay itself, needing no cross-window pointer grab on either platform. X11's overlay now only
+   grabs keyboard (still required - `POPUP` windows never get real X keyboard focus on their own);
+   Wayland's overlay needs no grab at all, matching region-select/window-picker's existing pattern.
+3. **`Gtk.Dialog.run()` holds a GTK-level modal grab (`gtk_grab_add`) for its whole duration,
+   independent of window-manager/compositor focus.** Even after fix #2, clicking/dragging on the
+   Wayland overlay still did nothing, and Escape still closed the whole dialog directly. Diagnosed by
+   querying GNOME Shell's own window list via the bundled window-calls extension
+   (`org.gnome.Shell.Extensions.Windows.List`, see task #69 below) while the overlay was up: it
+   reported `focus: true` for the overlay window, proving compositor-level focus was NOT the problem
+   - the redirect was happening client-side, inside GTK's own event dispatch, independent of what the
+   window manager thought had focus. `start_eyedropper()` now suspends whatever `Gtk.grab_get_current()`
+   returns before showing either platform's overlay (`widget.grab_remove()` - note: exposed as an
+   instance method in PyGObject, not `Gtk.grab_remove(widget)`) and restores it (`widget.grab_add()`)
+   once the eyedropper finishes, on both platforms - this is a GTK concept, not X11/Wayland-specific,
+   and X11's old explicit pointer grab most likely only masked the same underlying issue rather than
+   needing a genuinely different mechanism.
+
+All `[TRACE]` print statements added during this debugging have been removed from
+`ui/eyedropper_wayland.py` and `ui/monitor_window.py`.
+
+**Known follow-up, not a blocker (task #71):** dragging quickly in the Wayland eyedropper shows the
+loupe's top rows not rendering/flickering when moving up, and right-side rows when moving right -
+directionally correlated with drag speed. Confirmed live NOT present in the X11 eyedropper on the
+real Mint machine, narrowing this to something specific to Wayland's frozen-backdrop-slice approach.
+No bug found on inspection of `ui/magnifier.py`/`ui/cairo_convert.py` (crop/clamp math and the
+Cairo/numpy conversion both look correct regardless of movement direction). Leading, unconfirmed
+hypothesis: `_on_draw` repaints the *entire* large cached backdrop surface on every single motion
+event before drawing the small loupe on top, unlike X11's genuinely-transparent overlay which never
+repaints a large surface per frame - under this VM's likely software-rendered Wayland compositor,
+that could produce visible incomplete-frame artifacts during rapid redraws. Worth checking whether
+restricting the repaint to just the loupe's own region fixes it.
+
+**Also flagged, not yet done (task #72):** checked the real Windows source
+(`ColorDialog.Designer.cs:223-232`, `Pipette.cs`) for whether the Transparent/Eyedropper buttons
+should have icons. `btnTransparent` is plain text in Windows too (matches this port already), but
+the real Eyedropper is not a text button at all - it's the `Pipette` control (a `Label` subclass)
+with `pipette.Image` set to a small bitmap, no text. This port's plain `Gtk.Button(label="Eyedropper")`
+is a real, not-yet-fixed deviation.
+
+### Tray icon under Wayland (tasks #66 and #70, 2026-08-07)
+
+`Gtk.StatusIcon` relies on XEmbed, which has no Wayland equivalent - confirmed live it never actually
+embeds (`is_embedded() == False`), and its internal icon-scaling code throws a Gtk-CRITICAL
+(`gtk_widget_get_scale_factor: assertion 'GTK_IS_WIDGET' failed`) trying to render an icon with no
+real widget backing it. Isolated the exact trigger: `icon.set_from_file()` alone reproduces it. This
+turned out to be the same root cause as task #66's warning, not a separate bug - both closed together.
+`Gtk.StatusIcon` is also flatly deprecated in GTK3 regardless of platform.
+
+**Fix**: `AyatanaAppIndicator3` (the actively-maintained fork; the original `AppIndicator3` is largely
+superseded on modern Ubuntu) for Wayland, keeping `Gtk.StatusIcon` for X11 rather than unifying onto
+one mechanism for both. This isn't just code-sharing caution - confirmed live (a standalone test
+indicator, both mouse buttons) that AppIndicator has no distinct left-click ("activate") action once a
+menu is attached: the real desktop indicator host shows the same menu regardless of which button was
+clicked (a long-documented AppIndicator design limitation - see
+https://bugs.launchpad.net/bugs/1910521 - not something fixable from this codebase). Unifying would
+have meant losing the left-click-for-instant-capture shortcut that already works correctly on X11
+(matching Windows Greenshot's own tray default, `start_capture`'s docstring), for no benefit since
+nothing was broken there. `app.py`'s `_build_tray_icon()` branches on `XDG_SESSION_TYPE`; menu
+construction is shared via `_build_tray_menu()`. Icon loading uses `set_icon_theme_path()` pointed at
+the bundled PNG's own directory (this app ships one asset rather than installing into the system icon
+theme, same rationale as `resources.py`'s existing docstring). New `.deb` runtime dependency:
+`gir1.2-ayatanaappindicator3-0.1` (not a build dependency - imported lazily, only inside the Wayland
+branch, so the test suite/build doesn't need it).
+
+**A real regression this surfaced, not caused**: "Repeat Last Region"'s sensitivity was refreshed via
+`menu.connect("show", ...)`, which worked fine for `Gtk.StatusIcon` (a real local GTK popup) but never
+fires a second time for an AppIndicator-hosted menu - confirmed live via tracing: the "show" signal
+only fired once, at `menu.show_all()` during construction, never again on subsequent real opens through
+the shell. AppIndicator exports the menu structure to the shell once via dbusmenu; the shell renders
+its own copy from then on, so GTK's own "show" signal on the local `Gtk.Menu` object isn't a reliable
+signal for "the user is looking at this now" under that mechanism. Fixed by updating
+`self._repeat_item`'s sensitivity eagerly in `_remember_region()`, the moment `last_region` actually
+changes, rather than lazily at show-time - simpler, and correct on both platforms uniformly.
+
+**Confirmed working end-to-end, live, via the real tray icon** (not a test script - this was the first
+time in this whole Wayland effort that a capture flow was exercised through the actual tray-menu round
+trip rather than direct script invocation): tray icon renders, menu opens with both mouse buttons,
+Capture Region drags/selects/positions the destination picker correctly, Edit opens the editor with
+the correct captured image, Repeat Last Region now enables correctly.
+
+**New problems this uncovered, not yet fixed** (real gaps, only found because a real trigger path was
+exercised for the first time - not regressions from this change):
+
+- **Clipboard didn't work at all under Wayland (task #74, fixed same day)** - see its own section below.
+- **An audible camera-shutter sound plays on destination-picker clicks (task #73)**: confirmed nothing
+  in this codebase plays any sound (grepped for sound/beep/shutter/play_sound - nothing found). Leading
+  hypothesis, not yet confirmed: `xdg-desktop-portal-gnome` provides this as built-in feedback whenever
+  `org.freedesktop.portal.Screenshot`'s `Screenshot()` method is invoked by any app - a GNOME desktop
+  feature, not app code - which would also explain why X11/Windows never exhibit it (neither goes
+  through that portal). The exact trigger timing hasn't been confirmed live yet.
+- **Intermittent destination-picker mispositioning (task #75)**: sometimes still shows centered with
+  the same "no trigger event for menu popup"/"doesn't have a parent" warnings as the original
+  Wayland-popup bug this project already fixed once (see task #69's `anchor_window` mechanism). Fully
+  instrumented `region_select_wayland.py` and `destination_picker.py` with timestamps and state dumps
+  across several repro attempts (both fast <1s and slow ~7.5s drags) - every traced attempt showed
+  fully valid state (real anchor, real `BUTTON_RELEASE` event, anchor mapped) with no warning, so the
+  failure didn't reproduce under tracing. Not yet root-caused; needs either catching it live with
+  tracing still active, or a different diagnostic angle.
+
+### Clipboard under Wayland (task #74, fixed 2026-08-07)
+
+`destination_picker.py`'s clipboard-backend selection and `editor_window.py`'s own separate "Copy"
+action both unconditionally used `X11ClipboardBackend`, with no Wayland branch at all - unlike every
+other backend in this codebase. Centralized both call sites onto a new
+`backend_select.default_clipboard_backend()`, matching the existing `default_capture_backend()`
+pattern, rather than leaving the platform check duplicated across two files.
+
+**First real fix attempt (omitting `.store()`) did not work** - confirmed via a genuine cross-process
+test: a completely separate probe process saw zero clipboard targets and no image, moments after the
+app's own "Copy to Clipboard" ran with no errors or warnings at all. Not a downstream MIME-type/format
+issue - the clipboard claim itself never reached the Wayland protocol layer.
+
+**Root cause, confirmed via research** (Wayland's own protocol documentation plus `wl-clipboard`'s own
+docs), not assumed: a `wl_data_offer` is only valid while the *claiming client has real keyboard
+focus*, and `wl_data_device.set_selection()` needs a recent, valid serial tied to that focus.
+`Gtk.Menu`'s popup is a Wayland **popup-role** surface - it gets pointer/keyboard *events* forwarded
+via its parent's grab, but never receives genuine `wl_keyboard` focus the way a real `TOPLEVEL` window
+does. The destination picker's "Copy to Clipboard" menu item was therefore trying to claim the
+clipboard from a context that never had valid focus to claim it with, on any compositor without the
+`wlr-data-control` protocol extension - which GNOME/Mutter doesn't implement (same story as
+`wlr-layer-shell`, see `eyedropper_wayland.py`).
+
+**A wrong intermediate attempt, worth recording so it isn't retried**: explicitly calling
+`anchor_window.focus(Gdk.CURRENT_TIME)` (the real, still-mapped `MonitorWindow` kept alive as the
+picker's popup anchor) right before the clipboard claim, hoping to give GDK a definitely-focused
+surface to work with. This produced a new, real protocol error (`Gdk-Message: Error 22 (Invalid
+argument) dispatching to Wayland display`) and did not fix the underlying problem -
+`Gdk.Window.focus()` is not a safe call under Wayland (an X11-oriented API with no clean Wayland
+mapping). Reverted.
+
+**Real fix**: the same technique `wl-clipboard` itself documents using for compositors without
+`wlr-data-control` - `wayland_clipboard.py`'s `WaylandClipboardBackend.set_image()` now briefly shows
+an invisible, undecorated 1x1 `TOPLEVEL` window purely to receive genuine compositor-granted focus
+(the same natural "TOPLEVEL windows get real focus on mapping" behavior already relied on all through
+task #68), and only claims the clipboard once a real `focus-in-event` arrives - not assumed to be
+instant. A 1-second `GLib.timeout_add` fallback attempts the claim anyway and cleans up if focus never
+arrives, rather than hanging indefinitely the way `wl-clipboard` itself can. Confirmed live: copy then
+paste into a separate paint app now works correctly. One confirmed, expected, and accepted minor
+cosmetic side effect - the same one `wl-clipboard`'s own documentation warns about - a brief taskbar/
+window-list reflow is visible right when the invisible window briefly maps, live-confirmed by the
+user.
+
+Not guaranteed on every compositor (confirmed via `wl-clipboard`'s own documented caveat, not just
+this project's own testing): compositor focus-granting policy for a newly-mapped window isn't
+standardized by the Wayland protocol itself, so this technique's reliability could differ on a
+non-GNOME Wayland compositor. The timeout fallback exists specifically so a compositor that never
+grants focus degrades to "clipboard silently doesn't work" (the pre-fix behavior) rather than hanging.
+
+This makes `ClipboardBackend.set_image()` fire off asynchronous work under Wayland rather than
+claiming the clipboard before returning - acceptable since the Protocol's contract was always
+fire-and-forget (no caller ever waited for or checked a result).
+
+### Planned: Shell-side rewrite of the Wayland overlays (task #77, planned 2026-08-07, not started)
+
+**What this is for.** Tasks #75/#76 both trace back to the same root cause: region-select/window-
+picker/eyedropper's Wayland overlays (task #68) are real, separate `Gtk.WindowType.TOPLEVEL` client
+windows - Mutter treats a real application window being mapped/unmapped as a normal window-lifecycle
+event, and other Shell UI (the dock, possibly other extensions) reacts to that, producing the
+window-list/dock reflow task #76 describes. Confirmed by elimination, not assumed: ruled out the
+clipboard mechanism (identical reflow with both the GNOME-extension and invisible-window clipboard
+techniques, and on non-clipboard actions like Save/Edit too), ruled out `dash-to-dock`'s own
+`intellihide` setting (`dock-fixed=true` had no effect), and ruled out desktop notifications (a live
+`dbus-monitor` session watching `org.freedesktop.Notifications` showed nothing fired during a
+reproduction). Confirmed by comparison, not assumed either: read Gradia Capture's actual source
+(`gradia-companion`, GPL-3.0) and found its selection UI hooks directly into GNOME Shell's own native
+screenshot UI (`Main.screenshotUI`) via Clutter/St actors added to Shell's own UI group - genuinely no
+separate window at all, which is *why* it doesn't hit this. Checked Mark-Shot too: no companion Shell
+extension, a standalone Qt app using `wlr-layer-shell` (which Mutter doesn't implement) for its own
+overlay - architecturally in the same position as us, just a different toolkit.
+
+**The decision, made explicitly, not the default choice**: rather than use GNOME's own native
+screenshot UI directly (which would mean giving up this project's own magnifier loupe, crosshair, and
+faithful-to-Windows-Greenshot look), reimplement this project's *own* overlay UI as GNOME Shell
+extension code - Clutter/St actors drawn on Shell's own stage, the same category Gradia's approach
+belongs to, just built from scratch rather than piggybacking on Shell's existing screenshot UI.
+Deliberately scoped to GNOME specifically (not a generic Wayland solution) - consistent with this
+project's already-GNOME-specific window-calls and greenshot-linux-clipboard extensions. Accepted
+tradeoff, explicit: Mint/Cinnamon's own eventual Wayland session will need this revisited separately
+once Cinnamon ships one (a different shell/extension system entirely, no path to reusing this code -
+same scope boundary already documented for window-calls in the Window-picker section below). Accepted
+as reasonable because Mint, Ubuntu, and Debian's GNOME spin between them cover the realistic majority
+of "Windows user trying Linux" landings this project targets.
+
+**Architecture change.** Currently: the Python app creates and owns the interactive overlay directly
+(`ui/monitor_window.py`'s `MonitorWindow`, one real `TOPLEVEL` window per monitor, `fullscreen_on_
+monitor()`'d, drawing via Cairo and handling all input via GTK signals, all in Python). After this
+rewrite: the bundled Shell extension gains a new D-Bus-exposed "start an interactive selection"
+capability; when called, the *extension itself* builds and drives the entire interactive UI using
+Shell-internal APIs only (Clutter actors on `global.stage`/`Main.uiGroup`, `St.DrawingArea` or
+equivalent for backdrop/magnifier/crosshair rendering, Clutter's own event handling for press/motion/
+release/key) - no window is ever created by either side. Once the user completes or cancels, the
+extension reports the result back to the Python app (selected rect / window id / picked color), which
+then proceeds exactly as it does today from that point on - destination picker, clipboard, editor,
+etc. are all unaffected by this rewrite and need no changes.
+
+**Concrete pieces to move into the extension (GJS/Clutter/St), per overlay:**
+- **Region-select**: frozen-backdrop rendering, drag-to-select rectangle + dim-outside-selection,
+  the magnifier loupe + aiming crosshair + size label (`core/magnifier.py`'s positioning math needs a
+  careful, deliberate port to JS - simple enough arithmetic that this is a reasonable risk, not a
+  rewrite-from-scratch), Escape/M-key handling, cursor-shape auto-capture sampling.
+- **Window-picker**: hover-highlight rendering over real window geometry, click-to-select + activate.
+  Worth checking during implementation whether this can use `Meta.Window` directly (Shell already has
+  this data natively) rather than round-tripping through the bundled window-calls extension's own
+  D-Bus interface, now that the caller is Shell-side too.
+- **Eyedropper**: frozen-backdrop rendering (shared with region-select), the two-step click-then-drag
+  gesture (interaction model unchanged, just Shell-side now), magnifier loupe rendering, color
+  sampling from the backdrop pixel data.
+
+**Real simplification worth checking during implementation, not assumed yet**: since GNOME Shell's
+own native screenshot UI already captures the compositor's content directly (privileged, Shell-side
+access, no portal round trip), the extension may be able to capture its own backdrop the same way -
+potentially eliminating `wayland_portal.py`'s async D-Bus dance entirely for this specific flow. Needs
+confirming what capture APIs are actually reachable from extension code before relying on it.
+
+**D-Bus interface shape, to be finalized during implementation, not fully decided yet**: these
+interactions are inherently long-running/interactive (a real user gesture in the middle, not a quick
+call), so the Python side must use `Gio`'s *async* D-Bus call machinery (`call`, not `call_sync`) to
+avoid blocking its own main loop while waiting - critical given this project's own established
+reentrancy lesson (see [[feedback-wayland-portal-reentrancy]] in memory): a nested/blocking wait here
+would risk the exact same hang class chased all through task #68's original debugging.
+
+**Migration and testing strategy:**
+- Build one overlay at a time, region-select first (most-used, most representative) - verify task
+  #76's reflow is genuinely gone (not just reduced) before moving on to window-picker and eyedropper.
+- Keep the existing `MonitorWindow`-based Python implementation as the fallback when the extension
+  isn't installed/enabled - the same "prefer the extension, fall back gracefully" pattern already
+  used for window-calls and the clipboard extension, not a hard replacement.
+- No unit tests possible for the new GJS/Clutter code, matching this project's existing "UI glue not
+  unit tested" convention - live-verification only, same rigor as everything else, not a lower bar.
+- Cross-monitor behavior (already an open, unverified gap from task #68 - see that section) stays
+  unverified either way until real multi-monitor hardware is available; this rewrite doesn't change
+  that gap's status.
+- License: GPL-3.0-or-later, wholly original code, same as `greenshot-linux-clipboard` - not derived
+  from Gradia's or GNOME Shell's own source, just built using the same public Clutter/St/Main APIs any
+  extension has access to (see that extension's own docstring for the fuller reasoning on this point).
+
+**Open questions to resolve during implementation, not yet answered:**
+- Exact modern Clutter/St drawing API surface (GNOME Shell versions have shifted this over time;
+  needs checking against the actual shell-version range this project targets, not assumed from an
+  older recollection).
+- Whether Shell extensions can reach compositor content directly for backdrop capture (see the
+  simplification note above) - needs confirming, not assumed.
+- Keyboard/pointer input handling from within a Shell extension - Shell already owns global input in
+  a way client apps don't, so this is plausibly simpler than every client-side grab problem chased
+  this session, but that's an expectation to verify live, not a guarantee.
 
 ### Window-picker under Wayland (task #69)
 
