@@ -216,14 +216,15 @@ def start_eyedropper(
             suspended_grab.grab_add()
 
     if os.environ.get("XDG_SESSION_TYPE") == "wayland":
-        from greenshot_linux.ui.eyedropper_wayland import _WaylandEyedropperOverlay
-
         # Destroying the fullscreened overlay windows doesn't reliably
         # hand focus/stacking prominence back to the color dialog on
         # its own under this GNOME/Wayland session - confirmed live,
         # the dialog appeared to vanish (fell behind the editor window)
         # even though apply_color() was being called correctly.
-        # present() explicitly restores it.
+        # present() explicitly restores it. Applies equally to the
+        # Shell-native path below - there's no overlay window there at
+        # all, but the color dialog can still lose front-most standing
+        # for the same reason destroying any Shell-side modal grab can.
         toplevel = trigger_widget.get_toplevel()
 
         def refocused_picked(color):
@@ -238,6 +239,23 @@ def start_eyedropper(
                 on_cancelled()
             if isinstance(toplevel, Gtk.Window):
                 toplevel.present()
+
+        from greenshot_linux.capture.gnome_eyedropper import is_available as gnome_shell_capture_available
+
+        if gnome_shell_capture_available():
+            # No capture_backend/overlay window at all here - see
+            # gnome_eyedropper.py's own docstring. The D-Bus call is
+            # async (Gio.DBusConnection.call(), not call_sync) for the
+            # same reentrancy reasons region_select.py's Wayland branch
+            # already documents, doubly important here since this
+            # whole function runs from *inside* Gtk.Dialog.run()'s own
+            # nested main loop.
+            from greenshot_linux.capture.gnome_eyedropper import start_eyedropper as start_gnome_shell_eyedropper
+
+            start_gnome_shell_eyedropper(refocused_picked, refocused_cancelled)
+            return
+
+        from greenshot_linux.ui.eyedropper_wayland import _WaylandEyedropperOverlay
 
         wayland_overlay = _WaylandEyedropperOverlay(capture_backend, refocused_picked, refocused_cancelled)
         wayland_overlay.show()

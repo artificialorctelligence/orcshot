@@ -133,6 +133,13 @@ const CAPTURE_IFACE = `
          <arg type="i" direction="out" name="width" />
          <arg type="i" direction="out" name="height" />
       </method>
+      <method name="StartEyedropper">
+         <arg type="b" direction="out" name="ok" />
+         <arg type="y" direction="out" name="r" />
+         <arg type="y" direction="out" name="g" />
+         <arg type="y" direction="out" name="b" />
+         <arg type="y" direction="out" name="a" />
+      </method>
    </interface>
 </node>`;
 
@@ -604,6 +611,269 @@ class WindowPickerOverlay extends St.Widget {
   }
 }
 
+// Matches ui/eyedropper.py's own constants exactly (_PATCH_SIZE,
+// _LOUPE_DIAMETER, _LOUPE_OFFSET) and ui/magnifier.py's rendering
+// constants (_RING_WIDTH, _CROSSHAIR_GAP, _CROSSHAIR_THICKNESS) - see
+// those modules' docstrings for the Windows CaptureForm.cs/DrawZoom
+// citations these were traced from.
+const _PATCH_SIZE = 25;
+const _LOUPE_DIAMETER = 80;
+const _LOUPE_OFFSET_X = 18;
+const _LOUPE_OFFSET_Y = 18;
+const _RING_WIDTH = 2;
+const _CROSSHAIR_GAP = 6;
+const _CROSSHAIR_THICKNESS = 2;
+
+// Pick-a-color-from-anywhere-on-screen tool, Shell-side counterpart to
+// ui/eyedropper.py/eyedropper_wayland.py. No destination picker here
+// at all - unlike region-select/window-picker, the only result is a
+// single sampled colour, handed straight back to the caller (the
+// colour dialog).
+//
+// Cairo.ImageSurface.createForData() does not exist in this GJS
+// binding at all (confirmed live: undefined, unlike pycairo's own
+// API), and createFromPNG() only accepts a filename, not a stream or
+// bytes (confirmed live: "Couldn't convert to filename" against a
+// Gio.MemoryInputStream) - ruling out both of the more direct ways
+// region_select.py's own numpy_to_cairo_surface gets a Cairo surface
+// from raw pixel bytes in Python. The real path here: Shell.
+// Screenshot.composite_to_stream() already hands back a decoded
+// GdkPixbuf.Pixbuf directly (not just the PNG bytes written to its
+// stream argument - confirmed live reading GNOME Shell's own
+// screenshot.js), and GdkPixbuf.Pixbuf.get_pixels() returns a real,
+// correctly-indexable Uint8Array (confirmed live) - so the magnified
+// preview is drawn one source pixel at a time, each as its own filled
+// Cairo rectangle scaled up to the destination size (manual nearest-
+// neighbour scaling), rather than via a Cairo surface pattern the way
+// the Python version does it.
+class EyedropperOverlay extends St.Widget {
+  static {
+    GObject.registerClass(this);
+  }
+
+  constructor() {
+    super({ visible: false, reactive: true, x: 0, y: 0 });
+    Main.uiGroup.add_child(this);
+    this.add_constraint(new Clutter.BindConstraint({
+      source: global.stage,
+      coordinate: Clutter.BindCoordinate.ALL,
+    }));
+
+    this._backdrop = new Clutter.Actor();
+    this.add_child(this._backdrop);
+
+    this._drawing = new St.DrawingArea();
+    this._drawing.connect('repaint', this._onRepaint.bind(this));
+    this.add_child(this._drawing);
+
+    this._grabHelper = new GrabHelper(this);
+    this._dragging = false;
+    this._cursorX = 0;
+    this._cursorY = 0;
+    this._patchPixbuf = null;
+    this._patchOrigin = null;
+    this._currentColor = null;
+    this._result = null;
+
+    // Same signals as RegionSelectOverlay's PanGesture, for the same
+    // reasons (recognize/pan-update/end/cancel) - here every pan-
+    // update matters (a continuous sample-as-you-drag gesture), not
+    // just the start/end points, matching ui/eyedropper.py's own
+    // press-drag-release contract exactly (a single click with no
+    // drag at all still counts as a valid pick, sampled at press).
+    this._panGesture = new Clutter.PanGesture();
+    this._panGesture.set_begin_threshold(0);
+    this._panGesture.connect('recognize', this._onPanBegin.bind(this));
+    this._panGesture.connect('pan-update', this._onPanUpdate.bind(this));
+    this._panGesture.connect('end', this._onPanEnd.bind(this));
+    this._panGesture.connect('cancel', this._onPanEnd.bind(this));
+    this.add_action(this._panGesture);
+
+    this.set_cursor_type(Clutter.CursorType.CROSSHAIR);
+  }
+
+  async selectAsync() {
+    const [content, scale] = await new Shell.Screenshot().screenshot_stage_to_content();
+    this._backdrop.set_content(content);
+    this._texture = content.get_texture();
+    this._scale = scale;
+
+    const [width, height] = [global.stage.width, global.stage.height];
+    this._backdrop.set_size(width, height);
+    this._drawing.set_size(width, height);
+    this._drawing.queue_repaint();
+
+    Main.layoutManager.emit('system-modal-opened');
+    Main.uiGroup.set_child_above_sibling(this, null);
+    this.show();
+
+    await this._grabHelper.grabAsync({ actor: this });
+    this.destroy();
+
+    return this._result;
+  }
+
+  async _sample(x, y) {
+    this._cursorX = x;
+    this._cursorY = y;
+
+    const half = Math.floor(_PATCH_SIZE / 2);
+    const stageWidth = global.stage.width;
+    const stageHeight = global.stage.height;
+    const left = Math.max(0, Math.min(Math.round(x) - half, stageWidth - _PATCH_SIZE));
+    const top = Math.max(0, Math.min(Math.round(y) - half, stageHeight - _PATCH_SIZE));
+
+    const stream = Gio.MemoryOutputStream.new_resizable();
+    const pixbuf = await Shell.Screenshot.composite_to_stream(
+      this._texture, left, top, _PATCH_SIZE, _PATCH_SIZE, this._scale,
+      null, 0, 0, 1,
+      stream);
+    stream.close(null);
+
+    this._patchPixbuf = pixbuf;
+    this._patchOrigin = { x: left, y: top };
+    this._currentColor = this._pixelAt(pixbuf, Math.round(x) - left, Math.round(y) - top);
+    this._drawing.queue_repaint();
+  }
+
+  _pixelAt(pixbuf, px, py) {
+    const pixels = pixbuf.get_pixels();
+    const rowstride = pixbuf.get_rowstride();
+    const channels = pixbuf.get_n_channels();
+    const i = py * rowstride + px * channels;
+    const a = channels === 4 ? pixels[i + 3] : 255;
+    return [pixels[i], pixels[i + 1], pixels[i + 2], a];
+  }
+
+  _onPanBegin() {
+    if (this._result !== null)
+      return;
+    this._dragging = true;
+    const coords = this._panGesture.get_centroid_abs();
+    this._sample(coords.x, coords.y).catch(e => logError(e));
+  }
+
+  _onPanUpdate() {
+    if (this._result !== null || !this._dragging)
+      return;
+    const coords = this._panGesture.get_centroid_abs();
+    this._sample(coords.x, coords.y).catch(e => logError(e));
+  }
+
+  _onPanEnd() {
+    if (this._result !== null)
+      return;
+    this._dragging = false;
+    // this._currentColor is null if _sample() never resolved even
+    // once (e.g. an extremely fast click-release before the first
+    // composite_to_stream() call finished) - treated as a cancel, same
+    // as ui/eyedropper_wayland.py's own _on_button_release contract.
+    this._result = this._currentColor;
+    this._grabHelper.ungrab();
+  }
+
+  _onRepaint(area) {
+    const cr = area.get_context();
+    const [width, height] = area.get_surface_size();
+    cr.setOperator(Cairo.Operator.CLEAR);
+    cr.paint();
+    cr.setOperator(Cairo.Operator.OVER);
+    if (this._patchPixbuf !== null) {
+      try {
+        this._drawLoupe(cr);
+      } catch (e) {
+        logError(e, 'Error drawing eyedropper loupe');
+      }
+    }
+    cr.$dispose();
+  }
+
+  _drawLoupe(cr) {
+    const pixbuf = this._patchPixbuf;
+    const pixels = pixbuf.get_pixels();
+    const rowstride = pixbuf.get_rowstride();
+    const channels = pixbuf.get_n_channels();
+    const patchWidth = pixbuf.get_width();
+    const patchHeight = pixbuf.get_height();
+
+    const destX = this._cursorX + _LOUPE_OFFSET_X;
+    const destY = this._cursorY + _LOUPE_OFFSET_Y;
+    const radius = _LOUPE_DIAMETER / 2;
+    const centerX = destX + radius;
+    const centerY = destY + radius;
+    const scaleX = _LOUPE_DIAMETER / patchWidth;
+    const scaleY = _LOUPE_DIAMETER / patchHeight;
+
+    cr.save();
+    cr.arc(centerX, centerY, radius, 0, 2 * Math.PI);
+    cr.clip();
+    for (let py = 0; py < patchHeight; py++) {
+      for (let px = 0; px < patchWidth; px++) {
+        const i = py * rowstride + px * channels;
+        const a = channels === 4 ? pixels[i + 3] / 255 : 1;
+        cr.setSourceRGBA(pixels[i] / 255, pixels[i + 1] / 255, pixels[i + 2] / 255, a);
+        cr.rectangle(destX + px * scaleX, destY + py * scaleY, scaleX + 0.5, scaleY + 0.5);
+        cr.fill();
+      }
+    }
+    cr.restore();
+
+    cr.save();
+    cr.setLineWidth(_RING_WIDTH);
+    cr.setSourceRGB(1, 1, 1);
+    cr.arc(centerX, centerY, radius - _RING_WIDTH / 2, 0, 2 * Math.PI);
+    cr.stroke();
+    cr.restore();
+
+    // Crosshair at the cursor's own pixel within the zoomed preview -
+    // matches ui/magnifier.py's draw_magnifier exactly (a small gap at
+    // the middle, outlined in white for contrast).
+    const cursorInPatchX = this._cursorX - this._patchOrigin.x;
+    const cursorInPatchY = this._cursorY - this._patchOrigin.y;
+    const crossX = destX + (cursorInPatchX + 0.5) * scaleX;
+    const crossY = destY + (cursorInPatchY + 0.5) * scaleY;
+    const arm = radius * 0.7;
+    const gap = _CROSSHAIR_GAP;
+    cr.save();
+    cr.arc(centerX, centerY, radius - _RING_WIDTH, 0, 2 * Math.PI);
+    cr.clip();
+    for (const [lineWidth, r, g, b] of [[_CROSSHAIR_THICKNESS + 2, 1, 1, 1], [_CROSSHAIR_THICKNESS, 0, 0, 0]]) {
+      cr.setLineWidth(lineWidth);
+      cr.setSourceRGB(r, g, b);
+      cr.moveTo(crossX, crossY - arm);
+      cr.lineTo(crossX, crossY - gap);
+      cr.moveTo(crossX, crossY + gap);
+      cr.lineTo(crossX, crossY + arm);
+      cr.moveTo(crossX - arm, crossY);
+      cr.lineTo(crossX - gap, crossY);
+      cr.moveTo(crossX + gap, crossY);
+      cr.lineTo(crossX + arm, crossY);
+      cr.stroke();
+    }
+    cr.restore();
+
+    if (this._currentColor !== null) {
+      const [r, g, b] = this._currentColor;
+      const hex = n => n.toString(16).padStart(2, '0').toUpperCase();
+      const text = `#${hex(r)}${hex(g)}${hex(b)}`;
+      const labelX = destX;
+      const labelY = destY + _LOUPE_DIAMETER + 4;
+      cr.save();
+      cr.selectFontFace('sans-serif', Cairo.FontSlant.NORMAL, Cairo.FontWeight.NORMAL);
+      cr.setFontSize(13);
+      const extents = cr.textExtents(text);
+      const pad = 4;
+      cr.setSourceRGBA(0, 0, 0, 0.75);
+      cr.rectangle(labelX - pad, labelY - extents.height - pad, extents.width + 2 * pad, extents.height + 2 * pad);
+      cr.fill();
+      cr.setSourceRGB(1, 1, 1);
+      cr.moveTo(labelX, labelY);
+      cr.showText(text);
+      cr.restore();
+    }
+  }
+}
+
 export default class Extension {
   // Two separate exported objects at two separate paths - tried a
   // single combined multi-<interface> document first (wrong, GJS only
@@ -667,5 +937,14 @@ export default class Extension {
     if (result === null)
       return [false, '', [], 0, 0, 0, 0];
     return [true, result.destination, result.pngBytes, result.x, result.y, result.width, result.height];
+  }
+
+  async StartEyedropper() {
+    const overlay = new EyedropperOverlay();
+    const result = await overlay.selectAsync();
+    if (result === null)
+      return [false, 0, 0, 0, 0];
+    const [r, g, b, a] = result;
+    return [true, r, g, b, a];
   }
 }

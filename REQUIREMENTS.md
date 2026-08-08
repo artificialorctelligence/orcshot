@@ -1675,7 +1675,7 @@ This makes `ClipboardBackend.set_image()` fire off asynchronous work under Wayla
 claiming the clipboard before returning - acceptable since the Protocol's contract was always
 fire-and-forget (no caller ever waited for or checked a result).
 
-### Shell-side rewrite of the Wayland overlays (task #77, planned 2026-08-07, region-select working 2026-08-08)
+### Shell-side rewrite of the Wayland overlays (task #77, planned 2026-08-07, complete 2026-08-08)
 
 **What this is for.** Tasks #75/#76 both trace back to the same root cause: region-select/window-
 picker/eyedropper's Wayland overlays (task #68) are real, separate `Gtk.WindowType.TOPLEVEL` client
@@ -1940,6 +1940,71 @@ event that needed to stay synchronous (see `destination_picker.py`'s `refresh_im
 full story). Since the destination picker here is Shell-native now (not a client `Gtk.Menu` needing a
 live trigger-event serial at all), that whole constraint doesn't exist in this path - raise, wait,
 re-screenshot, and crop all happen inline, in order, before the destination picker is ever shown.
+
+#### Eyedropper implementation (2026-08-08): task #77 complete - all three overlays now Shell-side
+
+The last of the three overlays, and the one with no destination picker at all - the eyedropper's only
+job is handing a single sampled colour back to its caller (the colour dialog, itself opened from
+`EditorWindow`'s style panel), so `StartEyedropper()` (new `EyedropperOverlay`, same
+`GrabHelper`/`Clutter.PanGesture`/`St.DrawingArea` building blocks as the other two) returns
+`(ok, r, g, b, a)` directly with no `pickDestinationAsync` chained on at all. The grab-suspend/restore
+and `toplevel.present()` dance `ui/eyedropper.py`'s `start_eyedropper()` already does around
+`Gtk.Dialog.run()`'s own GTK-level modal grab (see that function's own docstring) applies unchanged to
+this new path too - a GTK concept, independent of which Wayland implementation is underneath.
+
+**The magnifier loupe needed a real, verified-live rendering technique of its own** - the single
+hardest piece of this task #77 sub-effort, given the loupe itself is not optional for this tool (unlike
+region-select's own loupe, deliberately deferred - see this section's own earlier entry) and needed
+live, per-motion-event pixel sampling, not just a one-time crop. Two more GJS Cairo API gaps found live,
+same discipline as the rest of task #77 (checked before relying on them, not assumed):
+`Cairo.ImageSurface.createForData()` does not exist in this binding at all (unlike pycairo's own API,
+which `ui/cairo_convert.py`'s `numpy_to_cairo_surface` relies on for the exact same purpose Python-side),
+and `Cairo.ImageSurface.createFromPNG()` only accepts a filename (a real string path), not a stream or
+bytes (confirmed live: "Couldn't convert to filename" against a `Gio.MemoryInputStream`). The real path
+that worked: `Shell.Screenshot.composite_to_stream()` already hands back a fully-decoded
+`GdkPixbuf.Pixbuf` directly (not just the PNG bytes written to its own stream argument - see the
+region-select section above for where this was first confirmed reading GNOME Shell's own
+screenshot.js), and `GdkPixbuf.Pixbuf.get_pixels()` returns a real, correctly-indexable `Uint8Array`
+(confirmed live against a hand-filled test pixbuf) - so the magnified preview is drawn one source pixel
+at a time, each its own filled Cairo rectangle scaled up to the destination size (manual nearest-
+neighbour scaling), rather than via a Cairo surface pattern the way `ui/magnifier.py`'s
+`draw_magnifier` does it in Python. `composite_to_stream()` is called fresh on every `pan-update` (not
+once, unlike the frozen-backdrop-based Python fallback) against a small (25x25, matching
+`ui/eyedropper.py`'s own `_PATCH_SIZE`) crop of the already-captured stage texture - genuinely live
+sampling, not a one-time-frozen approximation, which the previous `MonitorWindow`-based Wayland
+fallback's own docstring explicitly called out as a known limitation it couldn't avoid.
+
+**One real, still-not-fully-explained flake during live verification, recorded honestly rather than
+glossed over**: on the very first live test after implementation, the colour sample itself worked
+correctly (confirmed by the colour dialog receiving the right value), but the loupe never became
+visible at all during the drag. Added detailed instrumentation (temporary, since removed) logging every
+step of the pipeline - `_sample()`'s `composite_to_stream()` calls, the decoded pixbuf's own dimensions/
+rowstride/channels, the computed colour, `_onRepaint` firing, and (once that showed nothing wrong
+either) the exact geometry `_drawLoupe` computes (`destX`/`destY`/`centerX`/`centerY`/`scaleX`/`scaleY`,
+the drawing area's own size/visibility/opacity, and the first sampled pixel's raw value) - every single
+value logged out correct and in-bounds, and zero exceptions were ever recorded across roughly 90 repaint
+calls in one drag. The very next test, with no code change besides the added logging itself, rendered
+correctly, and stayed reliable across several more repeat tests after that. Left unresolved rather than
+declared root-caused: given every checked value was correct both times, the most likely explanation is
+some kind of one-off Clutter/compositor timing glitch during the very first repaint cycle after the
+overlay was shown, not a logic bug in this code - but that's an inference from elimination, not a
+confirmed mechanism, so it's recorded as an open flake rather than a closed bug. Revisit if it recurs.
+
+**A real tooling lesson from this same debugging arc, worth remembering independent of the bug itself**:
+a screen-lock/re-authenticate cycle on the test VM is not the same as a logout, and does not restart the
+`gnome-shell` process or clear its extension-module cache the way an actual Log Out does - confirmed
+live via `ps aux | grep gnome-shell`'s PID staying identical across several "logged back in" reports
+that turned out to be lock-timeout re-authentications, not real logouts. See
+[[feedback-extension-reload-caching]] in memory for the fuller writeup - always verify a genuinely new
+Shell PID before trusting that a reload actually happened, rather than taking "I logged back in" at
+face value.
+
+**Task #77 is now complete**: region-select, window-picker, and eyedropper are all Shell-side, task #76
+(the dock/taskbar reflow) is fully eliminated across all three, and the destination picker (used by
+region-select and window-picker) is a native Shell popup menu with no client-side trigger-event
+restriction to fight. Not yet ported: the magnifier loupe/aiming crosshair/size label for region-select
+specifically (deliberately deferred, see that section) - the *only* remaining piece of the original
+task #77 scope, tracked as a natural follow-up rather than blocking this task's completion.
 
 ### Window-picker under Wayland (task #69)
 
