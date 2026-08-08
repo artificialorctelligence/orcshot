@@ -61,7 +61,7 @@ def is_available() -> bool:
     return clipboard_is_available()
 
 
-def _decode_png(data: bytes):
+def decode_png(data: bytes):
     stream = Gio.MemoryInputStream.new_from_bytes(GLib.Bytes.new(data))
     pixbuf = GdkPixbuf.Pixbuf.new_from_stream(stream, None)
     return pixbuf_to_numpy(pixbuf)
@@ -96,7 +96,7 @@ def start_region_select(on_selected, on_cancelled=None) -> None:
                 if on_cancelled is not None:
                     on_cancelled()
                 return
-            image = _decode_png(bytes(png_bytes))
+            image = decode_png(bytes(png_bytes))
             on_selected(image, Rect(x, y, x + width, y + height), destination)
         except Exception:
             print("[gnome_region_select] exception in on_reply:", file=sys.stderr, flush=True)

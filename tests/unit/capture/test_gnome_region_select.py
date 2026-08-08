@@ -15,7 +15,7 @@ to test.
 import numpy as np
 
 from greenshot_linux.capture.gnome_clipboard import _encode_png
-from greenshot_linux.capture.gnome_region_select import _decode_png
+from greenshot_linux.capture.gnome_region_select import decode_png as _decode_png
 
 
 class TestDecodePng:

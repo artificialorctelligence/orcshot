@@ -108,10 +108,23 @@ const CLIPBOARD_IFACE = `
 // "edit"/"print", or "" if the user dismissed the picker without
 // choosing (Escape/click-outside) - Python only ever executes the
 // chosen action, no picker UI of its own for this flow at all anymore.
+// StartWindowPicker follows the exact same shape/reasoning as
+// StartRegionSelect above (see that method's own comment) - same
+// reply tuple, same reused pickDestinationAsync for the destination
+// choice, same reasons a client-side Gtk.Menu can't do that part.
 const CAPTURE_IFACE = `
 <node>
    <interface name="org.gnome.Shell.Extensions.GreenshotCapture">
       <method name="StartRegionSelect">
+         <arg type="b" direction="out" name="ok" />
+         <arg type="s" direction="out" name="destination" />
+         <arg type="ay" direction="out" name="pngBytes" />
+         <arg type="i" direction="out" name="x" />
+         <arg type="i" direction="out" name="y" />
+         <arg type="i" direction="out" name="width" />
+         <arg type="i" direction="out" name="height" />
+      </method>
+      <method name="StartWindowPicker">
          <arg type="b" direction="out" name="ok" />
          <arg type="s" direction="out" name="destination" />
          <arg type="ay" direction="out" name="pngBytes" />
@@ -389,6 +402,208 @@ class RegionSelectOverlay extends St.Widget {
   }
 }
 
+// Real window geometry/content, not the bundled window-calls
+// extension's own D-Bus interface - worth checking during
+// implementation, per REQUIREMENTS.md's own open question, now that
+// this caller is Shell-side too: `global.get_window_actors()`/
+// `Meta.Window` gives this directly, no separate extension or D-Bus
+// round trip needed at all for enumeration or activation.
+class WindowPickerOverlay extends St.Widget {
+  static {
+    GObject.registerClass(this);
+  }
+
+  constructor() {
+    super({ visible: false, reactive: true, x: 0, y: 0 });
+    Main.uiGroup.add_child(this);
+    this.add_constraint(new Clutter.BindConstraint({
+      source: global.stage,
+      coordinate: Clutter.BindCoordinate.ALL,
+    }));
+
+    this._backdrop = new Clutter.Actor();
+    this.add_child(this._backdrop);
+
+    this._drawing = new St.DrawingArea();
+    this._drawing.connect('repaint', this._onRepaint.bind(this));
+    this.add_child(this._drawing);
+
+    this._grabHelper = new GrabHelper(this);
+    this._windows = [];
+    this._hovered = null;
+    this._result = null;
+
+    // Plain Clutter.Actor signals, not a Gesture object - hover
+    // tracking isn't a drag/pan, just "where is the pointer and was
+    // there a click", confirmed real signals via GObject.signal_list_ids()
+    // against the live Clutter typelib before relying on them (same
+    // discipline as everything else built tonight - Clutter.Canvas's
+    // absence was found exactly this way, not assumed from an older
+    // recollection).
+    this.connect('motion-event', this._onMotion.bind(this));
+    this.connect('button-press-event', this._onButtonPress.bind(this));
+  }
+
+  _enumerateWindows() {
+    // Mirrors ui/window_picker.py's own filtering intent (skip
+    // minimized, skip windows that shouldn't be pickable) using
+    // Shell's own native window model directly. global.get_window_
+    // actors() is documented (and confirmed via GNOME Shell's own
+    // screenshot.js UIWindowSelector.capture(), which enumerates the
+    // exact same way) to return actors in bottom-to-top stacking
+    // order, matching the "last match wins" hover contract this
+    // project's X11/WaylandWindowPicker implementations already rely
+    // on (see ui/window_picker.py's own docstring for the stacking-
+    // order bug that contract was written to prevent).
+    const workspaceManager = global.workspace_manager;
+    const activeWorkspace = workspaceManager.get_active_workspace();
+    const windows = [];
+    for (const actor of global.get_window_actors()) {
+      const metaWindow = actor.meta_window;
+      if (!metaWindow || metaWindow.is_override_redirect())
+        continue;
+      if (!metaWindow.located_on_workspace(activeWorkspace))
+        continue;
+      if (metaWindow.minimized)
+        continue;
+      windows.push({ metaWindow, rect: metaWindow.get_frame_rect() });
+    }
+    return windows;
+  }
+
+  async selectAsync() {
+    const [content, scale] = await new Shell.Screenshot().screenshot_stage_to_content();
+    this._backdrop.set_content(content);
+
+    const [width, height] = [global.stage.width, global.stage.height];
+    this._backdrop.set_size(width, height);
+    this._drawing.set_size(width, height);
+    this._drawing.queue_repaint();
+
+    this._windows = this._enumerateWindows();
+
+    Main.layoutManager.emit('system-modal-opened');
+    Main.uiGroup.set_child_above_sibling(this, null);
+    this.show();
+
+    await this._grabHelper.grabAsync({ actor: this });
+    this.hide();
+
+    if (this._result === null) {
+      this.destroy();
+      return null;
+    }
+
+    // Raise/focus the picked window, then take a *fresh* stage
+    // screenshot before cropping to its frame rect - matches the
+    // reasoning ui/window_picker_wayland.py's own docstring documents
+    // (the initial backdrop may show a since-occluded window's stale
+    // content, if another window was on top of it at capture time),
+    // but entirely synchronous and Shell-side, with none of the
+    // reentrancy hazards that forced that Python implementation to
+    // defer the equivalent step to menu-item-click time instead (see
+    // destination_picker.py's refresh_image docstring for that story)
+    // - no portal, no cross-process D-Bus round trip, no nested
+    // GLib.MainLoop risk exists in this path at all.
+    //
+    // The restack itself is NOT instantaneous, though - confirmed live
+    // as a real bug: capturing immediately after activate() still
+    // returned a mix of the target window's own (stale) pixels and
+    // whatever had been on top of it, meaning the fresh screenshot was
+    // taken before the raise actually took visual effect. Same root
+    // cause ui/window_picker_wayland.py's own docstring already
+    // documented for its X11/portal equivalent ("the raise genuinely
+    // happens, just too fast to perceive... 0.15s") - that empirically-
+    // verified delay is reused here rather than re-derived, since
+    // there's no Shell-side signal to wait on instead (no 'restacked'-
+    // style event fires synchronously with the actual compositor
+    // repaint that matters here).
+    const metaWindow = this._result;
+    metaWindow.activate(global.get_current_time());
+    await new Promise(resolve => GLib.timeout_add(GLib.PRIORITY_DEFAULT, 150, () => {
+      resolve();
+      return GLib.SOURCE_REMOVE;
+    }));
+    const [freshContent, freshScale] = await new Shell.Screenshot().screenshot_stage_to_content();
+    const freshTexture = freshContent.get_texture();
+
+    const rect = metaWindow.get_frame_rect();
+    const stream = Gio.MemoryOutputStream.new_resizable();
+    await Shell.Screenshot.composite_to_stream(
+      freshTexture, rect.x, rect.y, rect.width, rect.height, freshScale,
+      null, 0, 0, 1,
+      stream);
+    stream.close(null);
+    const pngBytes = stream.steal_as_bytes().toArray();
+
+    const destination = await pickDestinationAsync(rect.x, rect.y);
+    this.destroy();
+
+    if (destination === null)
+      return null;
+
+    return { x: rect.x, y: rect.y, width: rect.width, height: rect.height, pngBytes, destination };
+  }
+
+  _windowAt(x, y) {
+    let match = null;
+    for (const w of this._windows) {
+      const r = w.rect;
+      if (x >= r.x && x < r.x + r.width && y >= r.y && y < r.y + r.height)
+        match = w;
+    }
+    return match;
+  }
+
+  _onMotion(_actor, event) {
+    if (this._result !== null)
+      return Clutter.EVENT_PROPAGATE;
+    const [x, y] = event.get_coords();
+    const hovered = this._windowAt(x, y);
+    if (hovered !== this._hovered) {
+      this._hovered = hovered;
+      this._drawing.queue_repaint();
+    }
+    return Clutter.EVENT_PROPAGATE;
+  }
+
+  _onButtonPress(_actor, _event) {
+    if (this._result !== null)
+      return Clutter.EVENT_PROPAGATE;
+    // Clicking where no window is cancels - matches ui/window_picker.py
+    // and ui/window_picker_wayland.py's own documented contract.
+    this._result = this._hovered !== null ? this._hovered.metaWindow : null;
+    this._grabHelper.ungrab();
+    return Clutter.EVENT_STOP;
+  }
+
+  _onRepaint(area) {
+    const cr = area.get_context();
+    const [width, height] = area.get_surface_size();
+    cr.setOperator(Cairo.Operator.CLEAR);
+    cr.paint();
+    cr.setOperator(Cairo.Operator.OVER);
+
+    cr.setSourceRGBA(0, 0, 0, _DIM_ALPHA);
+    if (this._hovered !== null) {
+      const r = this._hovered.rect;
+      cr.setFillRule(Cairo.FillRule.EVEN_ODD);
+      cr.rectangle(0, 0, width, height);
+      cr.rectangle(r.x, r.y, r.width, r.height);
+      cr.fill();
+
+      cr.setSourceRGB(..._SELECTION_BORDER);
+      cr.setLineWidth(2);
+      cr.rectangle(r.x + 1, r.y + 1, r.width - 2, r.height - 2);
+      cr.stroke();
+    } else {
+      cr.rectangle(0, 0, width, height);
+      cr.fill();
+    }
+    cr.$dispose();
+  }
+}
+
 export default class Extension {
   // Two separate exported objects at two separate paths - tried a
   // single combined multi-<interface> document first (wrong, GJS only
@@ -440,6 +655,14 @@ export default class Extension {
   // assumed from documentation, which doesn't cover this.
   async StartRegionSelect() {
     const overlay = new RegionSelectOverlay();
+    const result = await overlay.selectAsync();
+    if (result === null)
+      return [false, '', [], 0, 0, 0, 0];
+    return [true, result.destination, result.pngBytes, result.x, result.y, result.width, result.height];
+  }
+
+  async StartWindowPicker() {
+    const overlay = new WindowPickerOverlay();
     const result = await overlay.selectAsync();
     if (result === null)
       return [false, '', [], 0, 0, 0, 0];

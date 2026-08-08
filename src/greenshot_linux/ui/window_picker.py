@@ -219,15 +219,39 @@ def start_window_picker(
     window gets clicked. Backends are injectable (for tests/fakes); the
     defaults construct the real adapters lazily so importing this
     module doesn't require a display. ``on_captured(absolute_rect)``,
-    if given, fires right before the picker opens - GreenshotApplication
-    uses this to remember the region for "repeat last region".
+    if given, fires right before the picker opens (or, under Wayland
+    with the bundled Shell extension available, right after a capture
+    completes - see below) - GreenshotApplication uses this to
+    remember the region for "repeat last region".
 
-    Under Wayland, delegates to WaylandWindowPicker (a per-monitor
-    multi-window overlay - see ui/window_picker_wayland.py's module
-    docstring and region_select.py's start_region_capture for why a
-    single POPUP window, this function's X11 path below, doesn't work
-    there).
+    Under Wayland, prefers GnomeShellWindowPicker (the bundled
+    greenshot-linux-clipboard extension's Shell-side hover-select-
+    through-destination-choice flow - see
+    ui/window_picker_gnome_shell.py's own docstring) when available,
+    falling back to WaylandWindowPicker (a per-monitor multi-window
+    overlay - see ui/window_picker_wayland.py's module docstring and
+    region_select.py's start_region_capture for why a single POPUP
+    window, this function's X11 path below, doesn't work there)
+    otherwise.
     """
+    if os.environ.get("XDG_SESSION_TYPE") == "wayland":
+        from greenshot_linux.capture.gnome_window_picker import is_available as gnome_shell_capture_available
+
+        if gnome_shell_capture_available():
+            # Own branch, not on_selected: GnomeShellWindowPicker's
+            # contract is different from the other two overlays' (see
+            # region_select.py's own GnomeShellRegionSelect branch for
+            # the same reasoning) - no window_enumerator/
+            # window_activator needed at all here either, since the
+            # Shell-side overlay reaches Meta.Window directly.
+            from greenshot_linux.ui.window_picker_gnome_shell import GnomeShellWindowPicker
+
+            overlay = GnomeShellWindowPicker(
+                on_captured=on_captured, capture_mouse_cursor=capture_mouse_cursor, cursor_backend=cursor_backend,
+            )
+            overlay.show()
+            return overlay
+
     if capture_backend is None:
         from greenshot_linux.capture.backend_select import default_capture_backend
 

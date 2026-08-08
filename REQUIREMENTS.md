@@ -1897,10 +1897,49 @@ down in favor of finishing the harder-but-complete version once the destination-
 cause (a bounded, well-understood Wayland protocol restriction) was found rather than an open-ended
 unknown.
 
-**Not yet done**: window-picker and eyedropper overlays (still using the pre-existing
-`MonitorWindow`-based Wayland implementations) - per the migration strategy, next up now that
-region-select's full round trip (selection through destination choice) and the reflow question both
-have real, measured, fully-resolved answers rather than partial ones.
+**Not yet done**: eyedropper (still using the pre-existing `MonitorWindow`-based Wayland
+implementation) - per the migration strategy, next up now that region-select and window-picker (see
+below) are both done.
+
+#### Window-picker implementation (2026-08-08): working end-to-end, reuses region-select's architecture
+
+Built immediately after region-select using the exact same building blocks (`GrabHelper`,
+`Main.layoutManager.emit('system-modal-opened')`, `St.DrawingArea` for dim+highlight rendering,
+`Shell.Screenshot.screenshot_stage_to_content()`/`composite_to_stream()`, and - critically -
+`pickDestinationAsync` reused directly, not reimplemented) - a new `WindowPickerOverlay` class and
+`StartWindowPicker()` D-Bus method, same reply shape as `StartRegionSelect()`. Real window geometry and
+content now come straight from Shell's own native API - `global.get_window_actors()`/`Meta.Window`
+(`get_frame_rect()`, `is_override_redirect()`, `located_on_workspace()`, `minimized`, `activate()`) -
+rather than round-tripping through the bundled window-calls extension's own D-Bus interface at all, a
+"worth checking during implementation" question from the original task #77 plan that panned out
+exactly as hoped, now that the caller is Shell-side too. `global.get_window_actors()` returns actors in
+bottom-to-top stacking order (confirmed both by reading GNOME Shell's own `UIWindowSelector.capture()`,
+which enumerates the same way, and by it matching the existing "last match wins" hover contract
+`ui/window_picker.py`'s own docstring already documents test coverage for) - no separate
+enumeration-order concern to worry about, unlike the real X11 bug that contract was originally written
+to prevent (`_NET_CLIENT_LIST` vs `_NET_CLIENT_LIST_STACKING`, see that module's docstring).
+
+**One real bug caught and fixed via live testing with actual overlapping windows (Krita partially
+behind Firefox), not assumed correct from the design alone**: capturing a partially-occluded window
+returned a mix of that window's own pixels and whatever had been drawn on top of it in the region where
+they overlapped. Root cause: `metaWindow.activate()` (raising the clicked window to the front) does
+not take visual effect *instantly* - the same restacking-latency Windows-parity detail
+`ui/window_picker_wayland.py`'s own docstring already documented for the X11/portal-based
+implementation ("the raise genuinely happens, just too fast to perceive... 0.15s"), which this port
+initially missed carrying over, having assumed Shell-side synchronous execution would sidestep timing
+concerns generally (true for the *reentrancy* hazards that motivated a lot of this session's other
+work, but not true for actual compositor-repaint latency, a different class of problem). Fixed by
+reusing that same empirically-verified 150ms wait (via a `GLib.timeout_add`-backed `Promise`) between
+`activate()` and the fresh post-raise `screenshot_stage_to_content()` call - confirmed live afterward
+with the same overlapping-windows setup that the captured content is now fully correct.
+
+No `refresh_image`/deferred-capture dance needed at all here, unlike `ui/window_picker_wayland.py`'s
+own X11-portal-based implementation - that dance existed specifically to route around the reentrancy
+hazard of doing the activate-then-regrab round trip *from inside* the very Wayland popup-menu-trigger
+event that needed to stay synchronous (see `destination_picker.py`'s `refresh_image` docstring for the
+full story). Since the destination picker here is Shell-native now (not a client `Gtk.Menu` needing a
+live trigger-event serial at all), that whole constraint doesn't exist in this path - raise, wait,
+re-screenshot, and crop all happen inline, in order, before the destination picker is ever shown.
 
 ### Window-picker under Wayland (task #69)
 
