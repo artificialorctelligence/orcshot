@@ -120,6 +120,42 @@ def _save_as(image: np.ndarray, cursor_shape: CursorShape = None) -> None:
         dialog.destroy()
 
 
+# Shared between show_destination_picker's own Gtk.Menu (X11 and the
+# WaylandRegionSelect fallback) and dispatch_destination (the Shell-
+# native picker's own result, see ui/region_select_gnome_shell.py) -
+# one table of (id, label, handler) so both paths stay in sync and
+# neither duplicates the actual destination logic. Order/labels match
+# Windows' own destination priority (see this module's own docstring).
+_DESTINATION_TABLE = [
+    ("clipboard", "Copy to Clipboard", lambda img, cs, clipboard_backend: clipboard_backend.set_image(_flattened(img, cs))),
+    ("save", "Save", lambda img, cs, clipboard_backend: _quick_save(img, cs)),
+    ("save_as", "Save As...", lambda img, cs, clipboard_backend: _save_as(img, cs)),
+    ("edit", "Edit", lambda img, cs, clipboard_backend: _open_editor(img, cs)),
+    ("print", "Print", lambda img, cs, clipboard_backend: print_image(_flattened(img, cs))),
+]
+
+
+def dispatch_destination(
+    destination_id: str, image: np.ndarray, cursor_shape: CursorShape = None, clipboard_backend: ClipboardBackend = None,
+) -> None:
+    """Runs whichever destination action ``destination_id`` names (one
+    of _DESTINATION_TABLE's ids) - the Shell-native picker's own
+    counterpart to a menu item's "activate" handler, for callers that
+    already know which destination was chosen (see
+    ui/region_select_gnome_shell.py) rather than needing to show a
+    picker of their own. A blank/unrecognized id is a no-op - matches
+    the picker being dismissed without a choice."""
+    if clipboard_backend is None:
+        from greenshot_linux.capture.backend_select import default_clipboard_backend
+
+        clipboard_backend = default_clipboard_backend()
+
+    for item_id, _label, handler in _DESTINATION_TABLE:
+        if item_id == destination_id:
+            handler(image, cursor_shape, clipboard_backend)
+            return
+
+
 def show_destination_picker(
     image: np.ndarray, clipboard_backend: ClipboardBackend = None, cursor_shape: CursorShape = None,
     anchor_window: Gdk.Window = None, anchor_local_pos: tuple[int, int] = None,
@@ -159,22 +195,15 @@ def show_destination_picker(
         clipboard_backend = default_clipboard_backend()
 
     menu = Gtk.Menu()
-
-    def add_item(label: str, handler) -> None:
+    for item_id, label, _handler in _DESTINATION_TABLE:
         item = Gtk.MenuItem(label=label)
 
-        def on_activate(_item):
+        def on_activate(_item, item_id=item_id) -> None:
             final_image = refresh_image() if refresh_image is not None else image
-            handler(final_image, cursor_shape)
+            dispatch_destination(item_id, final_image, cursor_shape, clipboard_backend)
 
         item.connect("activate", on_activate)
         menu.append(item)
-
-    add_item("Copy to Clipboard", lambda img, cs: clipboard_backend.set_image(_flattened(img, cs)))
-    add_item("Save", _quick_save)
-    add_item("Save As...", _save_as)
-    add_item("Edit", _open_editor)
-    add_item("Print", lambda img, cs: print_image(_flattened(img, cs)))
 
     menu.show_all()
     if anchor_window is not None:

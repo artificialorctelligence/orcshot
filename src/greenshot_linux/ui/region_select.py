@@ -318,13 +318,19 @@ def start_region_capture(
     gets selected. capture_backend is injectable (for tests/fakes); the
     default constructs the real X11 adapter lazily so importing this
     module doesn't require a display. ``on_captured(absolute_rect)``,
-    if given, fires right before the picker opens - GreenshotApplication
-    uses this to remember the region for "repeat last region".
+    if given, fires right before the picker opens (or, under Wayland
+    with the bundled Shell extension available, right after a capture
+    completes - see below) - GreenshotApplication uses this to
+    remember the region for "repeat last region".
 
-    Under Wayland, delegates entirely to WaylandRegionSelect (a
+    Under Wayland, prefers GnomeShellRegionSelect (the bundled
+    greenshot-linux-clipboard extension's Shell-side selection-through-
+    destination-choice flow - see ui/region_select_gnome_shell.py's own
+    docstring) when available, falling back to WaylandRegionSelect (a
     per-monitor multi-window overlay - see
     ui/region_select_wayland.py's module docstring for why a single
-    POPUP window, this function's X11 path below, doesn't work there).
+    POPUP window, this function's X11 path below, doesn't work there)
+    otherwise.
     """
     if capture_backend is None:
         from greenshot_linux.capture.backend_select import default_capture_backend
@@ -344,6 +350,24 @@ def start_region_capture(
             menu.connect("deactivate", lambda _menu: anchor_monitor_window.destroy())
 
     if os.environ.get("XDG_SESSION_TYPE") == "wayland":
+        from greenshot_linux.capture.gnome_region_select import is_available as gnome_shell_capture_available
+
+        if gnome_shell_capture_available():
+            # Own branch, not on_selected: GnomeShellRegionSelect's
+            # contract is different from the other two overlays' - the
+            # destination has already been chosen Shell-side by the
+            # time Python hears about a capture at all (see that
+            # module's own docstring for why), so there's no picker to
+            # show here, just on_captured for "repeat last region"
+            # bookkeeping.
+            from greenshot_linux.ui.region_select_gnome_shell import GnomeShellRegionSelect
+
+            overlay = GnomeShellRegionSelect(
+                on_captured=on_captured, capture_mouse_cursor=capture_mouse_cursor, cursor_backend=cursor_backend,
+            )
+            overlay.show()
+            return overlay
+
         from greenshot_linux.ui.region_select_wayland import WaylandRegionSelect
 
         overlay = WaylandRegionSelect(

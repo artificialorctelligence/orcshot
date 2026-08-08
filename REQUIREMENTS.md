@@ -1675,7 +1675,7 @@ This makes `ClipboardBackend.set_image()` fire off asynchronous work under Wayla
 claiming the clipboard before returning - acceptable since the Protocol's contract was always
 fire-and-forget (no caller ever waited for or checked a result).
 
-### Planned: Shell-side rewrite of the Wayland overlays (task #77, planned 2026-08-07, not started)
+### Shell-side rewrite of the Wayland overlays (task #77, planned 2026-08-07, region-select working 2026-08-08)
 
 **What this is for.** Tasks #75/#76 both trace back to the same root cause: region-select/window-
 picker/eyedropper's Wayland overlays (task #68) are real, separate `Gtk.WindowType.TOPLEVEL` client
@@ -1768,6 +1768,139 @@ would risk the exact same hang class chased all through task #68's original debu
 - Keyboard/pointer input handling from within a Shell extension - Shell already owns global input in
   a way client apps don't, so this is plausibly simpler than every client-side grab problem chased
   this session, but that's an expectation to verify live, not a guarantee.
+
+#### Region-select implementation (2026-08-08): working end-to-end, task #76's reflow fully eliminated
+
+Built and live-verified on the VM (GNOME Shell 50.1/Mutter 18). `StartRegionSelect()`, a new async
+D-Bus method on the same bundled `greenshot-linux-clipboard` extension (kept as one extension rather
+than adding a third, per the plan above), builds a full-stage `St.Widget` (`RegionSelectOverlay`)
+added to `Main.uiGroup`, bound to `global.stage`'s geometry via `Clutter.BindConstraint`, using
+`GrabHelper` for input/Escape and `Clutter.PanGesture` for the drag gesture (mirroring GNOME Shell's
+own internal `SelectArea` class in `js/ui/screenshot.js` almost exactly, since that turned out to be
+the cleanest reference once found). Backdrop capture uses `Shell.Screenshot.screenshot_stage_to_
+content()` (no portal round-trip at all - the "real simplification worth checking" above panned out);
+the final crop+PNG-encode uses `Shell.Screenshot.composite_to_stream()`, the same privileged API
+GNOME Shell's own screenshot UI uses to save files, called with the selected rect directly against the
+already-captured texture - one capture, cropped Shell-side, PNG bytes returned straight over D-Bus
+(`ay`) alongside the absolute rect, rather than a second client-side capture-and-crop round trip.
+
+**Two of the "open questions" above resolved with real, sometimes-surprising answers, not the assumed
+ones:**
+- **`Clutter.Canvas` does not exist in this Shell's bundled Clutter fork at all** - confirmed by
+  introspecting the live `Clutter-18.typelib` directly (`Object.keys(Clutter)` has no `Canvas`, only
+  `Content`/`TextureContent`). GNOME Shell's own `SelectArea` reference (evidently written against an
+  older Clutter) uses it; this project's extension does not exist on that source's timeline, so it hit
+  this immediately as a live `TypeError: ... Canvas is not a constructor`. **`St.DrawingArea`**
+  (`get_context()`/`get_surface_size()`/`queue_repaint()`, a parameterless `'repaint'` signal) is the
+  real, current equivalent - confirmed the same way, via `GObject.signal_query()` against the live St
+  typelib from inside a real `gjs` process with Mutter's typelib path set
+  (`GI_TYPELIB_PATH=/usr/lib/x86_64-linux-gnu/mutter-18:/usr/lib/gnome-shell`), not assumed from an
+  older recollection or from reading Shell's own (evidently stale, for this purpose) source.
+- **A single `<node>` XML document with two `<interface>` elements does not work with
+  `Gio.DBusExportedObject.wrapJSObject()`** - confirmed against GJS's own source
+  (`modules/core/overrides/Gio.js`): it parses via `Gio.DBusInterfaceInfo.new_for_xml()`, singular,
+  which only picks up one interface. A second single-interface `wrapJSObject()` call exported at the
+  *same* object path is also silently a no-op (confirmed live: `gdbus call` against the second
+  interface came back "No such interface", with `enable()` itself reporting no error either way, in
+  either wrong attempt). The working shape: two separate `Gio.DBusExportedObject`s, two separate
+  object paths (`.../GreenshotClipboard` and `.../GreenshotCapture`), one extension, one `enable()`.
+
+**A packaging/deployment gotcha, not a code bug, worth recording so it isn't re-debugged from
+scratch:** `gnome-extensions disable`/`enable` does not reliably force GNOME Shell to re-`import()` an
+extension's `.js` file after the *first* time it's loaded in a given Shell process - confirmed live,
+repeatedly, across several edit-redeploy-reload cycles that kept running stale cached code (visible as
+the same, already-fixed error recurring after a fix was deployed and reloaded). A full logout/login
+(fresh Shell process) reliably picks up on-disk changes; disable/enable alone was not trustworthy
+during this session's iteration. Not yet root-caused further (module caching keyed by file path,
+some other extension-manager state - unclear); noting the workaround (full session restart between
+meaningful extension.js changes) rather than the cause, which wasn't chased down further given time
+already spent.
+
+**Live-verified end to end**: drag-to-select renders correctly (dim-outside-selection, blue border,
+matching `region_select.py`'s own constants), Escape/click-outside cancel via `GrabHelper`'s own
+built-in handling (no custom code needed, as expected), a completed selection returns a pixel-correct
+cropped PNG (confirmed by opening it in the editor and visually comparing to the dragged region), and
+- as of the redesign below - the destination picker appears immediately with no window flash, no dock
+disappearing, and no black backdrop behind it, repeatably across many captures in a row. Magnifier
+loupe, aiming crosshair, and size label are **not yet ported** - this first pass deliberately covers
+only the core drag-to-select round trip, matching the migration strategy's "verify the reflow question
+before investing in the rest" ordering; see task #79 for a related sizing question to resolve before/
+during that port (the loupe already looks a different size between the X11 and `WaylandRegionSelect`
+paths, worth fixing in one place rather than porting the discrepancy a third time).
+
+**The destination-picker redesign (2026-08-08): three real bugs, one shared root cause, fully fixed.**
+The first client-anchored-picker design (a `MonitorWindow` fullscreened at the release point purely to
+give `ui/destination_picker.py`'s `Gtk.Menu` a valid Wayland popup parent) surfaced three distinct,
+live-reported symptoms once real multi-capture testing started: the app's own icon flashing briefly in
+the dock, the dock itself blinking, and (once the anchor was changed to a small non-fullscreen window
+to try to fix the first two) the picker silently failing to appear at all past the very first capture
+of a session, with the selection overlay's own dim/black backdrop still visible while it tried. Traced
+each in turn rather than accepting any of them as an unavoidable cosmetic cost (a real, repeatable
+"other screenshot tools don't do this" pushback from live testing, not a hunch):
+- **Fullscreen-transition churn was a red herring, not the cause** - tried removing `fullscreen_on_
+  monitor()` from the anchor entirely (a small, compositor-placed `Gtk.Window`, matching wayland_
+  clipboard.py's own invisible-window construction) on the theory that Ubuntu's default "hide the dock
+  on fullscreen" behavior was reacting badly to rapid fullscreen window churn. The dock-icon-flash and
+  dock-blink symptoms trace to *any* new client toplevel window being created at all (however small),
+  not specifically to fullscreening one - removing fullscreen alone didn't fix the underlying picker-
+  visibility bug, which is the real finding here.
+- **The real cause, confirmed by direct instrumentation, not inferred**: a Wayland `xdg_popup` can only
+  be created in response to a real, recent client-side input-event serial - a deliberate protocol-level
+  anti-spoofing rule (clients can't legitimately conjure a popup grab without genuine, fresh user
+  interaction), not a GTK quirk or something patchable with another window/timing trick. Confirmed live
+  via added instrumentation (both in extension.js, temporarily, writing to a home-dir log file since
+  `journalctl`/`Eval` were both unreliable channels for reaching this process's own output during this
+  session - see the deployment-gotcha note above for why - and in the Python client): the Shell-side
+  extension's own log showed *every single* capture attempt completing successfully (drag recognized,
+  ended, grab released, correct result returned) even on attempts where the picker never appeared -
+  proving the bug was 100% client-side. On the client side, `menu.popup_at_rect()` reported
+  `menu.get_visible() == True` on *every* attempt, but only the very first call ever actually took real
+  compositor focus (`anchor_window.has_toplevel_focus()` correctly went `False` right after, matching a
+  real popup grab taking over); on every later attempt the anchor kept keyboard focus the whole time,
+  meaning the "visible" menu was never actually mapped by the compositor at all - GTK's own client-side
+  bookkeeping and the compositor's real state had silently diverged. `popup_at_rect(..., None)`'s `None`
+  trigger-event argument is exactly the gap: with no separate client window ever receiving *any* real
+  input event during the new Shell-side selection flow (all of it happens compositor-side now), there
+  is fundamentally nothing on the Python side to legitimately trigger a popup with, ever, after
+  whatever residual/lucky serial the process's own startup provided for the very first call.
+- **The fix**: move the destination picker into the *same* continuous Shell-side interaction as the
+  drag-select itself, using `PopupMenu.PopupMenu`/`PopupMenu.PopupMenuManager` (`resource:///org/gnome/
+  shell/ui/popupMenu.js` - the exact class Shell's own top-bar menus use, confirmed via its real source
+  rather than assumed: constructor needs a real `sourceActor` to anchor to, not arbitrary coordinates,
+  hence a tiny invisible `St.Widget` at the release point used purely as that anchor; `addAction(label,
+  callback)` for each of the five destinations; `open-state-changed` fires exactly once per open/close
+  cycle regardless of *how* the menu closed - item chosen, Escape, or click-outside - giving one single
+  resolution point with no custom dismiss-handling needed, the same "let the platform's own mechanism
+  own it" pattern `GrabHelper` already provided for the selection grab). `StartRegionSelect()` now
+  chains straight from a completed drag into showing this menu and awaiting the user's choice *before*
+  ever returning to Python at all - cropping/encoding the PNG happens once, right after the drag, and
+  the D-Bus reply (now `(b ok, s destination, ay pngBytes, i x, i y, i width, i height)`) only goes out
+  once a concrete destination has been chosen (or `ok=false` if cancelled at any point, drag or picker).
+  `ui/destination_picker.py` gained a `dispatch_destination(id, image, cursor_shape, clipboard_backend)`
+  function - the actual Copy/Save/Save As/Edit/Print logic, shared between its own (still-used-by-X11-
+  and-`WaylandRegionSelect`) `Gtk.Menu` and this new Shell-native path, so neither duplicates it.
+  `ui/region_select_gnome_shell.py` shrank enormously as a direct result: no anchor window, no focus-
+  wait dance, no monitor lookup - it just decodes the PNG and calls `dispatch_destination` once the
+  Shell side hands back a chosen destination id. All three original symptoms are gone as a direct
+  consequence of the fix's actual shape (zero client windows created anywhere in the whole flow now,
+  drag through destination choice), not worked around individually - confirmed live, repeatably, across
+  many captures in a row with no dock icon, no dock blink, and no black backdrop.
+
+**A real architectural fork seriously considered and explicitly rejected mid-session, worth recording**:
+whether to abandon this project's own custom selection UI entirely and adopt GNOME's *stock* built-in
+screenshot tool for Wayland instead (literally what Gradia Capture does - `Main.screenshotUI.open()`,
+no custom UI of its own at all, which is *why* it never hit any of these problems in the first place).
+Rejected because it would mean losing the magnifier loupe, aiming crosshair, and the Windows-style
+Copy/Save/Save As/Edit/Print picker for Wayland specifically (GNOME's stock tool just saves to
+`~/Pictures/Screenshots` and copies to clipboard, no picker at all) - considered and explicitly turned
+down in favor of finishing the harder-but-complete version once the destination-picker failure's real
+cause (a bounded, well-understood Wayland protocol restriction) was found rather than an open-ended
+unknown.
+
+**Not yet done**: window-picker and eyedropper overlays (still using the pre-existing
+`MonitorWindow`-based Wayland implementations) - per the migration strategy, next up now that
+region-select's full round trip (selection through destination choice) and the reflow question both
+have real, measured, fully-resolved answers rather than partial ones.
 
 ### Window-picker under Wayland (task #69)
 
