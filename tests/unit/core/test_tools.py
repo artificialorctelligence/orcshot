@@ -40,11 +40,13 @@ from greenshot_linux.core.tools import (
     create_freehand_shape,
     create_shape_from_drag,
     default_insert_bounds,
+    default_style_for_tool,
     handle_at,
     resize_shape,
     rotate_shape_90,
     scale_shape,
     shape_handles,
+    style_key_for_shape,
     translate_shape,
     visible_style_fields,
 )
@@ -238,6 +240,71 @@ class TestVisibleStyleFields:
     def test_selection_overrides_the_active_tool(self):
         line = LineShape(start=(0, 0), end=(5, 5), style=STYLE)
         assert visible_style_fields(Tool.PIXELIZE, selected_shape=line) == _LINE_ONLY_FIELDS
+
+
+class TestDefaultStyleForTool:
+    @pytest.mark.parametrize("tool", [
+        Tool.RECTANGLE, Tool.ELLIPSE, Tool.LINE, Tool.ARROW, Tool.TEXT, Tool.EMOJI,
+    ])
+    def test_matches_shape_style_plain_default(self, tool):
+        # RectangleContainer/EllipseContainer/LineContainer/
+        # ArrowContainer/TextContainer's own InitializeFields all use
+        # the same values ShapeStyle()'s own dataclass default already
+        # has (thickness 2, Red, Transparent, shadow on).
+        assert default_style_for_tool(tool) == ShapeStyle()
+
+    def test_freehand_uses_thicker_default_line(self):
+        # FreehandContainer.cs:67 - 3, not the usual 2.
+        style = default_style_for_tool(Tool.FREEHAND)
+        assert style.line_thickness == 3
+        assert style.line_color == ShapeStyle().line_color
+
+    def test_speech_bubble_uses_its_own_defaults(self):
+        # SpeechbubbleContainer.cs:80-84 - White fill, no shadow,
+        # unlike every other tool's Transparent/shadow-on - but Black
+        # line, not the source's own Blue (a direct user request);
+        # matches SpeechBubbleShape's own dataclass default (shapes.py).
+        style = default_style_for_tool(Tool.SPEECH_BUBBLE)
+        assert style.line_color == (0, 0, 0, 255)
+        assert style.fill_color == (255, 255, 255, 255)
+        assert style.shadow is False
+
+    def test_step_label_matches_its_own_shape_default(self):
+        # StepLabelContainer.cs:161-167 - DarkRed fill, White line,
+        # thickness 0, no shadow; also matches StepLabelShape's own
+        # dataclass default (shapes.py).
+        assert default_style_for_tool(Tool.STEP_LABEL) == StepLabelShape(Rect(0, 0, 1, 1), number=1).style
+
+    def test_unlisted_tool_falls_back_to_the_plain_default(self):
+        assert default_style_for_tool(Tool.SELECT) == ShapeStyle()
+
+
+class TestStyleKeyForShape:
+    @pytest.mark.parametrize("shape,expected_tool", [
+        (RectangleShape(Rect(0, 0, 10, 10), STYLE), Tool.RECTANGLE),
+        (EllipseShape(Rect(0, 0, 10, 10), STYLE), Tool.ELLIPSE),
+        (LineShape(start=(0, 0), end=(5, 5), style=STYLE), Tool.LINE),
+        (ArrowShape(start=(0, 0), end=(5, 5), style=STYLE), Tool.ARROW),
+        (FreehandShape(points=((0, 0), (5, 5)), style=STYLE), Tool.FREEHAND),
+        (TextShape(Rect(0, 0, 10, 10), text="hi", style=STYLE), Tool.TEXT),
+        (StepLabelShape(bounds=Rect(0, 0, 10, 10), number=1, style=STYLE), Tool.STEP_LABEL),
+    ])
+    def test_maps_shape_class_to_its_own_tool(self, shape, expected_tool):
+        assert style_key_for_shape(shape) is expected_tool
+
+    def test_speech_bubble(self):
+        shape = SpeechBubbleShape(bubble_bounds=Rect(0, 0, 10, 10), target=(0, 20), text="hi", style=STYLE)
+        assert style_key_for_shape(shape) is Tool.SPEECH_BUBBLE
+
+    @pytest.mark.parametrize("shape", [
+        ObfuscateShape(Rect(0, 0, 10, 10), mode=ObfuscateMode.BLUR),
+        IconShape(bounds=Rect(0, 0, 10, 10), image=rgba_image()),
+        CursorShape(bounds=Rect(0, 0, 10, 10), image=rgba_image()),
+        ImageShape(bounds=Rect(0, 0, 10, 10), image=rgba_image()),
+        SvgShape(bounds=Rect(0, 0, 10, 10), svg_data="<svg/>"),
+    ])
+    def test_shapes_with_no_style_field_have_no_key(self, shape):
+        assert style_key_for_shape(shape) is None
 
 
 class TestTranslateShape:

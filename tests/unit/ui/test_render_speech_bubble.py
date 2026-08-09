@@ -7,13 +7,15 @@ SpeechBubbleShape._tail_triangle - the exact same geometry the shape's
 own hit test already uses, kept in one place rather than duplicated),
 then text via the shared _draw_text_block helper.
 
-Deliberate simplification vs. the source: GDI+ uses a clip-region
-trick (SetClip + CombineMode.Exclude) so the tail's border only shows
-where the bubble doesn't cover it, avoiding a seam where they meet.
-Here the tail is simply drawn first (filled + stroked) and the bubble
-drawn on top, which hides the overlapping part of the tail under the
-bubble's opaque fill - visually equivalent in the common case, much
-simpler than reproducing GDI+ region combination in Cairo.
+The source's GDI+ clip-region trick (SetClip + CombineMode.Exclude, so
+each border only shows where the *other* shape doesn't cover it,
+avoiding a seam where they meet) is reproduced via Cairo's even-odd
+fill rule instead (render_speech_bubble's own docstring/_clip_excluding)
+- an earlier version of this port just drew the tail first and let the
+bubble's opaque fill paper over the overlap, which looked fine with a
+visible fill but left the bubble's own border running straight across
+the tail's base with a transparent fill (see
+test_bubble_border_has_no_seam_across_the_tail_base below).
 
 Also simplified: the source's shadow uses a cumulative Matrix.Translate
 (1, 1) applied to the *same* path object on every DrawShadow iteration,
@@ -91,3 +93,26 @@ class TestRenderSpeechBubble:
         shape = SpeechBubbleShape(bounds, target=(100, 300), text="Hi", style=style)
         result = render_to_numpy(200, 100, lambda ctx: render_shape(ctx, shape))
         assert tuple(result[50, 10][:3]) == (255, 255, 255)
+
+    def test_bubble_border_has_no_seam_across_the_tail_base(self):
+        # SpeechbubbleContainer.Draw clips each border to exclude the
+        # *other* shape (SpeechbubbleContainer.cs:284-321) - the
+        # bubble's own border doesn't run across the tail's base, it
+        # leaves a gap there for the tail to emerge from. A straight-
+        # down tail with a transparent fill (nothing to visually paper
+        # over a bug with) makes this checkable pixel-by-pixel: with a
+        # target directly below bounds' horizontal center, the tail's
+        # base sits at the bubble's own vertical center (see
+        # SpeechBubbleShape._tail_triangle - both base points are
+        # bubble-center +/- tail_width, not on bounds' own edge), so
+        # dead center of the bottom edge (100, 100) is inside the
+        # tail's own triangle, not on either of its two slanted edges -
+        # nothing should paint there at all.
+        style = ShapeStyle(line_thickness=4, line_color=(0, 0, 255, 255), fill_color=TRANSPARENT, shadow=False)
+        bounds = Rect(0, 0, 200, 100)
+        shape = SpeechBubbleShape(bounds, target=(100, 250), text="", style=style)
+        result = render_to_numpy(200, 260, lambda ctx: render_shape(ctx, shape))
+        assert result[100, 100][3] == 0
+        # Well clear of the tail (past its rounded corner too), the
+        # bubble's own bottom border is untouched.
+        assert result[100, 50][3] > 0

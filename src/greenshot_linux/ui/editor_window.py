@@ -39,14 +39,19 @@ before relying on them) so they follow the system icon theme/dark-
 light mode automatically, same as everything else in this app.
 
 The Text tool drags out a box same as Rectangle, then enters an
-editing mode where key presses append/backspace the shape's text
-directly (no GtkEntry overlay - the shape re-renders live through the
-normal Cairo pipeline on every keystroke); Enter or clicking elsewhere
-commits, Escape or committing with empty text discards the shape.
-While editing, every other key handler (tool switching, undo/redo,
-copy/save/print) is suppressed so typing "z" doesn't trigger undo.
-No visible text cursor/caret (the live-updating text itself is the
-only feedback that typing is registering).
+editing mode backed by a real Gtk.TextView overlaid on the canvas via
+Gtk.Overlay (matching Greenshot.Editor's own TextContainer.cs, which
+overlays a native System.Windows.Forms.TextBox rather than drawing a
+caret by hand) - positioned/sized/font-matched to the shape's box each
+time editing starts, with its buffer's "changed" signal live-updating
+the shape (and thus the normal Cairo-rendered preview underneath) on
+every keystroke. Plain Enter commits, Shift+Enter inserts a newline
+(native TextView behavior), Escape cancels, losing focus commits -
+all mirroring textBox_KeyDown/TextBox_LostFocus. Being a real widget,
+it gets a native blinking caret, text selection, and clipboard/undo
+key bindings for free; while it's focused, keys other than Escape/
+Enter go to it directly rather than this window's own shortcut
+handler, so typing "z" doesn't trigger undo.
 
 Double-clicking an *existing* TextShape re-enters editing mode on it
 too (self._editing_original_shape tracks which case applies - None for
@@ -65,19 +70,26 @@ move ElementChangeMemento - it was cluttering undo history even for a
 plain single click that just selects a shape.
 
 A second row below the toolbar (line color, fill color, thickness,
-shadow) updates self._default_style, affecting shapes created *after*
-a change; if a shape is currently selected when a control changes, it
-gets restyled too (one ElementChangeMemento per control change) -
-except Obfuscate/Icon/Cursor/Image/Svg, none of which have a style
-field to change. The panel doesn't sync *from* a selection though -
-clicking an existing shape doesn't update the controls to show its
-current style, only editing them pushes a change out. A separate
-"Obfuscate Amount" spinner (blur radius / pixel size, self._default_
-obfuscate_amount) works the same way but only applies to Pixelize/Blur
-shapes - it's threaded through create_shape_from_drag's amount
-parameter regardless of the current tool (ignored for every other
-tool), and retroactively updates a selected ObfuscateShape the same
-way the style controls retroactively restyle.
+shadow) edits self._active_style() - each tool has its own independent
+"last used" style (self._tool_styles, seeded per-type from core/tools.
+py's default_style_for_tool, faithfully porting EditorConfiguration
+Helper's per-container-type LastUsedFieldValues cache rather than one
+value shared across every tool), affecting shapes created *after* a
+change; if a shape is currently selected when a control changes, it
+gets restyled too (one ElementChangeMemento per control change) and
+that update goes to *its own* type's memory (style_key_for_shape),
+regardless of which tool happens to be active - except Obfuscate/Icon/
+Cursor/Image/Svg, none of which have a style field to change. The
+panel also syncs *from* a selection or a tool switch (_refresh_style_
+panel) - clicking an existing shape, or switching tools, updates the
+controls to show the relevant style. A separate "Obfuscate Amount"
+spinner (blur radius / pixel size, self._default_obfuscate_amount)
+works similarly but only applies to Pixelize/Blur shapes, and (unlike
+the per-tool style memory) is still one value shared between both -
+it's threaded through create_shape_from_drag's amount parameter
+regardless of the current tool (ignored for every other tool), and
+retroactively updates a selected ObfuscateShape the same way the style
+controls retroactively restyle.
 
 Every shape type with rendering support (see ui/render.py) has resize
 handles too - core/tools.py's shape_handles/resize_shape special-case
@@ -91,6 +103,7 @@ no handles - shape_handles returns {} for them.
 
 from __future__ import annotations
 
+import math
 import os
 import shutil
 import subprocess
@@ -105,10 +118,11 @@ import gi
 gi.require_version("Gtk", "3.0")
 gi.require_version("Gio", "2.0")
 gi.require_version("GdkPixbuf", "2.0")
+gi.require_version("Pango", "1.0")
 gi.require_version("Rsvg", "2.0")
 
 import numpy as np
-from gi.repository import Gdk, GdkPixbuf, Gio, GLib, Gtk, Rsvg
+from gi.repository import Gdk, GdkPixbuf, Gio, GLib, Gtk, Pango, Rsvg
 
 from greenshot_linux.capture.clipboard import ClipboardBackend
 from greenshot_linux.core.crop import autocrop_rect, crop_to_rect
@@ -154,11 +168,13 @@ from greenshot_linux.core.tools import (
     create_freehand_shape,
     create_shape_from_drag,
     default_insert_bounds,
+    default_style_for_tool,
     handle_at,
     resize_shape,
     rotate_shape_90,
     scale_shape,
     shape_handles,
+    style_key_for_shape,
     translate_shape,
     visible_style_fields,
 )
@@ -179,7 +195,7 @@ from greenshot_linux.ui.gdk_convert import pixbuf_to_numpy
 from greenshot_linux.ui.file_export import save_image_to_file
 from greenshot_linux.ui.icons import tool_icon_image
 from greenshot_linux.ui.printing import print_image
-from greenshot_linux.ui.render import render_shape
+from greenshot_linux.ui.render import bubble_corner_radius, render_shape, vertical_text_offset
 
 # ZoomSetValue's 100ms Ctrl+wheel throttle (ImageEditorForm.cs:96,1185-1187)
 _ZOOM_WHEEL_THROTTLE_SECONDS = 0.1
@@ -245,11 +261,23 @@ _HANDLE_SIZE = 6
 _HANDLE_FILL = (1.0, 1.0, 1.0)
 _HANDLE_STROKE = (0.1, 0.4, 0.9)
 
+# Matches render.py's _PANGO_ALIGNMENT keys/mapping, just onto
+# Gtk.Justification (what Gtk.TextView takes) instead of Pango.Alignment.
+_TEXT_EDITOR_JUSTIFICATION = {
+    "near": Gtk.Justification.LEFT,
+    "center": Gtk.Justification.CENTER,
+    "far": Gtk.Justification.RIGHT,
+}
 
 def _rgba_to_color(rgba: Gdk.RGBA):
     return (
         round(rgba.red * 255), round(rgba.green * 255), round(rgba.blue * 255), round(rgba.alpha * 255),
     )
+
+
+def _css_rgba(color) -> str:
+    r, g, b, a = color
+    return f"rgba({r}, {g}, {b}, {a / 255})"
 
 
 class EditorWindow(Gtk.Window):
@@ -272,12 +300,31 @@ class EditorWindow(Gtk.Window):
         # (100%) is Windows' own initial ZoomFactor too.
         self._zoom = ACTUAL_SIZE_ZOOM
         self._last_wheel_zoom_time = 0.0
+        # Per-tool "last used" style (EditorConfigurationHelper.cs:
+        # 48-76 - each container type has its own independent style
+        # memory, seeded from that type's own preferred default, not
+        # one value shared across every tool - see core/tools.py's
+        # default_style_for_tool/style_key_for_shape). Built lazily via
+        # dict.setdefault as each tool is actually used, rather than
+        # eagerly for every Tool up front.
+        self._tool_styles = {}
+        # Guards _refresh_style_panel's own programmatic .set_value()/
+        # .set_active() calls on the thickness/shadow controls from
+        # being mistaken for a user edit by _on_thickness_changed/
+        # _on_shadow_toggled (their "value-changed"/"toggled" signals
+        # don't distinguish who set them).
+        self._syncing_style_panel = False
+        # Bypasses the tool property below - same reason
+        # self._selected_shape just below sets its own backing field
+        # directly: the setter calls _refresh_style_panel, which
+        # references style-panel widgets that don't exist yet this
+        # early in construction.
+        #
         # Matches the Windows source's default (ImageEditorForm.
         # Designer.cs: btnCursor.Checked = true) - the editor opens
         # with Select active, not a drawing tool, so the first click
         # on a fresh capture doesn't accidentally start drawing.
-        self.tool = Tool.SELECT
-        self._default_style = ShapeStyle()
+        self._tool = Tool.SELECT
         self._default_obfuscate_amount = 5  # matches ObfuscateShape's own default
         # Which filter the single Obfuscate toolbar button currently
         # applies - matches ObfuscateContainer.InitializeFields's own
@@ -348,13 +395,48 @@ class EditorWindow(Gtk.Window):
         self._drawing_area.connect("button-release-event", self._on_button_release)
         self._drawing_area.connect("scroll-event", self._on_scroll)
 
+        # The text-editing overlay (TextContainer.cs's ShowTextBox/
+        # HideTextBox) - one reusable Gtk.TextView positioned over
+        # whichever shape is being edited via Gtk.Overlay's
+        # get-child-position, rather than a separate popup window (a
+        # child widget composes correctly with _canvas_scroller's
+        # scrolling/zoom for free, which a separate top-level window
+        # positioned in screen coordinates would not).
+        self._text_editor = Gtk.TextView()
+        self._text_editor.set_wrap_mode(Gtk.WrapMode.WORD_CHAR)
+        self._text_editor.set_left_margin(0)
+        self._text_editor.set_right_margin(0)
+        self._text_editor.set_top_margin(0)
+        self._text_editor.set_bottom_margin(0)
+        self._text_editor.set_no_show_all(True)
+        # override_color/override_background_color (used elsewhere in
+        # this file, e.g. color_dialog.py's swatches) don't reliably
+        # win against this GTK theme's own CSS for a TextView's actual
+        # text/caret drawing - confirmed live (a correctly-applied
+        # white override_background_color showed, but override_color'd
+        # text and the caret never did). A per-widget CssProvider at
+        # PRIORITY_USER, targeting the "text" subnode GtkTextView's
+        # own CSS docs describe, reliably wins instead.
+        self._text_editor_css_provider = Gtk.CssProvider()
+        self._text_editor.get_style_context().add_provider(
+            self._text_editor_css_provider, Gtk.STYLE_PROVIDER_PRIORITY_USER
+        )
+        self._text_editor.get_buffer().connect("changed", self._on_text_editor_changed)
+        self._text_editor.connect("key-press-event", self._on_text_editor_key_press)
+        self._text_editor.connect("focus-out-event", self._on_text_editor_focus_out)
+
+        self._canvas_overlay = Gtk.Overlay()
+        self._canvas_overlay.add(self._drawing_area)
+        self._canvas_overlay.add_overlay(self._text_editor)
+        self._canvas_overlay.connect("get-child-position", self._on_canvas_overlay_get_child_position)
+
         # Wraps the canvas so an over-max-window-size zoom level (see
         # _set_zoom) is still reachable via scrolling - matches
         # Windows' own panel1 (a NonJumpingPanel), which is always a
         # scrollable container even though _set_zoom normally resizes
         # the window instead of relying on it.
         self._canvas_scroller = Gtk.ScrolledWindow()
-        self._canvas_scroller.add(self._drawing_area)
+        self._canvas_scroller.add(self._canvas_overlay)
 
         content_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL)
         content_row.pack_start(self._build_tool_palette(), False, False, 0)
@@ -401,8 +483,48 @@ class EditorWindow(Gtk.Window):
         self._selected_shape = shape
         self._refresh_style_panel()
 
+    @property
+    def tool(self):
+        return self._tool
+
+    @tool.setter
+    def tool(self, value) -> None:
+        """Keeps the style panel in sync with the newly active tool's
+        own per-type style memory - see _refresh_style_panel/
+        _active_style. Centralized here for the same reason
+        selected_shape's setter is. Bypassed by __init__ - see
+        self._tool's own comment there.
+        """
+        self._tool = value
+        self._refresh_style_panel()
+
+    def _style_for_tool(self, tool: Tool) -> ShapeStyle:
+        """A tool's own current style, seeding it from its faithful
+        per-type default (core/tools.py's default_style_for_tool) the
+        first time it's ever asked for - see self._tool_styles's own
+        comment in __init__.
+        """
+        return self._tool_styles.setdefault(tool, default_style_for_tool(tool))
+
+    def _active_style(self) -> ShapeStyle:
+        """Which ShapeStyle the style panel is currently showing/
+        editing: the selected shape's own live style if one is
+        selected and has one (so the panel reflects its real current
+        colors, and restyling updates that exact shape's own type's
+        memory - see _apply_style_change), else the active tool's own
+        remembered style (what the *next* shape drawn with it starts
+        out as). Always returns something, even when neither really
+        applies (Tool.SELECT, nothing selected) - the style-panel
+        controls just aren't visible then (visible_style_fields), so
+        it's never actually shown.
+        """
+        shape = self._selected_shape
+        if shape is not None and hasattr(shape, "style"):
+            return shape.style
+        return self._style_for_tool(self.tool)
+
     def _refresh_style_panel(self) -> None:
-        """Two things that both depend on the same (active tool,
+        """Three things that all depend on the same (active tool,
         selected shape) pair, refreshed together:
 
         1. The obfuscate-amount spinner's label reflects the
@@ -419,6 +541,19 @@ class EditorWindow(Gtk.Window):
            together in one Gtk.Box "cell" (self._style_field_widgets,
            built in _build_style_panel) so hiding a field hides both
            at once.
+        3. The controls' own displayed values track _active_style() -
+           each tool has its own independent style memory now (see
+           self._tool_styles in __init__), so switching tools (or
+           selecting a differently-styled shape) needs to visibly
+           update the swatches/thickness/shadow controls too, not just
+           their visibility. The line/fill swatches already re-read
+           their color via a lambda on every repaint (_build_color_
+           button), so a queue_draw() is enough for them; the spinner/
+           checkbox are plain stateful GTK widgets that need an actual
+           .set_value()/.set_active() call - guarded against re-
+           entering _on_thickness_changed/_on_shadow_toggled, which
+           would otherwise treat this programmatic sync as a user edit
+           and push a redundant memento.
         """
         shape = self._selected_shape
         if isinstance(shape, ObfuscateShape):
@@ -435,6 +570,16 @@ class EditorWindow(Gtk.Window):
         # time - see visible_style_fields - so it'd otherwise just
         # dangle before an empty style-fields cluster).
         self._style_separator.set_visible(STYLE_FIELD_OBFUSCATE_AMOUNT in visible_fields)
+
+        style = self._active_style()
+        self._syncing_style_panel = True
+        try:
+            self._thickness_spin.set_value(style.line_thickness)
+            self._shadow_check.set_active(style.shadow)
+        finally:
+            self._syncing_style_panel = False
+        self._line_color_swatch.queue_draw()
+        self._fill_color_swatch.queue_draw()
 
     @property
     def base_image(self) -> np.ndarray:
@@ -818,18 +963,21 @@ class EditorWindow(Gtk.Window):
         return button, swatch
 
     def _build_style_panel(self) -> Gtk.Box:
-        """Color/thickness/shadow controls that update self._default_style,
-        plus a separate obfuscate-amount spinner (blur radius / pixel
-        size) for self._default_obfuscate_amount, since ObfuscateShape
-        has no style field. Both affect shapes created *after* a
-        change, and also retroactively restyle the current selection
-        if it has the relevant field.
+        """Color/thickness/shadow controls that edit self._active_style()
+        (the selected shape's own style, or else the active tool's own
+        remembered style - see that property), plus a separate
+        obfuscate-amount spinner (blur radius / pixel size) for
+        self._default_obfuscate_amount, since ObfuscateShape has no
+        style field. Both affect shapes created *after* a change, and
+        also retroactively restyle the current selection if it has the
+        relevant field.
 
         Each field's label+control(s) live together in their own
         Gtk.Box "cell", keyed by field name in self._style_field_widgets
         - see _refresh_style_panel, which shows/hides whole cells at
         once based on visible_style_fields (core/tools.py), rather than
-        this port's previous always-show-everything panel.
+        this port's previous always-show-everything panel, and also
+        syncs each control's displayed value there.
         """
         box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
         box.set_border_width(4)
@@ -844,26 +992,26 @@ class EditorWindow(Gtk.Window):
 
         line_label = Gtk.Label(label="Line:")
         line_button, self._line_color_swatch = self._build_color_button(
-            lambda: self._default_style.line_color, self._on_line_color_changed,
+            lambda: self._active_style().line_color, self._on_line_color_changed,
         )
         add_cell(STYLE_FIELD_LINE_COLOR, line_label, line_button)
 
         fill_label = Gtk.Label(label="Fill:")
         fill_button, self._fill_color_swatch = self._build_color_button(
-            lambda: self._default_style.fill_color, self._on_fill_color_changed,
+            lambda: self._active_style().fill_color, self._on_fill_color_changed,
         )
         add_cell(STYLE_FIELD_FILL_COLOR, fill_label, fill_button)
 
         thickness_label = Gtk.Label(label="Line Thickness:")
         adjustment = Gtk.Adjustment(
-            value=self._default_style.line_thickness, lower=0, upper=20, step_increment=1
+            value=self._active_style().line_thickness, lower=0, upper=20, step_increment=1
         )
         self._thickness_spin = Gtk.SpinButton(adjustment=adjustment)
         self._thickness_spin.connect("value-changed", self._on_thickness_changed)
         add_cell(STYLE_FIELD_LINE_THICKNESS, thickness_label, self._thickness_spin)
 
         self._shadow_check = Gtk.CheckButton(label="Shadow")
-        self._shadow_check.set_active(self._default_style.shadow)
+        self._shadow_check.set_active(self._active_style().shadow)
         self._shadow_check.connect("toggled", self._on_shadow_toggled)
         add_cell(STYLE_FIELD_SHADOW, self._shadow_check)
 
@@ -923,32 +1071,47 @@ class EditorWindow(Gtk.Window):
             self._drawing_area.queue_draw()
 
     def _apply_style_change(self, updated_style: ShapeStyle) -> None:
-        """Style panel changes always update self._default_style (for
-        shapes created from here on); if a shape is currently selected
-        and has a style field (everything except Obfuscate/Icon/
-        Cursor/Image/Svg, none of which have line/fill styling), it's
-        restyled too, via one ElementChangeMemento per control change.
+        """Style panel changes update the *relevant* tool's own style
+        memory (self._tool_styles) - the selected shape's own type if
+        one is selected and has a style field (style_key_for_shape;
+        everything except Obfuscate/Icon/Cursor/Image/Svg, none of
+        which have line/fill styling), else the active tool's. A
+        selected shape's type is used rather than the active tool
+        because selecting-then-restyling an existing shape normally
+        happens with Select active, not that shape's own drawing tool
+        - matching EditorConfigurationHelper.UpdateLastFieldValue,
+        which keys off the changed field's own owning type either way.
+        Also restyles the selection live, via one ElementChangeMemento
+        per control change.
         """
-        self._default_style = updated_style
         shape = self.selected_shape
         if shape is not None and hasattr(shape, "style"):
+            style_key = style_key_for_shape(shape)
             restyled = dataclass_replace(shape, style=updated_style)
             self.layer.replace(shape, restyled)
             self.undo_redo.push(ElementChangeMemento(self.layer, before=shape, after=restyled))
             self.selected_shape = restyled
             self._drawing_area.queue_draw()
+        else:
+            style_key = self.tool
+        if style_key is not None:
+            self._tool_styles[style_key] = updated_style
 
     def _on_line_color_changed(self, color) -> None:
-        self._apply_style_change(dataclass_replace(self._default_style, line_color=color))
+        self._apply_style_change(dataclass_replace(self._active_style(), line_color=color))
 
     def _on_fill_color_changed(self, color) -> None:
-        self._apply_style_change(dataclass_replace(self._default_style, fill_color=color))
+        self._apply_style_change(dataclass_replace(self._active_style(), fill_color=color))
 
     def _on_thickness_changed(self, spin: Gtk.SpinButton) -> None:
-        self._apply_style_change(dataclass_replace(self._default_style, line_thickness=spin.get_value_as_int()))
+        if self._syncing_style_panel:
+            return
+        self._apply_style_change(dataclass_replace(self._active_style(), line_thickness=spin.get_value_as_int()))
 
     def _on_shadow_toggled(self, check: Gtk.CheckButton) -> None:
-        self._apply_style_change(dataclass_replace(self._default_style, shadow=check.get_active()))
+        if self._syncing_style_panel:
+            return
+        self._apply_style_change(dataclass_replace(self._active_style(), shadow=check.get_active()))
 
     def _on_tool_button_toggled(self, button: Gtk.RadioToolButton, tool: Tool) -> None:
         if button.get_active():
@@ -1385,6 +1548,185 @@ class EditorWindow(Gtk.Window):
         dialog.run()
         dialog.destroy()
 
+    @staticmethod
+    def _text_editing_rect(shape):
+        """Which of a shape's rects holds the editable text -
+        SpeechBubbleShape's bubble_bounds (its wider ``bounds`` also
+        covers the tail, see shapes.py), everything else's own bounds.
+        """
+        return shape.bubble_bounds if isinstance(shape, SpeechBubbleShape) else shape.bounds
+
+    def _text_editor_screen_rect(self):
+        """The editing overlay's position/size in drawing-area widget
+        coordinates - same inset-by-ceil(line_thickness/2) math as
+        render.py's _draw_text_block, then offset/scaled by the
+        current pan/zoom exactly like _on_button_press's own inverse
+        transform (_content_offset), so the live TextView lines up
+        with where render_shape will actually draw the committed text.
+        """
+        shape = self._editing_text_shape
+        rect = self._text_editing_rect(shape)
+        line_thickness = shape.style.line_thickness
+        text_offset = math.ceil(line_thickness / 2) if line_thickness > 0 else 0
+        offset_x, offset_y = self._content_offset()
+        zoom = float(self._zoom)
+        x = offset_x + (rect.left + text_offset) * zoom
+        y = offset_y + (rect.top + text_offset) * zoom
+        w = (rect.width - 2 * text_offset) * zoom
+        h = (rect.height - 2 * text_offset) * zoom
+        return x, y, w, h
+
+    def _on_canvas_overlay_get_child_position(self, overlay, widget, allocation):
+        if widget is not self._text_editor or self._editing_text_shape is None:
+            return False
+        x, y, w, h = self._text_editor_screen_rect()
+        allocation.x, allocation.y = round(x), round(y)
+        allocation.width, allocation.height = max(1, round(w)), max(1, round(h))
+        return True
+
+    def _apply_text_editor_style(self, shape) -> None:
+        """UpdateTextBoxFont/UpdateTextBoxFormat (TextContainer.cs) -
+        matches the shape's font (scaled by the current zoom, same as
+        _pango_layout), alignment, text color, and background.
+
+        The background is the shape's own real fill_color, not a
+        synthesized contrast color the way Windows' EnsureTextBoxContrast
+        picks one (always-opaque white/dark-gray, regardless of the
+        shape's own fill) - a deliberate deviation, by request: WYSIWYG
+        while editing (a transparent-fill shape, the Text tool's own
+        default, shows no background at all while typing, matching
+        what committing it actually produces) was preferred over
+        faithfully porting a readability crutch for the has-no-fill
+        case.
+
+        No Windows citation for the border-radius below - WinForms'
+        TextBox is a plain rectangle there too (UpdateTextBoxPosition,
+        TextContainer.cs:542-570, positions it from the container's
+        bounds with no rounded-corner accommodation). Purely this
+        port's own polish: without it, the editor overlay's own
+        rectangular background corners visibly poke out past
+        SpeechBubbleShape's rounded outline while typing.
+        """
+        size = shape.font_size * float(self._zoom)
+        weight = "Bold " if shape.bold else ""
+        slant = "Italic " if shape.italic else ""
+        font_desc = Pango.FontDescription.from_string(f"{shape.font_family} {weight}{slant}{size}")
+        self._text_editor.override_font(font_desc)
+        self._text_editor.set_justification(_TEXT_EDITOR_JUSTIFICATION[shape.horizontal_alignment])
+
+        text_color = shape.style.line_color
+        radius = bubble_corner_radius(shape) * float(self._zoom) if isinstance(shape, SpeechBubbleShape) else 0.0
+        css = (
+            # Transparent, not matching the theme's own default - a
+            # rounded "text" node still paints its full rectangular
+            # allocation everywhere CSS doesn't explicitly punch a
+            # rounded hole in it, which without this left solid black
+            # theme-background squares showing through the corners the
+            # border-radius below was supposed to round away.
+            "textview {"
+            "background-color: transparent;"
+            "}"
+            "textview text {"
+            f"color: {_css_rgba(text_color)};"
+            f"caret-color: {_css_rgba(text_color)};"
+            f"background-color: {_css_rgba(shape.style.fill_color)};"
+            f"border-radius: {max(0.0, radius)}px;"
+            "}"
+        )
+        self._text_editor_css_provider.load_from_data(css.encode())
+        self._update_text_editor_vertical_offset()
+
+    def _update_text_editor_vertical_offset(self) -> None:
+        """No native "vertical-align: center" for a Gtk.TextView's own
+        content (unlike Pango layout centering, which _draw_text_block
+        already applies to the committed render) - approximated via
+        top_margin, using the same vertical_text_offset math render.py
+        uses, so what you see while typing starts roughly where the
+        final centered/bottom-aligned text will land instead of always
+        top-aligned, and keeps tracking as the text grows/shrinks (see
+        this method's callers).
+
+        Measures a real Pango.Layout built the same way render.py's
+        own _pango_layout is (same font string, wrap mode, width) -
+        the earlier version of this method used the TextView widget's
+        own get_preferred_height_for_width instead, which uses GTK's
+        internal text-layout line-height metrics rather than Pango's
+        raw ones, and drifted further from the committed render's own
+        centering the more text/lines there were. font_size is scaled
+        by zoom (screen pixels, matching where this widget actually
+        lives) rather than passed raw the way _draw_text_block does,
+        since that draws in unscaled image space under a later
+        ctx.scale(zoom, zoom) - this measures in screen space directly
+        instead, paired with box_w/box_h already being screen pixels
+        too (_text_editor_screen_rect).
+        """
+        shape = self._editing_text_shape
+        if shape is None:
+            return
+        _, _, box_w, box_h = self._text_editor_screen_rect()
+        buffer = self._text_editor.get_buffer()
+        text = buffer.get_text(buffer.get_start_iter(), buffer.get_end_iter(), True)
+        size = shape.font_size * float(self._zoom)
+        weight = "Bold " if shape.bold else ""
+        slant = "Italic " if shape.italic else ""
+        layout = self._text_editor.create_pango_layout(text)
+        layout.set_font_description(Pango.FontDescription.from_string(f"{shape.font_family} {weight}{slant}{size}"))
+        layout.set_wrap(Pango.WrapMode.WORD_CHAR)
+        layout.set_width(max(0, round(box_w * Pango.SCALE)))
+        _, text_height = layout.get_pixel_size()
+        offset = vertical_text_offset(shape.vertical_alignment, box_h, text_height)
+        self._text_editor.set_top_margin(max(0.0, offset))
+
+    def _show_text_editor(self) -> None:
+        shape = self._editing_text_shape
+        buffer = self._text_editor.get_buffer()
+        buffer.set_text(shape.text)
+        buffer.place_cursor(buffer.get_end_iter())
+        self._apply_text_editor_style(shape)
+        self._canvas_overlay.queue_resize()
+        self._text_editor.show()
+        self._text_editor.grab_focus()
+
+    def _hide_text_editor(self) -> None:
+        # Only reclaim focus for the canvas if the text editor still
+        # had it (Escape/Enter while typing) - if focus already moved
+        # elsewhere (e.g. a style panel control, which is what fired
+        # the focus-out that led here), grabbing it back would yank
+        # focus away from whatever the user just clicked into.
+        had_focus = self._text_editor.has_focus()
+        self._text_editor.hide()
+        if had_focus:
+            self._drawing_area.grab_focus()
+
+    def _on_text_editor_changed(self, buffer) -> None:
+        if self._editing_text_shape is None:
+            return  # buffer edits from outside an active editing session
+        text = buffer.get_text(buffer.get_start_iter(), buffer.get_end_iter(), True)
+        self._update_editing_text(text)
+        self._update_text_editor_vertical_offset()
+
+    def _on_text_editor_key_press(self, widget, event) -> bool:
+        # Escape/plain-Enter (textBox_KeyDown, TextContainer.cs) are
+        # the only keys this overlay special-cases - everything else,
+        # including Shift+Enter's newline, Ctrl+A/Ctrl+C, arrow-key
+        # navigation, and character insertion, is native Gtk.TextView
+        # behavior handled by its own default key bindings.
+        if event.keyval == Gdk.KEY_Escape:
+            self._cancel_text_editing()
+            return True
+        if event.keyval in (Gdk.KEY_Return, Gdk.KEY_KP_Enter) and not (event.state & Gdk.ModifierType.SHIFT_MASK):
+            self._commit_text_editing()
+            return True
+        return False
+
+    def _on_text_editor_focus_out(self, widget, event) -> bool:
+        # TextBox_LostFocus (TextContainer.cs) - also fires as a side
+        # effect of _hide_text_editor's own hide() call once editing
+        # has already ended, which _commit_text_editing_if_active's
+        # guard below makes a harmless no-op.
+        self._commit_text_editing_if_active()
+        return False
+
     def _update_editing_text(self, new_text: str) -> None:
         old_shape = self._editing_text_shape
         new_shape = dataclass_replace(old_shape, text=new_text)
@@ -1410,6 +1752,7 @@ class EditorWindow(Gtk.Window):
             self.undo_redo.push(ElementChangeMemento(self.layer, before=original, after=shape))
         else:
             self.undo_redo.push(AddElementMemento(self.layer, shape))
+        self._hide_text_editor()
         self._drawing_area.queue_draw()
 
     def _commit_text_editing_if_active(self) -> None:
@@ -1430,28 +1773,8 @@ class EditorWindow(Gtk.Window):
         else:
             self.layer.remove(shape)
             self.selected_shape = None
+        self._hide_text_editor()
         self._drawing_area.queue_draw()
-
-    def _handle_text_editing_key(self, event) -> bool:
-        shape = self._editing_text_shape
-        if event.keyval == Gdk.KEY_Escape:
-            self._cancel_text_editing()
-            return True
-        if event.keyval in (Gdk.KEY_Return, Gdk.KEY_KP_Enter):
-            if event.state & Gdk.ModifierType.SHIFT_MASK:
-                self._update_editing_text(shape.text + "\n")
-            else:
-                self._commit_text_editing()
-            return True
-        if event.keyval == Gdk.KEY_BackSpace:
-            self._update_editing_text(shape.text[:-1])
-            return True
-        codepoint = Gdk.keyval_to_unicode(event.keyval)
-        if codepoint:
-            char = chr(codepoint)
-            if char.isprintable():
-                self._update_editing_text(shape.text + char)
-        return True  # swallow everything else - no tool-switch/undo while editing
 
     def _selected_display_shape(self):
         """The selected shape's current bounds for handle drawing,
@@ -1924,6 +2247,7 @@ class EditorWindow(Gtk.Window):
             self.selected_shape = hit
             self._editing_text_shape = hit
             self._editing_original_shape = hit
+            self._show_text_editor()
             widget.queue_draw()
             return True
 
@@ -1939,10 +2263,10 @@ class EditorWindow(Gtk.Window):
             self._drag_origin = (x, y)
             if self.tool is Tool.FREEHAND:
                 self._drag_points = [(x, y)]
-                self._drag_shape = create_freehand_shape(self._drag_points, self._default_style)
+                self._drag_shape = create_freehand_shape(self._drag_points, self._style_for_tool(self.tool))
             else:
                 self._drag_shape = create_shape_from_drag(
-                    self.tool, (x, y), (x, y), self._default_style, amount=self._default_obfuscate_amount
+                    self.tool, (x, y), (x, y), self._style_for_tool(self.tool), amount=self._default_obfuscate_amount
                 )
         else:
             self.selected_shape = None
@@ -1968,10 +2292,10 @@ class EditorWindow(Gtk.Window):
         if self._drag_origin is not None:
             if self.tool is Tool.FREEHAND:
                 self._drag_points.append((x, y))
-                self._drag_shape = create_freehand_shape(self._drag_points, self._default_style)
+                self._drag_shape = create_freehand_shape(self._drag_points, self._style_for_tool(self.tool))
             else:
                 self._drag_shape = create_shape_from_drag(
-                    self.tool, self._drag_origin, (x, y), self._default_style, amount=self._default_obfuscate_amount
+                    self.tool, self._drag_origin, (x, y), self._style_for_tool(self.tool), amount=self._default_obfuscate_amount
                 )
             widget.queue_draw()
             return True
@@ -2014,10 +2338,10 @@ class EditorWindow(Gtk.Window):
             return True
         if self._drag_origin is not None:
             if self.tool is Tool.FREEHAND:
-                shape = create_freehand_shape(self._drag_points, self._default_style)
+                shape = create_freehand_shape(self._drag_points, self._style_for_tool(self.tool))
             else:
                 shape = create_shape_from_drag(
-                    self.tool, self._drag_origin, (x, y), self._default_style,
+                    self.tool, self._drag_origin, (x, y), self._style_for_tool(self.tool),
                     amount=self._default_obfuscate_amount, next_step_number=self._next_step_number(),
                 )
             self._drag_origin = None
@@ -2031,6 +2355,7 @@ class EditorWindow(Gtk.Window):
                 # _commit_text_editing), not per-keystroke.
                 self._editing_text_shape = shape
                 self._editing_original_shape = None  # brand new, not a re-edit
+                self._show_text_editor()
             else:
                 self.undo_redo.push(AddElementMemento(self.layer, shape))
             widget.queue_draw()
@@ -2039,7 +2364,13 @@ class EditorWindow(Gtk.Window):
 
     def _on_key_press(self, widget, event):
         if self._editing_text_shape is not None:
-            return self._handle_text_editing_key(event)
+            # The text editor is a real focused widget now - let GTK's
+            # normal focus-widget dispatch hand the event to it
+            # (Escape/plain-Enter aside, handled in its own key-press
+            # handler) rather than treating every key as a shortcut
+            # the way this window-level handler does the rest of the
+            # time.
+            return False
 
         ctrl_held = bool(event.state & Gdk.ModifierType.CONTROL_MASK)
         shift_held = bool(event.state & Gdk.ModifierType.SHIFT_MASK)

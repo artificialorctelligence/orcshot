@@ -792,6 +792,136 @@ already in `_BOUNDS_RESIZABLE`, so no extra work needed there). Confirmed live: 
   state the way scripted `set_filename()` + immediate `response()` does. Cancel-only dialog tests
   (used everywhere else so far) never exercised this path, which is why it hadn't shown up before.
 
+#### Text-editing rewrite: Gtk.TextView overlay (task #78, complete 2026-08-08)
+**Status: done, verified live (X11/Mint - Wayland unaffected, this is in-process widget
+composition, not a separate compositor surface).** Root cause of "text tool draws a rectangle
+instead of text": not a logic bug (typing always worked) - the old mechanism (key-press
+interception directly mutating the shape's `text` field, redrawn via Cairo every keystroke) had
+no visible caret/cursor at all on a fresh empty box, so it looked broken even though it wasn't.
+User explicitly asked whether a native control was possible before settling for a hand-drawn
+caret; confirmed `Gtk.TextView` composes correctly with both X11 and Wayland (unrelated to the
+session's earlier Wayland popup-serial fights, since this is in-process, not a separate surface)
+and chose the more faithful fix: a real `Gtk.TextView` overlaid on the canvas, matching
+`TextContainer.cs`'s own architecture (a native `System.Windows.Forms.TextBox`
+`ShowTextBox()`/`HideTextBox()`'d over the shape), replacing the old custom mechanism entirely.
+
+**Architecture**: `self._canvas_overlay = Gtk.Overlay()` now sits between `self._canvas_scroller`
+and `self._drawing_area` (`self._canvas_overlay.add(self._drawing_area);
+self._canvas_overlay.add_overlay(self._text_editor)`), with `self._text_editor`'s position/size
+driven by the overlay's `get-child-position` signal (`_on_canvas_overlay_get_child_position`),
+computed from the shape's bounds + zoom + the same `ceil(line_thickness/2)` inset
+`render.py._draw_text_block` uses (`_text_editor_screen_rect`). `_show_text_editor`/
+`_hide_text_editor` mirror `ShowTextBox`/`HideTextBox`; `_apply_text_editor_style` mirrors
+`UpdateTextBoxFont`/`UpdateTextBoxFormat`. Plain Enter commits, Shift+Enter inserts a newline
+(native `Gtk.TextView` behavior, no longer hand-rolled), Escape cancels, losing focus commits
+(`TextBox_LostFocus`) - `_on_key_press`'s old window-level swallow-every-key-while-editing branch
+is gone; it now just returns `False` while editing so GTK's normal focus-widget dispatch hands
+keys straight to the focused `Gtk.TextView`, which also means keys the TextView doesn't consume
+(Ctrl+S etc.) correctly do nothing while editing, rather than the old mechanism's actual latent
+bug of inserting the literal character (`Gdk.keyval_to_unicode` doesn't distinguish Ctrl-held).
+
+**Bugs found and fixed live, none guessed**:
+- **`Gtk.Widget.override_color()`/`override_background_color()` don't reliably win against this
+  GTK3 theme's own CSS for a `Gtk.TextView`'s actual text/caret drawing.** Confirmed live: an
+  `override_background_color` white background rendered correctly, but `override_color`'d text
+  and the caret itself never appeared at all - typing worked (buffer content updated, driving the
+  live Cairo-rendered shape underneath, which is why it *looked* like nothing was different from
+  before at first), but the native `Gtk.TextView` itself showed nothing. Root cause not chased
+  further than "the deprecated override APIs lose to theme CSS specificity here" - fixed by
+  switching to a per-widget `Gtk.CssProvider` at `Gtk.STYLE_PROVIDER_PRIORITY_USER`, targeting the
+  `textview text` CSS subnode (the documented GTK3 node for a TextView's actual editable area) with
+  explicit `color`/`caret-color`/`background-color`, which reliably wins.
+- **Rounded "text" CSS subnode still painted its full rectangular background outside the rounded
+  corners as solid black** (theme default) once `border-radius` was added for Speech Bubble
+  (below) - fixed by also setting `textview { background-color: transparent; }` on the outer node,
+  so the canvas underneath shows through in the corners instead.
+
+**Deliberate deviations from Windows, by explicit request** (this port's own polish, not treated
+as citation errors):
+- **No `EnsureTextBoxContrast`-style synthesized background.** Windows always shows an opaque
+  white/dark-gray background while editing regardless of the shape's own fill, for readability
+  against a busy screenshot. This port instead shows the shape's *own real* `fill_color` while
+  editing (transparent for the Text tool's own default, so no fill at all - matching exactly what
+  committing it produces) - WYSIWYG was preferred over the readability crutch.
+- **Rounded corners while editing a `SpeechBubbleShape`** (`bubble_corner_radius`, now public in
+  `render.py`, reused for the CSS `border-radius`) - no Windows citation, WinForms' `TextBox` is a
+  plain rectangle there too; purely to stop the overlay's own rectangular background from visibly
+  poking out past the bubble's rounded outline while typing.
+- **Approximate vertical centering while editing** (`_update_text_editor_vertical_offset`, using
+  `vertical_text_offset` - now public in `render.py` - and a real `Pango.Layout` built the same way
+  `_pango_layout`/`_draw_text_block` build theirs, measured in screen space since the TextView
+  lives there rather than the unscaled image space `_draw_text_block` draws in) - recomputed on
+  every keystroke via `top_margin`, so text starts near where the final centered/bottom-aligned
+  render will land instead of always top-aligned like a native `Gtk.TextView` defaults to, and
+  keeps tracking as the text grows/shrinks. Not pixel-identical (GtkTextView's own line-height
+  metrics still differ slightly from raw Pango's) - a small residual jump on commit remains with
+  multi-line text, accepted as good enough after live comparison.
+
+#### Adjacent fixes found and fixed in the same pass (not originally part of task #78)
+Live-testing the new TextView overlay surfaced two more real, unrelated bugs in the same area,
+fixed at the user's explicit request rather than filed separately:
+
+**Per-tool "last used" style memory, not one style shared by every tool.** `create_shape_from_drag`
+was passing one editor-wide `self._default_style` into every new shape regardless of type, so
+e.g. changing the Text tool's color also changed what a freshly drawn Speech Bubble looked like -
+first noticed as "a new speech bubble doesn't look like a speech bubble" (no fill, wrong color,
+since it inherited whatever the Text tool had last used). Windows' own `EditorConfigurationHelper.
+CreateField`/`UpdateLastFieldValue` (`EditorConfigurationHelper.cs:48-98`) keys its "last used
+value" cache by `requestingTypeName + "." + fieldType.Name` - independent memory per container
+type, seeded from that type's own `InitializeFields()` default. Ported faithfully:
+`core/tools.py`'s new `default_style_for_tool(tool)` (per-type defaults, cross-checked against
+`RectangleContainer.cs`/`EllipseContainer.cs`/`LineContainer.cs`/`ArrowContainer.cs`/
+`FreehandContainer.cs`/`TextContainer.cs`/`SpeechbubbleContainer.cs`/`StepLabelContainer.cs`'s own
+`InitializeFields()` calls - all identical to `ShapeStyle()`'s own plain default except Freehand's
+thicker line and Speech Bubble/Step Label's own distinct looks) and `style_key_for_shape(shape)`
+(the inverse mapping, so restyling an existing *selected* shape - typically done with Select
+active, not that shape's own drawing tool - updates the right type's memory rather than
+`Select`'s, which has none). `EditorWindow.tool` is now a property (mirroring the existing
+`selected_shape` property's own centralizing pattern) whose setter refreshes the style panel's
+displayed values too, not just field visibility as before - `_active_style()` resolves to the
+selected shape's own live style if one exists, else the active tool's remembered one, with a
+`self._syncing_style_panel` reentrancy guard so `_refresh_style_panel`'s own programmatic
+`.set_value()`/`.set_active()` calls don't get mistaken for a user edit and push a redundant
+undo-history memento. Also completed `StepLabelShape`'s own creation, which had the same bug in a
+smaller way - `create_shape_from_drag`'s `STEP_LABEL` branch wasn't passing `style` through at all,
+relying entirely on the shape's own hardcoded dataclass default (which happened to already be
+correct, since nothing ever overrode it) rather than genuinely participating in the per-type memory
+system the way Windows' own `StepLabelContainer.InitializeFields` does.
+
+**Speech bubble border had no seam where the tail attaches - `SpeechbubbleContainer.Draw`'s real
+clip-region trick wasn't actually being reproduced.** `SpeechbubbleContainer.Draw`
+(`SpeechbubbleContainer.cs:236-333`) draws the tail's border *clipped to exclude the bubble's own
+area* (`SetClip(bubbleRegion, CombineMode.Exclude)`), then the bubble's border *clipped to exclude
+the tail's area* - so the tail's two edges and the bubble's rounded outline meet as one continuous
+seam, with a genuine gap in the bubble's own border exactly where the tail's base crosses it. This
+port's previous `render_speech_bubble` didn't reproduce that: it drew the tail first (full,
+unclipped) then the bubble on top, relying on the bubble's *opaque fill* to visually paper over
+the overlap - which happened to look fine with a visible fill (the common case, so this wasn't
+caught earlier), but left the bubble's full uninterrupted border running straight across the
+tail's throat with nothing to hide the seam once the user actually looked closely, and would have
+been visibly wrong with a transparent fill too (nothing to paper over the seam with at all). Cairo
+has no `CombineMode.Exclude` equivalent - reproduced via the same even-odd-fill-rule "hole" trick
+`region_select.py`'s own dim overlay already uses (`render.py`'s new `_clip_excluding` helper:
+an outer rectangle plus the shape-to-exclude, even-odd filled, then `ctx.clip()`). One faithful-
+but-odd source detail *not* reproduced: the tail's own border draw in the source has no
+`lineVisible` guard at all (`SpeechbubbleContainer.cs:284-291`, unlike the bubble's own border draw
+just below it at `:307-321`) - almost certainly a source oversight (a zero-width GDI+ Pen still
+draws a hairline) rather than a deliberate effect; replicating a thickness-0-yet-still-drawn tail
+border would be a stranger, more surprising deviation from this shape's own `line_visible` gating
+(and every other shape's) than just not reproducing it, so both border draws here are symmetrically
+gated on `line_visible`. Regression test: `test_bubble_border_has_no_seam_across_the_tail_base`
+(`tests/unit/ui/test_render_speech_bubble.py`) - a straight-down tail with a transparent fill (so
+there's nothing to visually paper over a regression) asserts the dead-center pixel of the bubble's
+bottom edge, which is also dead-center of the tail's own base, is fully transparent (alpha 0) -
+confirmed this genuinely fails against the old implementation (which painted it opaque blue there,
+from the bubble's own then-unclipped border).
+
+**Speech Bubble's default line color changed from Blue to Black**, by direct user request -
+`SpeechbubbleContainer.cs:80`'s own default is Blue; both `core/tools.py`'s
+`_TOOL_STYLE_DEFAULTS[Tool.SPEECH_BUBBLE]` and `SpeechBubbleShape`'s own dataclass default
+(`core/shapes.py`) were changed together to stay consistent, with comments at both citing this as
+a deliberate deviation, not a citation error.
+
 ### Editor zoom (faithful port of `ImageEditorForm`/`Surface`'s zoom)
 **Status: done.** Initially flagged as "not yet checked against the Windows source" in this file's
 backlog - research confirmed it's a real, well-developed Windows feature (PR #201, Ctrl+wheel in PR

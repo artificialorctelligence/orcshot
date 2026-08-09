@@ -23,9 +23,11 @@ reuses render_ellipse for the circle and Pango for the centered,
 auto-scaled number. SpeechBubble rendering (render_speech_bubble)
 reuses the same Pango text-block helper for its text, a rounded-rect
 path for the bubble, and the shape's own _tail_triangle() for the tail;
-see render_speech_bubble's docstring for the two deliberate
-simplifications versus the source's GDI+ clip-region trick and
-cumulative shadow-offset quirk.
+see render_speech_bubble's docstring for how its border drawing
+reproduces the source's GDI+ exclude-clip trick via Cairo's even-odd
+fill rule instead, and for the one remaining deliberate simplification
+(the shadow step's cumulative-darkening quirk at the tail/bubble seam,
+which the source has too - DrawShadow never clips either).
 
 Icon/Cursor/Image rendering (render_icon/render_cursor/render_image)
 just paint the shape's stored (H,W,4) numpy image scaled to fill
@@ -316,7 +318,7 @@ def _pango_layout(ctx: cairo.Context, text: str, family: str, size: float, bold:
     return layout
 
 
-def _vertical_text_offset(vertical_alignment: str, box_height: float, text_height: float) -> float:
+def vertical_text_offset(vertical_alignment: str, box_height: float, text_height: float) -> float:
     if vertical_alignment == "center":
         return (box_height - text_height) / 2
     if vertical_alignment == "far":
@@ -355,7 +357,7 @@ def _draw_text_block(
 
     layout = _pango_layout(ctx, text, font_family, font_size, bold, italic, horizontal_alignment, inner.width)
     _, text_height = layout.get_pixel_size()
-    y = inner.top + _vertical_text_offset(vertical_alignment, inner.height, text_height)
+    y = inner.top + vertical_text_offset(vertical_alignment, inner.height, text_height)
 
     if draw_shadow:
         def shadow_step(c, dx, dy, alpha):
@@ -411,7 +413,7 @@ def _rounded_rect_path(ctx: cairo.Context, rect: Rect, radius: float, dx: int = 
     ctx.close_path()
 
 
-def _bubble_corner_radius(shape: SpeechBubbleShape) -> float:
+def bubble_corner_radius(shape: SpeechBubbleShape) -> float:
     # Ported from CreateBubble: capped at 30, adapted down for small
     # boxes and thick borders.
     b = shape.bubble_bounds
@@ -420,7 +422,7 @@ def _bubble_corner_radius(shape: SpeechBubbleShape) -> float:
 
 def _bubble_path(ctx: cairo.Context, shape: SpeechBubbleShape, dx: int = 0, dy: int = 0) -> None:
     b = shape.bubble_bounds
-    radius = _bubble_corner_radius(shape)
+    radius = bubble_corner_radius(shape)
     if radius > 0:
         _rounded_rect_path(ctx, b, radius, dx, dy)
     else:
@@ -441,10 +443,50 @@ def _tail_path(ctx: cairo.Context, shape: SpeechBubbleShape, dx: int = 0, dy: in
     return True
 
 
+def _clip_excluding(ctx: cairo.Context, exclude_path_fn, outer: Rect) -> None:
+    """Clips to ``outer`` minus whatever path ``exclude_path_fn`` adds -
+    Cairo has no CombineMode.Exclude, but an even-odd-filled rectangle
+    with a second subpath punched into it (region_select.py's own "dim
+    everything but the selection" trick) clips out that subpath just
+    the same. ``outer`` needs to comfortably cover every pixel either
+    shape's own stroke could touch - a too-tight rectangle would clip
+    away part of the *visible* edge, not just the excluded region.
+    """
+    ctx.new_path()
+    ctx.set_fill_rule(cairo.FILL_RULE_EVEN_ODD)
+    ctx.rectangle(outer.left, outer.top, outer.width, outer.height)
+    exclude_path_fn(ctx)
+    ctx.clip()
+
+
 def render_speech_bubble(ctx: cairo.Context, shape: SpeechBubbleShape) -> None:
+    """SpeechbubbleContainer.Draw (SpeechbubbleContainer.cs:236-333):
+    tail border, bubble fill, bubble border, tail fill, in that order -
+    both borders are drawn full-strength but *clipped to exclude the
+    other shape* (bubble border excludes the tail's own area and vice
+    versa), so the tail's two edges and the bubble's rounded outline
+    meet as one continuous seam instead of either double-stroking or
+    (this port's previous behavior) just letting the bubble's opaque
+    fill paper over whatever part of the tail's border fell inside it,
+    which left no border at all along the seam. CombineMode.Exclude has
+    no direct Cairo equivalent; _clip_excluding reproduces it via an
+    even-odd fill rule instead (see its own docstring).
+
+    One faithful-but-odd detail kept as-is: the source draws the tail's
+    border unconditionally, without the ``lineVisible`` guard the
+    bubble's own border draw has just below it (SpeechbubbleContainer.
+    cs:284-291 vs. 307-321) - almost certainly an oversight rather than
+    a deliberate effect (a zero-width GDI+ Pen still draws a hairline),
+    but replicating a lineThickness=0-yet-still-drawn tail border would
+    be a stranger, more surprising deviation from this shape's own
+    line_visible gating (and from every other shape's) than just not
+    reproducing it - so both border draws here are gated on
+    line_visible the same way.
+    """
     style = shape.style
     line_visible = style.line_thickness > 0 and is_visible(style.line_color)
     fill_visible = is_visible(style.fill_color)
+    has_tail = shape._tail_triangle() is not None
 
     if style.shadow and (line_visible or fill_visible):
         def shadow_step(c, dx, dy, alpha):
@@ -457,20 +499,20 @@ def render_speech_bubble(ctx: cairo.Context, shape: SpeechBubbleShape) -> None:
 
         _draw_shadow(ctx, shadow_step)
 
-    # Tail drawn first (filled + stroked), bubble drawn on top: the
-    # bubble's opaque fill covers whatever part of the tail is inside
-    # its own outline, standing in for the source's clip-region trick
-    # (see module docstring) without needing path/region combination.
-    if fill_visible and _tail_path(ctx, shape):
+    # Padded past both the bubble and the tail's own bounds (shape.bounds
+    # already unions them) so the exclude-clip's own rectangle edge
+    # never cuts into a stroke that's actually meant to be visible.
+    outer = shape.bounds
+    pad = style.line_thickness + 4
+    outer = Rect(outer.left - pad, outer.top - pad, outer.right + pad, outer.bottom + pad)
+
+    if line_visible and has_tail:
         ctx.save()
-        _set_color(ctx, style.fill_color)
-        if line_visible:
-            ctx.set_line_width(style.line_thickness)
-            ctx.fill_preserve()
-            _set_color(ctx, style.line_color)
-            ctx.stroke()
-        else:
-            ctx.fill()
+        _clip_excluding(ctx, lambda c: _bubble_path(c, shape), outer)
+        _tail_path(ctx, shape)
+        _set_color(ctx, style.line_color)
+        ctx.set_line_width(style.line_thickness)
+        ctx.stroke()
         ctx.restore()
 
     if fill_visible:
@@ -482,10 +524,19 @@ def render_speech_bubble(ctx: cairo.Context, shape: SpeechBubbleShape) -> None:
 
     if line_visible:
         ctx.save()
+        if has_tail:
+            _clip_excluding(ctx, lambda c: _tail_path(c, shape), outer)
         _bubble_path(ctx, shape)
         _set_color(ctx, style.line_color)
         ctx.set_line_width(style.line_thickness)
         ctx.stroke()
+        ctx.restore()
+
+    if fill_visible and has_tail:
+        ctx.save()
+        _tail_path(ctx, shape)
+        _set_color(ctx, style.fill_color)
+        ctx.fill()
         ctx.restore()
 
     _draw_text_block(

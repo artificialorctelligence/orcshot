@@ -129,6 +129,74 @@ def _shape_style_fields(shape) -> frozenset:
     return _NO_STYLE_FIELDS  # IconShape/CursorShape/ImageShape/SvgShape have no style fields
 
 
+# Per-tool "last used" style defaults - the preferredDefaultValue each
+# container's own InitializeFields passes to EditorConfigurationHelper.
+# CreateField, which caches last-used values keyed by *requesting
+# type name*, not one shared value (EditorConfigurationHelper.cs:48-76:
+# `requestedField = requestingTypeName + "." + fieldType.Name`) - so in
+# the real editor, changing Rectangle's line color never affects Speech
+# Bubble's. Cross-checked against each container's own field defaults:
+# RectangleContainer.cs:61-67, EllipseContainer.cs:57-63, LineContainer.
+# cs:45-50, ArrowContainer.cs:56-64, TextContainer.cs:98-110 (all four
+# identical to ShapeStyle()'s own plain default - line thickness 2, Red,
+# Transparent, shadow on), FreehandContainer.cs:65-69 (thickness 3
+# instead of 2, otherwise the same), SpeechbubbleContainer.cs:79-89
+# (White fill, no shadow - but Black line, not the source's own Blue,
+# a direct user request; matches SpeechBubbleShape's own dataclass
+# default, shapes.py), StepLabelContainer.cs:161-167 (DarkRed fill,
+# White line, thickness 0, no shadow - matches StepLabelShape's own
+# dataclass default too). Only tools whose shape has a style field are
+# listed - see _TOOL_STYLE_FIELDS above for which don't.
+_DEFAULT_STYLE = ShapeStyle()
+_TOOL_STYLE_DEFAULTS: Dict[Tool, ShapeStyle] = {
+    Tool.RECTANGLE: _DEFAULT_STYLE,
+    Tool.ELLIPSE: _DEFAULT_STYLE,
+    Tool.LINE: _DEFAULT_STYLE,
+    Tool.ARROW: _DEFAULT_STYLE,
+    Tool.FREEHAND: replace(_DEFAULT_STYLE, line_thickness=3),
+    Tool.TEXT: _DEFAULT_STYLE,
+    # No Windows Emoji container to cite (this port's own addition -
+    # see create_shape_from_drag) - reuses TextContainer's own default,
+    # same as it reuses TextShape's class.
+    Tool.EMOJI: _DEFAULT_STYLE,
+    Tool.SPEECH_BUBBLE: ShapeStyle(line_color=(0, 0, 0, 255), fill_color=(255, 255, 255, 255), shadow=False),
+    Tool.STEP_LABEL: ShapeStyle(fill_color=(139, 0, 0, 255), line_color=(255, 255, 255, 255), line_thickness=0, shadow=False),
+}
+
+
+def default_style_for_tool(tool: Tool) -> ShapeStyle:
+    return _TOOL_STYLE_DEFAULTS.get(tool, _DEFAULT_STYLE)
+
+
+def style_key_for_shape(shape) -> Optional[Tool]:
+    """Which tool's per-type style memory a shape's own class belongs
+    to - the inverse of create_shape_from_drag. Used so restyling an
+    existing *selected* shape (not just drawing a new one) updates the
+    same per-type memory a freshly drawn shape of that type would read
+    next, matching EditorConfigurationHelper.UpdateLastFieldValue
+    (keyed by the changed field's own Scope/owning container type, not
+    by whichever tool happens to be active - typically Select - when
+    the edit happens).
+    """
+    if isinstance(shape, ArrowShape):  # checked first - ArrowShape subclasses LineShape
+        return Tool.ARROW
+    if isinstance(shape, LineShape):
+        return Tool.LINE
+    if isinstance(shape, RectangleShape):
+        return Tool.RECTANGLE
+    if isinstance(shape, EllipseShape):
+        return Tool.ELLIPSE
+    if isinstance(shape, FreehandShape):
+        return Tool.FREEHAND
+    if isinstance(shape, SpeechBubbleShape):
+        return Tool.SPEECH_BUBBLE
+    if isinstance(shape, TextShape):
+        return Tool.TEXT  # also covers Emoji-created shapes - see _TOOL_STYLE_DEFAULTS
+    if isinstance(shape, StepLabelShape):
+        return Tool.STEP_LABEL
+    return None
+
+
 def visible_style_fields(tool: Tool, selected_shape=None) -> frozenset:
     """Which style-panel controls (line/fill color, thickness, shadow,
     obfuscate amount) are relevant right now.
@@ -211,7 +279,7 @@ def create_shape_from_drag(
         cx, cy = start
         r = _STEP_LABEL_RADIUS
         bounds = Rect(cx - r, cy - r, cx + r, cy + r)
-        return StepLabelShape(bounds=bounds, number=next_step_number)
+        return StepLabelShape(bounds=bounds, number=next_step_number, style=style)
     raise ValueError(f"{tool} is not created from a single start/end drag; use create_freehand_shape")
 
 

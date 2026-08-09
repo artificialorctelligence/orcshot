@@ -2,8 +2,10 @@
 pointing at a target location.
 
 Behavioral port of SpeechbubbleContainer, which extends TextContainer
-(same font/text fields, different defaults: blue line, white fill,
-bold, size 20, no shadow). The base DrawableContainer.Contains is just
+(same font/text fields, different defaults: white fill, bold, size 20,
+no shadow - line color is deliberately black here rather than the
+source's own blue, a direct user request). The base DrawableContainer.
+Contains is just
 `Bounds.Contains(x, y)` — no margin at all — which is why the bubble
 interior is clickable despite SpeechbubbleContainer.Contains having no
 explicit "filled shape" fast path the way Rectangle/Ellipse do: the
@@ -40,7 +42,10 @@ class TestDefaults:
         assert shape.font_size == 20.0
         assert shape.bold is True
         assert shape.italic is False
-        assert shape.style.line_color == (0, 0, 255, 255)  # Blue
+        # line_color deliberately Black, not the source's own Blue - a
+        # direct user request (core/tools.py's _TOOL_STYLE_DEFAULTS has
+        # the matching citation/comment).
+        assert shape.style.line_color == (0, 0, 0, 255)
         assert shape.style.fill_color == (255, 255, 255, 255)  # White
         assert shape.style.shadow is False
 

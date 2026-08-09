@@ -239,9 +239,12 @@ class SpeechBubbleShape:
     italic: bool = False
     horizontal_alignment: str = "center"
     vertical_alignment: str = "center"
+    # line_color deliberately black, not SpeechbubbleContainer.cs:80's
+    # own Blue default - a direct user request, not a citation error
+    # (see core/tools.py's matching _TOOL_STYLE_DEFAULTS entry).
     style: ShapeStyle = field(
         default_factory=lambda: ShapeStyle(
-            line_color=(0, 0, 255, 255),
+            line_color=(0, 0, 0, 255),
             fill_color=(255, 255, 255, 255),
             shadow=False,
         )
