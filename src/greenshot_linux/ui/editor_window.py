@@ -196,7 +196,7 @@ from greenshot_linux.ui.composite import composite_to_numpy
 from greenshot_linux.ui.effects import resize_image, torn_edge_image
 from greenshot_linux.ui.gdk_convert import pixbuf_to_numpy
 from greenshot_linux.ui.file_export import save_image_to_file
-from greenshot_linux.ui.icons import tool_icon_image
+from greenshot_linux.ui.icons import obfuscate_icon_image, tool_icon_image
 from greenshot_linux.ui.printing import print_image
 from greenshot_linux.ui.render import bubble_corner_radius, render_shape, vertical_text_offset
 
@@ -895,7 +895,7 @@ class EditorWindow(Gtk.Window):
             group_leader = button
         button.set_mode(False)
         button.set_relief(Gtk.ReliefStyle.NONE)
-        button.set_image(tool_icon_image(Tool.PIXELIZE, color=icon_color))
+        button.set_image(obfuscate_icon_image(icon_color))
         button.set_tooltip_text("Obfuscate")
         button.set_active(self.tool in _OBFUSCATE_MODE_ORDER)
         button.connect("toggled", self._on_obfuscate_button_toggled)

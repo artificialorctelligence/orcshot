@@ -2784,6 +2784,49 @@ swatch could show a stale color right after switching selection, until some unre
 to refresh it) that the new Text Color: swatch would otherwise have shipped with too. Both are now
 refreshed together.
 
+## Obfuscate and Step Label toolbar icons (complete 2026-08-09)
+
+Both icons were the two hardcoded exceptions to `ui/icons.py`'s own stated design (every tool icon is
+hand-drawn Cairo primitives, theme-colored via a `color` param the way real desktop icon themes are) -
+found while reviewing the panel built for task #86 above.
+
+- **Step Label** used to reuse `render_step_label` directly on a real `StepLabelShape`, which draws in
+  that shape's own fixed dark-red/white on-canvas style (`core/shapes.py`'s own default) - correct for
+  the actual drawn element, but the one tool icon in the whole toolbar that silently ignored the given
+  `color` and never changed with the theme. Replaced with a hand-drawn version matching the Ellipse
+  tool's own icon technique: an unfilled stroked circle (`render_ellipse` with a transparent fill, the
+  exact same call `_ellipse_icon` already makes) with a "1" centered inside, both in the passed color -
+  same silhouette as before, now outline instead of filled and theme-aware like every other icon.
+- **Obfuscate**'s single unified toolbar button (task #54) hardcoded `tool_icon_image(Tool.PIXELIZE,
+  ...)` regardless of which mode was actually active - a real, colorful 3x3 grid standing in for the
+  whole redaction feature, which read as decorative noise (reported live as "looks like a Rubik's
+  cube") rather than communicating "conceal/redact." None of the four individual mode icons
+  (Pixelize/Blur/SolidFill/Scramble) are otherwise ever shown anywhere - the mode dropdown itself is
+  text-only (see task #60's own UI section above) - so there was no mode-specific icon actually being
+  lost by replacing it. New `_obfuscate_icon`/`obfuscate_icon_image` (not keyed by `Tool`, called
+  directly by `_build_obfuscate_control` in place of the old hardcoded `Tool.PIXELIZE` reference): a
+  hand-drawn fedora-and-sunglasses "incognito" glyph (wide brim, narrower crown, two lenses joined by a
+  bridge - the familiar Chrome-incognito/Font-Awesome-"user-secret" silhouette, used only as a loose
+  proportions reference, not traced or embedded as an asset), monochrome and theme-colored like every
+  other tool icon rather than the fixed-color mode icons it replaces.
+
+Deliberately not a bundled/downloaded icon asset for either - this file's whole existing design
+(explained in its own module docstring) is "no icon theme has standardized names for these tools," and
+that reasoning holds just as well for "incognito redaction icon" as it does for "rectangle annotation
+tool": no freedesktop icon-naming-spec category covers either, unlike the generic Undo/Redo/Copy/Save/
+Print actions elsewhere in the editor, which do use real system theme icon names. Bundling a specific
+third-party SVG would also need its own license attribution (this project already went through real
+effort keeping packaging/licensing clean for the anonymous GPL3 release) and its own re-coloring
+mechanism (`currentColor` substitution or mask-based re-tinting) just to stay theme-aware like the rest
+of the toolbar - more moving parts than drawing the shape directly in the color already wanted.
+
+Verified live: unit tests (`_obfuscate_icon` draws something visible, uses the given color, and changes
+between colors, mirroring the existing per-tool color tests; Step Label moved from the "ignores color"
+test into `_LINE_ART_TOOLS`, now covered by the same use-the-given-color/changes-between-colors checks
+every other line-art icon already has) plus a real GTK toolbar screenshot (synthetic dark test image,
+never real desktop content) confirming both icons render in the same theme gray as every other tool,
+with the fedora/sunglasses silhouette and the outlined "1" circle both legible at actual 24px size.
+
 ## Unverified assumptions
 
 Implemented, believed correct (spec, docs, or code-reading), but not directly observed working

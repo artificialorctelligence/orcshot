@@ -8,11 +8,14 @@ before relying on them; that part isn't unit tested, it's just a
 Gtk.Image.new_from_icon_name call in editor_window.py).
 
 Where a tool already has a real renderer (Rectangle/Ellipse/Line/Arrow/
-Freehand), its icon reuses that exact render_* function on a miniature
-shape, so the icon can never visually drift from what the tool
-actually draws. Pixelize/Blur/Text have no small-scale renderer to
-reuse (obfuscation needs a base image to filter, and a single glyph
-doesn't need Pango's layout machinery), so those are hand-drawn.
+Freehand/StepLabel's own outline circle), its icon reuses that exact
+render_* function on a miniature shape, so the icon can never visually
+drift from what the tool actually draws. Pixelize/Blur/Text have no
+small-scale renderer to reuse (obfuscation needs a base image to
+filter, and a single glyph doesn't need Pango's layout machinery), so
+those are hand-drawn - as is the single Obfuscate toolbar button's own
+icon (_obfuscate_icon, not keyed by Tool - see its own docstring),
+representing the whole feature rather than any one selectable mode.
 
 Headless-testable like the rest of ui/ - Cairo needs no X11 connection.
 """
@@ -21,7 +24,7 @@ import numpy as np
 
 from greenshot_linux.core.tools import Tool
 from greenshot_linux.ui.cairo_convert import cairo_surface_to_numpy
-from greenshot_linux.ui.icons import ICON_SIZE, tool_icon_surface
+from greenshot_linux.ui.icons import ICON_SIZE, _obfuscate_icon, tool_icon_surface
 
 
 def test_every_tool_has_an_icon_builder():
@@ -50,7 +53,7 @@ def test_icons_for_different_tools_are_not_identical():
 
 _LINE_ART_TOOLS = [
     Tool.SELECT, Tool.RECTANGLE, Tool.ELLIPSE, Tool.LINE, Tool.ARROW, Tool.FREEHAND, Tool.TEXT,
-    Tool.SPEECH_BUBBLE, Tool.EMOJI,
+    Tool.SPEECH_BUBBLE, Tool.EMOJI, Tool.STEP_LABEL,
 ]
 
 
@@ -84,11 +87,22 @@ def test_pixelize_and_blur_icons_ignore_the_color_param():
         assert np.array_equal(white_image, black_image), f"{tool} icon changed with the color param"
 
 
-def test_step_label_icon_ignores_the_color_param():
-    # StepLabelShape always renders in its own fixed dark-red/white
-    # style (see core/shapes.py), not the editor's adjustable line/
-    # fill color - the icon shouldn't pretend it's theme-colored line
-    # art the way Rectangle/Ellipse/etc. are.
-    white_image = cairo_surface_to_numpy(tool_icon_surface(Tool.STEP_LABEL, color=(255, 255, 255, 255)))
-    black_image = cairo_surface_to_numpy(tool_icon_surface(Tool.STEP_LABEL, color=(0, 0, 0, 255)))
-    assert np.array_equal(white_image, black_image)
+def test_obfuscate_icon_draws_something_visible():
+    surface = _obfuscate_icon((60, 60, 60, 255))
+    assert surface.get_width() == ICON_SIZE
+    assert surface.get_height() == ICON_SIZE
+    image = cairo_surface_to_numpy(surface)
+    assert image[:, :, 3].max() > 0
+
+
+def test_obfuscate_icon_uses_the_given_color():
+    red = (255, 0, 0, 255)
+    image = cairo_surface_to_numpy(_obfuscate_icon(red))
+    mask = (image[:, :, 0] > 200) & (image[:, :, 1] < 50) & (image[:, :, 2] < 50) & (image[:, :, 3] > 0)
+    assert mask.any()
+
+
+def test_obfuscate_icon_changes_visibly_between_colors():
+    white_image = cairo_surface_to_numpy(_obfuscate_icon((255, 255, 255, 255)))
+    black_image = cairo_surface_to_numpy(_obfuscate_icon((0, 0, 0, 255)))
+    assert not np.array_equal(white_image, black_image)

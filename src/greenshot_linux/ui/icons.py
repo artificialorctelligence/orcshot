@@ -42,12 +42,12 @@ from gi.repository import Gdk, GdkPixbuf, Gtk
 from greenshot_linux.core.geometry import Rect
 from greenshot_linux.core.shapes import (
     ArrowShape, Color, EllipseShape, FreehandShape, LineShape, RectangleShape, ShapeStyle,
-    SpeechBubbleShape, StepLabelShape,
+    SpeechBubbleShape,
 )
 from greenshot_linux.core.tools import Tool
 from greenshot_linux.ui.render import (
     render_arrow, render_ellipse, render_freehand, render_line, render_rectangle,
-    render_speech_bubble, render_step_label,
+    render_speech_bubble,
 )
 
 ICON_SIZE = 24
@@ -61,6 +61,15 @@ def _blank_surface() -> cairo.ImageSurface:
 
 def _line_art_style(color: Color) -> ShapeStyle:
     return ShapeStyle(line_thickness=2, line_color=color, fill_color=(0, 0, 0, 0), shadow=False)
+
+
+def _rounded_rect_path(ctx: cairo.Context, x: float, y: float, w: float, h: float, r: float) -> None:
+    ctx.new_sub_path()
+    ctx.arc(x + w - r, y + r, r, -math.pi / 2, 0)
+    ctx.arc(x + w - r, y + h - r, r, 0, math.pi / 2)
+    ctx.arc(x + r, y + h - r, r, math.pi / 2, math.pi)
+    ctx.arc(x + r, y + r, r, math.pi, 3 * math.pi / 2)
+    ctx.close_path()
 
 
 def _rectangle_icon(color: Color) -> cairo.ImageSurface:
@@ -165,6 +174,57 @@ def _scramble_icon(color: Color) -> cairo.ImageSurface:
     return surface
 
 
+def _obfuscate_icon(color: Color) -> cairo.ImageSurface:
+    """A fedora-and-sunglasses "incognito" glyph - what the single,
+    Windows-style unified Obfuscate toolbar button actually shows
+    (task #54's _build_obfuscate_control calls obfuscate_icon_image
+    below, not tool_icon_image(Tool.PIXELIZE, ...) like it used to).
+    Represents the whole redaction feature, not any one mode - none of
+    Pixelize/Blur/SolidFill/Scramble's own icons above are otherwise
+    ever shown anywhere (the mode dropdown is text-only), so there's
+    no "faithful to a specific mode" icon to lose by replacing it.
+
+    Proportions loosely follow the familiar wide-brim/narrow-crown/
+    two-lenses-and-a-bridge silhouette (Chrome's incognito icon, Font
+    Awesome's "user-secret") - hand-drawn in Cairo like every icon in
+    this file, not a downloaded/bundled asset (see this module's own
+    docstring), and monochrome in the given ``color`` like every
+    other tool icon, unlike the fixed-color mode icons above.
+    """
+    surface = _blank_surface()
+    ctx = cairo.Context(surface)
+    r, g, b, a = color
+    ctx.set_source_rgba(r / 255, g / 255, b / 255, a / 255)
+
+    # Crown: a narrower rounded rect sitting on top of the brim.
+    _rounded_rect_path(ctx, 8, 5, 8, 6, 1.5)
+    ctx.fill()
+
+    # Brim: a wide, flattened ellipse spanning nearly the full width -
+    # the standard "circle built from a scaled arc" Cairo idiom: the
+    # arc is baked into device-space path coordinates at the transform
+    # in effect when it's added, so restoring the CTM before fill()
+    # doesn't undo the scale.
+    ctx.save()
+    ctx.translate(ICON_SIZE / 2, 11.5)
+    ctx.scale(10, 2.2)
+    ctx.arc(0, 0, 1, 0, 2 * math.pi)
+    ctx.restore()
+    ctx.fill()
+
+    # Sunglasses: two lenses plus a connecting bridge, below the brim.
+    _rounded_rect_path(ctx, 4.5, 14, 6, 5, 1.5)
+    ctx.fill()
+    _rounded_rect_path(ctx, 13.5, 14, 6, 5, 1.5)
+    ctx.fill()
+    ctx.set_line_width(1.5)
+    ctx.move_to(10.5, 16)
+    ctx.line_to(13.5, 16)
+    ctx.stroke()
+
+    return surface
+
+
 def _text_icon(color: Color) -> cairo.ImageSurface:
     surface = _blank_surface()
     ctx = cairo.Context(surface)
@@ -200,14 +260,33 @@ def _speech_bubble_icon(color: Color) -> cairo.ImageSurface:
 
 
 def _step_label_icon(color: Color) -> cairo.ImageSurface:
-    # Ignores ``color`` like Pixelize/Blur - a step label always
-    # renders in its own fixed dark-red/white style (see
-    # StepLabelShape's default in core/shapes.py), not the editor's
-    # adjustable line/fill color, so the icon shouldn't pretend
-    # otherwise.
+    """An outlined circle - reusing render_ellipse exactly like
+    _ellipse_icon does, so it matches the Ellipse tool's own icon
+    style - with a "1" centered inside, both in the given ``color``.
+    Used to reuse render_step_label on a real StepLabelShape instead,
+    which looked right as an on-canvas element (its own fixed dark-
+    red/white style, see StepLabelShape's default in core/shapes.py)
+    but wrong as a toolbar icon: it was the one hardcoded exception
+    among every icon in this file that ignored the theme color.
+    """
     surface = _blank_surface()
-    shape = StepLabelShape(Rect(_MARGIN, _MARGIN, ICON_SIZE - _MARGIN, ICON_SIZE - _MARGIN), number=1)
-    render_step_label(cairo.Context(surface), shape)
+    ctx = cairo.Context(surface)
+    circle = EllipseShape(Rect(_MARGIN, _MARGIN, ICON_SIZE - _MARGIN, ICON_SIZE - _MARGIN), _line_art_style(color))
+    render_ellipse(ctx, circle)
+
+    font_options = ctx.get_font_options()
+    font_options.set_antialias(cairo.ANTIALIAS_GRAY)
+    ctx.set_font_options(font_options)
+    r, g, b, a = color
+    ctx.set_source_rgba(r / 255, g / 255, b / 255, a / 255)
+    ctx.select_font_face("sans-serif", cairo.FONT_SLANT_NORMAL, cairo.FONT_WEIGHT_BOLD)
+    ctx.set_font_size(ICON_SIZE * 0.5)
+    extents = ctx.text_extents("1")
+    ctx.move_to(
+        ICON_SIZE / 2 - extents.width / 2 - extents.x_bearing,
+        ICON_SIZE / 2 - extents.height / 2 - extents.y_bearing,
+    )
+    ctx.show_text("1")
     return surface
 
 
@@ -289,5 +368,17 @@ def tool_icon_surface(tool: Tool, color: Color = _DEFAULT_COLOR) -> cairo.ImageS
 
 def tool_icon_image(tool: Tool, color: Color = _DEFAULT_COLOR) -> Gtk.Image:
     surface = tool_icon_surface(tool, color)
+    pixbuf = Gdk.pixbuf_get_from_surface(surface, 0, 0, surface.get_width(), surface.get_height())
+    return Gtk.Image.new_from_pixbuf(pixbuf)
+
+
+def obfuscate_icon_image(color: Color = _DEFAULT_COLOR) -> Gtk.Image:
+    """Not keyed by Tool like tool_icon_image above - _obfuscate_icon
+    represents the single unified Obfuscate button (task #54), not any
+    one of the four selectable modes (Pixelize/Blur/SolidFill/Scramble
+    all still have their own _TOOL_ICON_BUILDERS entries, just never
+    shown anywhere - see _obfuscate_icon's own docstring).
+    """
+    surface = _obfuscate_icon(color)
     pixbuf = Gdk.pixbuf_get_from_surface(surface, 0, 0, surface.get_width(), surface.get_height())
     return Gtk.Image.new_from_pixbuf(pixbuf)
