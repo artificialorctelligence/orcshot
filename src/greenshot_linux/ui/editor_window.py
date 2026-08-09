@@ -2772,18 +2772,29 @@ class EditorWindow(Gtk.Window):
         tool = _TOOL_KEYS.get(event.keyval)
         if tool is not None and not ctrl_held:
             if tool in _TOOL_TO_OBFUSCATE_MODE:
-                # All four obfuscate modes route through the same
-                # shared Obfuscate button (self._tool_buttons[mode] is
-                # the same object for every mode in _OBFUSCATE_MODE_
-                # ORDER) - set_active(True) alone wouldn't reliably
-                # pick the right mode if it's already the active tool
-                # (see _select_and_activate_obfuscate_mode). Only
-                # Solid Fill (6) and Scramble (7) currently have keys
-                # in _TOOL_KEYS, but this checks membership in the
-                # full mode mapping rather than hardcoding those two,
-                # so it doesn't silently drift out of sync if a key
-                # ever gets added for Pixelize/Blur again too.
-                self._select_and_activate_obfuscate_mode(tool)
+                # Solid Fill (6) / Scramble (7) only switch mode when
+                # *entering* Obfuscate from some other tool - pressing
+                # either again while already in Obfuscate (whichever
+                # mode) is a no-op, matching how every other tool key
+                # already behaves (pressing 1 again while already on
+                # Rectangle does nothing) and how the main Obfuscate
+                # toolbar button's own click handler already works
+                # (_on_obfuscate_button_toggled only ever activates
+                # whatever mode is currently prepared, never changes
+                # it - BtnObfuscateClick's real Windows behavior).
+                # Reported live: repeatedly pressing 7 kept forcing
+                # Scramble regardless of which mode was active, which
+                # read as surprising/unwanted rather than convenient.
+                #
+                # All four modes route through the same shared
+                # Obfuscate button (self._tool_buttons[mode] is the
+                # same object for every mode in _OBFUSCATE_MODE_ORDER),
+                # so "already in Obfuscate" is checked against self.tool
+                # (the currently *active* tool) rather than the button's
+                # own active state, which can't distinguish which mode
+                # is active - self.tool always can.
+                if self.tool not in _TOOL_TO_OBFUSCATE_MODE:
+                    self._select_and_activate_obfuscate_mode(tool)
             else:
                 # set_active(True) fires "toggled", which itself sets
                 # self.tool - this just keeps the toolbar's radio

@@ -2922,11 +2922,25 @@ already uses to pick which tray implementation to build) rather than describing 
 Verified live: unit tests still pass (no existing coverage of `_TOOL_KEYS`/`_on_key_press` to update -
 this file has no dedicated test module at all, consistent with how the rest of its interactive behavior
 in this project has always been verified - live GTK sessions, not headless pytest), plus a driven GTK
-script pressing all twelve tool keys and confirming `win.tool` lands on the right value each time,
-specifically including pressing 6 then 7 back-to-back and confirming the obfuscate mode actually
-switches both times (the shared-button correctness fix above), and a real screenshot of the rebuilt
-Help dialog confirming the table layout, header/key indentation relationship, and (running under X11 in
-this dev environment) the X11-specific Tray Icon wording.
+script pressing all twelve tool keys and confirming `win.tool` lands on the right value each time, and a
+real screenshot of the rebuilt Help dialog confirming the table layout, header/key indentation
+relationship, and (running under X11 in this dev environment) the X11-specific Tray Icon wording.
+
+**Follow-up, same day**: the first version of the Solid Fill/Scramble key dispatch (immediately above)
+made 6/7 *always* switch to that specific mode, even when Obfuscate was already the active tool in some
+*other* mode - so pressing 7 while already drawing with Solid Fill would force a switch to Scramble.
+Reported live as surprising/unwanted, not convenient - "I think it should do nothing in this case."
+Changed to only switch mode when *entering* Obfuscate from some other tool; pressing either key again
+while already in Obfuscate (any mode) is now a no-op instead, matching two things this port already does
+elsewhere: every other tool key is a no-op when pressed again while that tool's already active (pressing
+1 twice while on Rectangle does nothing), and the main Obfuscate toolbar button's own click handler
+(`_on_obfuscate_button_toggled`) only ever activates whichever mode is currently prepared, never changes
+it - the real Windows behavior (`BtnObfuscateClick`) this port's own docstrings already cite elsewhere in
+this same feature. "Already in Obfuscate" is checked against `self.tool` (which mode is actually active)
+rather than the shared button's own boolean active state, since the button can't distinguish *which*
+mode is active - only `self.tool` can. Verified live: Rectangle -> 6 enters Solid Fill; 7 pressed again
+while still in Solid Fill leaves it unchanged (the exact scenario reported); 6 pressed again also leaves
+it unchanged; leaving Obfuscate first (Ellipse) then pressing 7 does switch to Scramble as expected.
 
 ## Unverified assumptions
 
