@@ -71,6 +71,25 @@ import * as PopupMenu from 'resource:///org/gnome/shell/ui/popupMenu.js';
 Gio._promisify(Shell.Screenshot.prototype, 'screenshot_stage_to_content');
 Gio._promisify(Shell.Screenshot, 'composite_to_stream');
 
+// pick_color reads a single pixel via a direct compositor buffer read
+// (do_grab_screenshot -> clutter_stage_paint_to_buffer, confirmed by
+// reading GNOME Shell's own src/shell-screenshot.c) - no PNG encode/
+// decode round trip at all, unlike composite_to_stream above. Confirmed
+// live via typelib introspection that this method exists on this
+// Shell's own Shell-18.typelib before relying on it (not present in
+// GNOME Shell's own screenshot.js, which never calls it itself, but
+// added specifically to back org.freedesktop.portal.Screenshot's
+// PickColor method - see EyedropperOverlay's own docstring for why
+// this matters here). pick_color_finish's C signature is `gboolean,
+// out CoglColor *color` - the classic GLib "boolean success + one out
+// value" idiom, which Gio._promisify resolves to just that one value
+// (the boolean becomes purely resolve-vs-reject), matching this file's
+// own composite_to_stream (a single-return-value finish function that
+// resolves the same way) rather than screenshot_stage_to_content
+// (multiple out-values, resolves to an array) - confirmed live rather
+// than assumed once EyedropperOverlay's own use of it was working.
+Gio._promisify(Shell.Screenshot.prototype, 'pick_color');
+
 // Two separate single-interface documents, not one <node> with both
 // <interface> elements - confirmed against GJS's own source
 // (modules/core/overrides/Gio.js) that Gio.DBusExportedObject.
@@ -1059,8 +1078,43 @@ class EyedropperOverlay extends St.Widget {
     this._cursorY = 0;
     this._patchPixbuf = null;
     this._patchOrigin = null;
+    this._patchSampleCursor = null;
     this._currentColor = null;
     this._result = null;
+
+    // Coalesces _requestSample calls (below) to at most one in-flight
+    // composite_to_stream() round trip at a time - see that method's
+    // own comment for why: reported live, a fast drag visibly
+    // outrunning the loupe before it "snapped back" once movement
+    // slowed. Without this, every single motion/pan-update event fired
+    // its own overlapping async sample, so a fast drag could have many
+    // concurrent requests all competing for the same GPU/compositor
+    // work at once - each individually slower under that contention,
+    // compounding the very latency being complained about.
+    this._sampling = false;
+    this._pendingSample = null;
+
+    // Separate coalescing pair for the actual color read (below),
+    // decoupled from _sampling/_pendingSample above (the visual
+    // magnified patch, still bottlenecked by composite_to_stream()'s
+    // PNG round trip - task #71 remains open for that part). This one
+    // drives this._currentColor via pick_color() instead, which is
+    // fast enough that this._result (set from this._currentColor on
+    // release, below) should now reflect the true live cursor position
+    // rather than trailing several frames behind the picked patch.
+    this._colorPicking = false;
+    this._pendingColorPick = null;
+
+    // See RegionSelectOverlay's own constructor comment (_destroyed)
+    // for the full reasoning - the same class of race exists here too:
+    // _sample() below is async, and a call left in flight from the
+    // last motion/pan-update before release can resolve after
+    // selectAsync()'s own destroy() has already run. Narrower window
+    // here than RegionSelectOverlay (destroy() follows the grab
+    // immediately, no destination-picker wait in between), but not
+    // zero - guarded the same way regardless.
+    this._destroyed = false;
+    this.connect('destroy', () => { this._destroyed = true; });
 
     // Same signals as RegionSelectOverlay's PanGesture, for the same
     // reasons (recognize/pan-update/end/cancel) - here every pan-
@@ -1100,10 +1154,41 @@ class EyedropperOverlay extends St.Widget {
     return this._result;
   }
 
-  async _sample(x, y) {
+  // Single coalescing entry point for both _onPanBegin/_onPanUpdate
+  // below - see this._sampling's own constructor comment for why. The
+  // live cursor position (this._cursorX/Y, driving the loupe's own
+  // on-screen placement in _drawLoupe) is updated unconditionally here
+  // regardless of coalescing - queue_repaint() is called immediately,
+  // not just from _sample()/_pickColor() once their async round trips
+  // resolve. Confirmed live as a real, reported bug otherwise: without
+  // this, _onRepaint (and therefore _drawLoupe's destX/destY, which
+  // only depend on the live cursor - no async data needed at all) only
+  // actually ran whenever a slow round trip happened to finish, not on
+  // every pan-update event, so the loupe's own on-screen position
+  // visibly "caught up" to the cursor instead of tracking it every
+  // frame the way RegionSelectOverlay's equivalent code already does.
+  _requestSample(x, y) {
     this._cursorX = x;
     this._cursorY = y;
+    this._drawing.queue_repaint();
+    if (this._sampling) {
+      this._pendingSample = { x, y };
+      return;
+    }
+    this._sampling = true;
+    this._sample(x, y)
+      .catch(e => logError(e, 'Error sampling eyedropper loupe'))
+      .finally(() => {
+        this._sampling = false;
+        if (this._destroyed || this._pendingSample === null)
+          return;
+        const next = this._pendingSample;
+        this._pendingSample = null;
+        this._requestSample(next.x, next.y);
+      });
+  }
 
+  async _sample(x, y) {
     const half = Math.floor(_PATCH_SIZE / 2);
     const stageWidth = global.stage.width;
     const stageHeight = global.stage.height;
@@ -1117,19 +1202,71 @@ class EyedropperOverlay extends St.Widget {
       stream);
     stream.close(null);
 
+    // See this class's own constructor comment (_destroyed) for why.
+    if (this._destroyed)
+      return;
+
     this._patchPixbuf = pixbuf;
     this._patchOrigin = { x: left, y: top };
-    this._currentColor = this._pixelAt(pixbuf, Math.round(x) - left, Math.round(y) - top);
+    // The exact cursor position *this patch* was sampled at (this
+    // method's own x/y parameters, not this._cursorX/Y - those may
+    // already reflect a newer, faster-arriving _sample() call's
+    // position by the time this one resolves, since concurrent
+    // in-flight composite_to_stream() calls aren't sequenced and can
+    // resolve out of order). Confirmed live as a real bug in
+    // RegionSelectOverlay's own near-identical loupe (task #82) before
+    // being ported back here: mixing a live cursor position against a
+    // stale sampled patch made the crosshair visibly jitter/shear
+    // during fast drags - see _drawLoupe below, which uses this
+    // instead of the live this._cursorX/Y for exactly that reason.
+    this._patchSampleCursor = { x, y };
     this._drawing.queue_repaint();
+    // The actual picked colour comes from _requestColorPick/_pickColor
+    // below instead (pick_color(), not a crop of this composite_to_
+    // stream() patch) - see this class's own _colorPicking constructor
+    // comment for why: this patch's own round trip is the slow part
+    // task #71 is about, and _currentColor driving the real released
+    // result shouldn't have to wait on it.
   }
 
-  _pixelAt(pixbuf, px, py) {
-    const pixels = pixbuf.get_pixels();
-    const rowstride = pixbuf.get_rowstride();
-    const channels = pixbuf.get_n_channels();
-    const i = py * rowstride + px * channels;
-    const a = channels === 4 ? pixels[i + 3] : 255;
-    return [pixels[i], pixels[i + 1], pixels[i + 2], a];
+  // Single coalescing entry point for the fast colour read, same
+  // pattern as _requestSample above but independent of it - see this
+  // class's own _colorPicking constructor comment for why these two
+  // are deliberately separate instead of sharing one coalescing pair.
+  _requestColorPick(x, y) {
+    if (this._colorPicking) {
+      this._pendingColorPick = { x, y };
+      return;
+    }
+    this._colorPicking = true;
+    this._pickColor(x, y)
+      .catch(e => logError(e, 'Error picking eyedropper colour'))
+      .finally(() => {
+        this._colorPicking = false;
+        if (this._destroyed || this._pendingColorPick === null)
+          return;
+        const next = this._pendingColorPick;
+        this._pendingColorPick = null;
+        this._requestColorPick(next.x, next.y);
+      });
+  }
+
+  async _pickColor(x, y) {
+    // Resolves to a one-element array, not the bare Cogl.Color -
+    // confirmed live (temporary debug logging, since removed): unlike
+    // composite_to_stream_finish above (no leading boolean, resolves
+    // directly to its single return value), pick_color_finish's
+    // `gboolean, out CoglColor*` shape resolves the same way
+    // screenshot_stage_to_content_finish's multi-out-value shape does -
+    // wrapped in an array regardless of how many non-boolean values
+    // there are. Fields are already plain 0-255 bytes (also confirmed
+    // live), matching what _drawLoupe's hex-formatting code below
+    // already expects - no scaling needed.
+    const [color] = await new Shell.Screenshot().pick_color(Math.round(x), Math.round(y));
+    if (this._destroyed)
+      return;
+    this._currentColor = [color.red, color.green, color.blue, color.alpha];
+    this._drawing.queue_repaint();
   }
 
   _onPanBegin() {
@@ -1137,24 +1274,26 @@ class EyedropperOverlay extends St.Widget {
       return;
     this._dragging = true;
     const coords = this._panGesture.get_centroid_abs();
-    this._sample(coords.x, coords.y).catch(e => logError(e));
+    this._requestSample(coords.x, coords.y);
+    this._requestColorPick(coords.x, coords.y);
   }
 
   _onPanUpdate() {
     if (this._result !== null || !this._dragging)
       return;
     const coords = this._panGesture.get_centroid_abs();
-    this._sample(coords.x, coords.y).catch(e => logError(e));
+    this._requestSample(coords.x, coords.y);
+    this._requestColorPick(coords.x, coords.y);
   }
 
   _onPanEnd() {
     if (this._result !== null)
       return;
     this._dragging = false;
-    // this._currentColor is null if _sample() never resolved even
+    // this._currentColor is null if _pickColor() never resolved even
     // once (e.g. an extremely fast click-release before the first
-    // composite_to_stream() call finished) - treated as a cancel, same
-    // as ui/eyedropper_wayland.py's own _on_button_release contract.
+    // pick_color() call finished) - treated as a cancel, same as
+    // ui/eyedropper_wayland.py's own _on_button_release contract.
     this._result = this._currentColor;
     this._grabHelper.ungrab();
   }
@@ -1176,10 +1315,14 @@ class EyedropperOverlay extends St.Widget {
   }
 
   _drawLoupe(cr) {
+    // Loupe position stays pinned to the *live* cursor (unchanged) -
+    // only the crosshair-within-patch math (inside _drawMagnifierLoupe)
+    // needs the sample-paired cursor position instead, per this
+    // method's own docstring above in _sample.
     const destX = this._cursorX + _LOUPE_OFFSET_X;
     const destY = this._cursorY + _LOUPE_OFFSET_Y;
     _drawMagnifierLoupe(
-      cr, this._patchPixbuf, this._cursorX, this._cursorY,
+      cr, this._patchPixbuf, this._patchSampleCursor.x, this._patchSampleCursor.y,
       this._patchOrigin.x, this._patchOrigin.y, destX, destY, _LOUPE_DIAMETER,
     );
 

@@ -2203,6 +2203,72 @@ unresolvable `resource:///` import outside a real Shell process - confirms no sy
 needing a full Shell runtime). Not unit tested, matching every other piece of this extension - GJS/Shell
 glue with no meaningful headless test, same precedent as the rest of `extension.js`.
 
+#### Task #71 (Wayland eyedropper loupe flicker/shearing) - Shell-native path fixed, portal-fallback split off, 2026-08-09
+
+Important scoping note first: task #71's original entry (this file's Wayland-eyedropper section, "Known
+follow-up, not a blocker") is about `ui/eyedropper_wayland.py`'s `_WaylandEyedropperOverlay` - the
+Python/GTK **portal-fallback** path, only used when the bundled `greenshot-linux-clipboard` extension
+isn't available. All of this session's work was instead on `extension.js`'s **Shell-native**
+`EyedropperOverlay` (task #77's rewrite) - the path actually active whenever the extension is available,
+which is the default/common case. The portal-fallback's own flicker was never touched here and remains
+open, split into its own task (**#84**) so it isn't lost now that #71 itself is closed.
+
+Three real bugs found and fixed in `EyedropperOverlay`, each confirmed live before moving to the next:
+
+- **Crosshair jitter within the loupe**, same root cause and same fix pattern already used for
+  `RegionSelectOverlay` (task #82's own writeup above): `_sample()`'s `this._cursorX/Y` were set
+  synchronously at call-start, so a newer, faster-arriving `_sample()` call could overwrite them before
+  an older, still-in-flight call resolved and overwrote `this._patchPixbuf`/`_patchOrigin` with its own
+  (now mismatched) data. Fixed by pairing each resolved patch with the exact cursor position it was
+  sampled at (`this._patchSampleCursor`), used for the crosshair-within-patch math specifically while
+  the loupe's own on-screen position keeps using the live cursor. Also added the same `this._destroyed`
+  guard `RegionSelectOverlay` needed (a narrower window here, since `selectAsync()` destroys immediately
+  after its grab resolves rather than also awaiting a destination picker, but not a zero one).
+- **The color-value read itself was needlessly slow**, not just the visual loupe. Reported live: "the
+  loupe was always the problem, not the color" - `_sample()` extracted the picked colour from the same
+  slow `composite_to_stream()` patch (a full server-side PNG encode + decode round trip, confirmed via
+  reading GNOME Shell's own `src/shell-screenshot.c`) used for the visual magnifier, even though a much
+  cheaper, purpose-built API exists on the same `Shell.Screenshot` class: `pick_color(x, y)` does a
+  direct compositor buffer read (`do_grab_screenshot` → `clutter_stage_paint_to_buffer`) with no
+  encode/decode at all - added specifically to back the XDG portal's own `PickColor` method (GNOME Shell
+  MR !171, 2018), confirmed live via typelib introspection to exist on this Shell's own `Shell-18`
+  typelib before relying on it. Wired as an independent, separately-coalesced fast path
+  (`_requestColorPick`/`_pickColor`) so the actual released colour no longer waits on the slow visual
+  patch at all. One real GJS API-shape surprise, confirmed live rather than assumed (temporary debug
+  logging, since removed): `pick_color_finish`'s `(gboolean, out CoglColor*)` signature resolves via
+  `Gio._promisify` to a **one-element array**, not the bare `Cogl.Color` directly - different from
+  `composite_to_stream_finish`'s no-leading-boolean, resolves-bare shape already used elsewhere in this
+  file. `Cogl.Color`'s fields are plain 0-255 bytes, also confirmed live, matching what the existing
+  hex-formatting code already expected.
+- **The loupe's own on-screen position only redrew whenever a slow async call happened to resolve, not
+  on every actual mouse movement** - the real cause of "the whole loupe doesn't move with the cursor
+  exactly, it catches up," reported live after the two fixes above didn't resolve it. Unlike
+  `RegionSelectOverlay`'s `_updateCursor` (which calls `queue_repaint()` synchronously, decoupled from
+  its own async sample), `_requestSample()`'s coalescing wrapper updated `this._cursorX/Y` immediately
+  but never actually queued a repaint until `_sample()`/`_pickColor()` resolved - so `_drawLoupe`'s
+  `destX`/`destY` (which only depend on the live cursor, no async data needed) only got a chance to run
+  as often as those slow round trips completed. Fixed by adding the missing `queue_repaint()` call
+  directly in `_requestSample`, matching what `RegionSelectOverlay` already does correctly.
+
+**Residual "offset isn't always exactly 18px during fast movement" - not a further app-logic bug,
+folded into task #83.** After all three fixes above, a small remaining symptom persisted: the loupe's
+fixed diagonal offset from the cursor doesn't stay perfectly constant during fast movement, collapsing
+back to exactly right once movement slows, while the magnified content inside stays accurate throughout.
+Confirmed the position math itself is already correct (`destX`/`destY` read the live cursor directly,
+not stale data) - the likely remaining cause is generic Clutter/compositor frame-presentation latency:
+the real OS pointer is a separate, near-instantly-composited hardware overlay, while the loupe is
+app-drawn `St.DrawingArea` content bounded by however long Clutter actually takes to rasterize and
+present a new frame, plausibly worse under VirtualBox's virtualized GPU specifically. This is the same
+underlying explanation already suspected for task #82's own aiming-crosshair lag (`RegionSelectOverlay`'s
+`_updateCursor` is *also* already synchronous, yet the full-screen dim+crosshair redraw still lags on
+fast movement) - concluded live to be one issue, not two, and merged into task #83 rather than kept as
+two separate open questions with the same likely cause. No further JS-logic fix is expected to help;
+deprioritized by explicit user direction rather than chased further.
+
+Verified live across the same repeated full logout/login cycles as task #82 (PID-change-confirmed each
+time, per [[feedback-extension-reload-caching]]). Not unit tested, same precedent as the rest of
+`extension.js`.
+
 #### Extending Shell-native capture to Full Screen/Active Window/Last Region Repeat (task #73, complete 2026-08-09)
 
 Reported as "an audible camera-shutter sound plays on the destination-picker click after a Wayland
