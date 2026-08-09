@@ -17,6 +17,11 @@ from greenshot_linux.hotkey_setup import (
     CUSTOM_KEYBINDING_PATH_TEMPLATE,
     CUSTOM_KEYBINDING_SCHEMA,
     CUSTOM_LIST_SCHEMA,
+    GNOME_CUSTOM_KEYBINDING_PATH_TEMPLATE,
+    GNOME_CUSTOM_KEYBINDING_SCHEMA,
+    GNOME_CUSTOM_LIST_SCHEMA,
+    GNOME_PROFILE,
+    GNOME_SHELL_KEYBINDINGS_SCHEMA,
     MEDIA_KEYS_SCHEMA,
     BindingConflict,
     DEFAULT_HOTKEYS,
@@ -332,3 +337,164 @@ class TestResolveHotkeyChoices:
 
         assert skip == {"<Alt>Print"}
         assert to_clear == []
+
+
+class TestGnomeProfile:
+    """GNOME's own analogue of the Cinnamon tests above, run through
+    the exact same find_conflicts/configure_hotkey/clear_conflict/
+    configure_all_hotkeys/check_all_conflicts entry points via
+    profile=GNOME_PROFILE, covering the two real structural differences
+    from Cinnamon confirmed live against a real GNOME/Wayland session
+    (see hotkey_setup.py's own module docstring): GNOME's own custom-
+    keybindings list stores full object paths, not bare "customN" slot
+    names, and a GNOME custom keybinding's own "binding" field is a
+    plain string, not an array like Cinnamon's (and like every built-in
+    screenshot key on both desktops).
+    """
+
+    def test_adds_a_binding_with_gnome_s_own_path_and_string_binding_shape(self):
+        backend = FakeSettingsBackend()
+
+        added = configure_hotkey(
+            backend, "Greenshot Linux - Region Capture", "Print", "greenshot-linux --capture-region",
+            profile=GNOME_PROFILE,
+        )
+
+        assert added is True
+        assert backend.get_strv(GNOME_CUSTOM_LIST_SCHEMA, "/", "custom-keybindings") == [
+            GNOME_CUSTOM_KEYBINDING_PATH_TEMPLATE.format(slot="custom0")
+        ]
+        path = GNOME_CUSTOM_KEYBINDING_PATH_TEMPLATE.format(slot="custom0")
+        assert backend.get_string(GNOME_CUSTOM_KEYBINDING_SCHEMA, path, "name") == "Greenshot Linux - Region Capture"
+        assert backend.get_string(GNOME_CUSTOM_KEYBINDING_SCHEMA, path, "command") == "greenshot-linux --capture-region"
+        # A plain string, not ["Print"] the way Cinnamon's own array-typed
+        # binding field would be - see this class's own docstring.
+        assert backend.get_string(GNOME_CUSTOM_KEYBINDING_SCHEMA, path, "binding") == "Print"
+
+    def test_fills_the_next_available_slot_from_gnome_s_own_full_paths(self):
+        existing_path = GNOME_CUSTOM_KEYBINDING_PATH_TEMPLATE.format(slot="custom0")
+        backend = FakeSettingsBackend({
+            (GNOME_CUSTOM_LIST_SCHEMA, "/", "custom-keybindings"): [existing_path],
+            (GNOME_CUSTOM_KEYBINDING_SCHEMA, existing_path, "name"): "greenshottest",
+        })
+
+        configure_hotkey(
+            backend, "Greenshot Linux - Region Capture", "Print", "greenshot-linux --capture-region",
+            profile=GNOME_PROFILE,
+        )
+
+        assert set(backend.get_strv(GNOME_CUSTOM_LIST_SCHEMA, "/", "custom-keybindings")) == {
+            existing_path, GNOME_CUSTOM_KEYBINDING_PATH_TEMPLATE.format(slot="custom1"),
+        }
+
+    def test_is_idempotent_when_already_configured(self):
+        backend = FakeSettingsBackend()
+        configure_hotkey(
+            backend, "Greenshot Linux - Region Capture", "Print", "greenshot-linux --capture-region",
+            profile=GNOME_PROFILE,
+        )
+
+        added_again = configure_hotkey(
+            backend, "Greenshot Linux - Region Capture", "Print", "greenshot-linux --capture-region",
+            profile=GNOME_PROFILE,
+        )
+
+        assert added_again is False
+        assert len(backend.get_strv(GNOME_CUSTOM_LIST_SCHEMA, "/", "custom-keybindings")) == 1
+
+    def test_detects_a_gnome_built_in_shortcut_conflict(self):
+        # Real default from a fresh GNOME install (confirmed live,
+        # Ubuntu 26.04 GNOME/Wayland VM): screenshot-window is GNOME's
+        # own "screenshot of the focused window" action, <Alt>Print by
+        # default - the same key combo this app's own "Window Capture"
+        # (Active Window) default uses.
+        backend = FakeSettingsBackend({
+            (GNOME_SHELL_KEYBINDINGS_SCHEMA, "/", "screenshot-window"): ["<Alt>Print"],
+        })
+
+        conflicts = find_conflicts(backend, "<Alt>Print", profile=GNOME_PROFILE)
+
+        assert len(conflicts) == 1
+        assert "GNOME" in conflicts[0].source
+        assert "screenshot-window" in conflicts[0].source
+
+    def test_detects_an_existing_gnome_custom_keybinding_conflict(self):
+        path = GNOME_CUSTOM_KEYBINDING_PATH_TEMPLATE.format(slot="custom0")
+        backend = FakeSettingsBackend({
+            (GNOME_CUSTOM_LIST_SCHEMA, "/", "custom-keybindings"): [path],
+            (GNOME_CUSTOM_KEYBINDING_SCHEMA, path, "name"): "greenshottest",
+            (GNOME_CUSTOM_KEYBINDING_SCHEMA, path, "binding"): "<Control>j",
+        })
+
+        conflicts = find_conflicts(backend, "<Control>j", profile=GNOME_PROFILE)
+
+        assert len(conflicts) == 1
+        assert "greenshottest" in conflicts[0].source
+        assert conflicts[0].binding_is_array is False
+
+    def test_ignore_names_excludes_our_own_previously_configured_binding(self):
+        path = GNOME_CUSTOM_KEYBINDING_PATH_TEMPLATE.format(slot="custom0")
+        backend = FakeSettingsBackend({
+            (GNOME_CUSTOM_LIST_SCHEMA, "/", "custom-keybindings"): [path],
+            (GNOME_CUSTOM_KEYBINDING_SCHEMA, path, "name"): "Greenshot Linux - Region Capture",
+            (GNOME_CUSTOM_KEYBINDING_SCHEMA, path, "binding"): "Print",
+        })
+
+        conflicts = find_conflicts(
+            backend, "Print", ignore_names={"Greenshot Linux - Region Capture"}, profile=GNOME_PROFILE,
+        )
+
+        assert conflicts == []
+
+    def test_clears_a_gnome_built_in_conflict(self):
+        backend = FakeSettingsBackend({
+            (GNOME_SHELL_KEYBINDINGS_SCHEMA, "/", "show-screenshot-ui"): ["Print"],
+        })
+        conflict = find_conflicts(backend, "Print", profile=GNOME_PROFILE)[0]
+
+        clear_conflict(backend, conflict)
+
+        assert backend.get_strv(GNOME_SHELL_KEYBINDINGS_SCHEMA, "/", "show-screenshot-ui") == []
+
+    def test_clears_a_gnome_custom_keybinding_conflict_via_set_string_not_set_strv(self):
+        path = GNOME_CUSTOM_KEYBINDING_PATH_TEMPLATE.format(slot="custom0")
+        backend = FakeSettingsBackend({
+            (GNOME_CUSTOM_LIST_SCHEMA, "/", "custom-keybindings"): [path],
+            (GNOME_CUSTOM_KEYBINDING_SCHEMA, path, "name"): "greenshottest",
+            (GNOME_CUSTOM_KEYBINDING_SCHEMA, path, "command"): "test",
+            (GNOME_CUSTOM_KEYBINDING_SCHEMA, path, "binding"): "<Control>j",
+        })
+        conflict = find_conflicts(backend, "<Control>j", profile=GNOME_PROFILE)[0]
+
+        clear_conflict(backend, conflict)
+
+        assert backend.get_string(GNOME_CUSTOM_KEYBINDING_SCHEMA, path, "binding") == ""
+        # name/command left alone - only the binding itself is freed
+        assert backend.get_string(GNOME_CUSTOM_KEYBINDING_SCHEMA, path, "name") == "greenshottest"
+        assert backend.get_string(GNOME_CUSTOM_KEYBINDING_SCHEMA, path, "command") == "test"
+
+    def test_configure_all_hotkeys_configures_every_default_binding_on_gnome(self):
+        backend = FakeSettingsBackend()
+
+        results = configure_all_hotkeys(backend, "greenshot-linux", profile=GNOME_PROFILE)
+
+        assert set(results.values()) == {True}
+        assert len(backend.get_strv(GNOME_CUSTOM_LIST_SCHEMA, "/", "custom-keybindings")) == 4
+
+    def test_check_all_conflicts_finds_gnome_s_own_fresh_install_defaults(self):
+        # Real defaults from a fresh GNOME install (confirmed live,
+        # Ubuntu 26.04 GNOME/Wayland VM): three of our four default
+        # bindings collide with GNOME's own out-of-the-box screenshot
+        # shortcuts before the user has touched anything.
+        backend = FakeSettingsBackend({
+            (GNOME_SHELL_KEYBINDINGS_SCHEMA, "/", "show-screenshot-ui"): ["Print"],
+            (GNOME_SHELL_KEYBINDINGS_SCHEMA, "/", "screenshot-window"): ["<Alt>Print"],
+            (GNOME_SHELL_KEYBINDINGS_SCHEMA, "/", "screenshot"): ["<Shift>Print"],
+        })
+
+        result = check_all_conflicts(backend, profile=GNOME_PROFILE)
+
+        assert len(result["Greenshot Linux - Region Capture"]) == 1
+        assert len(result["Greenshot Linux - Window Capture"]) == 1
+        assert len(result["Greenshot Linux - Repeat Last Region"]) == 1
+        assert result["Greenshot Linux - Full Screen Capture"] == []

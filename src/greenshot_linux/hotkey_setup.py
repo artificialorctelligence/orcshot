@@ -1,13 +1,16 @@
 """Configuration of the four capture hotkeys (REQUIREMENTS.md's Global
-Activation table, matching the Windows source's defaults) via
-Cinnamon's custom keybinding system
-(org.cinnamon.desktop.keybindings), rather than the app holding its
-own raw X11 global key grabs - which would fight Cinnamon's own
-default PrtScn-family bindings to its built-in screenshot tool.
+Activation table, matching the Windows source's defaults) via each
+desktop's own custom keybinding system - Cinnamon's
+(org.cinnamon.desktop.keybindings) or GNOME's
+(org.gnome.settings-daemon.plugins.media-keys) - rather than the app
+holding its own raw X11 global key grabs, which would fight either
+desktop's own default PrtScn-family bindings to its built-in
+screenshot tool.
 
-Schema/path layout confirmed against this machine's real Cinnamon
-settings before writing any of this (read-only introspection via
-``gsettings``, never a write): reading
+Schema/path layout for both confirmed against real running sessions
+before writing any of this (read-only introspection via ``gsettings``,
+never a write - see GNOME_PROFILE's own note below for how that
+extended to GNOME specifically). Cinnamon: reading
 org.cinnamon.desktop.keybindings.media-keys showed Cinnamon's own
 built-in screenshot actions and their key names (area-screenshot,
 area-screenshot-clip, screenshot, screenshot-clip, window-screenshot,
@@ -22,7 +25,14 @@ with something real:
 - <Alt>Print       -> Cinnamon's built-in window-screenshot action
 - <Control>Print   -> Cinnamon's built-in screenshot-clip action
 - <Shift>Print     -> a custom "Full Screenshot" binding (shutter -f)
-This is real validation that conflict detection isn't hypothetical.
+This is real validation that conflict detection isn't hypothetical -
+and the same is true on a fresh GNOME install, not just a customized
+Cinnamon one: GNOME's own org.gnome.shell.keybindings defaults to
+show-screenshot-ui=Print, screenshot-window=<Alt>Print, and
+screenshot=<Shift>Print - three of our four defaults collide with
+GNOME's own out-of-the-box bindings before the user has touched
+anything (only <Control>Print, our Full Screen Capture default, is
+free by default).
 
 configure_hotkey/configure_all_hotkeys take an injectable settings
 backend (ports-and-adapters, same shape as every other backend in this
@@ -40,12 +50,22 @@ running the app and clicking through it themselves, not by anything
 here.
 
 find_conflicts deliberately only scans the schemas most likely to
-actually hold a PrintScreen-family binding (media-keys' screenshot
-keys, plus existing custom keybindings) rather than every gsettings
-schema on the system - Cinnamon/Muffin have many keybinding schemas
-(window manager actions, workspace switching, etc.) that are extremely
-unlikely to ever be bound to a PrintScreen combo. This is a deliberate
-scope boundary, not an oversight.
+actually hold a PrintScreen-family binding (each desktop's own
+built-in screenshot keys, plus existing custom keybindings) rather
+than every gsettings schema on the system - both desktops have many
+keybinding schemas (window manager actions, workspace switching, etc.)
+that are extremely unlikely to ever be bound to a PrintScreen combo.
+This is a deliberate scope boundary, not an oversight.
+
+Desktops other than these two (XFCE, KDE, MATE, etc.) aren't detected
+or auto-configured at all - deliberately out of scope, not an
+oversight either. There's no way to reliably enumerate every possible
+screenshot tool someone might already have installed there and safely
+reclaim its bindings; anyone running one of those desktops presumably
+already knows how to bind a keyboard shortcut to a command themselves,
+so ui/first_run_setup.py falls back to showing the exact CLI commands
+to bind manually instead (see DesktopKeybindingProfile's own use
+there) rather than attempting anything more automatic.
 """
 
 from __future__ import annotations
@@ -61,6 +81,86 @@ MEDIA_KEYS_SCHEMA = "org.cinnamon.desktop.keybindings.media-keys"
 _MEDIA_KEYS_SCREENSHOT_KEYS = (
     "area-screenshot", "area-screenshot-clip", "screenshot",
     "screenshot-clip", "window-screenshot", "window-screenshot-clip",
+)
+
+# GNOME's own analogue of the four Cinnamon constants above - confirmed
+# live (Ubuntu 26.04 GNOME/Wayland VM, read-only gsettings introspection
+# plus reading the installed .gschema.xml files directly for the exact
+# GVariant types, never a write): org.gnome.settings-daemon.plugins.
+# media-keys.custom-keybinding is relocatable at
+# /org/gnome/settings-daemon/plugins/media-keys/custom-keybindings/
+# customN/ - structurally the same "customN slot" convention Cinnamon's
+# own fork of this uses, confirmed by adding one real custom shortcut
+# through GNOME's own Settings app and reading back the exact path/
+# values it created. Two real structural differences from Cinnamon,
+# both schema-verified, not assumed from Cinnamon's own shape:
+# 1. GNOME's own list key (custom-keybindings, on the *media-keys*
+#    schema itself, not a separate list-holder schema the way
+#    Cinnamon's CUSTOM_LIST_SCHEMA is) stores each entry as the full
+#    object path, not a bare "customN" slot name - see
+#    DesktopKeybindingProfile.list_stores_full_paths.
+# 2. GNOME's own custom-keybinding "binding" key is a plain string
+#    (type="s"), not an array of strings like Cinnamon's (type="as") -
+#    see DesktopKeybindingProfile.custom_binding_is_array. GNOME's own
+#    *built-in* screenshot keys (org.gnome.shell.keybindings) are still
+#    arrays like Cinnamon's built-in ones, confirmed via the same
+#    .gschema.xml read - only the *custom*-keybinding's own binding
+#    field differs in type.
+GNOME_CUSTOM_LIST_SCHEMA = "org.gnome.settings-daemon.plugins.media-keys"
+GNOME_CUSTOM_KEYBINDING_SCHEMA = "org.gnome.settings-daemon.plugins.media-keys.custom-keybinding"
+GNOME_CUSTOM_KEYBINDING_PATH_TEMPLATE = "/org/gnome/settings-daemon/plugins/media-keys/custom-keybindings/{slot}/"
+
+GNOME_SHELL_KEYBINDINGS_SCHEMA = "org.gnome.shell.keybindings"
+# Only the three screenshot-capture actions - not show-screen-recording-ui
+# (screencasting, unrelated) or anything else in this schema (window
+# management, workspace switching, etc. - see this module's own
+# docstring on why that's a deliberate scope boundary).
+_GNOME_SCREENSHOT_KEYS = ("show-screenshot-ui", "screenshot", "screenshot-window")
+
+
+@dataclass(frozen=True)
+class DesktopKeybindingProfile:
+    """Which GSettings schemas/paths/GVariant types a desktop
+    environment uses for its own custom keyboard shortcuts and its own
+    built-in screenshot keybindings - what find_conflicts/
+    configure_hotkey need to work with either Cinnamon or GNOME, not
+    just the Cinnamon-only logic this module started as (see this
+    module's own docstring for the two real structural differences
+    ``list_stores_full_paths``/``custom_binding_is_array`` cover).
+    """
+    name: str
+    custom_list_schema: str
+    custom_list_key: str
+    custom_keybinding_schema: str
+    path_template: str  # "{slot}" placeholder
+    list_stores_full_paths: bool
+    custom_binding_is_array: bool
+    builtin_schema: str
+    builtin_checks: Tuple[Tuple[str, str], ...]  # (key, human-readable label) pairs
+
+
+CINNAMON_PROFILE = DesktopKeybindingProfile(
+    name="Cinnamon",
+    custom_list_schema=CUSTOM_LIST_SCHEMA,
+    custom_list_key="custom-list",
+    custom_keybinding_schema=CUSTOM_KEYBINDING_SCHEMA,
+    path_template=CUSTOM_KEYBINDING_PATH_TEMPLATE,
+    list_stores_full_paths=False,
+    custom_binding_is_array=True,
+    builtin_schema=MEDIA_KEYS_SCHEMA,
+    builtin_checks=tuple((key, key) for key in _MEDIA_KEYS_SCREENSHOT_KEYS),
+)
+
+GNOME_PROFILE = DesktopKeybindingProfile(
+    name="GNOME",
+    custom_list_schema=GNOME_CUSTOM_LIST_SCHEMA,
+    custom_list_key="custom-keybindings",
+    custom_keybinding_schema=GNOME_CUSTOM_KEYBINDING_SCHEMA,
+    path_template=GNOME_CUSTOM_KEYBINDING_PATH_TEMPLATE,
+    list_stores_full_paths=True,
+    custom_binding_is_array=False,
+    builtin_schema=GNOME_SHELL_KEYBINDINGS_SCHEMA,
+    builtin_checks=tuple((key, key) for key in _GNOME_SCREENSHOT_KEYS),
 )
 
 
@@ -121,6 +221,60 @@ def cinnamon_keybindings_available() -> bool:
     return Gio.SettingsSchemaSource.get_default().lookup(CUSTOM_LIST_SCHEMA, True) is not None
 
 
+def gnome_keybindings_available() -> bool:
+    """GNOME's own analogue of cinnamon_keybindings_available - same
+    mandatory-not-optional check, same reason (a missing schema is a
+    hard, uncatchable Gio.Settings.new() process abort, not a Python
+    exception)."""
+    import gi
+
+    gi.require_version("Gio", "2.0")
+    from gi.repository import Gio
+
+    return Gio.SettingsSchemaSource.get_default().lookup(GNOME_CUSTOM_LIST_SCHEMA, True) is not None
+
+
+def detect_profile() -> DesktopKeybindingProfile | None:
+    """Which desktop's own keybinding schema is actually present on
+    this system right now, or None if neither is (some other desktop -
+    see this module's own docstring for why that's out of scope for
+    auto-configuration). The single entry point ui/first_run_setup.py
+    uses instead of checking cinnamon_keybindings_available/
+    gnome_keybindings_available itself - Cinnamon checked first since
+    Cinnamon is this project's primary target (see REQUIREMENTS.md's
+    "Platform priority"), though a session could only plausibly report
+    one of these True in practice.
+    """
+    if cinnamon_keybindings_available():
+        return CINNAMON_PROFILE
+    if gnome_keybindings_available():
+        return GNOME_PROFILE
+    return None
+
+
+def _custom_list_entries(backend: SettingsBackend, profile: DesktopKeybindingProfile) -> List[str]:
+    return list(backend.get_strv(profile.custom_list_schema, "/", profile.custom_list_key))
+
+
+def _slot_from_entry(entry: str, profile: DesktopKeybindingProfile) -> str:
+    """The bare "customN" slot name for one entry of the custom-list -
+    already bare for Cinnamon, but GNOME's own list stores full object
+    paths (".../custom-keybindings/custom0/") instead, so the trailing
+    path segment needs pulling out first (see DesktopKeybindingProfile.
+    list_stores_full_paths)."""
+    if not profile.list_stores_full_paths:
+        return entry
+    return entry.rstrip("/").rsplit("/", 1)[-1]
+
+
+def _entry_for_slot(slot: str, profile: DesktopKeybindingProfile) -> str:
+    """The inverse of _slot_from_entry - what to actually store in the
+    custom-list for a given slot."""
+    if profile.list_stores_full_paths:
+        return profile.path_template.format(slot=slot)
+    return slot
+
+
 @runtime_checkable
 class SettingsBackend(Protocol):
     def get_strv(self, schema: str, path: str, key: str) -> list:
@@ -140,17 +294,25 @@ class SettingsBackend(Protocol):
 class BindingConflict:
     """A key combo we want that's already claimed by something else.
     ``schema``/``path``/``key`` locate exactly the value that needs
-    clearing to free the combo - see clear_conflict.
+    clearing to free the combo - see clear_conflict. ``binding_is_array``
+    defaults True (Cinnamon's own shape, and every desktop's built-in
+    keys) - set False only for a GNOME custom keybinding's own
+    "binding" field, a plain string there rather than an array (see
+    DesktopKeybindingProfile.custom_binding_is_array).
     """
     binding: str
     source: str
     schema: str
     path: str
     key: str
+    binding_is_array: bool = True
 
 
-def find_conflicts(backend: SettingsBackend, binding: str, ignore_names: FrozenSet[str] = frozenset()) -> List[BindingConflict]:
-    """Every existing binding (Cinnamon's own built-in screenshot
+def find_conflicts(
+    backend: SettingsBackend, binding: str, ignore_names: FrozenSet[str] = frozenset(),
+    profile: DesktopKeybindingProfile = CINNAMON_PROFILE,
+) -> List[BindingConflict]:
+    """Every existing binding (``profile``'s own built-in screenshot
     actions, or an existing custom keybinding) that already claims
     ``binding``. ``ignore_names`` excludes custom keybindings by name -
     pass the names of our own DEFAULT_HOTKEYS so a hotkey we already
@@ -158,61 +320,81 @@ def find_conflicts(backend: SettingsBackend, binding: str, ignore_names: FrozenS
     itself on a repeat run.
     """
     conflicts = []
-    for key in _MEDIA_KEYS_SCREENSHOT_KEYS:
-        if binding in backend.get_strv(MEDIA_KEYS_SCHEMA, "/", key):
+    for key, label in profile.builtin_checks:
+        if binding in backend.get_strv(profile.builtin_schema, "/", key):
             conflicts.append(BindingConflict(
-                binding=binding, source=f"Cinnamon's built-in \"{key}\" shortcut",
-                schema=MEDIA_KEYS_SCHEMA, path="/", key=key,
+                binding=binding, source=f"{profile.name}'s built-in \"{label}\" shortcut",
+                schema=profile.builtin_schema, path="/", key=key,
             ))
-    for slot in backend.get_strv(CUSTOM_LIST_SCHEMA, "/", "custom-list"):
-        path = CUSTOM_KEYBINDING_PATH_TEMPLATE.format(slot=slot)
-        name = backend.get_string(CUSTOM_KEYBINDING_SCHEMA, path, "name")
+    for entry in _custom_list_entries(backend, profile):
+        slot = _slot_from_entry(entry, profile)
+        path = profile.path_template.format(slot=slot)
+        name = backend.get_string(profile.custom_keybinding_schema, path, "name")
         if name in ignore_names:
             continue
-        if binding in backend.get_strv(CUSTOM_KEYBINDING_SCHEMA, path, "binding"):
+        if profile.custom_binding_is_array:
+            matches = binding in backend.get_strv(profile.custom_keybinding_schema, path, "binding")
+        else:
+            matches = backend.get_string(profile.custom_keybinding_schema, path, "binding") == binding
+        if matches:
             conflicts.append(BindingConflict(
                 binding=binding, source=f"existing custom shortcut \"{name}\"",
-                schema=CUSTOM_KEYBINDING_SCHEMA, path=path, key="binding",
+                schema=profile.custom_keybinding_schema, path=path, key="binding",
+                binding_is_array=profile.custom_binding_is_array,
             ))
     return conflicts
 
 
 def clear_conflict(backend: SettingsBackend, conflict: BindingConflict) -> None:
     """Frees up ``conflict``'s key combo by clearing just that specific
-    binding field. Whatever it belonged to - a Cinnamon built-in action,
+    binding field. Whatever it belonged to - a built-in desktop action,
     or another custom keybinding's name/command - is left otherwise
     intact, just no longer bound to this key combo.
     """
-    backend.set_strv(conflict.schema, conflict.path, conflict.key, [])
+    if conflict.binding_is_array:
+        backend.set_strv(conflict.schema, conflict.path, conflict.key, [])
+    else:
+        backend.set_string(conflict.schema, conflict.path, conflict.key, "")
 
 
-def configure_hotkey(backend: SettingsBackend, name: str, binding: str, command: str) -> bool:
-    """Idempotently ensures a Cinnamon custom keybinding exists for
-    ``binding`` -> ``command``, named ``name``. Returns True if a new
-    binding was added, False if one already existed (matched by name)
-    and nothing changed. Does not check for conflicts with *other*
-    bindings first - call find_conflicts (and clear_conflict, if the
-    caller decides to overwrite) before this.
+def configure_hotkey(
+    backend: SettingsBackend, name: str, binding: str, command: str,
+    profile: DesktopKeybindingProfile = CINNAMON_PROFILE,
+) -> bool:
+    """Idempotently ensures a ``profile``-specific custom keybinding
+    exists for ``binding`` -> ``command``, named ``name``. Returns True
+    if a new binding was added, False if one already existed (matched
+    by name) and nothing changed. Does not check for conflicts with
+    *other* bindings first - call find_conflicts (and clear_conflict,
+    if the caller decides to overwrite) before this.
     """
-    custom_list = list(backend.get_strv(CUSTOM_LIST_SCHEMA, "/", "custom-list"))
+    entries = _custom_list_entries(backend, profile)
 
-    for slot in custom_list:
-        path = CUSTOM_KEYBINDING_PATH_TEMPLATE.format(slot=slot)
-        if backend.get_string(CUSTOM_KEYBINDING_SCHEMA, path, "name") == name:
+    for entry in entries:
+        slot = _slot_from_entry(entry, profile)
+        path = profile.path_template.format(slot=slot)
+        if backend.get_string(profile.custom_keybinding_schema, path, "name") == name:
             return False
 
-    slot = next_available_slot(custom_list)
-    path = CUSTOM_KEYBINDING_PATH_TEMPLATE.format(slot=slot)
-    backend.set_string(CUSTOM_KEYBINDING_SCHEMA, path, "name", name)
-    backend.set_string(CUSTOM_KEYBINDING_SCHEMA, path, "command", command)
-    backend.set_strv(CUSTOM_KEYBINDING_SCHEMA, path, "binding", [binding])
-    backend.set_strv(CUSTOM_LIST_SCHEMA, "/", "custom-list", custom_list + [slot])
+    slot = next_available_slot([_slot_from_entry(e, profile) for e in entries])
+    path = profile.path_template.format(slot=slot)
+    backend.set_string(profile.custom_keybinding_schema, path, "name", name)
+    backend.set_string(profile.custom_keybinding_schema, path, "command", command)
+    if profile.custom_binding_is_array:
+        backend.set_strv(profile.custom_keybinding_schema, path, "binding", [binding])
+    else:
+        backend.set_string(profile.custom_keybinding_schema, path, "binding", binding)
+    backend.set_strv(
+        profile.custom_list_schema, "/", profile.custom_list_key,
+        entries + [_entry_for_slot(slot, profile)],
+    )
     return True
 
 
 def configure_all_hotkeys(
     backend: SettingsBackend, executable: str,
     bindings: Sequence[HotkeyBinding] = DEFAULT_HOTKEYS, skip: FrozenSet[str] = frozenset(),
+    profile: DesktopKeybindingProfile = CINNAMON_PROFILE,
 ) -> Dict[str, bool]:
     """Configures every binding in ``bindings`` whose .binding isn't in
     ``skip`` - the caller resolves conflicts (e.g. a confirmation
@@ -225,12 +407,15 @@ def configure_all_hotkeys(
         if hb.binding in skip:
             results[hb.name] = False
             continue
-        results[hb.name] = configure_hotkey(backend, hb.name, hb.binding, f"{executable} {hb.cli_flag}")
+        results[hb.name] = configure_hotkey(
+            backend, hb.name, hb.binding, f"{executable} {hb.cli_flag}", profile=profile,
+        )
     return results
 
 
 def check_all_conflicts(
     backend: SettingsBackend, bindings: Sequence[HotkeyBinding] = DEFAULT_HOTKEYS,
+    profile: DesktopKeybindingProfile = CINNAMON_PROFILE,
 ) -> Dict[str, List[BindingConflict]]:
     """Every binding in ``bindings`` mapped to its conflict list (empty
     if none) - the one-shot check ui/first_run_setup.py's dialog needs
@@ -241,7 +426,10 @@ def check_all_conflicts(
     previous run never shows up as colliding with itself.
     """
     ignore_names = {hb.name for hb in bindings}
-    return {hb.name: find_conflicts(backend, hb.binding, ignore_names=ignore_names) for hb in bindings}
+    return {
+        hb.name: find_conflicts(backend, hb.binding, ignore_names=ignore_names, profile=profile)
+        for hb in bindings
+    }
 
 
 def resolve_hotkey_choices(

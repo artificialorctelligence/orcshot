@@ -11,17 +11,23 @@ four defaults collided with something) motivated that question
 existing at all - this dialog is the only place in this codebase where
 the user actually answers it.
 
-Hotkey auto-configuration only ever runs on Cinnamon - checked via
-hotkey_setup.cinnamon_keybindings_available before touching any of it,
-never assumed. Confirmed live that skipping this check is fatal, not
-just wrong: on a real GNOME desktop (Ubuntu 26.04), reaching
-GioSettingsBackend for a Cinnamon-only schema that isn't installed
-crashed the entire app with an uncatchable GLib abort before this
-dialog even had a chance to show. Autostart is offered regardless
-(a plain XDG autostart .desktop entry, not Cinnamon-specific); when
-hotkeys aren't available, the dialog says so and points to manual
-configuration via the same CLI flags instead of silently doing
-nothing when "Enable" is clicked.
+Hotkey auto-configuration runs on both Cinnamon and GNOME - the
+desktop is detected via hotkey_setup.detect_profile() before touching
+any of it, never assumed. Confirmed live that skipping this check is
+fatal, not just wrong: reaching GioSettingsBackend for a keybinding
+schema that isn't installed on the running desktop crashed the entire
+app with an uncatchable GLib abort before this dialog even had a
+chance to show. On any other desktop (XFCE, KDE, MATE, ...) -
+including one with a third-party screenshot tool like Flameshot
+already installed, since detecting and resetting arbitrary other
+apps' bindings is out of scope (see hotkey_setup.py's module
+docstring) - detect_profile() returns None and the dialog falls back
+to the same manual, cut-and-pasteable CLI-flag cheat sheet either way.
+Autostart is offered regardless (a plain XDG autostart .desktop entry,
+tied to neither desktop's keybinding schema); when hotkeys aren't
+available, the dialog says so and points to manual configuration via
+the same CLI flags instead of silently doing nothing when "Enable" is
+clicked.
 
 Tracked via settings.py's first_run_setup_done flag so it only ever
 asks once, matching REQUIREMENTS.md's "automatically on first run with
@@ -79,9 +85,9 @@ from greenshot_linux.hotkey_setup import (
     DEFAULT_HOTKEYS,
     GioSettingsBackend,
     check_all_conflicts,
-    cinnamon_keybindings_available,
     clear_conflict,
     configure_all_hotkeys,
+    detect_profile,
     resolve_hotkey_choices,
 )
 from greenshot_linux.settings import is_first_run_setup_done, mark_first_run_setup_done
@@ -119,15 +125,16 @@ def maybe_run_first_run_setup(parent: Gtk.Window = None, executable: str = None,
 
 def _run_dialog(parent, executable: str, settings_backend) -> None:
     # Checked first and unconditionally: reaching GioSettingsBackend (or
-    # check_all_conflicts, which calls it) on a desktop without Cinnamon's
-    # keybinding schemas is a hard, uncatchable process abort, not a
-    # Python exception - confirmed live crashing the whole app before
-    # this dialog even had a chance to show (see
-    # hotkey_setup.cinnamon_keybindings_available's docstring). Autostart
-    # itself doesn't depend on Cinnamon at all (a plain XDG autostart
+    # check_all_conflicts, which calls it) on a desktop without a
+    # matching keybinding schema is a hard, uncatchable process abort,
+    # not a Python exception - confirmed live crashing the whole app
+    # before this dialog even had a chance to show (see
+    # hotkey_setup.detect_profile's docstring). Autostart itself doesn't
+    # depend on either desktop's schema at all (a plain XDG autostart
     # .desktop file), so it's still offered either way.
-    hotkeys_available = cinnamon_keybindings_available()
-    conflicts = check_all_conflicts(settings_backend) if hotkeys_available else {}
+    profile = detect_profile()
+    hotkeys_available = profile is not None
+    conflicts = check_all_conflicts(settings_backend, profile=profile) if hotkeys_available else {}
 
     dialog = Gtk.Dialog(title="Greenshot Linux Setup", transient_for=parent)
     dialog.add_buttons(
@@ -166,13 +173,16 @@ def _run_dialog(parent, executable: str, settings_backend) -> None:
             content.pack_start(check, False, False, 0)
             binding_checks[hb.name] = check
     else:
-        # No dedicated GNOME-native hotkey backend yet (task #38) -
-        # honest about the gap rather than silently doing nothing when
-        # "Enable" is clicked.
+        # Neither Cinnamon nor GNOME detected (e.g. XFCE/KDE/MATE), or a
+        # desktop where the user has their own screenshot tool already
+        # bound to these keys - detecting/resetting arbitrary third-party
+        # bindings is out of scope (see hotkey_setup.py's module
+        # docstring). Honest about the gap rather than silently doing
+        # nothing when "Enable" is clicked.
         manual_lines = "\n".join(f"  {hb.name}: {executable} {hb.cli_flag}" for hb in DEFAULT_HOTKEYS)
         content.pack_start(Gtk.Label(
-            label="Automatic keyboard shortcut setup needs Cinnamon and isn't available "
-                  "on this desktop. You can bind shortcuts to these manually instead:\n"
+            label="Automatic keyboard shortcut setup isn't available on this desktop. "
+                  "You can bind shortcuts to these manually instead:\n"
                   + manual_lines,
             wrap=True, xalign=0,
         ), False, False, 0)
@@ -221,7 +231,7 @@ def _run_dialog(parent, executable: str, settings_backend) -> None:
             skip, to_clear = resolve_hotkey_choices(enabled_names, conflicts)
             for conflict in to_clear:
                 clear_conflict(settings_backend, conflict)
-            configure_all_hotkeys(settings_backend, executable, skip=skip)
+            configure_all_hotkeys(settings_backend, executable, skip=skip, profile=profile)
 
         if window_calls_check is not None and window_calls_check.get_active():
             enable_extension(settings_backend, WINDOW_CALLS_EXTENSION_UUID)
