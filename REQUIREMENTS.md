@@ -1954,9 +1954,9 @@ cropped PNG (confirmed by opening it in the editor and visually comparing to the
 disappearing, and no black backdrop behind it, repeatably across many captures in a row. Magnifier
 loupe, aiming crosshair, and size label are **not yet ported** - this first pass deliberately covers
 only the core drag-to-select round trip, matching the migration strategy's "verify the reflow question
-before investing in the rest" ordering; see task #79 for a related sizing question to resolve before/
-during that port (the loupe already looks a different size between the X11 and `WaylandRegionSelect`
-paths, worth fixing in one place rather than porting the discrepancy a third time).
+before investing in the rest" ordering; tracked as its own task, #82. Task #79's
+X11-vs-`WaylandRegionSelect` loupe-size discrepancy (see this file's task #79 writeup below) was fixed
+first, so #82's eventual port has one fewer bug to carry forward a third time.
 
 **The destination-picker redesign (2026-08-08): three real bugs, one shared root cause, fully fixed.**
 The first client-anchored-picker design (a `MonitorWindow` fullscreened at the release point purely to
@@ -2134,7 +2134,7 @@ face value.
 region-select and window-picker) is a native Shell popup menu with no client-side trigger-event
 restriction to fight. Not yet ported: the magnifier loupe/aiming crosshair/size label for region-select
 specifically (deliberately deferred, see that section) - the *only* remaining piece of the original
-task #77 scope, tracked as a natural follow-up rather than blocking this task's completion.
+task #77 scope, tracked as its own follow-up task (#82) rather than blocking this task's completion.
 
 #### Extending Shell-native capture to Full Screen/Active Window/Last Region Repeat (task #73, complete 2026-08-09)
 
@@ -2237,18 +2237,93 @@ completion** (matching how task #77 itself shipped with its own magnifier-loupe 
   a single-monitor VM) - the crop-offset math's assumption that the captured image starts at the
   virtual screen's own origin has never been checked against a monitor with negative `bounds.left`.
   Nothing points to it being wrong, but it's untested, not confirmed correct.
-- Global hotkeys are Cinnamon-specific by design (`hotkey_setup.py` targets `org.cinnamon.desktop.
-  keybindings` only) - this was scoped from the very start ("Platform priority" above: "Capture and
-  hotkeys work fundamentally differently under Wayland... no standard global-hotkey API"), not a gap
-  task #49 introduced or was ever meant to close, and every capture mode remains fully reachable via
-  the tray menu regardless. Not a Wayland-specific regression either - it's equally Cinnamon-only under
-  X11.
+- Global hotkeys were Cinnamon-only at the time #49 closed (`hotkey_setup.py` originally targeted
+  `org.cinnamon.desktop.keybindings` only) - scoped from the very start ("Platform priority" above:
+  "Capture and hotkeys work fundamentally differently under Wayland... no standard global-hotkey API"),
+  not a gap #49 introduced, and every capture mode remained fully reachable via the tray menu regardless.
+  **Since closed by task #81**: `hotkey_setup.py` now also detects and auto-configures GNOME's own
+  `org.gnome.settings-daemon.plugins.media-keys` schema (full-path list entries, string not array
+  `binding` field - verified live against a real GNOME/Wayland session, differs from Cinnamon's schema
+  in both respects), via a `DesktopKeybindingProfile`/`detect_profile()` abstraction so the same
+  conflict-detection logic serves both desktops. Still X11/Cinnamon-and-GNOME only, not XFCE/KDE/MATE -
+  those, and any third-party screenshot tool's own bindings, fall back to the existing manual
+  cut-and-pasteable CLI-flag list in the first-run dialog by deliberate choice (detecting/resetting
+  arbitrary other tools' bindings was ruled out as infeasible).
 - Three smaller polish items remain open as their own tracked tasks, none blocking core functionality:
-  eyedropper loupe flicker/shearing on fast drags (#71), the magnifier loupe's size differing from X11's
-  own (#79), and a benign "no trigger event for menu popup" warning worth a closer look (#80).
+  eyedropper loupe flicker/shearing on fast drags (#71), the Shell-extension `RegionSelectOverlay`'s
+  magnifier loupe/crosshair/size-label still needing its own port (#82 - see #79's writeup below for why
+  that's a distinct gap from the size bug #79 fixed), and the benign "no trigger event for menu popup"
+  warning documented and closed below (#80).
 
 **Verdict: task #49's own scope is done.** Task #50 (package for Ubuntu 26.04 LTS), the only task
 blocked on #49, is now unblocked.
+
+#### Task #79 (magnifier loupe size differs between X11 and Wayland) - fixed 2026-08-09
+
+Root-caused before touching anything: `region_select.py` (X11) and `region_select_wayland.py`
+(`WaylandRegionSelect`, the portal-fallback path) both call the identical `magnifier_diameter()`/
+`draw_magnifier()` (`core/magnifier.py`, `ui/magnifier.py`) with the same `source_size=25` crop - not a
+DPI/scale-factor bug, not different constants. The only divergence was *which* `Rect`'s width/height fed
+`magnifier_diameter()`: X11's `region_select.py:188` used `self._bounds`, the **virtual-desktop union of
+every monitor**; Wayland's `region_select_wayland.py:190` used `window.monitor_bounds`, the **single
+monitor** that overlay window belongs to (Wayland already gets this "for free" since it uses one overlay
+window per monitor, not one spanning all of them). On the project's single-monitor Wayland test VM these
+happen to coincide, which is why the discrepancy wasn't caught until multi-monitor use surfaced it.
+
+Checked which behavior is actually faithful to Windows before picking a side: `CaptureForm.cs:814-819`
+sizes the real Greenshot zoom widget from `DisplayInfo.GetBounds(MousePosition)` - the single display
+under the cursor, exactly Wayland's existing behavior. **X11 was the deviation, not Wayland.**
+
+Fixed in `region_select.py`: `RegionSelectWindow` now keeps the full `ScreenLayout` from
+`capture_backend.screen_layout()` (not just its `virtual_bounds`), and `_on_draw` looks up
+`monitor_at(cursor_x, cursor_y)` each frame to size the loupe from the monitor currently under the
+cursor, falling back to the full virtual bounds only if the cursor is over dead space between
+differently-sized/offset monitors (a real possibility per `ScreenLayout`'s own docstring). Placement
+(`magnifier_offset`, keeping the loupe from covering the current selection) still uses the full window's
+`screen_rect` unchanged - only the *size* calculation moved to per-monitor.
+
+Verified offscreen (no real desktop capture, matching this module's own established verification
+approach) with a synthetic two-monitor `FakeCaptureBackend` layout (1920x1080 primary, 2560x1440
+secondary): cursor over the primary now correctly sizes the loupe to 216px (`magnifier_diameter(1920,
+1080)`) instead of the old, monitor-blind 288px it was getting from the virtual-bounds union
+(`magnifier_diameter(4480, 1440)`) - the exact discrepancy #79 described, gone. No unit-test coverage
+added (`region_select.py`'s own docstring: GTK glue with no meaningful headless test, verified via
+FakeCaptureBackend + a direct offscreen Cairo surface instead, same precedent as the rest of this file).
+
+Separately, not part of #79's own fix: the Shell-extension Wayland path (`extension.js`'s
+`RegionSelectOverlay`, the one actually used once the bundled greenshot-linux-clipboard extension is
+available - see task #77) still has no magnifier loupe at all yet. That's a distinct, already-known
+"not yet ported" gap from task #77 (see that section above), not a sizing bug - tracked as its own task,
+#82, rather than reopening #79.
+
+#### Task #80 (benign "no trigger event for menu popup" warning on Wayland Edit) - investigated 2026-08-09
+
+This exact warning text was previously seen and fixed for a *different* code path: the old
+client-anchored `Gtk.Menu` destination picker (task #75, closed above) hit it because Wayland's
+`xdg_popup` grab has to be requested synchronously within the triggering input event, and that picker's
+original design deferred it. That instance is confirmed gone (re-verified live during #75's own closure,
+clean `journalctl` across repeated captures).
+
+The still-open instance task #80 asks about is a different site entirely: `ui/editor_window.py`'s two
+`Gtk.MenuButton` dropdowns (the Obfuscate-mode button, `editor_window.py:1034-1035`, and the zoom button,
+`editor_window.py:1917,1920`) wired purely via `.set_popup(menu)`, with no app code ever calling
+`.popup()`/`.popup_at_widget()`/`.popup_at_pointer()` on them directly - confirmed by grep, no
+`idle_add` or deferred-callback pattern anywhere near either widget, ruling out the reentrancy mechanism
+behind the #75/portal-window-picker instances of this same warning text
+(`gnome_window_picker.py`/`destination_picker.py`'s own documented "must stay synchronous" fix above).
+The actual `Gtk.Menu.popup_at_widget()` call responsible lives entirely inside GTK3's own
+`GtkMenuButton` C implementation (this system: `libgtk-3-0t64` 3.24.41), which doesn't reliably thread
+the originating `GdkEvent`/input serial through to the popup call the way a hand-written
+`button-press-event` handler would - harmless under X11 (X's popup model doesn't need an
+event-derived serial), logged under Wayland because `xdg_popup` positioning wants one, but GDK's Wayland
+backend falls back to the seat's last-known serial regardless and the menu still opens and positions
+correctly every time.
+
+**Confirmed benign, not fixed - no app-level fix available.** The only real "fixes" would be replacing
+`Gtk.MenuButton` with a hand-rolled button + manual `button-press-event` handler purely to thread a real
+event through two dropdown menus with no other observed problem, or suppressing the GLib log domain
+(masking a real GTK signal rather than addressing it) - neither justified for a cosmetic log line with
+no functional or visual impact. Closed as documented rather than carried forward as an open question.
 
 ### Window-picker under Wayland (task #69)
 

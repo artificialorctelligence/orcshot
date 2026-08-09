@@ -97,7 +97,8 @@ class RegionSelectWindow(Gtk.Window):
         self._on_region_selected = on_region_selected
         self._on_cancelled = on_cancelled
 
-        self._bounds = capture_backend.screen_layout().virtual_bounds
+        self._screen_layout = capture_backend.screen_layout()
+        self._bounds = self._screen_layout.virtual_bounds
         self._frozen_image = capture_backend.grab(self._bounds)
         self._surface = numpy_to_cairo_surface(self._frozen_image)
 
@@ -185,7 +186,20 @@ class RegionSelectWindow(Gtk.Window):
             self._draw_aiming_crosshair(ctx)
 
         if self._cursor_pos is not None:
-            diameter = magnifier_diameter(self._bounds.width, self._bounds.height)
+            # Sized from the monitor under the cursor, not the whole
+            # virtual desktop - matches both the Wayland path
+            # (region_select_wayland.py, naturally per-monitor since it
+            # uses one overlay window per monitor) and the real Windows
+            # source (CaptureForm.cs:814-819's screenBounds comes from
+            # DisplayInfo.GetBounds(MousePosition), the single display
+            # under the cursor). Falls back to the full virtual bounds
+            # if the cursor is over dead space between differently
+            # sized/offset monitors (see ScreenLayout's own docstring).
+            monitor = self._screen_layout.monitor_at(
+                self._bounds.left + self._cursor_pos[0], self._bounds.top + self._cursor_pos[1],
+            )
+            monitor_bounds = monitor.bounds if monitor is not None else self._bounds
+            diameter = magnifier_diameter(monitor_bounds.width, monitor_bounds.height)
             screen_rect = Rect(0, 0, self._bounds.width, self._bounds.height)
             offset = magnifier_offset(self._cursor_pos, screen_rect, self._selection, diameter)
             draw_magnifier(ctx, self._frozen_image, self._cursor_pos, offset, diameter)
