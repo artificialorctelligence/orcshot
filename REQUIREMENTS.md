@@ -2205,6 +2205,51 @@ flash, `journalctl` clean of errors/warnings during capture, and at least one fu
 `gnome_region_select.py`/`gnome_window_picker.py`/`gnome_eyedropper.py` are: D-Bus glue needing a real
 GNOME/Wayland session, only verified live.
 
+**Task #75 (intermittent destination-picker mispositioning) closed as a side effect, confirmed live,
+not just assumed**: its original bug was specific to the old client-side `anchor_window`/`Gtk.Menu`
+picker mechanism (`ui/region_select_wayland.py`/`ui/destination_picker.py`), which region-select/
+window-picker stopped using in task #77 and full-screen/active-window/last-region-repeat stopped using
+in this same task #73 - that code path is now only reachable as a last-resort fallback (extension
+unavailable). Retested live: repeated region-select captures, a mix of fast and slow drags, positioned
+correctly every time; `journalctl` clean of the original "no trigger event for menu popup"/"doesn't
+have a parent" warnings throughout.
+
+#### Task #49 ("Add Wayland support") status: core scope complete, audited 2026-08-09
+
+Re-audited the whole Wayland story end to end before closing the umbrella task, rather than trusting
+individual subtask checkmarks alone - every piece task #49's own original scope named (capture
+mechanism, overlay positioning) is done and live-verified, and every Wayland-specific bug/regression
+surfaced *while building it* (tray icon, clipboard, window enumeration, dock/taskbar reflow, shutter
+sound, destination-picker mispositioning) is also done and live-verified:
+
+- **Capture**: all six modes (full screen, active window, region select, window picker, eyedropper,
+  last region repeat) work, portal-free wherever the bundled Shell extension is available (tasks #67,
+  #77, #73), with the original XDG-portal path as a correctness-preserving fallback when it isn't.
+- **Clipboard** (#74), **window enumeration** (#69), **tray icon** (#70), **overlay positioning**
+  (#68/#77), **destination-picker positioning** (#75, just reconfirmed above), **dock/taskbar reflow**
+  (#76/#77/#73), and **the shutter sound** (#73) are all fixed and live-verified.
+- **Cursor auto-capture** (XFixes) and **the editor itself** work via XWayland compatibility, confirmed
+  in this section's own earliest entries and unaffected by everything built since.
+
+**Known, deliberately non-blocking gaps, tracked separately rather than folded into #49's own
+completion** (matching how task #77 itself shipped with its own magnifier-loupe follow-up still open):
+- Multi-monitor Wayland capture is still genuinely unverified (this project's only Wayland test rig is
+  a single-monitor VM) - the crop-offset math's assumption that the captured image starts at the
+  virtual screen's own origin has never been checked against a monitor with negative `bounds.left`.
+  Nothing points to it being wrong, but it's untested, not confirmed correct.
+- Global hotkeys are Cinnamon-specific by design (`hotkey_setup.py` targets `org.cinnamon.desktop.
+  keybindings` only) - this was scoped from the very start ("Platform priority" above: "Capture and
+  hotkeys work fundamentally differently under Wayland... no standard global-hotkey API"), not a gap
+  task #49 introduced or was ever meant to close, and every capture mode remains fully reachable via
+  the tray menu regardless. Not a Wayland-specific regression either - it's equally Cinnamon-only under
+  X11.
+- Three smaller polish items remain open as their own tracked tasks, none blocking core functionality:
+  eyedropper loupe flicker/shearing on fast drags (#71), the magnifier loupe's size differing from X11's
+  own (#79), and a benign "no trigger event for menu popup" warning worth a closer look (#80).
+
+**Verdict: task #49's own scope is done.** Task #50 (package for Ubuntu 26.04 LTS), the only task
+blocked on #49, is now unblocked.
+
 ### Window-picker under Wayland (task #69)
 
 Wayland has no portable window-enumeration API - confirmed via research before building anything:
