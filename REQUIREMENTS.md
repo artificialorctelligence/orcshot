@@ -2136,6 +2136,73 @@ restriction to fight. Not yet ported: the magnifier loupe/aiming crosshair/size 
 specifically (deliberately deferred, see that section) - the *only* remaining piece of the original
 task #77 scope, tracked as its own follow-up task (#82) rather than blocking this task's completion.
 
+#### Task #82 (port the magnifier loupe/crosshair/size-label to RegionSelectOverlay) - complete 2026-08-09
+
+Ported `RegionSelectOverlay`'s missing loupe/aiming-crosshair/size-label using
+`EyedropperOverlay`'s already-proven live-sampling technique (`Shell.Screenshot.composite_to_stream()`
+against the frozen `this._texture` captured once in `selectAsync()`, per motion/pan event) as the
+starting point, but with the loupe's *sizing and positioning* ported from `core/magnifier.py`'s real
+algorithm (`_magnifierDiameter`/`_magnifierOffset`, both new module-level functions in `extension.js`)
+rather than reusing `EyedropperOverlay`'s fixed 80px/fixed-offset approach - see task #79's own writeup
+above for why starting from the real per-monitor-sized algorithm mattered here specifically. Sizing
+itself needed `global.display.get_current_monitor()`/`get_monitor_geometry()` (Shell's own equivalent of
+`ScreenLayout.monitor_at()`) - confirmed live via GI typelib introspection against this system's real
+`Mutter-18`/`Mtk-18` typelibs (`get_monitor_geometry(index)` returns an `Mtk.Rectangle` with `x`/`y`/
+`width`/`height` fields, not the `Meta.Rectangle` an older Mutter version would have used) before
+writing any code that depended on it, rather than assumed from general GNOME Shell extension knowledge.
+
+**The pixel-blit/ring/crosshair drawing itself was extracted into a shared `_drawMagnifierLoupe()`
+function**, used by both `RegionSelectOverlay` and (refactored in place, no behavior change)
+`EyedropperOverlay` - mirroring `ui/magnifier.py`'s own `draw_magnifier()`, which already serves both
+Python-side equivalents for exactly the same reason. The two classes' actual *sampling* methods
+(`_sampleLoupe`/`_sample`) were deliberately left un-shared, matching this file's existing precedent of
+not sharing state-touching methods between the overlay classes (`_onRepaint`'s dim/fill logic is
+likewise duplicated between `RegionSelectOverlay` and `WindowPickerOverlay` already).
+
+**Two real bugs found and fixed during live verification, not assumed away:**
+
+- **A destroyed-actor race, confirmed live as a real crash, not theoretical.** `_sampleLoupe()`'s
+  `composite_to_stream()` call is async, and unlike `EyedropperOverlay` (which calls `this.destroy()`
+  immediately once its grab resolves), `RegionSelectOverlay.selectAsync()` still awaits its own final
+  crop *and* `pickDestinationAsync()`'s open-ended wait on the user before destroying - a much longer
+  window for a `_sampleLoupe()` call left in flight from the last motion/pan-update before release to
+  resolve *after* `destroy()` had already run. First live test hit this exactly: `journalctl` showed
+  `clutter_actor_set_allocation_internal`'s `isnan` assertion failing with an invalid `StDrawingArea`
+  allocation (`-2147483648 x -2147483648`, the classic NaN-cast-to-int32 signature), followed seconds
+  later by a `PopupMenuItem` "already disposed" access on the destination picker - real compositor-state
+  corruption from touching a destroyed actor, the same general class of failure this project hit before
+  from unsafe extension-reload timing (see [[feedback-extension-reload-caching]]), just from a different
+  cause here. Fixed with the standard pattern: a `this._destroyed` flag flipped by `Clutter.Actor`'s own
+  `'destroy'` signal, checked before `_sampleLoupe()` touches `this._drawing`/`this._loupePixbuf` after
+  its `await`. Retested live after the fix: the crash and the disposed-object error were both gone,
+  confirmed across a full capture (drag, destination picker, completed normally).
+- **Crosshair jitter, reported live by real testing, root-caused before assuming it was just the
+  technique's inherent latency.** The loupe's inner precision crosshair visibly jumped around during a
+  drag - traced to `_drawRegionLoupe()` computing the crosshair's position-within-patch from the *live*
+  `this._cursorX/Y` (updated synchronously on every motion event) against the *stale* `this._loupeOrigin`
+  (only updated whenever the current in-flight `composite_to_stream()` call happened to resolve - and
+  concurrent in-flight calls from fast successive events aren't sequenced, so a later one can resolve
+  before an earlier one). Fixed by pairing each resolved patch with the exact cursor position it was
+  sampled at (`this._loupeSampleCursor`, set alongside `this._loupePixbuf`/`this._loupeOrigin` in
+  `_sampleLoupe`) and using that paired value - not the live cursor - for the crosshair math specifically,
+  while the loupe's own on-screen *position* (`_magnifierOffset`'s placement) still uses the live cursor
+  so the widget itself keeps tracking smoothly. Retested live: crosshair confirmed steady.
+  **`EyedropperOverlay`'s own `_sample()`/`_drawLoupe()` likely has the identical race** (its `_cursorX`/
+  `_cursorY` are set synchronously at sample-start rather than paired with the patch that call eventually
+  produces) - very plausibly the real root cause of task #71's already-tracked "loupe flicker/shearing on
+  fast drag," not just generic async latency. Flagged as a follow-up rather than fixed here, to keep this
+  task's diff scoped to `RegionSelectOverlay`.
+
+Verified live end to end on the project's GNOME/Wayland test VM across three separate full logout/login
+cycles (one per fix, per [[feedback-extension-reload-caching]]'s established reload discipline - a
+`gnome-shell` PID change confirmed before each retest): the aiming crosshair + coordinate tooltip appear
+before a drag starts, the loupe (correctly sized/positioned, steady crosshair) and "W x H" size label
+appear during one, and a real capture completes normally afterward. Syntax-checked before each deploy via
+`gjs -m` against the real file (SpiderMonkey parses the whole module before failing on the expected
+unresolvable `resource:///` import outside a real Shell process - confirms no syntax error without
+needing a full Shell runtime). Not unit tested, matching every other piece of this extension - GJS/Shell
+glue with no meaningful headless test, same precedent as the rest of `extension.js`.
+
 #### Extending Shell-native capture to Full Screen/Active Window/Last Region Repeat (task #73, complete 2026-08-09)
 
 Reported as "an audible camera-shutter sound plays on the destination-picker click after a Wayland

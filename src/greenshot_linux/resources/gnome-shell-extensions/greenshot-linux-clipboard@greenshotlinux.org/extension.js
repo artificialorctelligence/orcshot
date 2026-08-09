@@ -237,6 +237,155 @@ function pickDestinationAsync(x, y) {
   });
 }
 
+// Shared by RegionSelectOverlay's own loupe and EyedropperOverlay's
+// (which predates it - task #77) - matches ui/eyedropper.py's own
+// constants (_PATCH_SIZE, _LOUPE_DIAMETER, _LOUPE_OFFSET) and
+// ui/magnifier.py's rendering constants (_RING_WIDTH, _CROSSHAIR_GAP,
+// _CROSSHAIR_THICKNESS) exactly - see those modules' docstrings for
+// the Windows CaptureForm.cs/DrawZoom citations these were traced
+// from. _LOUPE_DIAMETER/_LOUPE_OFFSET_X/Y are EyedropperOverlay-only
+// (a fixed-size loupe at a fixed offset, matching ui/eyedropper.py);
+// RegionSelectOverlay's own loupe instead sizes and positions itself
+// dynamically (_magnifierDiameter/_magnifierOffset below), matching
+// ui/region_select.py/core/magnifier.py - task #79 fixed exactly this
+// kind of size mismatch on the GTK side, so this port starts from
+// core/magnifier.py's real algorithm rather than reusing the
+// eyedropper's fixed-size approach and reintroducing that bug a third
+// time.
+const _PATCH_SIZE = 25;
+const _LOUPE_DIAMETER = 80;
+const _LOUPE_OFFSET_X = 18;
+const _LOUPE_OFFSET_Y = 18;
+const _LOUPE_GAP = 20;
+const _RING_WIDTH = 2;
+const _CROSSHAIR_GAP = 6;
+const _CROSSHAIR_THICKNESS = 2;
+
+// Matches ui/region_select.py's own _CROSSHAIR_COLOR/_COORD_TOOLTIP_
+// BORDER/_COORD_TOOLTIP_BG exactly - see that module's docstring for
+// the CaptureForm.cs:1154-1182 citation (LightSeaGreen dotted
+// crosshair lines, a SeaGreen-bordered light-mint coordinate tooltip).
+const _CROSSHAIR_COLOR = [32 / 255, 178 / 255, 170 / 255];
+const _COORD_TOOLTIP_BORDER = [46 / 255, 139 / 255, 87 / 255];
+const _COORD_TOOLTIP_BG = [217 / 255, 240 / 255, 227 / 255, 200 / 255];
+
+// Ported from core/magnifier.py's magnifier_diameter - see that
+// module's docstring (CaptureForm.cs's VerifyZoomAnimation) for why
+// min(w,h)//5 rounded down to a multiple of 4.
+function _magnifierDiameter(width, height) {
+  const size = Math.floor(Math.min(width, height) / 5);
+  return size - (size % 4);
+}
+
+function _rectContains(outer, inner) {
+  return outer.x <= inner.x && outer.y <= inner.y
+    && outer.x + outer.width >= inner.x + inner.width
+    && outer.y + outer.height >= inner.y + inner.height;
+}
+
+function _rectsOverlap(a, b) {
+  return a.x < b.x + b.width && a.x + a.width > b.x
+    && a.y < b.y + b.height && a.y + a.height > b.y;
+}
+
+// Ported from core/magnifier.py's magnifier_offset - see that
+// module's own docstring for the exact Windows priority order (try
+// bottom-right/bottom-left/top-right/top-left of the cursor, first
+// requiring both on-screen placement and no overlap with the
+// in-progress selection, relaxing the overlap requirement only if
+// nothing satisfies both).
+function _magnifierOffset(cursorX, cursorY, screenBounds, avoidRect, diameter, gap = _LOUPE_GAP) {
+  const candidates = [
+    [gap, gap],
+    [-gap - diameter, gap],
+    [gap, -gap - diameter],
+    [-gap - diameter, -gap - diameter],
+  ];
+  for (const allowOverlap of [false, true]) {
+    for (const [dx, dy] of candidates) {
+      const rect = { x: cursorX + dx, y: cursorY + dy, width: diameter, height: diameter };
+      if (!_rectContains(screenBounds, rect))
+        continue;
+      if (allowOverlap || avoidRect === null || !_rectsOverlap(rect, avoidRect))
+        return [dx, dy];
+    }
+  }
+  return candidates[0];
+}
+
+// Ported from ui/magnifier.py's draw_magnifier - the ring + precision
+// crosshair geometry is pixel-for-pixel the same algorithm, adapted to
+// operate on a GdkPixbuf patch (what Shell.Screenshot.composite_to_
+// stream() hands back here) instead of a numpy crop. destX/destY are
+// separate from cursorX/cursorY for the same reason draw_magnifier's
+// own dest_pos parameter is: EyedropperOverlay positions its loupe at
+// a fixed offset from the cursor regardless of where the sampled patch
+// itself came from, while RegionSelectOverlay's loupe is positioned by
+// _magnifierOffset's selection-avoiding placement - both need the
+// pixel-blit/ring/crosshair math to stay identical, only the placement
+// differs.
+function _drawMagnifierLoupe(cr, pixbuf, cursorX, cursorY, patchOriginX, patchOriginY, destX, destY, diameter) {
+  const pixels = pixbuf.get_pixels();
+  const rowstride = pixbuf.get_rowstride();
+  const channels = pixbuf.get_n_channels();
+  const patchWidth = pixbuf.get_width();
+  const patchHeight = pixbuf.get_height();
+
+  const radius = diameter / 2;
+  const centerX = destX + radius;
+  const centerY = destY + radius;
+  const scaleX = diameter / patchWidth;
+  const scaleY = diameter / patchHeight;
+
+  cr.save();
+  cr.arc(centerX, centerY, radius, 0, 2 * Math.PI);
+  cr.clip();
+  for (let py = 0; py < patchHeight; py++) {
+    for (let px = 0; px < patchWidth; px++) {
+      const i = py * rowstride + px * channels;
+      const a = channels === 4 ? pixels[i + 3] / 255 : 1;
+      cr.setSourceRGBA(pixels[i] / 255, pixels[i + 1] / 255, pixels[i + 2] / 255, a);
+      cr.rectangle(destX + px * scaleX, destY + py * scaleY, scaleX + 0.5, scaleY + 0.5);
+      cr.fill();
+    }
+  }
+  cr.restore();
+
+  cr.save();
+  cr.setLineWidth(_RING_WIDTH);
+  cr.setSourceRGB(1, 1, 1);
+  cr.arc(centerX, centerY, radius - _RING_WIDTH / 2, 0, 2 * Math.PI);
+  cr.stroke();
+  cr.restore();
+
+  // Crosshair at the cursor's own pixel within the zoomed preview -
+  // matches ui/magnifier.py's draw_magnifier exactly (a small gap at
+  // the middle, outlined in white for contrast).
+  const cursorInPatchX = cursorX - patchOriginX;
+  const cursorInPatchY = cursorY - patchOriginY;
+  const crossX = destX + (cursorInPatchX + 0.5) * scaleX;
+  const crossY = destY + (cursorInPatchY + 0.5) * scaleY;
+  const arm = radius * 0.7;
+  const gap = _CROSSHAIR_GAP;
+  cr.save();
+  cr.arc(centerX, centerY, radius - _RING_WIDTH, 0, 2 * Math.PI);
+  cr.clip();
+  for (const [lineWidth, r, g, b] of [[_CROSSHAIR_THICKNESS + 2, 1, 1, 1], [_CROSSHAIR_THICKNESS, 0, 0, 0]]) {
+    cr.setLineWidth(lineWidth);
+    cr.setSourceRGB(r, g, b);
+    cr.moveTo(crossX, crossY - arm);
+    cr.lineTo(crossX, crossY - gap);
+    cr.moveTo(crossX, crossY + gap);
+    cr.lineTo(crossX, crossY + arm);
+    cr.moveTo(crossX - arm, crossY);
+    cr.lineTo(crossX - gap, crossY);
+    cr.moveTo(crossX + gap, crossY);
+    cr.lineTo(crossX + arm, crossY);
+    cr.stroke();
+  }
+  cr.restore();
+}
+
 class RegionSelectOverlay extends St.Widget {
   static {
     GObject.registerClass(this);
@@ -278,6 +427,40 @@ class RegionSelectOverlay extends St.Widget {
     this._lastX = 0;
     this._lastY = 0;
     this._result = null;
+
+    // Live cursor position for the aiming crosshair/loupe/size label
+    // (task #82) - null until the first motion/pan event, matching
+    // ui/region_select.py's own self._cursor_pos being None until the
+    // first motion-notify-event. Separate from _startX/_startY/_lastX/
+    // _lastY above (the drag geometry, untouched by this task) since
+    // this needs to stay live even before a drag starts, unlike those.
+    this._cursorX = null;
+    this._cursorY = null;
+    this._loupePixbuf = null;
+    this._loupeOrigin = null;
+    this._loupeSampleCursor = null;
+    this.connect('motion-event', this._onMotion.bind(this));
+
+    // _sampleLoupe below is async (a composite_to_stream() GPU round
+    // trip per motion/pan event) and selectAsync() doesn't destroy()
+    // this actor until well after the drag ends - it still awaits its
+    // own final crop *and* pickDestinationAsync's own open-ended wait
+    // on the user first. Confirmed live as a real crash, not a
+    // theoretical one: a _sampleLoupe() call left in flight from the
+    // last motion/pan-update before release resolved after destroy()
+    // had already run, and touching this._drawing post-destroy
+    // produced a real compositor-level failure (clutter_actor_set_
+    // allocation_internal's isnan assertion, an invalid StDrawingArea
+    // allocation, then a "PopupMenuItem already disposed" access on
+    // the destination picker moments later - the same class of
+    // compositor-state corruption this project has hit before from
+    // unsafe extension-reload timing, just from a different cause
+    // here). Guarded the same way GNOME Shell's own long-lived actors
+    // commonly do: a manual flag flipped by the standard Clutter.Actor
+    // 'destroy' signal, checked before any post-await touch of
+    // this._drawing/this._loupePixbuf.
+    this._destroyed = false;
+    this.connect('destroy', () => { this._destroyed = true; });
 
     this._panGesture = new Clutter.PanGesture();
     this._panGesture.set_begin_threshold(0);
@@ -382,6 +565,80 @@ class RegionSelectOverlay extends St.Widget {
     };
   }
 
+  _onMotion(_actor, event) {
+    const [x, y] = event.get_coords();
+    this._updateCursor(x, y);
+    return Clutter.EVENT_PROPAGATE;
+  }
+
+  // Shared by the pre-drag hover path (_onMotion, above) and the
+  // in-drag path (_onPanBegin/_onPanUpdate, below) - both need the
+  // exact same "remember where the cursor is, re-sample the loupe's
+  // source patch there, repaint" sequence. Whether 'motion-event'
+  // itself still fires on this actor once a Clutter.PanGesture action
+  // has recognized a drag was not assumed - _onPanBegin/_onPanUpdate
+  // call this too regardless, so the crosshair/loupe/size label stay
+  // live during a drag even if it doesn't.
+  _updateCursor(x, y) {
+    this._cursorX = x;
+    this._cursorY = y;
+    this._drawing.queue_repaint();
+    this._sampleLoupe(x, y).catch(e => logError(e, 'Error sampling region-select loupe'));
+  }
+
+  // Same clamped-crop technique as EyedropperOverlay's own _sample
+  // (see that method's docstring for why: composite_to_stream() against
+  // the same frozen this._texture/this._scale captured in selectAsync(),
+  // not a fresh live grab - matches ui/region_select.py's own frozen-
+  // backdrop philosophy, now Shell-side). Not factored out into a
+  // shared helper alongside _drawMagnifierLoupe above: unlike that
+  // function's pure pixel-blit math, this method's two callers (this
+  // one, and EyedropperOverlay._sample) each also assign different
+  // per-class state (this._loupePixbuf/_loupeOrigin here vs.
+  // _patchPixbuf/_patchOrigin/_currentColor there) - matching this
+  // file's existing precedent of not sharing state-touching methods
+  // between the overlay classes (_onRepaint's dim/fill logic is
+  // likewise duplicated between RegionSelectOverlay and
+  // WindowPickerOverlay already, not shared).
+  async _sampleLoupe(x, y) {
+    const half = Math.floor(_PATCH_SIZE / 2);
+    const stageWidth = global.stage.width;
+    const stageHeight = global.stage.height;
+    const left = Math.max(0, Math.min(Math.round(x) - half, stageWidth - _PATCH_SIZE));
+    const top = Math.max(0, Math.min(Math.round(y) - half, stageHeight - _PATCH_SIZE));
+
+    const stream = Gio.MemoryOutputStream.new_resizable();
+    const pixbuf = await Shell.Screenshot.composite_to_stream(
+      this._texture, left, top, _PATCH_SIZE, _PATCH_SIZE, this._scale,
+      null, 0, 0, 1,
+      stream);
+    stream.close(null);
+
+    // See this class's own constructor comment (_destroyed) for why
+    // this guard is load-bearing, not defensive boilerplate: this
+    // await can - and, confirmed live, does - outlive the overlay
+    // itself once the user releases and picks a destination quickly.
+    if (this._destroyed)
+      return;
+
+    this._loupePixbuf = pixbuf;
+    this._loupeOrigin = { x: left, y: top };
+    // The exact cursor position *this patch* was sampled at, not
+    // whatever this._cursorX/Y happens to be by the time this resolves
+    // - confirmed live as a real, visible bug otherwise: composite_to_
+    // stream() is a multi-frame-latency async round trip, and
+    // concurrent in-flight calls from fast successive motion/pan
+    // events aren't sequenced, so a later call can resolve before an
+    // earlier one. Pairing the crosshair's position with whichever
+    // cursor position actually produced the currently-displayed patch
+    // (rather than the live cursor, which _magnifierOffset below still
+    // uses for the loupe's own on-screen placement - that part stays
+    // smooth) keeps the crosshair pinned to the right pixel within
+    // that patch instead of visibly jittering against stale content.
+    this._loupeSampleCursor = { x, y };
+    this._drawing.queue_repaint();
+  }
+
   _onPanBegin() {
     if (this._result)
       return;
@@ -390,7 +647,7 @@ class RegionSelectOverlay extends St.Widget {
     this._startY = Math.floor(coords.y);
     this._lastX = this._startX;
     this._lastY = this._startY;
-    this._drawing.queue_repaint();
+    this._updateCursor(coords.x, coords.y);
   }
 
   _onPanUpdate() {
@@ -399,7 +656,7 @@ class RegionSelectOverlay extends St.Widget {
     const coords = this._panGesture.get_centroid_abs();
     this._lastX = Math.floor(coords.x);
     this._lastY = Math.floor(coords.y);
-    this._drawing.queue_repaint();
+    this._updateCursor(coords.x, coords.y);
   }
 
   _onPanEnd() {
@@ -433,7 +690,122 @@ class RegionSelectOverlay extends St.Widget {
       cr.rectangle(0, 0, width, height);
       cr.fill();
     }
+
+    // Magnifier loupe/crosshair/size-label (task #82) - ported from
+    // ui/region_select.py's own _on_draw, see this class's own new
+    // methods below for the per-piece Windows-source citations.
+    if (this._cursorX !== null) {
+      if (this._startX < 0)
+        this._drawAimingCrosshair(cr);
+
+      if (this._loupePixbuf !== null) {
+        try {
+          this._drawRegionLoupe(cr);
+        } catch (e) {
+          logError(e, 'Error drawing region-select loupe');
+        }
+      }
+
+      if (this._startX >= 0)
+        this._drawSizeLabel(cr);
+    }
     cr.$dispose();
+  }
+
+  // Full-screen dotted aiming crosshair + coordinate tooltip, shown
+  // only before a drag starts - faithful port of ui/region_select.py's
+  // own _draw_aiming_crosshair (itself CaptureForm.cs:1154-1182), see
+  // that method's docstring for the exact color citations. Coordinates
+  // are already stage-absolute here (no separate window offset to add,
+  // unlike RegionSelectWindow's self._bounds.left/top).
+  _drawAimingCrosshair(cr) {
+    const x = this._cursorX, y = this._cursorY;
+    const width = global.stage.width, height = global.stage.height;
+    cr.save();
+    cr.setSourceRGB(..._CROSSHAIR_COLOR);
+    cr.setLineWidth(1);
+    cr.setDash([1, 3], 0);
+    cr.moveTo(x + 0.5, 0);
+    cr.lineTo(x + 0.5, height);
+    cr.stroke();
+    cr.moveTo(0, y + 0.5);
+    cr.lineTo(width, y + 0.5);
+    cr.stroke();
+    cr.restore();
+
+    const text = `${Math.round(x)} x ${Math.round(y)}`;
+    cr.save();
+    cr.selectFontFace('sans-serif', Cairo.FontSlant.NORMAL, Cairo.FontWeight.NORMAL);
+    cr.setFontSize(11);
+    const extents = cr.textExtents(text);
+    const pad = 3;
+    const boxX = x + 5, boxY = y + 5;
+    const boxW = extents.width + 2 * pad, boxH = extents.height + 2 * pad;
+    cr.setSourceRGBA(..._COORD_TOOLTIP_BG);
+    cr.rectangle(boxX, boxY, boxW, boxH);
+    cr.fillPreserve();
+    cr.setSourceRGB(..._COORD_TOOLTIP_BORDER);
+    cr.setLineWidth(1);
+    cr.setDash([], 0);
+    cr.stroke();
+    cr.moveTo(boxX + pad, boxY + pad + extents.height);
+    cr.showText(text);
+    cr.restore();
+  }
+
+  // Sized/positioned from the monitor under the cursor (task #79's own
+  // fix, ported here so this path doesn't carry the same bug a third
+  // time - see core/magnifier.py's docstring for the CaptureForm.cs
+  // citations _magnifierDiameter/_magnifierOffset above were traced
+  // from). global.display.get_current_monitor()/get_monitor_geometry()
+  // is this Shell's own equivalent of ScreenLayout.monitor_at() -
+  // confirmed live via GI typelib introspection against this system's
+  // real Mutter-18/Mtk-18 typelibs before relying on it (get_monitor_
+  // geometry(index) -> Mtk.Rectangle with x/y/width/height fields,
+  // get_current_monitor() -> index of the monitor under the pointer).
+  _drawRegionLoupe(cr) {
+    const monitorIndex = global.display.get_current_monitor();
+    const monitorGeom = global.display.get_monitor_geometry(monitorIndex);
+    const diameter = _magnifierDiameter(monitorGeom.width, monitorGeom.height);
+
+    const screenBounds = { x: 0, y: 0, width: global.stage.width, height: global.stage.height };
+    const selection = this._startX >= 0 ? this._getGeometry() : null;
+
+    // The loupe's own on-screen position tracks the *live* cursor (so
+    // the widget itself moves smoothly every repaint); only the
+    // crosshair's position *within* the patch uses the sample-time
+    // cursor paired with it in _sampleLoupe above - see that method's
+    // own comment for why mixing live and stale here caused visible
+    // jitter.
+    const [offX, offY] = _magnifierOffset(this._cursorX, this._cursorY, screenBounds, selection, diameter);
+    const destX = this._cursorX + offX;
+    const destY = this._cursorY + offY;
+
+    _drawMagnifierLoupe(
+      cr, this._loupePixbuf, this._loupeSampleCursor.x, this._loupeSampleCursor.y,
+      this._loupeOrigin.x, this._loupeOrigin.y, destX, destY, diameter,
+    );
+  }
+
+  // "W x H" selection-size label, shown once a drag is in progress -
+  // faithful port of ui/region_select.py's own _draw_size_label.
+  _drawSizeLabel(cr) {
+    const { width: sw, height: sh } = this._getGeometry();
+    const text = `${sw} x ${sh}`;
+    const x = this._cursorX, y = this._cursorY;
+    cr.save();
+    cr.selectFontFace('sans-serif', Cairo.FontSlant.NORMAL, Cairo.FontWeight.BOLD);
+    cr.setFontSize(13);
+    const extents = cr.textExtents(text);
+    const pad = 4;
+    const lx = x + 14, ly = y + 28;
+    cr.setSourceRGBA(0, 0, 0, 0.75);
+    cr.rectangle(lx - pad, ly - extents.height - pad, extents.width + 2 * pad, extents.height + 2 * pad);
+    cr.fill();
+    cr.setSourceRGB(1, 1, 1);
+    cr.moveTo(lx, ly);
+    cr.showText(text);
+    cr.restore();
   }
 }
 
@@ -639,19 +1011,6 @@ class WindowPickerOverlay extends St.Widget {
   }
 }
 
-// Matches ui/eyedropper.py's own constants exactly (_PATCH_SIZE,
-// _LOUPE_DIAMETER, _LOUPE_OFFSET) and ui/magnifier.py's rendering
-// constants (_RING_WIDTH, _CROSSHAIR_GAP, _CROSSHAIR_THICKNESS) - see
-// those modules' docstrings for the Windows CaptureForm.cs/DrawZoom
-// citations these were traced from.
-const _PATCH_SIZE = 25;
-const _LOUPE_DIAMETER = 80;
-const _LOUPE_OFFSET_X = 18;
-const _LOUPE_OFFSET_Y = 18;
-const _RING_WIDTH = 2;
-const _CROSSHAIR_GAP = 6;
-const _CROSSHAIR_THICKNESS = 2;
-
 // Pick-a-color-from-anywhere-on-screen tool, Shell-side counterpart to
 // ui/eyedropper.py/eyedropper_wayland.py. No destination picker here
 // at all - unlike region-select/window-picker, the only result is a
@@ -817,68 +1176,12 @@ class EyedropperOverlay extends St.Widget {
   }
 
   _drawLoupe(cr) {
-    const pixbuf = this._patchPixbuf;
-    const pixels = pixbuf.get_pixels();
-    const rowstride = pixbuf.get_rowstride();
-    const channels = pixbuf.get_n_channels();
-    const patchWidth = pixbuf.get_width();
-    const patchHeight = pixbuf.get_height();
-
     const destX = this._cursorX + _LOUPE_OFFSET_X;
     const destY = this._cursorY + _LOUPE_OFFSET_Y;
-    const radius = _LOUPE_DIAMETER / 2;
-    const centerX = destX + radius;
-    const centerY = destY + radius;
-    const scaleX = _LOUPE_DIAMETER / patchWidth;
-    const scaleY = _LOUPE_DIAMETER / patchHeight;
-
-    cr.save();
-    cr.arc(centerX, centerY, radius, 0, 2 * Math.PI);
-    cr.clip();
-    for (let py = 0; py < patchHeight; py++) {
-      for (let px = 0; px < patchWidth; px++) {
-        const i = py * rowstride + px * channels;
-        const a = channels === 4 ? pixels[i + 3] / 255 : 1;
-        cr.setSourceRGBA(pixels[i] / 255, pixels[i + 1] / 255, pixels[i + 2] / 255, a);
-        cr.rectangle(destX + px * scaleX, destY + py * scaleY, scaleX + 0.5, scaleY + 0.5);
-        cr.fill();
-      }
-    }
-    cr.restore();
-
-    cr.save();
-    cr.setLineWidth(_RING_WIDTH);
-    cr.setSourceRGB(1, 1, 1);
-    cr.arc(centerX, centerY, radius - _RING_WIDTH / 2, 0, 2 * Math.PI);
-    cr.stroke();
-    cr.restore();
-
-    // Crosshair at the cursor's own pixel within the zoomed preview -
-    // matches ui/magnifier.py's draw_magnifier exactly (a small gap at
-    // the middle, outlined in white for contrast).
-    const cursorInPatchX = this._cursorX - this._patchOrigin.x;
-    const cursorInPatchY = this._cursorY - this._patchOrigin.y;
-    const crossX = destX + (cursorInPatchX + 0.5) * scaleX;
-    const crossY = destY + (cursorInPatchY + 0.5) * scaleY;
-    const arm = radius * 0.7;
-    const gap = _CROSSHAIR_GAP;
-    cr.save();
-    cr.arc(centerX, centerY, radius - _RING_WIDTH, 0, 2 * Math.PI);
-    cr.clip();
-    for (const [lineWidth, r, g, b] of [[_CROSSHAIR_THICKNESS + 2, 1, 1, 1], [_CROSSHAIR_THICKNESS, 0, 0, 0]]) {
-      cr.setLineWidth(lineWidth);
-      cr.setSourceRGB(r, g, b);
-      cr.moveTo(crossX, crossY - arm);
-      cr.lineTo(crossX, crossY - gap);
-      cr.moveTo(crossX, crossY + gap);
-      cr.lineTo(crossX, crossY + arm);
-      cr.moveTo(crossX - arm, crossY);
-      cr.lineTo(crossX - gap, crossY);
-      cr.moveTo(crossX + gap, crossY);
-      cr.lineTo(crossX + arm, crossY);
-      cr.stroke();
-    }
-    cr.restore();
+    _drawMagnifierLoupe(
+      cr, this._patchPixbuf, this._cursorX, this._cursorY,
+      this._patchOrigin.x, this._patchOrigin.y, destX, destY, _LOUPE_DIAMETER,
+    );
 
     if (this._currentColor !== null) {
       const [r, g, b] = this._currentColor;
