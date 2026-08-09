@@ -24,6 +24,8 @@ trail.
 
 from __future__ import annotations
 
+import os
+
 from greenshot_linux.capture.backend import CaptureBackend
 from greenshot_linux.capture.backend_select import default_capture_backend
 from greenshot_linux.capture.cursor import CursorBackend
@@ -82,16 +84,54 @@ def capture_cursor_shape(
     )
 
 
-def _show_picker(image, cursor_shape: CursorShape = None):
+def _capture_and_pick(capture_backend: CaptureBackend, region: Rect, cursor_shape: CursorShape = None) -> None:
+    """Grabs ``region`` and runs the destination-picker interaction on
+    it - the *which* Rect (full_screen_region/active_window_region/an
+    already-remembered last_region) is unaffected by any of this, only
+    how the pixels get fetched and which picker UI shows differs.
+
+    Prefers one continuous Shell-native round trip (grab + Shell-native
+    destination picker, gnome_capture_rect.start_capture_rect) over the
+    classic capture_backend.grab + ui/destination_picker.py Gtk.Menu
+    flow whenever the bundled GNOME Shell extension is actually
+    available on Wayland (task #73) - two real, separate artifacts of
+    the classic path motivated this, both confirmed live: the XDG
+    portal (what capture_backend.grab uses under Wayland) plays an
+    audible camera-shutter sound as its own built-in feedback on every
+    call, and even switching only the pixel grab still left a real
+    Gtk.Menu window causing a brief dock/taskbar flash under this
+    Wayland session - the same class of artifact task #76/#77 already
+    eliminated for region-select/window-picker by moving their own
+    destination picker Shell-side too, which is why this moves theirs
+    there as well rather than just muting the sound.
+
+    Fire-and-forget either way (the Shell-native path is genuinely
+    async - see gnome_capture_rect.py's own docstring for why - so
+    there's nothing meaningful to return here anymore).
+    """
+    if os.environ.get("XDG_SESSION_TYPE") == "wayland":
+        from greenshot_linux.capture.gnome_capture_rect import is_available as gnome_shell_capture_available
+
+        if gnome_shell_capture_available():
+            from greenshot_linux.capture.gnome_capture_rect import start_capture_rect
+            from greenshot_linux.ui.destination_picker import dispatch_destination
+
+            def on_destination_chosen(image, destination) -> None:
+                dispatch_destination(destination, image, cursor_shape)
+
+            start_capture_rect(region, on_destination_chosen)
+            return
+
     from greenshot_linux.ui.destination_picker import show_destination_picker
 
-    return show_destination_picker(image, cursor_shape=cursor_shape)
+    image = capture_backend.grab(region)
+    show_destination_picker(image, cursor_shape=cursor_shape)
 
 
 def start_full_screen_capture(
     capture_backend: CaptureBackend = None, on_captured=None,
     capture_mouse_cursor: bool = True, cursor_backend: CursorBackend = None,
-):
+) -> None:
     """Grabs the whole virtual screen and shows the destination picker
     on it. ``on_captured(absolute_rect)``, if given, fires right before
     the picker opens - GreenshotApplication uses this to remember the
@@ -100,20 +140,19 @@ def start_full_screen_capture(
     if capture_backend is None:
         capture_backend = default_capture_backend()
     region = full_screen_region(capture_backend)
-    image = capture_backend.grab(region)
     if on_captured is not None:
         on_captured(region)
     cursor_shape = capture_cursor_shape(region, capture_mouse_cursor, cursor_backend)
-    return _show_picker(image, cursor_shape)
+    _capture_and_pick(capture_backend, region, cursor_shape)
 
 
 def start_active_window_capture(
     capture_backend: CaptureBackend = None, window_enumerator: WindowEnumerator = None, on_captured=None,
     capture_mouse_cursor: bool = True, cursor_backend: CursorBackend = None,
-):
+) -> None:
     """Grabs the currently focused window and shows the destination
-    picker on it. Returns None (doing nothing else) if there's no
-    active window to capture - e.g. focus is on the desktop itself.
+    picker on it. Does nothing else if there's no active window to
+    capture - e.g. focus is on the desktop itself.
     """
     if capture_backend is None:
         capture_backend = default_capture_backend()
@@ -121,32 +160,30 @@ def start_active_window_capture(
         window_enumerator = _default_window_enumerator()
     region = active_window_region(capture_backend, window_enumerator)
     if region is None:
-        return None
-    image = capture_backend.grab(region)
+        return
     if on_captured is not None:
         on_captured(region)
     cursor_shape = capture_cursor_shape(region, capture_mouse_cursor, cursor_backend)
-    return _show_picker(image, cursor_shape)
+    _capture_and_pick(capture_backend, region, cursor_shape)
 
 
 def start_last_region_capture(
     last_region: Rect, capture_backend: CaptureBackend = None,
     capture_mouse_cursor: bool = True, cursor_backend: CursorBackend = None,
-):
+) -> None:
     """Re-grabs ``last_region`` fresh (not cached pixels - "repeat"
     means the same spatial region, picking up whatever's there now,
     matching the Windows source's Shift+PrintScreen behavior) and
-    shows the destination picker on it. Returns None if there's no
+    shows the destination picker on it. Does nothing if there's no
     region to repeat, matching start_active_window_capture's "nothing
     to do" convention.
     """
     if last_region is None:
-        return None
+        return
     if capture_backend is None:
         capture_backend = default_capture_backend()
     clamped = capture_backend.screen_layout().clamp(last_region)
     if clamped is None:
-        return None
-    image = capture_backend.grab(clamped)
+        return
     cursor_shape = capture_cursor_shape(clamped, capture_mouse_cursor, cursor_backend)
-    return _show_picker(image, cursor_shape)
+    _capture_and_pick(capture_backend, clamped, cursor_shape)

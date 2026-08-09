@@ -2136,6 +2136,75 @@ restriction to fight. Not yet ported: the magnifier loupe/aiming crosshair/size 
 specifically (deliberately deferred, see that section) - the *only* remaining piece of the original
 task #77 scope, tracked as a natural follow-up rather than blocking this task's completion.
 
+#### Extending Shell-native capture to Full Screen/Active Window/Last Region Repeat (task #73, complete 2026-08-09)
+
+Reported as "an audible camera-shutter sound plays on the destination-picker click after a Wayland
+capture" - confirmed live (`journalctl` watched while reproducing) that this is `xdg-desktop-portal-
+gnome`'s own built-in UI feedback, played whenever `org.freedesktop.portal.Screenshot`'s `Screenshot()`
+method is invoked, regardless of caller. Region-select and window-picker were already silent - task #77
+moved them off the portal entirely - but Full Screen/Active Window/Last Region Repeat (`ui/
+capture_modes.py`) never needed an interactive overlay, so #77 never touched them; they still went
+through `WaylandCaptureBackend.grab()` → the portal. Confirmed the fix scope precisely before writing
+any code: `capture.modes.full_screen_region`/`active_window_region` (the *which Rect to grab* logic)
+never needed the portal at all - `WaylandCaptureBackend.screen_layout()` uses plain GDK monitor
+enumeration, and active-window's own focused-window lookup already goes through the portal-free
+`GnomeWindowCallsBackend` - only the actual pixel *grab* (`WaylandCaptureBackend.grab()`) touches the
+portal, so that's the only piece that needed to move.
+
+**Extended #77's own architecture rather than just muting the sound**, by explicit choice (the simpler
+"Preferences toggle to mute it" alternative was also on the table). Added a new, non-interactive
+`CaptureRect(x, y, width, height)` D-Bus method to the bundled extension's `GreenshotCapture` interface
+(`extension.js`) - reuses the exact `screenshot_stage_to_content`/`composite_to_stream` primitive
+`RegionSelectOverlay`/`WindowPickerOverlay` already use for their own final crop, with no gesture/overlay
+actor of its own. New `capture/gnome_capture_rect.py` client (`start_capture_rect`) and a
+`ui/capture_modes.py._capture_and_pick()` helper, used by all three non-interactive capture functions in
+place of their old direct `capture_backend.grab(region)` + `show_destination_picker()` calls - prefers
+the Shell-native round trip whenever the bundled extension is available on Wayland, falls back to the
+classic portal/`Gtk.Menu` path otherwise (X11, or the extension not installed/enabled).
+
+**A second, real, separate artifact was found live-testing just the pixel-grab fix**, before it was
+considered done: even with the portal (and its sound) eliminated, the *old* `ui/destination_picker.py`
+`Gtk.Menu` - a real client-side popup window - still caused a brief dock/taskbar icon flash for these
+three modes, the exact same symptom class task #76/#77 already eliminated for region-select/window-
+picker by moving *their* destination picker Shell-side too. Extended `CaptureRect` to chain into the
+same `pickDestinationAsync()` region-select/window-picker use (anchored at the current pointer position
+via `global.get_pointer()`, since there's no drag-release/click point to anchor at instead here) rather
+than stopping at "no more sound" - `CaptureRect` now returns `(ok, destination, pngBytes)`, matching
+`StartRegionSelect`/`StartWindowPicker`'s own reply shape. This changed `gnome_capture_rect.py`'s own
+call from a bounded, synchronous `call_sync()` (correct for a plain pixel-grab-only round trip) to a
+genuinely async, infinite-timeout `Gio.DBusConnection.call()` (`start_capture_rect`, callback-based,
+mirroring `gnome_region_select.start_region_select` exactly) - once a destination choice is folded in,
+the round trip is open-ended and user-timed, the same reentrancy reasoning that already governed the
+interactive overlays' own D-Bus calls. `ui/capture_modes.py`'s three `start_*` functions no longer
+return anything meaningful on the Shell-native path (fire-and-forget, same as the interactive overlays'
+own callers) - confirmed no caller anywhere relied on their previous return value before making this
+change.
+
+**A real regression-shaped scare during this work turned out to be self-inflicted, not a real bug** -
+worth recording so it isn't re-chased. After the first extension.js deploy (`CaptureRect`, pixel-grab-
+only version), window-picker - untouched by any of this session's changes - started crashing instead of
+showing its destination picker, with `gnome-shell` logging a `cogl_sub_texture_new: assertion 'sub_y +
+sub_height <= next_height' failed` chain (and cascading `COGL_IS_TEXTURE`/`G_IS_OBJECT`/`GDK_IS_PIXBUF`
+assertion failures right after) reliably, on more than one window. `gdbus introspect` against
+`GreenshotCapture` confirmed the new method's XML was well-formed and didn't corrupt the interface
+(ruling out the first, most obvious guess). Root cause: mid-session `gnome-extensions disable`/`enable`
+cycling (tried once, to avoid yet another full logout, while adding temporary debug logging) left the
+*compositor's own* actor/texture bookkeeping in a genuinely corrupted state - not just stale JS code the
+way [[feedback-extension-reload-caching]] already documented, but active runtime corruption serious
+enough to crash an entirely unrelated, unmodified code path. A subsequent full logout/login (the
+already-established reliable reload method) fully cleared it - window-picker was retested repeatedly
+afterward with zero failures. Strengthens the existing lesson from task #77's own debugging: never use
+`gnome-extensions disable`/`enable` mid-session as a shortcut around a full logout when iterating on this
+extension, even just once "to save time" - the failure mode isn't limited to "your change didn't load,"
+it can actively break other, already-working parts of the same running Shell session.
+
+**Verified live end-to-end, all three modes, after the full fix**: no shutter sound, no dock/taskbar
+flash, `journalctl` clean of errors/warnings during capture, and at least one full destination dispatch
+(Edit) confirmed to open the editor with the correct captured image. Full local test suite (759 passed,
+3 skipped) unaffected - `capture_modes.py`/`gnome_capture_rect.py` remain untested for the same reason
+`gnome_region_select.py`/`gnome_window_picker.py`/`gnome_eyedropper.py` are: D-Bus glue needing a real
+GNOME/Wayland session, only verified live.
+
 ### Window-picker under Wayland (task #69)
 
 Wayland has no portable window-enumeration API - confirmed via research before building anything:

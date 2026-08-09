@@ -112,6 +112,25 @@ const CLIPBOARD_IFACE = `
 // StartRegionSelect above (see that method's own comment) - same
 // reply tuple, same reused pickDestinationAsync for the destination
 // choice, same reasons a client-side Gtk.Menu can't do that part.
+//
+// CaptureRect has no gesture/overlay of its own, unlike the two
+// methods above (task #73), used by ui/capture_modes.py's full-screen/
+// active-window/last-region-repeat capture in place of the XDG portal
+// round trip those three still used even after task #77's rewrite
+// (they never needed an interactive overlay, so #77 didn't touch
+// them) - but it *does* chain into pickDestinationAsync just like
+// StartRegionSelect/StartWindowPicker do, anchored at the current
+// pointer position (no drag-release/click point to anchor at instead,
+// since there's no gesture here). Two real, separate artifacts of the
+// old ui/destination_picker.py Gtk.Menu path motivated folding the
+// picker in here too, not just the pixel grab, both confirmed live:
+// xdg-desktop-portal-gnome's own audible camera-shutter feedback on
+// the portal's Screenshot() method (Shell.Screenshot, used here
+// exactly as the overlays above already use it, has none), and even
+// after switching only the pixel grab, the Gtk.Menu itself - a real
+// client-side window - still caused a brief dock/taskbar flash under
+// this Wayland session, the same class of artifact task #76/#77
+// already eliminated for region-select/window-picker this same way.
 const CAPTURE_IFACE = `
 <node>
    <interface name="org.gnome.Shell.Extensions.GreenshotCapture">
@@ -139,6 +158,15 @@ const CAPTURE_IFACE = `
          <arg type="y" direction="out" name="g" />
          <arg type="y" direction="out" name="b" />
          <arg type="y" direction="out" name="a" />
+      </method>
+      <method name="CaptureRect">
+         <arg type="i" direction="in" name="x" />
+         <arg type="i" direction="in" name="y" />
+         <arg type="i" direction="in" name="width" />
+         <arg type="i" direction="in" name="height" />
+         <arg type="b" direction="out" name="ok" />
+         <arg type="s" direction="out" name="destination" />
+         <arg type="ay" direction="out" name="pngBytes" />
       </method>
    </interface>
 </node>`;
@@ -946,5 +974,36 @@ export default class Extension {
       return [false, 0, 0, 0, 0];
     const [r, g, b, a] = result;
     return [true, r, g, b, a];
+  }
+
+  // No overlay actor/grab/gesture of its own, unlike the interactive
+  // methods above - just a single frozen stage screenshot cropped to
+  // the given rect (same primitive RegionSelectOverlay/
+  // WindowPickerOverlay already use for their own final crop), then
+  // straight into the same pickDestinationAsync those two use, see
+  // CAPTURE_IFACE's own comment for why. Genuinely async from the
+  // D-Bus caller's own point of view now that a destination choice is
+  // part of the round trip (see gnome_capture_rect.py's docstring).
+  async CaptureRect(x, y, width, height) {
+    try {
+      const [content, scale] = await new Shell.Screenshot().screenshot_stage_to_content();
+      const texture = content.get_texture();
+      const stream = Gio.MemoryOutputStream.new_resizable();
+      await Shell.Screenshot.composite_to_stream(
+        texture, x, y, width, height, scale,
+        null, 0, 0, 1,
+        stream);
+      stream.close(null);
+      const pngBytes = stream.steal_as_bytes().toArray();
+
+      const [pointerX, pointerY] = global.get_pointer();
+      const destination = await pickDestinationAsync(pointerX, pointerY);
+      if (destination === null)
+        return [false, '', []];
+      return [true, destination, pngBytes];
+    } catch (e) {
+      logError(e, 'Error in CaptureRect');
+      return [false, '', []];
+    }
   }
 }
