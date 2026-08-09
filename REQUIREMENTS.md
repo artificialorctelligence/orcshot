@@ -2852,6 +2852,82 @@ with the fedora/sunglasses silhouette and the outlined "1" circle both legible a
   all four now allocate identically to 34px, and a before/after screenshot pair confirms the canvas's
   on-screen position no longer shifts when switching to or from Select.
 
+## Editor keyboard shortcuts and Help dialog rework (complete 2026-08-09)
+
+By request: give Select, Solid Fill, and Color Scramble their own keys (none had one before), and turn
+the Help dialog's plain hand-padded text block into a real two-column table. New `_TOOL_KEYS` mapping
+(`ui/editor_window.py`) - this port's own convenience layer, not a Windows port (`ImageEditorForm` has
+no cursor-tool shortcut at all):
+
+| Key | Tool | | Key | Tool |
+|---|---|---|---|---|
+| \` | Select | | 6 | Solid Fill (Obfuscate) |
+| 1 | Rectangle | | 7 | Color Scramble (Obfuscate) |
+| 2 | Ellipse | | 8 | Text |
+| 3 | Line | | 9 | Speech Bubble |
+| 4 | Arrow | | 0 | Step Label |
+| 5 | Freehand | | - | Emoji |
+
+Three deliberate changes from what shipped before, all by explicit request, not independently decided:
+
+- **Select** gets backtick/grave - confirmed safe first: not a Linux/desktop-wide reserved shortcut
+  (those are almost always modifier combos - Super, Ctrl+Alt - never a bare printable key), not bound
+  anywhere else in this app, and this port's key-press handler already returns early whenever a text
+  field has focus (`self._editing_text_shape is not None`), the same guard every other tool key already
+  relies on, so it can't collide with actually typing a backtick into a caption. Physical position does
+  vary by keyboard layout (top-left next to 1 on US QWERTY, elsewhere on others) - a known, accepted
+  tradeoff of the specific key requested, not an oversight.
+- **Solid Fill (6) and Color Scramble (7)** replace what used to be Pixelize (6) and Blur (7) - by
+  request: Pixelize/Blur are already reachable as Obfuscate's own Mode dropdown options (task #54) and,
+  per task #60's own security rationale, are the two modes this port explicitly does *not* recommend for
+  anything sensitive, so they step back to mouse/dropdown-only rather than keeping a fast key each while
+  the two modes actually worth defaulting to (Solid Fill is already the app's own default, see task #60)
+  stay keyboard-inaccessible. `_TOOL_KEYS` no longer has entries for Pixelize/Blur at all - not merely
+  unbound by omission, an intentional removal, called out in its own Help-dialog row so it doesn't read
+  as a silently dropped feature. Extending `_on_key_press`'s existing "does this key need the special
+  prepare-then-activate dance, not just `set_active(True)`" branch (needed because Solid Fill and
+  Scramble - like Pixelize/Blur before them - share the *same* toolbar button object as every other
+  obfuscate mode, so a plain `set_active(True)` silently no-ops when that button's already active) from
+  a hardcoded `(Tool.PIXELIZE, Tool.BLUR)` tuple to a membership check against `_TOOL_TO_OBFUSCATE_MODE`
+  (already covers all four modes) - a real correctness fix, not just a rename, verified live by pressing
+  6 then 7 and confirming `_default_obfuscate_mode` actually changes both times, not just the first.
+- **Emoji** moves from "M" (the real Windows mnemonic - `ImageEditorForm.Designer.cs`'s
+  `btnEmoji.Text = "Emoji (M)"`) to "-" - a deliberate deviation from that mnemonic, by request, so
+  every tool key sits on one physical row (`` ` `` 1 2 3 4 5 6 7 8 9 0 -) instead of jumping to a letter
+  row for just this one. Doesn't collide with Ctrl+- (zoom out): GDK reports the same keyval regardless
+  of Ctrl state (only Shift changes which character a key produces), and the Ctrl+- check already runs
+  before `_TOOL_KEYS` is even consulted, gated on `ctrl_held`.
+
+**Help dialog** (`_do_show_help`): rebuilt from a single `Gtk.Label` holding a hand-space-padded string
+onto a real `Gtk.Grid` - two columns (key, function), one row per shortcut, a bold header row spanning
+both columns above each group ("Tools", "Editing", "Actions", "Tray Icon"). The header sits flush left -
+each key cell gets a small `set_margin_start` so it reads as slightly indented beneath its own section
+header, matching the previous plain-text layout's visual relationship - by request, specifically kept
+rather than redesigned. Real columns also fix a latent alignment problem the old hand-counted-spaces
+version had: "Ctrl+Z / Ctrl+Y" is wider than every other Actions key, so the old manual padding was only
+approximately aligned even before this change.
+
+Added while restructuring, not previously documented anywhere in the app: the zoom/canvas shortcuts
+(Ctrl +/-, Ctrl+Shift +/- , Ctrl+0, Ctrl+9 - all real, already wired in `_on_key_press`, just never
+listed) and a new **Tray Icon** section - genuinely different behavior per platform, not just a wording
+choice, so it's generated at runtime (same `XDG_SESSION_TYPE` check `app.py`'s own `_build_tray_icon`
+already uses to pick which tray implementation to build) rather than describing both unconditionally:
+
+- **X11** (`Gtk.StatusIcon`): left-click starts a region capture immediately; right-click opens the menu.
+- **Wayland** (`AyatanaAppIndicator3.Indicator`): every click opens the same menu - no distinct
+  left-click action exists, a real upstream AppIndicator limitation once a menu is attached
+  ([launchpad.net/bugs/1910521](https://bugs.launchpad.net/bugs/1910521)), not a bug in this app or
+  something fixable from here - see `app.py`'s own `_build_tray_icon` docstring for the full citation.
+
+Verified live: unit tests still pass (no existing coverage of `_TOOL_KEYS`/`_on_key_press` to update -
+this file has no dedicated test module at all, consistent with how the rest of its interactive behavior
+in this project has always been verified - live GTK sessions, not headless pytest), plus a driven GTK
+script pressing all twelve tool keys and confirming `win.tool` lands on the right value each time,
+specifically including pressing 6 then 7 back-to-back and confirming the obfuscate mode actually
+switches both times (the shared-button correctness fix above), and a real screenshot of the rebuilt
+Help dialog confirming the table layout, header/key indentation relationship, and (running under X11 in
+this dev environment) the X11-specific Tray Icon wording.
+
 ## Unverified assumptions
 
 Implemented, believed correct (spec, docs, or code-reading), but not directly observed working

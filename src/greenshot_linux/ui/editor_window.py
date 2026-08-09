@@ -207,24 +207,43 @@ _MIN_WINDOW_WIDTH = 650
 _MIN_WINDOW_HEIGHT = 530
 
 _TOOL_KEYS = {
+    # Select, requested specifically (not a Windows-ported convention -
+    # ImageEditorForm has no cursor-tool shortcut - this port's own
+    # addition): not a Linux/desktop-wide reserved shortcut (those are
+    # almost always modifier combos - Super, Ctrl+Alt - never a bare
+    # printable key), not bound anywhere else in this app, and only
+    # ever dispatched here while the editor window has keyboard focus
+    # and no text field is being edited (see the early return above
+    # for self._editing_text_shape), so it can't collide with typing
+    # backtick/grave into any of those.
+    Gdk.KEY_grave: Tool.SELECT,
     Gdk.KEY_1: Tool.RECTANGLE,
     Gdk.KEY_2: Tool.ELLIPSE,
     Gdk.KEY_3: Tool.LINE,
     Gdk.KEY_4: Tool.ARROW,
     Gdk.KEY_5: Tool.FREEHAND,
-    Gdk.KEY_6: Tool.PIXELIZE,
-    Gdk.KEY_7: Tool.BLUR,
+    # 6/7 used to be Pixelize/Blur - moved to Solid Fill/Scramble
+    # (task #60's own newer, actually-secure modes) by request, since
+    # Pixelize/Blur are already reachable as Obfuscate's mode dropdown
+    # options (task #54) and don't need their own top-level key too.
+    # Pixelize/Blur are deliberately absent from this dict now, not
+    # just unbound by omission - they're mouse/dropdown-only, same as
+    # Solid Fill/Scramble were before this change.
+    Gdk.KEY_6: Tool.SOLID_FILL,
+    Gdk.KEY_7: Tool.SCRAMBLE,
     Gdk.KEY_8: Tool.TEXT,
     Gdk.KEY_9: Tool.SPEECH_BUBBLE,
     Gdk.KEY_0: Tool.STEP_LABEL,
-    # Select has no dedicated key yet - no clear Windows precedent to
-    # port, and every unclaimed letter is a fresh, undocumented
-    # convention rather than a faithful port, so it's toolbar-only for
-    # now pending explicit direction. "M" for Emoji does have Windows
-    # precedent (ImageEditorForm.Designer.cs: btnEmoji.Text = "Emoji
-    # (M)") and doesn't collide with any existing Ctrl+ binding.
-    Gdk.KEY_m: Tool.EMOJI,
-    Gdk.KEY_M: Tool.EMOJI,
+    # Emoji used to be "M" (Windows precedent: ImageEditorForm.Designer.
+    # cs's btnEmoji.Text = "Emoji (M)"), moved to "-" by request so
+    # every tool key sits on one physical row (` 1 2 3 4 5 6 7 8 9 0 -)
+    # instead of jumping down to the letter rows for just this one -
+    # a deliberate deviation from the Windows mnemonic for ergonomics.
+    # Doesn't collide with Ctrl+- (zoom out, checked above and gated on
+    # ctrl_held before this dict is even consulted) since GDK reports
+    # the same keyval regardless of Ctrl state - only Shift changes
+    # which character a key produces, not Ctrl.
+    Gdk.KEY_minus: Tool.EMOJI,
 }
 
 # Matches the real Windows editor's left-toolbar grouping
@@ -1774,23 +1793,62 @@ class EditorWindow(Gtk.Window):
         save_image_to_file(self._composited_image(), path)
         subprocess.Popen(command + [str(path)])
 
-    _HELP_TEXT = (
-        "Tools\n"
-        "  1–0   Select a drawing tool\n"
-        "  M      Emoji tool\n"
-        "\n"
-        "Editing\n"
-        "  Delete           Delete the selected shape\n"
-        "  Double-click     Re-edit an existing text/speech bubble/emoji shape\n"
-        "  Enter            Commit a text/speech bubble/emoji edit\n"
-        "  Escape           Cancel a text/speech bubble/emoji edit\n"
-        "\n"
-        "Actions\n"
-        "  Ctrl+Z / Ctrl+Y  Undo / Redo\n"
-        "  Ctrl+C           Copy the whole image to the clipboard\n"
-        "  Ctrl+S           Save\n"
-        "  Ctrl+P           Print\n"
-    )
+    # Mirrors _TOOL_KEYS above one-for-one, in the same order - Pixelize/
+    # Blur are deliberately absent (see that dict's own comment; they're
+    # mouse/dropdown-only now) but called out in their own row so this
+    # doesn't read as though they were just forgotten.
+    _HELP_SECTIONS = [
+        ("Tools", [
+            ("`", "Select"),
+            ("1", "Rectangle"),
+            ("2", "Ellipse"),
+            ("3", "Line"),
+            ("4", "Arrow"),
+            ("5", "Freehand"),
+            ("6", "Solid Fill (Obfuscate)"),
+            ("7", "Color Scramble (Obfuscate)"),
+            ("8", "Text"),
+            ("9", "Speech Bubble"),
+            ("0", "Step Label"),
+            ("-", "Emoji"),
+            ("", "Pixelize / Blur - via Obfuscate's own Mode dropdown, no dedicated key"),
+        ]),
+        ("Editing", [
+            ("Delete", "Delete the selected shape"),
+            ("Double-click", "Re-edit an existing text/speech bubble/emoji shape"),
+            ("Enter", "Commit a text/speech bubble/emoji edit"),
+            ("Escape", "Cancel a text/speech bubble/emoji edit"),
+        ]),
+        ("Actions", [
+            ("Ctrl+Z / Ctrl+Y", "Undo / Redo"),
+            ("Ctrl+C", "Copy the whole image to the clipboard"),
+            ("Ctrl+S", "Save"),
+            ("Ctrl+P", "Print"),
+            ("Ctrl+ +/-", "Zoom in / out"),
+            ("Ctrl+Shift+ +/-", "Enlarge / shrink canvas"),
+            ("Ctrl+0", "Zoom to actual size"),
+            ("Ctrl+9", "Zoom to best fit"),
+        ]),
+    ]
+
+    @staticmethod
+    def _tray_icon_help_rows() -> list:
+        """Genuinely different behavior per platform, not just a
+        wording choice - see app.py's _build_tray_icon docstring for
+        the full citation trail (a real AyatanaAppIndicator3
+        limitation on Wayland, not a bug in this app: once a menu is
+        attached, there's no separate click action, only Xlib/XEmbed-
+        based Gtk.StatusIcon on X11 distinguishes left/right click).
+        Detected the same way app.py itself picks which tray
+        implementation to build, rather than guessing from whatever
+        capture backend happened to get selected.
+        """
+        if os.environ.get("XDG_SESSION_TYPE") == "wayland":
+            return [("Click", "Open the tray menu (Wayland has no separate click action)")]
+        return [
+            ("Left-click", "Start a region capture immediately"),
+            ("Right-click", "Open the tray menu"),
+        ]
 
     def _do_show_help(self) -> None:
         self._commit_text_editing_if_active()
@@ -1798,10 +1856,50 @@ class EditorWindow(Gtk.Window):
         dialog.add_buttons(Gtk.STOCK_CLOSE, Gtk.ResponseType.CLOSE)
         content = dialog.get_content_area()
         content.set_border_width(12)
-        label = Gtk.Label(label=self._HELP_TEXT)
-        label.set_xalign(0)
-        label.set_selectable(True)
-        content.pack_start(label, True, True, 0)
+
+        grid = Gtk.Grid(row_spacing=4, column_spacing=16)
+        row = 0
+
+        def add_header(text: str) -> None:
+            nonlocal row
+            label = Gtk.Label()
+            label.set_markup(f"<b>{text}</b>")
+            label.set_xalign(0)
+            if row > 0:
+                label.set_margin_top(10)
+            grid.attach(label, 0, row, 2, 1)
+            row += 1
+
+        def add_row(key: str, function: str) -> None:
+            nonlocal row
+            # Slightly indented relative to its own section header,
+            # not the header's own left edge - matches this dialog's
+            # previous plain-text layout, just as a real Gtk.Grid
+            # instead of hand-counted whitespace padding (which was
+            # already drifting - "Ctrl+Z / Ctrl+Y" is wider than every
+            # other Actions key, so manual column alignment was
+            # approximate at best).
+            key_label = Gtk.Label(label=key)
+            key_label.set_xalign(0)
+            key_label.set_selectable(True)
+            key_label.set_margin_start(12)
+            function_label = Gtk.Label(label=function)
+            function_label.set_xalign(0)
+            function_label.set_selectable(True)
+            grid.attach(key_label, 0, row, 1, 1)
+            grid.attach(function_label, 1, row, 1, 1)
+            row += 1
+
+        for title, entries in self._HELP_SECTIONS:
+            add_header(title)
+            for key, function in entries:
+                add_row(key, function)
+
+        add_header("Tray Icon")
+        for key, function in self._tray_icon_help_rows():
+            add_row(key, function)
+
+        content.pack_start(grid, True, True, 0)
         dialog.show_all()
         dialog.run()
         dialog.destroy()
@@ -2673,13 +2771,18 @@ class EditorWindow(Gtk.Window):
 
         tool = _TOOL_KEYS.get(event.keyval)
         if tool is not None and not ctrl_held:
-            if tool in (Tool.PIXELIZE, Tool.BLUR):
-                # Both keys route through the same shared Obfuscate
-                # button (self._tool_buttons[Tool.PIXELIZE] is
-                # self._tool_buttons[Tool.BLUR]) - set_active(True)
-                # alone wouldn't reliably pick the right mode if it's
-                # already the active tool (see
-                # _select_and_activate_obfuscate_mode).
+            if tool in _TOOL_TO_OBFUSCATE_MODE:
+                # All four obfuscate modes route through the same
+                # shared Obfuscate button (self._tool_buttons[mode] is
+                # the same object for every mode in _OBFUSCATE_MODE_
+                # ORDER) - set_active(True) alone wouldn't reliably
+                # pick the right mode if it's already the active tool
+                # (see _select_and_activate_obfuscate_mode). Only
+                # Solid Fill (6) and Scramble (7) currently have keys
+                # in _TOOL_KEYS, but this checks membership in the
+                # full mode mapping rather than hardcoding those two,
+                # so it doesn't silently drift out of sync if a key
+                # ever gets added for Pixelize/Blur again too.
                 self._select_and_activate_obfuscate_mode(tool)
             else:
                 # set_active(True) fires "toggled", which itself sets
