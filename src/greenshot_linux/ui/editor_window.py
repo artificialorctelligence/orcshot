@@ -222,28 +222,13 @@ _TOOL_KEYS = {
     Gdk.KEY_3: Tool.LINE,
     Gdk.KEY_4: Tool.ARROW,
     Gdk.KEY_5: Tool.FREEHAND,
-    # 6/7 used to be Pixelize/Blur - moved to Solid Fill/Scramble
-    # (task #60's own newer, actually-secure modes) by request, since
-    # Pixelize/Blur are already reachable as Obfuscate's mode dropdown
-    # options (task #54) and don't need their own top-level key too.
-    # Pixelize/Blur are deliberately absent from this dict now, not
-    # just unbound by omission - they're mouse/dropdown-only, same as
-    # Solid Fill/Scramble were before this change.
-    Gdk.KEY_6: Tool.SOLID_FILL,
-    Gdk.KEY_7: Tool.SCRAMBLE,
-    Gdk.KEY_8: Tool.TEXT,
-    Gdk.KEY_9: Tool.SPEECH_BUBBLE,
-    Gdk.KEY_0: Tool.STEP_LABEL,
-    # Emoji used to be "M" (Windows precedent: ImageEditorForm.Designer.
-    # cs's btnEmoji.Text = "Emoji (M)"), moved to "-" by request so
-    # every tool key sits on one physical row (` 1 2 3 4 5 6 7 8 9 0 -)
-    # instead of jumping down to the letter rows for just this one -
-    # a deliberate deviation from the Windows mnemonic for ergonomics.
-    # Doesn't collide with Ctrl+- (zoom out, checked above and gated on
-    # ctrl_held before this dict is even consulted) since GDK reports
-    # the same keyval regardless of Ctrl state - only Shift changes
-    # which character a key produces, not Ctrl.
-    Gdk.KEY_minus: Tool.EMOJI,
+    # 6 (Obfuscate as a whole) is handled separately in _on_key_press,
+    # not here - it's not a 1:1 Tool mapping like every other key in
+    # this dict, see that handling's own comment for why.
+    Gdk.KEY_7: Tool.TEXT,
+    Gdk.KEY_8: Tool.SPEECH_BUBBLE,
+    Gdk.KEY_9: Tool.STEP_LABEL,
+    Gdk.KEY_0: Tool.EMOJI,
 }
 
 # Matches the real Windows editor's left-toolbar grouping
@@ -1038,18 +1023,6 @@ class EditorWindow(Gtk.Window):
         else:
             self._obfuscate_button.set_active(True)  # fires "toggled" -> _on_obfuscate_button_toggled
 
-    def _select_and_activate_obfuscate_mode(self, mode: Tool) -> None:
-        """The 6/7 keyboard shortcuts (_TOOL_KEYS) - unlike the mode
-        dropdown, a keyboard shortcut is expected to actually do
-        something immediately, so this both prepares the mode and
-        activates the tool in one step. No direct Windows equivalent:
-        Windows has only one Obfuscate drawing mode with no per-
-        sub-mode shortcut, so there's nothing to be unfaithful to here
-        - this is this port's own convenience addition.
-        """
-        self._set_obfuscate_mode(mode)
-        self._activate_obfuscate_tool()
-
     def _build_action_toolbar(self) -> Gtk.Toolbar:
         """Matches the real Windows order (confirmed from
         ImageEditorForm.Designer.cs's destinationsToolStrip.Items):
@@ -1793,10 +1766,12 @@ class EditorWindow(Gtk.Window):
         save_image_to_file(self._composited_image(), path)
         subprocess.Popen(command + [str(path)])
 
-    # Mirrors _TOOL_KEYS above one-for-one, in the same order - Pixelize/
-    # Blur are deliberately absent (see that dict's own comment; they're
-    # mouse/dropdown-only now) but called out in their own row so this
-    # doesn't read as though they were just forgotten.
+    # Mirrors _TOOL_KEYS above one-for-one, in the same order - "6" is
+    # handled outside that dict (see its own comment there) but listed
+    # here in its natural position anyway. Solid Fill/Scramble/Pixelize/
+    # Blur are deliberately absent as their own rows (no dedicated key
+    # each) but called out in their own explanatory row so this doesn't
+    # read as though they were just forgotten.
     _HELP_SECTIONS = [
         ("Tools", [
             ("`", "Select"),
@@ -1805,13 +1780,12 @@ class EditorWindow(Gtk.Window):
             ("3", "Line"),
             ("4", "Arrow"),
             ("5", "Freehand"),
-            ("6", "Solid Fill (Obfuscate)"),
-            ("7", "Color Scramble (Obfuscate)"),
-            ("8", "Text"),
-            ("9", "Speech Bubble"),
-            ("0", "Step Label"),
-            ("-", "Emoji"),
-            ("", "Pixelize / Blur - via Obfuscate's own Mode dropdown, no dedicated key"),
+            ("6", "Obfuscate (whichever mode was last prepared)"),
+            ("7", "Text"),
+            ("8", "Speech Bubble"),
+            ("9", "Step Label"),
+            ("0", "Emoji"),
+            ("", "Solid Fill / Scramble / Pixelize / Blur - via Obfuscate's own Mode dropdown, no dedicated key each"),
         ]),
         ("Editing", [
             ("Delete", "Delete the selected shape"),
@@ -2769,37 +2743,27 @@ class EditorWindow(Gtk.Window):
             self._do_zoom_best_fit()
             return True
 
+        # "6" for Obfuscate isn't in _TOOL_KEYS with the rest - unlike
+        # every other tool key, it's not a 1:1 Tool mapping (Obfuscate
+        # is one toolbar button standing in for four modes - Solid
+        # Fill/Scramble/Pixelize/Blur - with no key of its own for any
+        # specific one, only the Mode dropdown). _activate_obfuscate_
+        # tool already does exactly the right thing: activates whatever
+        # mode is currently prepared, the same as clicking the real
+        # toolbar button, and is a correct no-op if Obfuscate's already
+        # active (it doesn't rely on GTK's set_active() no-refire
+        # quirk the way the generic dispatch below does - it explicitly
+        # branches on whether the button's already active).
+        if event.keyval == Gdk.KEY_6 and not ctrl_held:
+            self._activate_obfuscate_tool()
+            return True
+
         tool = _TOOL_KEYS.get(event.keyval)
         if tool is not None and not ctrl_held:
-            if tool in _TOOL_TO_OBFUSCATE_MODE:
-                # Solid Fill (6) / Scramble (7) only switch mode when
-                # *entering* Obfuscate from some other tool - pressing
-                # either again while already in Obfuscate (whichever
-                # mode) is a no-op, matching how every other tool key
-                # already behaves (pressing 1 again while already on
-                # Rectangle does nothing) and how the main Obfuscate
-                # toolbar button's own click handler already works
-                # (_on_obfuscate_button_toggled only ever activates
-                # whatever mode is currently prepared, never changes
-                # it - BtnObfuscateClick's real Windows behavior).
-                # Reported live: repeatedly pressing 7 kept forcing
-                # Scramble regardless of which mode was active, which
-                # read as surprising/unwanted rather than convenient.
-                #
-                # All four modes route through the same shared
-                # Obfuscate button (self._tool_buttons[mode] is the
-                # same object for every mode in _OBFUSCATE_MODE_ORDER),
-                # so "already in Obfuscate" is checked against self.tool
-                # (the currently *active* tool) rather than the button's
-                # own active state, which can't distinguish which mode
-                # is active - self.tool always can.
-                if self.tool not in _TOOL_TO_OBFUSCATE_MODE:
-                    self._select_and_activate_obfuscate_mode(tool)
-            else:
-                # set_active(True) fires "toggled", which itself sets
-                # self.tool - this just keeps the toolbar's radio
-                # buttons in sync with a keyboard-driven tool switch.
-                self._tool_buttons[tool].set_active(True)
+            # set_active(True) fires "toggled", which itself sets
+            # self.tool - this just keeps the toolbar's radio buttons
+            # in sync with a keyboard-driven tool switch.
+            self._tool_buttons[tool].set_active(True)
             return True
 
         if event.keyval == Gdk.KEY_Delete:

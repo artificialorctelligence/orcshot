@@ -2854,49 +2854,48 @@ with the fedora/sunglasses silhouette and the outlined "1" circle both legible a
 
 ## Editor keyboard shortcuts and Help dialog rework (complete 2026-08-09)
 
-By request: give Select, Solid Fill, and Color Scramble their own keys (none had one before), and turn
-the Help dialog's plain hand-padded text block into a real two-column table. New `_TOOL_KEYS` mapping
-(`ui/editor_window.py`) - this port's own convenience layer, not a Windows port (`ImageEditorForm` has
-no cursor-tool shortcut at all):
+By request: give every tool a key (Select had none before), and turn the Help dialog's plain
+hand-padded text block into a real two-column table. New `_TOOL_KEYS` mapping (`ui/editor_window.py`) -
+this port's own convenience layer, not a Windows port (`ImageEditorForm` has no cursor-tool shortcut at
+all, and Windows has only one Obfuscate drawing mode, not four, so there's no per-mode shortcut to be
+faithful to either):
 
 | Key | Tool | | Key | Tool |
 |---|---|---|---|---|
-| \` | Select | | 6 | Solid Fill (Obfuscate) |
-| 1 | Rectangle | | 7 | Color Scramble (Obfuscate) |
-| 2 | Ellipse | | 8 | Text |
-| 3 | Line | | 9 | Speech Bubble |
-| 4 | Arrow | | 0 | Step Label |
-| 5 | Freehand | | - | Emoji |
+| \` | Select | | 6 | Obfuscate (whichever mode was last prepared) |
+| 1 | Rectangle | | 7 | Text |
+| 2 | Ellipse | | 8 | Speech Bubble |
+| 3 | Line | | 9 | Step Label |
+| 4 | Arrow | | 0 | Emoji |
+| 5 | Freehand | | | |
 
-Three deliberate changes from what shipped before, all by explicit request, not independently decided:
+Solid Fill, Color Scramble, Pixelize, and Blur have no keys of their own - only reachable through
+Obfuscate's own Mode dropdown (task #54), same as before this port added any obfuscate-related keys at
+all. **6 is deliberately not in `_TOOL_KEYS` itself** - unlike every other key, it isn't a 1:1 `Tool`
+mapping (Obfuscate is one toolbar button standing in for four modes), so it's a dedicated check in
+`_on_key_press` that calls the existing `_activate_obfuscate_tool()` helper directly - the same method
+`BtnObfuscateClick`'s real Windows equivalent already documents itself as mirroring: activates whichever
+mode is *currently prepared*, the same as a real click on the toolbar button, and never changes which
+mode that is. Pressing 6 again while already in Obfuscate (any mode) is a correct no-op, matching every
+other tool key already being a no-op when pressed again while that tool's active.
 
-- **Select** gets backtick/grave - confirmed safe first: not a Linux/desktop-wide reserved shortcut
-  (those are almost always modifier combos - Super, Ctrl+Alt - never a bare printable key), not bound
-  anywhere else in this app, and this port's key-press handler already returns early whenever a text
-  field has focus (`self._editing_text_shape is not None`), the same guard every other tool key already
-  relies on, so it can't collide with actually typing a backtick into a caption. Physical position does
-  vary by keyboard layout (top-left next to 1 on US QWERTY, elsewhere on others) - a known, accepted
-  tradeoff of the specific key requested, not an oversight.
-- **Solid Fill (6) and Color Scramble (7)** replace what used to be Pixelize (6) and Blur (7) - by
-  request: Pixelize/Blur are already reachable as Obfuscate's own Mode dropdown options (task #54) and,
-  per task #60's own security rationale, are the two modes this port explicitly does *not* recommend for
-  anything sensitive, so they step back to mouse/dropdown-only rather than keeping a fast key each while
-  the two modes actually worth defaulting to (Solid Fill is already the app's own default, see task #60)
-  stay keyboard-inaccessible. `_TOOL_KEYS` no longer has entries for Pixelize/Blur at all - not merely
-  unbound by omission, an intentional removal, called out in its own Help-dialog row so it doesn't read
-  as a silently dropped feature. Extending `_on_key_press`'s existing "does this key need the special
-  prepare-then-activate dance, not just `set_active(True)`" branch (needed because Solid Fill and
-  Scramble - like Pixelize/Blur before them - share the *same* toolbar button object as every other
-  obfuscate mode, so a plain `set_active(True)` silently no-ops when that button's already active) from
-  a hardcoded `(Tool.PIXELIZE, Tool.BLUR)` tuple to a membership check against `_TOOL_TO_OBFUSCATE_MODE`
-  (already covers all four modes) - a real correctness fix, not just a rename, verified live by pressing
-  6 then 7 and confirming `_default_obfuscate_mode` actually changes both times, not just the first.
-- **Emoji** moves from "M" (the real Windows mnemonic - `ImageEditorForm.Designer.cs`'s
-  `btnEmoji.Text = "Emoji (M)"`) to "-" - a deliberate deviation from that mnemonic, by request, so
-  every tool key sits on one physical row (`` ` `` 1 2 3 4 5 6 7 8 9 0 -) instead of jumping to a letter
-  row for just this one. Doesn't collide with Ctrl+- (zoom out): GDK reports the same keyval regardless
-  of Ctrl state (only Shift changes which character a key produces), and the Ctrl+- check already runs
-  before `_TOOL_KEYS` is even consulted, gated on `ctrl_held`.
+**This went through two earlier, wrong shapes before landing here, each corrected from live feedback**:
+first, Solid Fill and Scramble got their own dedicated keys (6 and 7 respectively) in place of the
+Pixelize/Blur keys they replaced - which meant pressing 7 while already drawing with Solid Fill would
+force-switch to Scramble every time, reported live as "it should do nothing in this case." That was
+tightened to a no-op-while-already-in-Obfuscate rule for 6/7 specifically - but that still didn't match
+the actual ask, which was for Obfuscate to behave like a single tool with one key, exactly like every
+other tool, resuming whatever mode/fill-color/text/text-color was last configured rather than forcing a
+mode via which digit got pressed. The version documented above is that final shape - confirmed against
+the real Windows source before implementing, not just reasoned out: `PreparedFilter` in the real
+`ObfuscateContainer`/`FieldAggregator` is a `Field` on the same persistent, editor-session-lifetime
+object that holds line color, fill color, thickness, and shadow - `BtnObfuscateClick` never touches it,
+only the dropdown's own binding does. Tool-switching never implicitly changes a field in real Windows;
+this port's per-tool style memory (`self._tool_styles`) already follows the identical principle for
+color/thickness/shadow, and Obfuscate's own `_default_obfuscate_mode`/`_default_obfuscate_fill_color`/
+`_default_obfuscate_fill_text`/`_default_obfuscate_text_color` (plain instance state nothing resets
+except its own explicit setter) already worked this way too, once "6" stopped forcing a mode as a side
+effect of merely re-entering the tool.
 
 **Help dialog** (`_do_show_help`): rebuilt from a single `Gtk.Label` holding a hand-space-padded string
 onto a real `Gtk.Grid` - two columns (key, function), one row per shortcut, a bold header row spanning
@@ -2922,25 +2921,13 @@ already uses to pick which tray implementation to build) rather than describing 
 Verified live: unit tests still pass (no existing coverage of `_TOOL_KEYS`/`_on_key_press` to update -
 this file has no dedicated test module at all, consistent with how the rest of its interactive behavior
 in this project has always been verified - live GTK sessions, not headless pytest), plus a driven GTK
-script pressing all twelve tool keys and confirming `win.tool` lands on the right value each time, and a
-real screenshot of the rebuilt Help dialog confirming the table layout, header/key indentation
-relationship, and (running under X11 in this dev environment) the X11-specific Tray Icon wording.
-
-**Follow-up, same day**: the first version of the Solid Fill/Scramble key dispatch (immediately above)
-made 6/7 *always* switch to that specific mode, even when Obfuscate was already the active tool in some
-*other* mode - so pressing 7 while already drawing with Solid Fill would force a switch to Scramble.
-Reported live as surprising/unwanted, not convenient - "I think it should do nothing in this case."
-Changed to only switch mode when *entering* Obfuscate from some other tool; pressing either key again
-while already in Obfuscate (any mode) is now a no-op instead, matching two things this port already does
-elsewhere: every other tool key is a no-op when pressed again while that tool's already active (pressing
-1 twice while on Rectangle does nothing), and the main Obfuscate toolbar button's own click handler
-(`_on_obfuscate_button_toggled`) only ever activates whichever mode is currently prepared, never changes
-it - the real Windows behavior (`BtnObfuscateClick`) this port's own docstrings already cite elsewhere in
-this same feature. "Already in Obfuscate" is checked against `self.tool` (which mode is actually active)
-rather than the shared button's own boolean active state, since the button can't distinguish *which*
-mode is active - only `self.tool` can. Verified live: Rectangle -> 6 enters Solid Fill; 7 pressed again
-while still in Solid Fill leaves it unchanged (the exact scenario reported); 6 pressed again also leaves
-it unchanged; leaving Obfuscate first (Ellipse) then pressing 7 does switch to Scramble as expected.
+script confirming every tool key lands on the right `win.tool`, and specifically: configuring Solid Fill
+with a black fill, white text color, and "REDACTED" text, switching to Ellipse, then returning via
+*both* the "6" key and a real click on the toolbar button - both correctly resume the exact prior
+configuration (mode, fill color, text color, and text all intact), and pressing 6 again while already in
+Obfuscate changes nothing. Also a real screenshot of the rebuilt Help dialog confirming the table layout,
+header/key indentation relationship, and (running under X11 in this dev environment) the X11-specific
+Tray Icon wording.
 
 ## Unverified assumptions
 
