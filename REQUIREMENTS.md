@@ -2,8 +2,9 @@
 
 A Linux Mint (Cinnamon) port of [Greenshot](https://getgreenshot.org/), rebuilt from scratch as a
 faithful behavioral port — not a literal code port. The original Windows source
-(`/home/greenshotlinux/projects/Greenshot/greenshot`, C#/.NET/WinForms) is the reference for feature
-behavior and defaults, but no code is shared; everything here is a new Python implementation.
+(a local read-only checkout of [Greenshot](https://github.com/greenshot/greenshot),
+C#/.NET/WinForms) is the reference for feature behavior and defaults, but no code is shared;
+everything here is a new Python implementation.
 
 ## Platform priority
 
