@@ -35,7 +35,9 @@ from greenshot_linux.core.tools import (
     STYLE_FIELD_LINE_THICKNESS,
     STYLE_FIELD_OBFUSCATE_AMOUNT,
     STYLE_FIELD_OBFUSCATE_FILL_COLOR,
+    STYLE_FIELD_OBFUSCATE_FILL_TEXT,
     STYLE_FIELD_OBFUSCATE_MODE,
+    STYLE_FIELD_OBFUSCATE_TEXT_COLOR,
     STYLE_FIELD_SHADOW,
     Tool,
     create_freehand_shape,
@@ -131,6 +133,19 @@ class TestCreateShapeFromDrag:
         )
         assert shape.fill_color == (200, 100, 50, 255)
 
+    def test_solid_fill_defaults_to_no_text(self):
+        shape = create_shape_from_drag(Tool.SOLID_FILL, (10, 40), (60, 10), STYLE)
+        assert shape.fill_text == ""
+        assert shape.text_color == (255, 255, 255, 255)  # ObfuscateShape's own default
+
+    def test_solid_fill_with_explicit_text_and_text_color(self):
+        shape = create_shape_from_drag(
+            Tool.SOLID_FILL, (10, 40), (60, 10), STYLE,
+            fill_text="REDACTED", text_color=(255, 0, 0, 255),
+        )
+        assert shape.fill_text == "REDACTED"
+        assert shape.text_color == (255, 0, 0, 255)
+
     def test_scramble(self):
         shape = create_shape_from_drag(Tool.SCRAMBLE, (10, 40), (60, 10), STYLE)
         assert isinstance(shape, ObfuscateShape)
@@ -216,7 +231,10 @@ _FULL_FIELDS = frozenset({
 _LINE_ONLY_FIELDS = frozenset({STYLE_FIELD_LINE_COLOR, STYLE_FIELD_LINE_THICKNESS, STYLE_FIELD_SHADOW})
 _FREEHAND_FIELDS = frozenset({STYLE_FIELD_LINE_COLOR, STYLE_FIELD_LINE_THICKNESS})
 _OBFUSCATE_FIELDS = frozenset({STYLE_FIELD_OBFUSCATE_AMOUNT, STYLE_FIELD_OBFUSCATE_MODE})
-_OBFUSCATE_COLOR_FIELDS = frozenset({STYLE_FIELD_OBFUSCATE_FILL_COLOR, STYLE_FIELD_OBFUSCATE_MODE})
+_OBFUSCATE_COLOR_FIELDS = frozenset({
+    STYLE_FIELD_OBFUSCATE_FILL_COLOR, STYLE_FIELD_OBFUSCATE_FILL_TEXT, STYLE_FIELD_OBFUSCATE_TEXT_COLOR,
+    STYLE_FIELD_OBFUSCATE_MODE,
+})
 _OBFUSCATE_MODE_ONLY_FIELDS = frozenset({STYLE_FIELD_OBFUSCATE_MODE})
 
 

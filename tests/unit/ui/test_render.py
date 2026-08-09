@@ -254,6 +254,61 @@ class TestRenderObfuscate:
         region = expected[bounds.top:bounds.bottom, bounds.left:bounds.right]
         assert np.array_equal(result[bounds.top:bounds.bottom, bounds.left:bounds.right], region)
 
+    def test_solid_fill_with_no_text_matches_the_filters_module_exactly(self):
+        # Blank fill_text (ObfuscateShape's own default) draws nothing
+        # extra - same pixel-exact match as the no-text test above,
+        # just explicit about *why* (empty string, not just "unset").
+        base_image = noisy_base_image()
+        bounds = Rect(5, 5, 35, 35)
+        shape = ObfuscateShape(bounds, mode=ObfuscateMode.SOLID_FILL, fill_color=(0, 0, 0, 255), fill_text="")
+
+        result = render_to_numpy(50, 50, lambda ctx: render_shape(ctx, shape, base_image=base_image))
+
+        expected = solid_fill(base_image, bounds, (0, 0, 0, 255))
+        region = expected[bounds.top:bounds.bottom, bounds.left:bounds.right]
+        assert np.array_equal(result[bounds.top:bounds.bottom, bounds.left:bounds.right], region)
+
+    def test_solid_fill_with_text_draws_something_besides_the_flat_fill(self):
+        base_image = noisy_base_image()
+        bounds = Rect(5, 5, 45, 45)
+        shape = ObfuscateShape(
+            bounds, mode=ObfuscateMode.SOLID_FILL, fill_color=(0, 0, 0, 255),
+            fill_text="REDACTED", text_color=(255, 255, 255, 255),
+        )
+
+        result = render_to_numpy(50, 50, lambda ctx: render_shape(ctx, shape, base_image=base_image))
+
+        region = result[bounds.top:bounds.bottom, bounds.left:bounds.right]
+        flat_fill = np.full(region.shape, (0, 0, 0, 255), dtype=np.uint8)
+        assert not np.array_equal(region, flat_fill)
+        # The text's own (white) color shows up somewhere in the box -
+        # not an exact (255, 255, 255, 255) match, since the box is
+        # small enough here that the fitted font size is tiny and every
+        # glyph pixel is anti-aliased against the black fill rather
+        # than solidly covered.
+        assert np.any(region[:, :, :3].min(axis=-1) > 150)
+
+    def test_solid_fill_text_stays_within_the_box_even_for_a_long_word_in_a_narrow_box(self):
+        # A long preset word ("CONFIDENTIAL") in a box narrower than
+        # its natural width must shrink to fit, not overflow past the
+        # box or wrap onto a second line and bleed outside bounds.
+        base_image = noisy_base_image(width=200, height=200)
+        bounds = Rect(20, 80, 90, 120)  # a narrow, short box
+        shape = ObfuscateShape(
+            bounds, mode=ObfuscateMode.SOLID_FILL, fill_color=(0, 0, 0, 255),
+            fill_text="CONFIDENTIAL", text_color=(255, 255, 255, 255),
+        )
+
+        result = render_to_numpy(200, 200, lambda ctx: render_shape(ctx, shape, base_image=base_image))
+
+        # Nothing white (the text color) appears outside the box - if
+        # it overflowed, this fixture's black fill/dark base image
+        # wouldn't otherwise produce white pixels anywhere else.
+        outside_mask = np.ones((200, 200), dtype=bool)
+        outside_mask[bounds.top:bounds.bottom, bounds.left:bounds.right] = False
+        outside_region = result[outside_mask]
+        assert not np.any(np.all(outside_region == (255, 255, 255, 255), axis=-1))
+
     def test_scramble_matches_the_filters_module_exactly(self):
         base_image = noisy_base_image()
         bounds = Rect(5, 5, 35, 35)

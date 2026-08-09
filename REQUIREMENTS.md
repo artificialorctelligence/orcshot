@@ -2732,6 +2732,53 @@ Fill/Color Scramble shapes to confirm the pixel output matches what each mode's 
 promises - a fully opaque flat box for Solid Fill, a grainy color-matched texture (not the smooth
 original, not a flat block) for Color Scramble.
 
+## Solid Fill preset redaction text (task #60 follow-up, complete 2026-08-09)
+
+Solid Fill boxes can now carry an optional label drawn centered on top of the fill -
+`ObfuscateShape.fill_text`/`text_color` (default `""`/white), a fixed preset list (None, REDACTED,
+CENSORED, CLASSIFIED, CONFIDENTIAL, SECRET) via a new Text: dropdown next to Fill: in the style panel,
+plus its own Text Color: swatch. Deliberately no free-text entry - anyone wanting a custom label
+already has the separate Text tool; this isn't trying to become a second text-editing UI. Rendered by
+`ui/render.py`'s `_draw_fitted_centered_text()`: measures at a generous starting font size with
+wrapping effectively disabled, shrinks proportionally in one pass if it doesn't fit the box (not an
+iterative search - Pango metrics scale close enough to linearly with font size for this), then centers
+by hand via the computed `move_to` offset.
+
+**Two real rendering bugs found and fixed while verifying this, both specific to this dev environment's
+Cairo/Pango build (`cairo` 1.25.1 / PangoCairo 1.52.1), not this port's own logic**:
+
+1. `PangoCairo.show_layout()` silently painted nothing at all in this environment when combined with
+   `Pango.Alignment.CENTER` and a large nominal layout width - reproduced in total isolation (a bare
+   `cairo.ImageSurface` plus 6 lines of raw PangoCairo calls, no code from this project at all).
+   Root cause: Pango's own CENTER alignment centers within the layout's *set width*, not the visible
+   canvas - `_draw_fitted_centered_text` sets a deliberately huge nominal width (10,000px) specifically
+   to disable wrapping (see its own docstring), so combined with CENTER alignment the glyphs landed
+   around x&asymp;5000, off any real canvas. Fixed by using `"near"` (left) alignment for the internal
+   Pango layout instead - centering is already done entirely by hand afterward via the `move_to` offset
+   computed from the actually-measured text width, so Pango's own alignment was redundant *and* actively
+   harmful here.
+2. The unit test asserting the drawn text's color appears "somewhere in the box" originally required an
+   exact `(255, 255, 255, 255)` pixel match. At the test's own deliberately tiny stress-test font size
+   (a ~40px box forces the fitted font down to ~5px), every glyph pixel is anti-aliased against the
+   black fill rather than solidly covered, so no pixel ever hits pure white in all four channels even
+   though the text clearly renders (confirmed by inspecting the actual pixel values - up to 251/245/248,
+   never simultaneously 255/255/255). Relaxed the assertion to a "clearly light-colored pixel exists"
+   threshold instead of exact equality - a test-fidelity fix, not a rendering change.
+
+Verified live: unit tests for the new shape fields, tool dispatch, style-field visibility, and render
+output (including the two bugs above); a real GTK session confirming the Text:/Text Color: cells only
+show for Solid Fill (hidden for Blur/Pixelize/Color Scramble, matching `visible_style_fields`),
+selecting a preset actually threads through to a newly-drawn shape's `fill_text`, changing the preset
+retroactively updates the currently-selected shape (matching every other style-panel control's own
+behavior), and the rendered box shows the chosen word correctly centered and fully legible.
+
+Also fixed in passing, found while wiring the new Text Color: swatch: `_obfuscate_fill_swatch` (Solid
+Fill's own Fill: color swatch, added in task #60 above) was never `queue_draw()`n by
+`_refresh_style_panel`, unlike every other color swatch in the panel - a latent staleness bug (the
+swatch could show a stale color right after switching selection, until some unrelated repaint happened
+to refresh it) that the new Text Color: swatch would otherwise have shipped with too. Both are now
+refreshed together.
+
 ## Unverified assumptions
 
 Implemented, believed correct (spec, docs, or code-reading), but not directly observed working

@@ -607,6 +607,49 @@ def render_svg(ctx: cairo.Context, shape: SvgShape) -> None:
     ctx.restore()
 
 
+_OBFUSCATE_TEXT_MAX_FONT_FRACTION = 0.5  # of box height
+_OBFUSCATE_TEXT_PADDING_FRACTION = 0.85  # of box width, leaving a small margin
+
+
+def _draw_fitted_centered_text(ctx: cairo.Context, text: str, color: Color, bounds: Rect) -> None:
+    """Draws ``text`` centered in ``bounds`` on one line, shrunk to fit
+    - used for Solid Fill's own preset redaction labels (task #60
+    follow-up, e.g. "REDACTED"). Pango wraps onto multiple lines
+    instead of shrinking by default (see this module's own
+    _pango_layout), which would look wrong for a short single-word
+    label in a narrow box, so this measures at a generous starting
+    size with wrapping effectively disabled (a very wide nominal
+    width), then scales the font size down proportionally if the
+    measured width doesn't fit - one pass, not an iterative search,
+    since Pango text metrics scale close enough to linearly with font
+    size for this purpose. Alignment is deliberately "near" (not
+    "center") even though the visible result is centered - Pango's
+    own alignment centers within the *set width*, which here is the
+    huge wrap-disabling nominal width, not the real box; combined
+    with "center" that pushes the glyphs thousands of pixels
+    off-canvas. Centering is instead done entirely by hand below via
+    the move_to offset, using the actually-measured text_width.
+    """
+    if not text or bounds.width <= 0 or bounds.height <= 0:
+        return
+
+    font_size = min(bounds.height * _OBFUSCATE_TEXT_MAX_FONT_FRACTION, bounds.width)
+    max_width = bounds.width * _OBFUSCATE_TEXT_PADDING_FRACTION
+
+    layout = _pango_layout(ctx, text, "sans-serif", font_size, True, False, "near", 10_000)
+    text_width, text_height = layout.get_pixel_size()
+    if text_width > max_width and text_width > 0:
+        font_size *= max_width / text_width
+        layout = _pango_layout(ctx, text, "sans-serif", font_size, True, False, "near", 10_000)
+        text_width, text_height = layout.get_pixel_size()
+
+    ctx.save()
+    _set_color(ctx, color)
+    ctx.move_to(bounds.left + (bounds.width - text_width) / 2, bounds.top + (bounds.height - text_height) / 2)
+    PangoCairo.show_layout(ctx, layout)
+    ctx.restore()
+
+
 def render_obfuscate(ctx: cairo.Context, shape: ObfuscateShape, base_image, rng=None) -> None:
     image_bounds = Rect(0, 0, base_image.shape[1], base_image.shape[0])
     apply_rect = shape.bounds.intersect(image_bounds)
@@ -635,6 +678,9 @@ def render_obfuscate(ctx: cairo.Context, shape: ObfuscateShape, base_image, rng=
     ctx.set_source_surface(surface, apply_rect.left, apply_rect.top)
     ctx.paint()
     ctx.restore()
+
+    if shape.mode is ObfuscateMode.SOLID_FILL and shape.fill_text:
+        _draw_fitted_centered_text(ctx, shape.fill_text, shape.text_color, shape.bounds)
 
 
 _RENDERERS = {

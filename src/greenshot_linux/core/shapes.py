@@ -404,6 +404,16 @@ class ObfuscateShape:
     with (default black, the standard redaction convention); unused by
     every other mode.
 
+    ``fill_text``/``text_color`` (task #60 follow-up) are SOLID_FILL's
+    own optional preset label - one of a fixed set ("REDACTED",
+    "CENSORED", etc., see ui/editor_window.py's own preset list) drawn
+    centered over the fill, or "" (the default) for a plain box. No
+    free-text entry by design - deliberate user call: anyone wanting
+    custom text can already use the separate Text tool instead, so
+    this doesn't need to reuse TextShape's own click-to-edit machinery.
+    Unused by every other mode. Default text_color is white, legible
+    against fill_color's own default black.
+
     ``seed`` drives Pixelize's jittered-noise RNG (filters.py's
     pixelize) and Scramble's own noise (filters.py's scramble) when
     nothing else overrides it - drawn fresh from the OS CSPRNG once, at
@@ -416,13 +426,15 @@ class ObfuscateShape:
     security intent (a fresh CryptoRandomBuffer per Apply() call - see
     filters.py's _default_rng docstring), since each shape still gets
     an independent, never-reused random draw of its own. compare=False:
-    two shapes with the same bounds/mode/amount/fill_color are still
-    the same shape as far as equality/undo-redo care, regardless of
-    which random seed happens to back their noise.
+    two shapes with the same bounds/mode/amount/fill_color/fill_text/
+    text_color are still the same shape as far as equality/undo-redo
+    care, regardless of which random seed happens to back their noise.
     """
 
     bounds: Rect
     mode: ObfuscateMode = ObfuscateMode.PIXELIZE
     amount: int = 5
     fill_color: Color = (0, 0, 0, 255)
+    fill_text: str = ""
+    text_color: Color = (255, 255, 255, 255)
     seed: int = field(default_factory=lambda: secrets.randbits(128), compare=False)

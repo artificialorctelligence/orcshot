@@ -163,7 +163,9 @@ from greenshot_linux.core.tools import (
     STYLE_FIELD_LINE_THICKNESS,
     STYLE_FIELD_OBFUSCATE_AMOUNT,
     STYLE_FIELD_OBFUSCATE_FILL_COLOR,
+    STYLE_FIELD_OBFUSCATE_FILL_TEXT,
     STYLE_FIELD_OBFUSCATE_MODE,
+    STYLE_FIELD_OBFUSCATE_TEXT_COLOR,
     STYLE_FIELD_SHADOW,
     Tool,
     create_freehand_shape,
@@ -305,6 +307,14 @@ _OBFUSCATE_MODE_TOOLTIPS = {
 # order from before task #60.
 _OBFUSCATE_MODE_ORDER = (Tool.SOLID_FILL, Tool.SCRAMBLE, Tool.PIXELIZE, Tool.BLUR)
 
+# Solid Fill's own preset redaction labels (task #60 follow-up) - "" is
+# "None" (plain box, no text, ObfuscateShape.fill_text's own default).
+# Deliberately a fixed list, not free text entry - anyone wanting a
+# custom label already has the separate Text tool (see this dropdown's
+# own tooltip / REQUIREMENTS.md for the reasoning).
+_OBFUSCATE_FILL_TEXT_PRESETS = ("", "REDACTED", "CENSORED", "CLASSIFIED", "CONFIDENTIAL", "SECRET")
+_OBFUSCATE_FILL_TEXT_LABELS = {"": "None", **{preset: preset for preset in _OBFUSCATE_FILL_TEXT_PRESETS[1:]}}
+
 _TOOL_LABELS = [
     (Tool.SELECT, "Select"),
     None,
@@ -393,6 +403,12 @@ class EditorWindow(Gtk.Window):
         # own fill_color default (opaque black, the standard redaction
         # convention).
         self._default_obfuscate_fill_color = (0, 0, 0, 255)
+        # Solid Fill's own optional preset label and its color (task #60
+        # follow-up) - matches ObfuscateShape.fill_text/text_color's own
+        # defaults (no text; white, legible against the black default
+        # fill above).
+        self._default_obfuscate_fill_text = ""
+        self._default_obfuscate_text_color = (255, 255, 255, 255)
         # Which filter the single Obfuscate toolbar button currently
         # applies. Deliberately Solid Fill, not Pixelize - a deviation
         # from ObfuscateContainer.InitializeFields's own default
@@ -670,6 +686,13 @@ class EditorWindow(Gtk.Window):
             self._syncing_style_panel = False
         self._line_color_swatch.queue_draw()
         self._fill_color_swatch.queue_draw()
+        self._obfuscate_fill_swatch.queue_draw()
+        self._obfuscate_text_color_swatch.queue_draw()
+
+        fill_text = shape.fill_text if isinstance(shape, ObfuscateShape) else self._default_obfuscate_fill_text
+        self._obfuscate_fill_text_button.set_label(self._obfuscate_fill_text_label(fill_text))
+        if not self._obfuscate_fill_text_items[fill_text].get_active():
+            self._obfuscate_fill_text_items[fill_text].set_active(True)
 
     @property
     def base_image(self) -> np.ndarray:
@@ -1141,6 +1164,23 @@ class EditorWindow(Gtk.Window):
         )
         add_cell(STYLE_FIELD_OBFUSCATE_FILL_COLOR, obfuscate_fill_label, obfuscate_fill_button)
 
+        # Solid Fill's own optional preset label (task #60 follow-up) -
+        # a fixed preset list, not free text entry, mirroring the Mode
+        # dropdown above (Gtk.MenuButton + Gtk.RadioMenuItem group)
+        # rather than reusing TextShape's click-to-edit machinery.
+        text_label = Gtk.Label(label="Text:")
+        self._obfuscate_fill_text_button = Gtk.MenuButton(
+            label=self._obfuscate_fill_text_label(self._default_obfuscate_fill_text)
+        )
+        self._obfuscate_fill_text_button.set_popup(self._build_obfuscate_fill_text_menu())
+        add_cell(STYLE_FIELD_OBFUSCATE_FILL_TEXT, text_label, self._obfuscate_fill_text_button)
+
+        text_color_label = Gtk.Label(label="Text Color:")
+        text_color_button, self._obfuscate_text_color_swatch = self._build_color_button(
+            self._active_obfuscate_text_color, self._on_obfuscate_text_color_changed,
+        )
+        add_cell(STYLE_FIELD_OBFUSCATE_TEXT_COLOR, text_color_label, text_color_button)
+
         # Label text swaps with the active tool (see
         # _obfuscate_amount_label_text) - matches Windows' own two
         # separate, mode-specific controls ("Blur radius" for Blur,
@@ -1192,6 +1232,69 @@ class EditorWindow(Gtk.Window):
         shape = self.selected_shape
         if isinstance(shape, ObfuscateShape):
             updated = dataclass_replace(shape, fill_color=color)
+            self.layer.replace(shape, updated)
+            self.undo_redo.push(ElementChangeMemento(self.layer, before=shape, after=updated))
+            self.selected_shape = updated
+            self._drawing_area.queue_draw()
+
+    @staticmethod
+    def _obfuscate_fill_text_label(text: str) -> str:
+        return _OBFUSCATE_FILL_TEXT_LABELS[text]
+
+    def _build_obfuscate_fill_text_menu(self) -> Gtk.Menu:
+        menu = Gtk.Menu()
+        self._obfuscate_fill_text_items = {}
+        item_group_leader = None
+        for preset in _OBFUSCATE_FILL_TEXT_PRESETS:
+            item = Gtk.RadioMenuItem.new_with_label_from_widget(
+                item_group_leader, _OBFUSCATE_FILL_TEXT_LABELS[preset]
+            )
+            if item_group_leader is None:
+                item_group_leader = item
+            item.set_active(preset == self._default_obfuscate_fill_text)
+            item.connect("toggled", self._on_obfuscate_fill_text_item_toggled, preset)
+            menu.append(item)
+            self._obfuscate_fill_text_items[preset] = item
+        menu.show_all()
+        return menu
+
+    def _on_obfuscate_fill_text_item_toggled(self, item: Gtk.RadioMenuItem, preset: str) -> None:
+        if item.get_active():
+            self._set_obfuscate_fill_text(preset)
+
+    def _set_obfuscate_fill_text(self, text: str) -> None:
+        """Mirrors _set_obfuscate_mode: updates the remembered default
+        for the next Solid Fill shape, and retroactively updates the
+        selected shape too when there is one, the same as every other
+        style-panel control.
+        """
+        self._default_obfuscate_fill_text = text
+        self._obfuscate_fill_text_button.set_label(self._obfuscate_fill_text_label(text))
+        if not self._obfuscate_fill_text_items[text].get_active():
+            self._obfuscate_fill_text_items[text].set_active(True)
+
+        shape = self.selected_shape
+        if isinstance(shape, ObfuscateShape):
+            updated = dataclass_replace(shape, fill_text=text)
+            self.layer.replace(shape, updated)
+            self.undo_redo.push(ElementChangeMemento(self.layer, before=shape, after=updated))
+            self.selected_shape = updated
+            self._drawing_area.queue_draw()
+
+    def _active_obfuscate_text_color(self):
+        """Mirrors _active_obfuscate_fill_color, for the Text Color:
+        swatch instead of the Fill: swatch.
+        """
+        shape = self._selected_shape
+        if isinstance(shape, ObfuscateShape):
+            return shape.text_color
+        return self._default_obfuscate_text_color
+
+    def _on_obfuscate_text_color_changed(self, color) -> None:
+        self._default_obfuscate_text_color = color
+        shape = self.selected_shape
+        if isinstance(shape, ObfuscateShape):
+            updated = dataclass_replace(shape, text_color=color)
             self.layer.replace(shape, updated)
             self.undo_redo.push(ElementChangeMemento(self.layer, before=shape, after=updated))
             self.selected_shape = updated
@@ -2395,6 +2498,7 @@ class EditorWindow(Gtk.Window):
                 self._drag_shape = create_shape_from_drag(
                     self.tool, (x, y), (x, y), self._style_for_tool(self.tool),
                     amount=self._default_obfuscate_amount, fill_color=self._default_obfuscate_fill_color,
+                    fill_text=self._default_obfuscate_fill_text, text_color=self._default_obfuscate_text_color,
                 )
         else:
             self.selected_shape = None
@@ -2425,6 +2529,7 @@ class EditorWindow(Gtk.Window):
                 self._drag_shape = create_shape_from_drag(
                     self.tool, self._drag_origin, (x, y), self._style_for_tool(self.tool),
                     amount=self._default_obfuscate_amount, fill_color=self._default_obfuscate_fill_color,
+                    fill_text=self._default_obfuscate_fill_text, text_color=self._default_obfuscate_text_color,
                 )
             widget.queue_draw()
             return True
@@ -2473,6 +2578,7 @@ class EditorWindow(Gtk.Window):
                     self.tool, self._drag_origin, (x, y), self._style_for_tool(self.tool),
                     amount=self._default_obfuscate_amount, next_step_number=self._next_step_number(),
                     fill_color=self._default_obfuscate_fill_color,
+                    fill_text=self._default_obfuscate_fill_text, text_color=self._default_obfuscate_text_color,
                 )
             self._drag_origin = None
             self._drag_points = None

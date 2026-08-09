@@ -90,6 +90,13 @@ STYLE_FIELD_OBFUSCATE_MODE = "obfuscate_mode"
 # already gets its own handler rather than reusing the generic style
 # machinery.
 STYLE_FIELD_OBFUSCATE_FILL_COLOR = "obfuscate_fill_color"
+# Solid Fill's own preset-text dropdown and its color (task #60
+# follow-up) - same reasoning as STYLE_FIELD_OBFUSCATE_FILL_COLOR
+# above: ObfuscateShape has no ShapeStyle, so these read/write
+# ObfuscateShape.fill_text/text_color directly through their own
+# dedicated handlers, not the generic style machinery.
+STYLE_FIELD_OBFUSCATE_FILL_TEXT = "obfuscate_fill_text"
+STYLE_FIELD_OBFUSCATE_TEXT_COLOR = "obfuscate_text_color"
 
 _FULL_STYLE_FIELDS = frozenset({
     STYLE_FIELD_LINE_COLOR, STYLE_FIELD_FILL_COLOR, STYLE_FIELD_LINE_THICKNESS, STYLE_FIELD_SHADOW,
@@ -98,13 +105,16 @@ _LINE_ONLY_STYLE_FIELDS = frozenset({STYLE_FIELD_LINE_COLOR, STYLE_FIELD_LINE_TH
 _FREEHAND_STYLE_FIELDS = frozenset({STYLE_FIELD_LINE_COLOR, STYLE_FIELD_LINE_THICKNESS})
 # Three different obfuscate field sets, one per group of modes with the
 # same relevant controls (task #60 added Solid Fill/Scramble alongside
-# the original Blur/Pixelize, each needing different fields - a plain
-# color picker, nothing at all, and the original amount spinner
-# respectively). All three still always include OBFUSCATE_MODE, since
-# the mode dropdown itself is relevant regardless of which mode is
-# currently selected.
+# the original Blur/Pixelize, each needing different fields - Solid
+# Fill's own color/text/text-color trio, nothing at all for Scramble,
+# and the original amount spinner for Blur/Pixelize). All three still
+# always include OBFUSCATE_MODE, since the mode dropdown itself is
+# relevant regardless of which mode is currently selected.
 _OBFUSCATE_STYLE_FIELDS_AMOUNT = frozenset({STYLE_FIELD_OBFUSCATE_AMOUNT, STYLE_FIELD_OBFUSCATE_MODE})
-_OBFUSCATE_STYLE_FIELDS_COLOR = frozenset({STYLE_FIELD_OBFUSCATE_FILL_COLOR, STYLE_FIELD_OBFUSCATE_MODE})
+_OBFUSCATE_STYLE_FIELDS_COLOR = frozenset({
+    STYLE_FIELD_OBFUSCATE_FILL_COLOR, STYLE_FIELD_OBFUSCATE_FILL_TEXT, STYLE_FIELD_OBFUSCATE_TEXT_COLOR,
+    STYLE_FIELD_OBFUSCATE_MODE,
+})
 _OBFUSCATE_STYLE_FIELDS_MODE_ONLY = frozenset({STYLE_FIELD_OBFUSCATE_MODE})
 _NO_STYLE_FIELDS = frozenset()
 
@@ -276,16 +286,17 @@ _STEP_LABEL_RADIUS = 15
 
 def create_shape_from_drag(
     tool: Tool, start: Point, end: Point, style: ShapeStyle, amount: int = 5, next_step_number: int = 1,
-    fill_color=(0, 0, 0, 255),
+    fill_color=(0, 0, 0, 255), fill_text: str = "", text_color=(255, 255, 255, 255),
 ):
     """For tools defined by a single start/end drag. Freehand is built
     incrementally from a point list instead - use create_freehand_shape.
     ``amount`` (blur radius / pixel size) only applies to Pixelize/Blur;
-    ``fill_color`` only applies to Solid Fill (task #60); both default
-    to ObfuscateShape's own defaults; ``next_step_number`` only applies
-    to StepLabel; every other tool ignores whichever of these doesn't
-    apply to it, so callers can pass all of them unconditionally rather
-    than branching on the current tool first.
+    ``fill_color``/``fill_text``/``text_color`` only apply to Solid Fill
+    (task #60); all default to ObfuscateShape's own defaults;
+    ``next_step_number`` only applies to StepLabel; every other tool
+    ignores whichever of these doesn't apply to it, so callers can pass
+    all of them unconditionally rather than branching on the current
+    tool first.
     """
     if tool is Tool.RECTANGLE:
         return RectangleShape(Rect.from_points(*start, *end), style)
@@ -300,7 +311,10 @@ def create_shape_from_drag(
     if tool is Tool.BLUR:
         return ObfuscateShape(Rect.from_points(*start, *end), mode=ObfuscateMode.BLUR, amount=amount)
     if tool is Tool.SOLID_FILL:
-        return ObfuscateShape(Rect.from_points(*start, *end), mode=ObfuscateMode.SOLID_FILL, fill_color=fill_color)
+        return ObfuscateShape(
+            Rect.from_points(*start, *end), mode=ObfuscateMode.SOLID_FILL,
+            fill_color=fill_color, fill_text=fill_text, text_color=text_color,
+        )
     if tool is Tool.SCRAMBLE:
         return ObfuscateShape(Rect.from_points(*start, *end), mode=ObfuscateMode.SCRAMBLE)
     if tool is Tool.TEXT:
