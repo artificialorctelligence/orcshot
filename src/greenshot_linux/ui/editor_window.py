@@ -315,6 +315,28 @@ _OBFUSCATE_MODE_ORDER = (Tool.SOLID_FILL, Tool.SCRAMBLE, Tool.PIXELIZE, Tool.BLU
 _OBFUSCATE_FILL_TEXT_PRESETS = ("", "REDACTED", "CENSORED", "CLASSIFIED", "CONFIDENTIAL", "SECRET")
 _OBFUSCATE_FILL_TEXT_LABELS = {"": "None", **{preset: preset for preset in _OBFUSCATE_FILL_TEXT_PRESETS[1:]}}
 
+# A floor, not a fixed height - Gtk.Widget.set_size_request sets a
+# minimum the box can still grow past if it genuinely needs to, so
+# this only kicks in for the empty case (Select, nothing selected: no
+# style-panel cells are visible at all, see visible_style_fields).
+# Without it, an empty row collapses to ~1px (just its own border
+# padding) instead, so switching to/from Select visibly yanks the
+# whole toolbar+canvas up or down by ~30px - reported live ("this
+# causes the whole toolbar to jump down... it made me think something
+# was broken").
+#
+# 42, not 34: a live, fully-laid-out window with a populated row
+# (Rectangle's Line/Fill/Thickness/Shadow, and separately Solid
+# Fill's own 4-cell row) both allocate to 34px - but
+# set_size_request's height applies to the box's own content area,
+# while box.set_border_width(4) above pads *outside* that on both
+# top and bottom, so asking for exactly 34 still only allocates 26
+# (34 - 2*4) once the border padding is added back on top. Confirmed
+# empirically (34 -> 26px actual, then 42 -> 34px actual, matching
+# every populated row exactly) rather than reasoned out purely from
+# GTK's box-model docs.
+_STYLE_PANEL_MIN_HEIGHT = 42
+
 _TOOL_LABELS = [
     (Tool.SELECT, "Select"),
     None,
@@ -1102,6 +1124,7 @@ class EditorWindow(Gtk.Window):
         """
         box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
         box.set_border_width(4)
+        box.set_size_request(-1, _STYLE_PANEL_MIN_HEIGHT)
         self._style_field_widgets = {}
 
         def add_cell(field_name: str, *widgets: Gtk.Widget) -> None:

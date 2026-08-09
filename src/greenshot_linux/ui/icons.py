@@ -282,8 +282,19 @@ def _step_label_icon(color: Color) -> cairo.ImageSurface:
     ctx.select_font_face("sans-serif", cairo.FONT_SLANT_NORMAL, cairo.FONT_WEIGHT_BOLD)
     ctx.set_font_size(ICON_SIZE * 0.5)
     extents = ctx.text_extents("1")
+    # Horizontally centered on x_advance (the glyph's full logical
+    # width, including the font's own side bearings), not pure ink-
+    # bbox width like _text_icon's "A" - "1" is asymmetric (a thin
+    # top-left flag against a full-height stem, confirmed by rendering
+    # and inspecting the actual ink column-by-column), so bbox-
+    # centering its ink leaves the visually-dominant stem sitting
+    # right of center. The font's own side bearings already balance
+    # that asymmetry for normal text flow, and reusing them here reads
+    # as properly centered instead. Vertical centering stays ink-bbox
+    # based (height/y_bearing) - "1" doesn't have the same asymmetry
+    # top-to-bottom.
     ctx.move_to(
-        ICON_SIZE / 2 - extents.width / 2 - extents.x_bearing,
+        ICON_SIZE / 2 - extents.x_advance / 2,
         ICON_SIZE / 2 - extents.height / 2 - extents.y_bearing,
     )
     ctx.show_text("1")

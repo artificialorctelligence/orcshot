@@ -2827,6 +2827,31 @@ every other line-art icon already has) plus a real GTK toolbar screenshot (synth
 never real desktop content) confirming both icons render in the same theme gray as every other tool,
 with the fedora/sunglasses silhouette and the outlined "1" circle both legible at actual 24px size.
 
+**Two follow-up fixes from live review, same day:**
+
+- The "1" looked slightly right-of-center. Root cause, confirmed by rendering the glyph and inspecting
+  its ink column-by-column: `text_extents("1")`'s ink bounding box is itself asymmetric (a thin top-left
+  flag against a full-height stem), so centering on ink bbox width - correct for the "A" glyph
+  `_text_icon` uses, and what `_step_label_icon` originally copied - puts the *visually dominant* stem
+  right of true center, since the eye weights the stem more than the thin flag. Fixed by centering "1"
+  horizontally on its `x_advance` (the font's own full logical width, including its side bearings)
+  instead of pure ink width - the font's built-in side bearings already balance this asymmetry for
+  normal text flow, and reusing them here reads as properly centered. Vertical centering is unaffected
+  (stays ink-bbox based - "1" isn't asymmetric top-to-bottom).
+- Separately (not an icon bug): switching to/from the Select tool visibly yanked the whole
+  toolbar-and-canvas up or down by ~30px, because the style panel row (`_build_style_panel`) has zero
+  visible cells when Select is active with nothing selected (`visible_style_fields` correctly hides
+  everything), collapsing the row's natural height to ~1px versus ~34px for any populated row -
+  reported live as "it made me think something was broken." Fixed with a height floor
+  (`_STYLE_PANEL_MIN_HEIGHT`, `box.set_size_request(-1, 42)` on the panel's outer box) sized from a live
+  measurement of a populated row's actual allocation (34px) plus the 8px `set_border_width(4)` pads on
+  top of whatever height is requested (confirmed empirically, not purely reasoned from GTK's box-model
+  docs - asking for exactly 34 only allocated 26). `set_size_request` sets a floor, not a fixed height,
+  so populated rows are unaffected; only the collapsed-to-1px case is floored to match. Verified live by
+  measuring the style panel's actual allocated height across Select/Rectangle/Solid Fill/Select-again -
+  all four now allocate identically to 34px, and a before/after screenshot pair confirms the canvas's
+  on-screen position no longer shifts when switching to or from Select.
+
 ## Unverified assumptions
 
 Implemented, believed correct (spec, docs, or code-reading), but not directly observed working
