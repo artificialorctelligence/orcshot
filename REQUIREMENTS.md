@@ -2735,9 +2735,14 @@ original, not a flat block) for Color Scramble.
 ## Solid Fill preset redaction text (task #60 follow-up, complete 2026-08-09)
 
 Solid Fill boxes can now carry an optional label drawn centered on top of the fill -
-`ObfuscateShape.fill_text`/`text_color` (default `""`/white), a fixed preset list (None, REDACTED,
-CENSORED, CLASSIFIED, CONFIDENTIAL, SECRET) via a new Text: dropdown next to Fill: in the style panel,
-plus its own Text Color: swatch. Deliberately no free-text entry - anyone wanting a custom label
+`ObfuscateShape.fill_text`/`text_color` (model-level default `""`/white - a neutral, opinion-free
+default for bare construction, since there's no Windows source to be faithful to here), a fixed
+preset list (None, REDACTED, CENSORED, CLASSIFIED, CONFIDENTIAL, SECRET, dropdown order unchanged)
+via a new Text: dropdown next to Fill: in the style panel, plus its own Text Color: swatch. The
+*editor's* own policy default (`EditorWindow._default_obfuscate_fill_text`, what a freshly-drawn
+Solid Fill shape actually gets) is "REDACTED" - the most common real-world case - the same kind of
+deliberate model/editor default split already established for `_default_obfuscate_mode` vs
+`ObfuscateMode.PIXELIZE` above. Deliberately no free-text entry - anyone wanting a custom label
 already has the separate Text tool; this isn't trying to become a second text-editing UI. Rendered by
 `ui/render.py`'s `_draw_fitted_centered_text()`: measures at a generous starting font size with
 wrapping effectively disabled, shrinks proportionally in one pass if it doesn't fit the box (not an

@@ -404,10 +404,15 @@ class EditorWindow(Gtk.Window):
         # convention).
         self._default_obfuscate_fill_color = (0, 0, 0, 255)
         # Solid Fill's own optional preset label and its color (task #60
-        # follow-up) - matches ObfuscateShape.fill_text/text_color's own
-        # defaults (no text; white, legible against the black default
-        # fill above).
-        self._default_obfuscate_fill_text = ""
+        # follow-up). The editor's own policy default is "REDACTED" -
+        # the most common real-world use case - a deliberate deviation
+        # from ObfuscateShape.fill_text's own neutral "" dataclass
+        # default (there's no Windows source to be faithful to here,
+        # unlike _default_obfuscate_mode/ObfuscateMode.PIXELIZE above,
+        # so bare model construction stays opinion-free while the
+        # editor's UI picks a sensible starting point). text_color
+        # stays white, legible against the black default fill above.
+        self._default_obfuscate_fill_text = "REDACTED"
         self._default_obfuscate_text_color = (255, 255, 255, 255)
         # Which filter the single Obfuscate toolbar button currently
         # applies. Deliberately Solid Fill, not Pixelize - a deviation
