@@ -1,6 +1,6 @@
 import numpy as np
 
-from greenshot_linux.core.filters import box_blur, pixelize
+from greenshot_linux.core.filters import box_blur, pixelize, scramble, solid_fill
 from greenshot_linux.core.geometry import Rect
 
 
@@ -21,6 +21,16 @@ class ZeroRng:
         if size is None:
             return 0
         return np.zeros(size, dtype=np.int64)
+
+
+class ZeroRng2D:
+    """Stub RNG for scramble: Generator.normal(loc, scale, size) with no
+    actual randomness - always returns loc broadcast to size, so the
+    synthesized fill is exactly the region's own per-channel mean,
+    making scramble deterministic for tests."""
+
+    def normal(self, loc, scale, size):
+        return np.broadcast_to(loc, size).astype(np.float64)
 
 
 def checkerboard(size, square=1):
@@ -203,6 +213,130 @@ class TestPixelize:
         pixelize(image, full_rect(image), 4)
 
         assert np.array_equal(image, original)
+
+
+class TestSolidFill:
+    def test_fills_rect_with_the_given_color(self):
+        image = checkerboard(8)
+
+        result = solid_fill(image, Rect(2, 2, 6, 6), (10, 20, 30, 255))
+
+        assert np.array_equal(
+            result[2:6, 2:6], np.full((4, 4, 4), (10, 20, 30, 255), dtype=np.uint8),
+        )
+
+    def test_leaves_everything_outside_the_rect_unchanged(self):
+        image = checkerboard(8)
+
+        result = solid_fill(image, Rect(2, 2, 6, 6), (10, 20, 30, 255))
+
+        expected_outside = image.copy()
+        expected_outside[2:6, 2:6] = 0
+        result_outside = result.copy()
+        result_outside[2:6, 2:6] = 0
+        assert np.array_equal(result_outside, expected_outside)
+
+    def test_no_original_pixel_survives_inside_the_rect(self):
+        # The whole point of solid_fill: every covered pixel is fully
+        # replaced by the caller-supplied color, regardless of what was
+        # underneath - unlike every other filter here, whose output
+        # still depends on the original content in some way.
+        image = checkerboard(8, square=1)
+
+        result = solid_fill(image, full_rect(image), (128, 64, 200, 255))
+
+        assert np.all(result == (128, 64, 200, 255))
+
+    def test_rect_outside_image_returns_unchanged_copy(self):
+        image = checkerboard(8)
+
+        result = solid_fill(image, Rect(100, 100, 200, 200), (0, 0, 0, 255))
+
+        assert np.array_equal(result, image)
+
+    def test_input_image_is_not_modified(self):
+        image = checkerboard(8)
+        original = image.copy()
+
+        solid_fill(image, full_rect(image), (0, 0, 0, 255))
+
+        assert np.array_equal(image, original)
+
+
+class TestScramble:
+    def test_preserves_shape_and_dtype(self):
+        image = checkerboard(16)
+
+        result = scramble(image, full_rect(image), rng=ZeroRng2D())
+
+        assert result.shape == image.shape
+        assert result.dtype == image.dtype
+
+    def test_leaves_everything_outside_the_rect_unchanged(self):
+        image = checkerboard(16)
+
+        result = scramble(image, Rect(2, 2, 10, 10), rng=ZeroRng2D())
+
+        expected_outside = image.copy()
+        expected_outside[2:10, 2:10] = 0
+        result_outside = result.copy()
+        result_outside[2:10, 2:10] = 0
+        assert np.array_equal(result_outside, expected_outside)
+
+    def test_forces_full_opacity_inside_the_rect_even_with_translucent_input(self):
+        image = solid_image(8, 8, 50, 60, 70, a=100)
+
+        result = scramble(image, full_rect(image), rng=ZeroRng2D())
+
+        assert np.all(result[:, :, 3] == 255)
+
+    def test_rect_outside_image_returns_unchanged_copy(self):
+        image = checkerboard(8)
+
+        result = scramble(image, Rect(100, 100, 200, 200))
+
+        assert np.array_equal(result, image)
+
+    def test_input_image_is_not_modified(self):
+        image = checkerboard(16)
+        original = image.copy()
+
+        scramble(image, full_rect(image))
+
+        assert np.array_equal(image, original)
+
+    def test_a_solid_color_region_is_not_returned_unchanged(self):
+        # Unlike pixelize/box_blur, a uniform input region is *not* a
+        # no-op here by design - the noise floor (_SCRAMBLE_MIN_SPREAD)
+        # exists specifically so a flat-color region doesn't degenerate
+        # into an equally flat, still fully-revealing fill (see
+        # scramble's own docstring).
+        image = solid_image(16, 16, 40, 80, 120)
+
+        result = scramble(image, full_rect(image))
+
+        assert not np.array_equal(result, image)
+
+    def test_output_mean_color_tracks_the_input_mean_color(self):
+        # The one deliberately-accepted leak: coarse aggregate color
+        # survives into the output, even though no single input pixel
+        # does. A generously wide tolerance - this checks the intended
+        # statistical relationship holds, not an exact value.
+        image = solid_image(64, 64, 200, 50, 20)
+
+        result = scramble(image, full_rect(image))
+
+        mean = result[:, :, :3].astype(np.float64).mean(axis=(0, 1))
+        assert np.allclose(mean, [200, 50, 20], atol=20)
+
+    def test_two_runs_with_the_real_rng_differ_on_varied_content(self):
+        image = checkerboard(64)
+        rect = full_rect(image)
+
+        first = scramble(image, rect)
+        second = scramble(image, rect)
+
+        assert not np.array_equal(first, second)
 
 
 # --- Property-based tests -------------------------------------------------

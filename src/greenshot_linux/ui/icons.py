@@ -130,6 +130,41 @@ def _blur_icon(color: Color) -> cairo.ImageSurface:
     return surface
 
 
+def _solid_fill_icon(color: Color) -> cairo.ImageSurface:
+    # Ignores ``color`` like Pixelize/Blur - always drawn in a fixed
+    # dark tone regardless of the current line/fill color, standing in
+    # for Solid Fill's own default (opaque black) redaction color.
+    surface = _blank_surface()
+    ctx = cairo.Context(surface)
+    ctx.set_source_rgb(0.1, 0.1, 0.1)
+    ctx.rectangle(_MARGIN, _MARGIN, ICON_SIZE - 2 * _MARGIN, ICON_SIZE - 2 * _MARGIN)
+    ctx.fill()
+    return surface
+
+
+def _scramble_icon(color: Color) -> cairo.ImageSurface:
+    # A fixed speckle pattern, not live randomness (icons must render
+    # identically every time) - stands in for Color Scramble's own
+    # synthesized noise, visually distinct from Pixelize's clean grid.
+    surface = _blank_surface()
+    ctx = cairo.Context(surface)
+    speckles = [
+        (0.30, 0.28, 2.6, (0.75, 0.35, 0.55)),
+        (0.55, 0.20, 2.0, (0.35, 0.65, 0.42)),
+        (0.78, 0.40, 2.4, (0.30, 0.42, 0.68)),
+        (0.40, 0.55, 2.2, (0.68, 0.60, 0.30)),
+        (0.68, 0.62, 2.8, (0.42, 0.68, 0.65)),
+        (0.22, 0.68, 2.0, (0.62, 0.32, 0.62)),
+        (0.50, 0.78, 2.6, (0.55, 0.55, 0.35)),
+        (0.85, 0.80, 2.0, (0.35, 0.55, 0.75)),
+    ]
+    for fx, fy, radius, (r, g, b) in speckles:
+        ctx.set_source_rgb(r, g, b)
+        ctx.arc(fx * ICON_SIZE, fy * ICON_SIZE, radius, 0, 2 * math.pi)
+        ctx.fill()
+    return surface
+
+
 def _text_icon(color: Color) -> cairo.ImageSurface:
     surface = _blank_surface()
     ctx = cairo.Context(surface)
@@ -239,6 +274,8 @@ _TOOL_ICON_BUILDERS = {
     Tool.FREEHAND: _freehand_icon,
     Tool.PIXELIZE: _pixelize_icon,
     Tool.BLUR: _blur_icon,
+    Tool.SOLID_FILL: _solid_fill_icon,
+    Tool.SCRAMBLE: _scramble_icon,
     Tool.TEXT: _text_icon,
     Tool.SPEECH_BUBBLE: _speech_bubble_icon,
     Tool.STEP_LABEL: _step_label_icon,

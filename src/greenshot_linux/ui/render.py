@@ -67,7 +67,7 @@ gi.require_version("Rsvg", "2.0")
 from gi.repository import Pango, PangoCairo, Rsvg
 
 from greenshot_linux.core.drawing import Layer
-from greenshot_linux.core.filters import box_blur, pixelize
+from greenshot_linux.core.filters import box_blur, pixelize, scramble, solid_fill
 from greenshot_linux.core.geometry import Rect
 from greenshot_linux.core.shapes import (
     ArrowShape,
@@ -613,16 +613,21 @@ def render_obfuscate(ctx: cairo.Context, shape: ObfuscateShape, base_image, rng=
     if apply_rect is None:
         return
 
+    # No explicit rng override (the normal, non-test path): derive from
+    # the shape's own pinned seed rather than pixelize/scramble's
+    # default fresh-random-every-call behavior, so repeated redraws of
+    # the same unchanged shape don't visibly reshuffle the noise - see
+    # ObfuscateShape.seed's docstring for why this is still safe.
     if shape.mode is ObfuscateMode.BLUR:
         filtered = box_blur(base_image, shape.bounds, shape.amount)
-    else:
-        # No explicit override (the normal, non-test path): derive from
-        # the shape's own pinned seed rather than pixelize's default
-        # fresh-random-every-call behavior, so repeated redraws of the
-        # same unchanged shape don't visibly reshuffle the noise - see
-        # ObfuscateShape.seed's docstring for why this is still safe.
+    elif shape.mode is ObfuscateMode.PIXELIZE:
         pixelize_rng = rng if rng is not None else np.random.default_rng(shape.seed)
         filtered = pixelize(base_image, shape.bounds, shape.amount, rng=pixelize_rng)
+    elif shape.mode is ObfuscateMode.SOLID_FILL:
+        filtered = solid_fill(base_image, shape.bounds, shape.fill_color)
+    else:  # ObfuscateMode.SCRAMBLE
+        scramble_rng = rng if rng is not None else np.random.default_rng(shape.seed)
+        filtered = scramble(base_image, shape.bounds, rng=scramble_rng)
 
     region = filtered[apply_rect.top : apply_rect.bottom, apply_rect.left : apply_rect.right]
     surface = numpy_to_cairo_surface(region)

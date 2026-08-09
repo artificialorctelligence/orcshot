@@ -2656,6 +2656,82 @@ string); the new settings key is non-sensitive plain JSON; the X11 keyboard grab
 Escape-cancel fix are released on every exit path found, and X11 releases any grab automatically on
 client disconnect regardless (crash-safe).
 
+## Obfuscation hardening: Solid Fill and Color Scramble (task #60, complete 2026-08-09)
+
+**The research question that started this**: are Blur/Pixelize actually secure redaction, or just
+visual obfuscation? Checked rather than assumed. Found real, documented prior art:
+[Greenshot issue #387 "Add noise to obfuscate-tool"](https://github.com/greenshot/greenshot/issues/387)
+(Feb 2022, citing BishopFox's `unredacter`) is where this Linux port's own noised-Pixelize design
+(`core/filters.py`'s `pixelize()`, `secrets`-CSPRNG-seeded jittered blocks) actually traces back to -
+confirmed by reading the real Windows `PixelizationFilter.cs`, which does use
+`System.Security.Cryptography.RandomNumberGenerator` internally, unlike `BlurFilter.cs` (no such
+import at all - a genuinely deterministic, easily-invertible box blur with zero hardening). The
+GitHub issue thread itself is a cautionary tale worth recording: two community members proposed a
+**static, shared noise layer "distributed with the Greenshot binary"** as an alternative to genuine
+per-render randomness (to solve a real WYSIWYG problem the maintainer raised - noise that changes on
+every repaint doesn't match what gets saved) - which would have been a real security regression, since
+a public, shared noise pattern is trivially subtractable by anyone with the same open-source binary.
+This port already avoids that trap: `ObfuscateShape.seed` (task #51) is drawn fresh from the OS CSPRNG
+**per shape**, then pinned to that instance - solving the same WYSIWYG problem without ever using a
+shared/predictable pattern.
+
+Even so, broader security research (Depix, `unredacter`, multiple academic papers, and a Bleeping
+Computer writeup on reversing pixelated redactions) is close to unanimous: pixelization/blur - noised
+or not - are block-averaging/low-pass operations, and the block statistics themselves leak real
+information regardless of noise sprinkled on top. The universal recommendation for anything genuinely
+sensitive is solid, opaque redaction - "there is nothing to reverse" - not a better blur.
+
+**What shipped**: two new `ObfuscateMode` values alongside the existing Blur/Pixelize, each with a
+different, honestly-labeled security property:
+
+- **Solid Fill** (`core/filters.py`'s `solid_fill()`) - unconditionally overwrites the covered region
+  with a single caller-chosen color (default opaque black, the standard redaction convention). The
+  only mode with a provable zero-information guarantee: the output depends only on the chosen color,
+  never on any pixel of the original image. **Now the default obfuscate mode** (was Pixelize) - the
+  one deliberate deviation from the real Windows source's own default in this whole port, made
+  explicitly because Pixelize/Blur are both documented-reversible via public tools and Solid Fill is
+  the only mode that actually is what a "redaction" tool implies.
+- **Color Scramble** (`core/filters.py`'s `scramble()`) - extracts only the covered region's coarse
+  per-channel color statistics (mean, std-dev with a noise floor for flat regions), then synthesizes
+  entirely fresh random pixels from that distribution, lightly smoothed for a less static-y look. No
+  actual pixel value from the original ever survives into the output at any position - the property
+  Depix/`unredacter`-style attacks depend on (matching a candidate against a *specific* block
+  position), and what distinguishes this from Pixelize, which keeps exact block-position averages
+  even with noise on top. Deliberately still leaks the region's dominant hue/lightness (e.g., flesh
+  tones would still suggest a photo of a person) - an accepted, explicitly-labeled tradeoff for a
+  more attractive default than a flat box, not a claim of full security.
+
+**UI**: the style panel's mode dropdown now rates all four on a 3-tier scale - "Solid Fill (most
+secure)", "Color Scramble (moderately secure)", "Pixelize (not secure)", "Blur (not secure)" - each
+with a tooltip explaining why (Pixelize/Blur's cite Depix/`unredacter` by name). The always-visible
+mode button itself stays short (just the mode name); the rating/reasoning only shows in the dropdown,
+where someone's actually comparing options. Solid Fill gets its own color-picker field
+(`STYLE_FIELD_OBFUSCATE_FILL_COLOR`, deliberately separate from the generic `STYLE_FIELD_FILL_COLOR`
+other shapes use, since `ObfuscateShape` has no `ShapeStyle`); Color Scramble needs no extra field at
+all - fully automatic, derived from the region itself.
+
+**A real, pre-existing bug found and fixed along the way, unrelated to this feature but blocking its
+own verification**: live-testing the new per-mode field visibility turned up `EditorWindow`'s style
+panel showing *every* control at once regardless of active tool/selection - completely undermining
+tasks #57/#58's whole point, for every tool, not just the two new obfuscate modes. Root cause:
+`Gtk.Widget.show_all()` unconditionally re-shows every descendant, including the cells
+`_refresh_style_panel()` had already correctly hidden during `__init__` (nothing is selected and
+Select is the active tool at construction time) - and the real app
+(`ui/destination_picker.py`'s `_open_editor`) calls `editor.show_all()` to actually display the
+window, silently undoing the hide every single time an editor opens. Fixed by overriding
+`EditorWindow.show_all()` to call `_refresh_style_panel()` again immediately after the real
+`show_all()` - confirmed live (screenshot before/after) that the panel now correctly shows only the
+fields relevant to whatever's active.
+
+Verified live: unit tests for both new filter functions (`solid_fill`/`scramble`, including that a
+uniform input region is *not* a no-op for Scramble - the accepted floor-noise tradeoff, unlike
+Pixelize/Blur which correctly treat a flat region as one) and the tool-dispatch/style-field-visibility
+logic, plus a real GTK session (window-scoped screenshots only, synthetic gradient test image, never a
+real desktop capture) stepping through all four modes' style panel and rendering actual Solid
+Fill/Color Scramble shapes to confirm the pixel output matches what each mode's own security claim
+promises - a fully opaque flat box for Solid Fill, a grainy color-matched texture (not the smooth
+original, not a flat block) for Color Scramble.
+
 ## Unverified assumptions
 
 Implemented, believed correct (spec, docs, or code-reading), but not directly observed working

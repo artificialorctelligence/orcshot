@@ -210,6 +210,81 @@ def _pixelize_band(band: np.ndarray, x_bounds: np.ndarray, rng) -> None:
     band[:, :, 3] = average_columns[:, 3].astype(np.uint8)[None, :]
 
 
+def solid_fill(image: np.ndarray, rect: Rect, color) -> np.ndarray:
+    """Fill the part of ``image`` covered by ``rect`` with a single
+    opaque ``color`` (an (r, g, b, a) 0-255 tuple); returns a new array.
+
+    The only obfuscation filter in this module with a provable zero-
+    information guarantee: the output inside ``rect`` depends only on
+    ``color``, never on any pixel of the original image, so there is
+    nothing in it to reverse - unlike box_blur/pixelize/scramble below,
+    which all still derive their output from the real covered pixels in
+    some way (see task #60's REQUIREMENTS.md writeup for the full
+    security reasoning behind having this mode at all).
+    """
+    out = image.copy()
+    apply_rect = rect.intersect(_image_bounds(image))
+    if apply_rect is None:
+        return out
+    out[apply_rect.top:apply_rect.bottom, apply_rect.left:apply_rect.right] = color
+    return out
+
+
+_SCRAMBLE_SMOOTH_RADIUS = 2
+_SCRAMBLE_MIN_SPREAD = 8.0
+
+
+def scramble(image: np.ndarray, rect: Rect, rng=None) -> np.ndarray:
+    """Fill the part of ``image`` covered by ``rect`` with freshly
+    synthesized random pixels drawn from the region's own aggregate
+    per-channel color statistics (mean and standard deviation); returns
+    a new array. ``rng`` is injectable for tests; it must provide
+    numpy's ``Generator.normal`` interface.
+
+    Deliberately does not preserve any positional correspondence to the
+    original pixels - every output pixel is drawn independently from
+    the region's overall mean/spread, not placed at, or derived from,
+    any specific source position. That's the property Depix/unredacter-
+    style attacks depend on (matching a candidate against a *specific*
+    block position) and what distinguishes this from pixelize, which
+    keeps exact block-position averages even with per-block noise on
+    top. This mode still leaks the region's coarse color statistics
+    (e.g. a dominant hue) - see task #60's REQUIREMENTS.md writeup for
+    why that's an accepted, explicitly-labeled tradeoff rather than a
+    provable zero-leak guarantee like solid_fill above.
+
+    The synthesized noise is lightly smoothed afterward (reusing
+    _box_blur_pass) purely for a softer, less static-y look - safe to
+    do from a security standpoint since smoothing already-fabricated
+    data can only discard information further, never leak more of the
+    original.
+    """
+    out = image.copy()
+    apply_rect = rect.intersect(_image_bounds(image))
+    if apply_rect is None:
+        return out
+    if rng is None:
+        rng = _default_rng()
+
+    region = out[apply_rect.top:apply_rect.bottom, apply_rect.left:apply_rect.right]
+    height, width = region.shape[:2]
+
+    mean = region[:, :, :3].astype(np.float64).mean(axis=(0, 1))
+    std = region[:, :, :3].astype(np.float64).std(axis=(0, 1))
+    # A floor keeps a flat-color region (std ~= 0) from degenerating
+    # into an equally flat, still-revealing fill.
+    spread = np.maximum(std, _SCRAMBLE_MIN_SPREAD)
+
+    noise = rng.normal(loc=mean, scale=spread, size=(height, width, 3))
+    smoothed = np.clip(noise, 0, 255).astype(np.uint8)
+    for axis in (1, 0):
+        smoothed = _box_blur_pass(smoothed, _SCRAMBLE_SMOOTH_RADIUS, axis)
+
+    region[:, :, :3] = smoothed
+    region[:, :, 3] = 255
+    return out
+
+
 def pixelize(
     image: np.ndarray, rect: Rect, pixel_size: int, rng=None
 ) -> np.ndarray:

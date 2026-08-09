@@ -34,6 +34,7 @@ from greenshot_linux.core.tools import (
     STYLE_FIELD_LINE_COLOR,
     STYLE_FIELD_LINE_THICKNESS,
     STYLE_FIELD_OBFUSCATE_AMOUNT,
+    STYLE_FIELD_OBFUSCATE_FILL_COLOR,
     STYLE_FIELD_OBFUSCATE_MODE,
     STYLE_FIELD_SHADOW,
     Tool,
@@ -117,6 +118,31 @@ class TestCreateShapeFromDrag:
         shape = create_shape_from_drag(Tool.BLUR, (10, 40), (60, 10), STYLE, amount=9)
         assert shape.amount == 9
 
+    def test_solid_fill(self):
+        shape = create_shape_from_drag(Tool.SOLID_FILL, (10, 40), (60, 10), STYLE)
+        assert isinstance(shape, ObfuscateShape)
+        assert shape.bounds == Rect(10, 10, 60, 40)
+        assert shape.mode is ObfuscateMode.SOLID_FILL
+        assert shape.fill_color == (0, 0, 0, 255)  # ObfuscateShape's own default
+
+    def test_solid_fill_with_an_explicit_fill_color(self):
+        shape = create_shape_from_drag(
+            Tool.SOLID_FILL, (10, 40), (60, 10), STYLE, fill_color=(200, 100, 50, 255),
+        )
+        assert shape.fill_color == (200, 100, 50, 255)
+
+    def test_scramble(self):
+        shape = create_shape_from_drag(Tool.SCRAMBLE, (10, 40), (60, 10), STYLE)
+        assert isinstance(shape, ObfuscateShape)
+        assert shape.bounds == Rect(10, 10, 60, 40)
+        assert shape.mode is ObfuscateMode.SCRAMBLE
+
+    def test_fill_color_is_ignored_for_tools_that_do_not_use_it(self):
+        shape = create_shape_from_drag(
+            Tool.RECTANGLE, (10, 40), (60, 10), STYLE, fill_color=(9, 9, 9, 9),
+        )
+        assert isinstance(shape, RectangleShape)
+
     def test_amount_is_ignored_for_tools_that_do_not_use_it(self):
         # every other tool must accept (and ignore) the amount kwarg
         # without erroring, so callers don't need to branch by tool
@@ -190,6 +216,8 @@ _FULL_FIELDS = frozenset({
 _LINE_ONLY_FIELDS = frozenset({STYLE_FIELD_LINE_COLOR, STYLE_FIELD_LINE_THICKNESS, STYLE_FIELD_SHADOW})
 _FREEHAND_FIELDS = frozenset({STYLE_FIELD_LINE_COLOR, STYLE_FIELD_LINE_THICKNESS})
 _OBFUSCATE_FIELDS = frozenset({STYLE_FIELD_OBFUSCATE_AMOUNT, STYLE_FIELD_OBFUSCATE_MODE})
+_OBFUSCATE_COLOR_FIELDS = frozenset({STYLE_FIELD_OBFUSCATE_FILL_COLOR, STYLE_FIELD_OBFUSCATE_MODE})
+_OBFUSCATE_MODE_ONLY_FIELDS = frozenset({STYLE_FIELD_OBFUSCATE_MODE})
 
 
 class TestVisibleStyleFields:
@@ -205,6 +233,8 @@ class TestVisibleStyleFields:
         (Tool.FREEHAND, _FREEHAND_FIELDS),
         (Tool.PIXELIZE, _OBFUSCATE_FIELDS),
         (Tool.BLUR, _OBFUSCATE_FIELDS),
+        (Tool.SOLID_FILL, _OBFUSCATE_COLOR_FIELDS),
+        (Tool.SCRAMBLE, _OBFUSCATE_MODE_ONLY_FIELDS),
     ])
     def test_tool_without_a_selection(self, tool, expected):
         assert visible_style_fields(tool) == expected
@@ -226,6 +256,8 @@ class TestVisibleStyleFields:
         (FreehandShape(points=((0, 0), (5, 5)), style=STYLE), _FREEHAND_FIELDS),
         (ObfuscateShape(Rect(0, 0, 10, 10), mode=ObfuscateMode.BLUR), _OBFUSCATE_FIELDS),
         (ObfuscateShape(Rect(0, 0, 10, 10), mode=ObfuscateMode.PIXELIZE), _OBFUSCATE_FIELDS),
+        (ObfuscateShape(Rect(0, 0, 10, 10), mode=ObfuscateMode.SOLID_FILL), _OBFUSCATE_COLOR_FIELDS),
+        (ObfuscateShape(Rect(0, 0, 10, 10), mode=ObfuscateMode.SCRAMBLE), _OBFUSCATE_MODE_ONLY_FIELDS),
         (IconShape(bounds=Rect(0, 0, 10, 10), image=rgba_image()), frozenset()),
         (CursorShape(bounds=Rect(0, 0, 10, 10), image=rgba_image()), frozenset()),
         (ImageShape(bounds=Rect(0, 0, 10, 10), image=rgba_image()), frozenset()),

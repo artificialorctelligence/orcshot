@@ -24,7 +24,7 @@ import cairo
 import numpy as np
 import pytest
 
-from greenshot_linux.core.filters import box_blur, pixelize
+from greenshot_linux.core.filters import box_blur, pixelize, scramble, solid_fill
 from greenshot_linux.core.geometry import Rect
 from greenshot_linux.core.shapes import (
     ArrowShape,
@@ -51,6 +51,15 @@ class ZeroRng:
         if size is None:
             return 0
         return np.zeros(size, dtype=np.int64)
+
+
+class ZeroRng2D:
+    """Stub RNG for scramble: Generator.normal(loc, scale, size) with no
+    actual randomness (same fake used in test_filters.py, redefined
+    here to keep this test module self-contained)."""
+
+    def normal(self, loc, scale, size):
+        return np.broadcast_to(loc, size).astype(np.float64)
 
 
 def render_to_numpy(width, height, draw):
@@ -233,6 +242,54 @@ class TestRenderObfuscate:
         expected = box_blur(base_image, bounds, 4)
         region = expected[bounds.top:bounds.bottom, bounds.left:bounds.right]
         assert np.array_equal(result[bounds.top:bounds.bottom, bounds.left:bounds.right], region)
+
+    def test_solid_fill_matches_the_filters_module_exactly(self):
+        base_image = noisy_base_image()
+        bounds = Rect(5, 5, 35, 35)
+        shape = ObfuscateShape(bounds, mode=ObfuscateMode.SOLID_FILL, fill_color=(200, 100, 50, 255))
+
+        result = render_to_numpy(50, 50, lambda ctx: render_shape(ctx, shape, base_image=base_image))
+
+        expected = solid_fill(base_image, bounds, (200, 100, 50, 255))
+        region = expected[bounds.top:bounds.bottom, bounds.left:bounds.right]
+        assert np.array_equal(result[bounds.top:bounds.bottom, bounds.left:bounds.right], region)
+
+    def test_scramble_matches_the_filters_module_exactly(self):
+        base_image = noisy_base_image()
+        bounds = Rect(5, 5, 35, 35)
+        shape = ObfuscateShape(bounds, mode=ObfuscateMode.SCRAMBLE)
+
+        result = render_to_numpy(
+            50, 50, lambda ctx: render_shape(ctx, shape, base_image=base_image, rng=ZeroRng2D())
+        )
+
+        expected = scramble(base_image, bounds, rng=ZeroRng2D())
+        region = expected[bounds.top:bounds.bottom, bounds.left:bounds.right]
+        assert np.array_equal(result[bounds.top:bounds.bottom, bounds.left:bounds.right], region)
+
+    def test_scramble_with_no_explicit_rng_is_stable_across_repeated_renders(self):
+        # Same pinned-seed contract as Pixelize (see that test's own
+        # comment) - Scramble's noise must not reshuffle on every
+        # unrelated repaint either.
+        base_image = noisy_base_image()
+        bounds = Rect(5, 5, 35, 35)
+        shape = ObfuscateShape(bounds, mode=ObfuscateMode.SCRAMBLE)
+
+        first = render_to_numpy(50, 50, lambda ctx: render_shape(ctx, shape, base_image=base_image))
+        second = render_to_numpy(50, 50, lambda ctx: render_shape(ctx, shape, base_image=base_image))
+
+        assert np.array_equal(first, second)
+
+    def test_scramble_with_no_explicit_rng_differs_between_distinct_shapes(self):
+        base_image = noisy_base_image()
+        bounds = Rect(5, 5, 35, 35)
+        shape_a = ObfuscateShape(bounds, mode=ObfuscateMode.SCRAMBLE)
+        shape_b = ObfuscateShape(bounds, mode=ObfuscateMode.SCRAMBLE)
+
+        result_a = render_to_numpy(50, 50, lambda ctx: render_shape(ctx, shape_a, base_image=base_image))
+        result_b = render_to_numpy(50, 50, lambda ctx: render_shape(ctx, shape_b, base_image=base_image))
+
+        assert not np.array_equal(result_a, result_b)
 
     def test_pixels_outside_bounds_are_left_untouched_by_rendering(self):
         base_image = noisy_base_image()

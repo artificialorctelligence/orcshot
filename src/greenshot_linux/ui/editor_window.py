@@ -162,6 +162,7 @@ from greenshot_linux.core.tools import (
     STYLE_FIELD_LINE_COLOR,
     STYLE_FIELD_LINE_THICKNESS,
     STYLE_FIELD_OBFUSCATE_AMOUNT,
+    STYLE_FIELD_OBFUSCATE_FILL_COLOR,
     STYLE_FIELD_OBFUSCATE_MODE,
     STYLE_FIELD_SHADOW,
     Tool,
@@ -241,6 +242,68 @@ _TOOL_KEYS = {
 # directly) - this only changes how the palette *presents* choosing
 # between them; see _build_tool_palette's handling of this sentinel.
 _OBFUSCATE_GROUP = "obfuscate_group"
+
+# Task #60: two modes added alongside Blur/Pixelize, no Windows
+# equivalent for either - see core/shapes.py's ObfuscateMode docstring
+# and REQUIREMENTS.md's task #60 writeup for the security research this
+# was built from (Blur/Pixelize are both documented-reversible via
+# public tools like Depix/unredacter, even with Pixelize's own noise
+# hardening; Solid Fill is the only mode with a provable zero-leak
+# guarantee, Color Scramble a middle ground that resists those specific
+# attacks but still leaks coarse color statistics).
+_TOOL_TO_OBFUSCATE_MODE = {
+    Tool.BLUR: ObfuscateMode.BLUR,
+    Tool.PIXELIZE: ObfuscateMode.PIXELIZE,
+    Tool.SOLID_FILL: ObfuscateMode.SOLID_FILL,
+    Tool.SCRAMBLE: ObfuscateMode.SCRAMBLE,
+}
+_OBFUSCATE_MODE_TO_TOOL = {mode: tool for tool, mode in _TOOL_TO_OBFUSCATE_MODE.items()}
+
+# Compact names for the always-visible mode button - full security
+# rating/reasoning lives in _OBFUSCATE_MODE_SECURITY_SUFFIX/_TOOLTIPS
+# below instead, shown only in the dropdown menu where someone's
+# actually comparing modes, not on every render of the style panel.
+_OBFUSCATE_MODE_LABELS = {
+    Tool.SOLID_FILL: "Solid Fill",
+    Tool.SCRAMBLE: "Color Scramble",
+    Tool.PIXELIZE: "Pixelize",
+    Tool.BLUR: "Blur",
+}
+
+# A 3-tier rating (solid fill > color scramble > blur/pixelize), not
+# just a binary secure/insecure flag - reflects that Color Scramble is
+# a real, distinct middle ground rather than lumping it in with either
+# extreme.
+_OBFUSCATE_MODE_SECURITY_SUFFIX = {
+    Tool.SOLID_FILL: "most secure",
+    Tool.SCRAMBLE: "moderately secure",
+    Tool.PIXELIZE: "not secure",
+    Tool.BLUR: "not secure",
+}
+
+_OBFUSCATE_MODE_TOOLTIPS = {
+    Tool.SOLID_FILL: (
+        "Completely replaces the covered area with a solid color. Nothing about the "
+        "original content can be recovered - the recommended choice for anything sensitive."
+    ),
+    Tool.SCRAMBLE: (
+        "Replaces the area with synthetic noise matched to its overall color. Resists "
+        "known reconstruction attacks (e.g. Depix), but a dominant hue may still be inferable."
+    ),
+    Tool.PIXELIZE: (
+        "Reconstructable with publicly available tools (e.g. Depix, unredacter), even with "
+        "this port's own noise hardening. Do not use for sensitive information."
+    ),
+    Tool.BLUR: (
+        "Reconstructable with publicly available tools (e.g. Depix, unredacter). Do not use "
+        "for sensitive information."
+    ),
+}
+
+# Dropdown order: most to least secure, so the recommended choices sort
+# first rather than matching Blur/Pixelize's original left-to-right
+# order from before task #60.
+_OBFUSCATE_MODE_ORDER = (Tool.SOLID_FILL, Tool.SCRAMBLE, Tool.PIXELIZE, Tool.BLUR)
 
 _TOOL_LABELS = [
     (Tool.SELECT, "Select"),
@@ -326,11 +389,22 @@ class EditorWindow(Gtk.Window):
         # on a fresh capture doesn't accidentally start drawing.
         self._tool = Tool.SELECT
         self._default_obfuscate_amount = 5  # matches ObfuscateShape's own default
+        # The color Solid Fill paints with - matches ObfuscateShape's
+        # own fill_color default (opaque black, the standard redaction
+        # convention).
+        self._default_obfuscate_fill_color = (0, 0, 0, 255)
         # Which filter the single Obfuscate toolbar button currently
-        # applies - matches ObfuscateContainer.InitializeFields's own
-        # default (PreparedFilter.PIXELIZE), same as ObfuscateShape's
-        # own mode default just above.
-        self._default_obfuscate_mode = Tool.PIXELIZE
+        # applies. Deliberately Solid Fill, not Pixelize - a deviation
+        # from ObfuscateContainer.InitializeFields's own default
+        # (PreparedFilter.PIXELIZE, still ObfuscateShape's own mode
+        # default at the model level, see that class's docstring) -
+        # this is the one place this port intentionally diverges from
+        # the Windows source's own default rather than just porting it,
+        # since Pixelize/Blur are both documented-reversible via public
+        # tools (task #60's own REQUIREMENTS.md writeup has the full
+        # research trail) and Solid Fill is the only mode with a
+        # provable zero-leak guarantee.
+        self._default_obfuscate_mode = Tool.SOLID_FILL
         # Bypasses the selected_shape property below - same reason the
         # base_image property's docstring gives for __init__ setting
         # self._base_image directly: its setter refreshes the
@@ -466,6 +540,22 @@ class EditorWindow(Gtk.Window):
             app.register_editor_window(self)
         self.connect("destroy", self._on_destroy)
 
+    def show_all(self) -> None:
+        """Overridden because Gtk.Widget.show_all() unconditionally
+        shows every descendant, including the style-panel cells
+        _refresh_style_panel already hid during __init__ (nothing is
+        selected and Select is the active tool at construction time, so
+        every cell starts hidden) - undoing that hide the moment the
+        real app (ui/destination_picker.py's _open_editor) calls
+        editor.show_all() to actually display the window. Confirmed
+        live: without this override, every style-panel control showed
+        at once regardless of active tool/selection, silently defeating
+        tasks #57/#58's whole point. Re-running _refresh_style_panel
+        after the real show_all() re-applies the correct hidden set.
+        """
+        super().show_all()
+        self._refresh_style_panel()
+
     @property
     def selected_shape(self):
         return self._selected_shape
@@ -557,7 +647,7 @@ class EditorWindow(Gtk.Window):
         """
         shape = self._selected_shape
         if isinstance(shape, ObfuscateShape):
-            amount_tool = Tool.BLUR if shape.mode is ObfuscateMode.BLUR else Tool.PIXELIZE
+            amount_tool = _OBFUSCATE_MODE_TO_TOOL[shape.mode]
         else:
             amount_tool = self.tool
         self._obfuscate_amount_label.set_text(self._obfuscate_amount_label_text(amount_tool))
@@ -746,10 +836,11 @@ class EditorWindow(Gtk.Window):
         """The single "Obfuscate" palette entry: a plain radio-toggle
         button, just like every other tool button, that activates
         whichever mode is currently prepared (self._default_obfuscate_mode)
-        when clicked. Both Tool.PIXELIZE and Tool.BLUR map to this same
+        when clicked. All four obfuscate Tools (PIXELIZE/BLUR/SOLID_FILL/
+        SCRAMBLE - task #60 added the latter two) map to this same
         button in self._tool_buttons, so anything that looks a tool up
         by value (keyboard shortcuts, _on_tool_button_toggled's
-        callers) still finds a real widget for either.
+        callers) still finds a real widget for any of them.
 
         The mode picker itself is *not* here - Windows' real
         obfuscateModeButton lives in propertiesToolStrip (this port's
@@ -778,27 +869,29 @@ class EditorWindow(Gtk.Window):
         button.set_relief(Gtk.ReliefStyle.NONE)
         button.set_image(tool_icon_image(Tool.PIXELIZE, color=icon_color))
         button.set_tooltip_text("Obfuscate")
-        button.set_active(self.tool in (Tool.PIXELIZE, Tool.BLUR))
+        button.set_active(self.tool in _OBFUSCATE_MODE_ORDER)
         button.connect("toggled", self._on_obfuscate_button_toggled)
         box.pack_start(button, False, False, 0)
         self._obfuscate_button = button
-        self._tool_buttons[Tool.PIXELIZE] = button
-        self._tool_buttons[Tool.BLUR] = button
+        for mode in _OBFUSCATE_MODE_ORDER:
+            self._tool_buttons[mode] = button
         return group_leader
 
     @staticmethod
     def _obfuscate_mode_label(mode: Tool) -> str:
-        return "Blur" if mode is Tool.BLUR else "Pixelize"
+        return _OBFUSCATE_MODE_LABELS[mode]
 
     def _build_obfuscate_mode_menu(self) -> Gtk.Menu:
         menu = Gtk.Menu()
         self._obfuscate_mode_items = {}
         item_group_leader = None
-        for mode in (Tool.PIXELIZE, Tool.BLUR):
-            item = Gtk.RadioMenuItem.new_with_label_from_widget(item_group_leader, self._obfuscate_mode_label(mode))
+        for mode in _OBFUSCATE_MODE_ORDER:
+            label = f"{_OBFUSCATE_MODE_LABELS[mode]} ({_OBFUSCATE_MODE_SECURITY_SUFFIX[mode]})"
+            item = Gtk.RadioMenuItem.new_with_label_from_widget(item_group_leader, label)
             if item_group_leader is None:
                 item_group_leader = item
             item.set_active(mode is self._default_obfuscate_mode)
+            item.set_tooltip_text(_OBFUSCATE_MODE_TOOLTIPS[mode])
             item.connect("toggled", self._on_obfuscate_mode_item_toggled, mode)
             menu.append(item)
             self._obfuscate_mode_items[mode] = item
@@ -849,13 +942,13 @@ class EditorWindow(Gtk.Window):
 
         shape = self.selected_shape
         if isinstance(shape, ObfuscateShape):
-            obfuscate_mode = ObfuscateMode.BLUR if mode is Tool.BLUR else ObfuscateMode.PIXELIZE
+            obfuscate_mode = _TOOL_TO_OBFUSCATE_MODE[mode]
             updated = dataclass_replace(shape, mode=obfuscate_mode)
             self.layer.replace(shape, updated)
             self.undo_redo.push(ElementChangeMemento(self.layer, before=shape, after=updated))
             self.selected_shape = updated  # setter already calls _refresh_style_panel
             self._drawing_area.queue_draw()
-        elif self.tool in (Tool.PIXELIZE, Tool.BLUR):
+        elif self.tool in _OBFUSCATE_MODE_ORDER:
             self.tool = mode
             self._refresh_style_panel()
             self._drawing_area.queue_draw()
@@ -1035,6 +1128,19 @@ class EditorWindow(Gtk.Window):
         self._obfuscate_mode_button.set_popup(self._build_obfuscate_mode_menu())
         add_cell(STYLE_FIELD_OBFUSCATE_MODE, mode_label, self._obfuscate_mode_button)
 
+        # Solid Fill's own color (task #60) - a separate field/cell from
+        # STYLE_FIELD_FILL_COLOR above on purpose, since ObfuscateShape
+        # has no ShapeStyle to read/write through (see
+        # STYLE_FIELD_OBFUSCATE_FILL_COLOR's own comment in
+        # core/tools.py). Reuses _build_color_button, the same swatch-
+        # button-plus-picker-dialog every other color field in this
+        # panel already uses.
+        obfuscate_fill_label = Gtk.Label(label="Fill:")
+        obfuscate_fill_button, self._obfuscate_fill_swatch = self._build_color_button(
+            self._active_obfuscate_fill_color, self._on_obfuscate_fill_color_changed,
+        )
+        add_cell(STYLE_FIELD_OBFUSCATE_FILL_COLOR, obfuscate_fill_label, obfuscate_fill_button)
+
         # Label text swaps with the active tool (see
         # _obfuscate_amount_label_text) - matches Windows' own two
         # separate, mode-specific controls ("Blur radius" for Blur,
@@ -1065,6 +1171,27 @@ class EditorWindow(Gtk.Window):
         shape = self.selected_shape
         if isinstance(shape, ObfuscateShape):
             updated = dataclass_replace(shape, amount=amount)
+            self.layer.replace(shape, updated)
+            self.undo_redo.push(ElementChangeMemento(self.layer, before=shape, after=updated))
+            self.selected_shape = updated
+            self._drawing_area.queue_draw()
+
+    def _active_obfuscate_fill_color(self):
+        """The Fill: swatch's own get_color() - the *selected*
+        ObfuscateShape's own fill_color when there is one, else the
+        remembered default for the next Solid Fill shape. Mirrors
+        _active_style() for shapes that do have a ShapeStyle.
+        """
+        shape = self._selected_shape
+        if isinstance(shape, ObfuscateShape):
+            return shape.fill_color
+        return self._default_obfuscate_fill_color
+
+    def _on_obfuscate_fill_color_changed(self, color) -> None:
+        self._default_obfuscate_fill_color = color
+        shape = self.selected_shape
+        if isinstance(shape, ObfuscateShape):
+            updated = dataclass_replace(shape, fill_color=color)
             self.layer.replace(shape, updated)
             self.undo_redo.push(ElementChangeMemento(self.layer, before=shape, after=updated))
             self.selected_shape = updated
@@ -2266,7 +2393,8 @@ class EditorWindow(Gtk.Window):
                 self._drag_shape = create_freehand_shape(self._drag_points, self._style_for_tool(self.tool))
             else:
                 self._drag_shape = create_shape_from_drag(
-                    self.tool, (x, y), (x, y), self._style_for_tool(self.tool), amount=self._default_obfuscate_amount
+                    self.tool, (x, y), (x, y), self._style_for_tool(self.tool),
+                    amount=self._default_obfuscate_amount, fill_color=self._default_obfuscate_fill_color,
                 )
         else:
             self.selected_shape = None
@@ -2295,7 +2423,8 @@ class EditorWindow(Gtk.Window):
                 self._drag_shape = create_freehand_shape(self._drag_points, self._style_for_tool(self.tool))
             else:
                 self._drag_shape = create_shape_from_drag(
-                    self.tool, self._drag_origin, (x, y), self._style_for_tool(self.tool), amount=self._default_obfuscate_amount
+                    self.tool, self._drag_origin, (x, y), self._style_for_tool(self.tool),
+                    amount=self._default_obfuscate_amount, fill_color=self._default_obfuscate_fill_color,
                 )
             widget.queue_draw()
             return True
@@ -2343,6 +2472,7 @@ class EditorWindow(Gtk.Window):
                 shape = create_shape_from_drag(
                     self.tool, self._drag_origin, (x, y), self._style_for_tool(self.tool),
                     amount=self._default_obfuscate_amount, next_step_number=self._next_step_number(),
+                    fill_color=self._default_obfuscate_fill_color,
                 )
             self._drag_origin = None
             self._drag_points = None

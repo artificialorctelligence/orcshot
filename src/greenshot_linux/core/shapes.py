@@ -371,6 +371,15 @@ class SvgShape:
 class ObfuscateMode(str, Enum):
     BLUR = "blur"
     PIXELIZE = "pixelize"
+    # Both added for task #60, no Windows equivalent - see filters.py's
+    # solid_fill()/scramble() docstrings for the security reasoning:
+    # Blur/Pixelize are both faithful ports of the real Windows filters,
+    # but neither is a genuine security guarantee (both are documented-
+    # reversible via public tools like Depix/unredacter, even with
+    # Pixelize's own noise hardening - see REQUIREMENTS.md's task #60
+    # writeup for the full research trail this was built from).
+    SOLID_FILL = "solid_fill"
+    SCRAMBLE = "scramble"
 
 
 @dataclass(frozen=True)
@@ -379,35 +388,41 @@ class ObfuscateShape:
     its own, unlike every other shape here. Rendering it means
     re-filtering the region of the *original captured image* under
     ``bounds`` (see ui/render.py's render_obfuscate), using the
-    box_blur/pixelize functions in filters.py. No ClickableAt override
-    in the source, so this falls through to the generic bounds-
-    inflate-5 hit test, same as TextShape/IconShape/CursorShape/
-    ImageShape/SvgShape.
+    box_blur/pixelize/solid_fill/scramble functions in filters.py. No
+    ClickableAt override in the source, so this falls through to the
+    generic bounds-inflate-5 hit test, same as TextShape/IconShape/
+    CursorShape/ImageShape/SvgShape.
 
     ``amount`` is blur radius when ``mode`` is BLUR, pixel block size
-    when PIXELIZE - a deliberate simplification of the source, which
-    gives BlurFilter and PixelizationFilter independent fields
-    (BLUR_RADIUS=3, PIXEL_SIZE=5) that keep their own values
-    independently as you switch between them.
+    when PIXELIZE, unused by SOLID_FILL/SCRAMBLE - a deliberate
+    simplification of the source, which gives BlurFilter and
+    PixelizationFilter independent fields (BLUR_RADIUS=3, PIXEL_SIZE=5)
+    that keep their own values independently as you switch between
+    them.
+
+    ``fill_color`` is the opaque color SOLID_FILL paints the region
+    with (default black, the standard redaction convention); unused by
+    every other mode.
 
     ``seed`` drives Pixelize's jittered-noise RNG (filters.py's
-    pixelize) when nothing else overrides it - drawn fresh from the OS
-    CSPRNG once, at shape creation (ui/render.py's render_obfuscate
-    still honors an explicit rng= override for tests). Pinning it here
-    means the same shape renders identical pixelization noise on every
-    redraw instead of reshuffling on every unrelated repaint (moving
-    any other shape triggers a full canvas redraw); it stays *between*
-    shapes and sessions genuinely unpredictable, matching the real
-    Windows PixelizationFilter's own security intent (a fresh
-    CryptoRandomBuffer per Apply() call - see filters.py's
-    _default_rng docstring), since each shape still gets an
-    independent, never-reused random draw of its own. compare=False:
-    two shapes with the same bounds/mode/amount are still the same
-    shape as far as equality/undo-redo care, regardless of which
-    random seed happens to back their pixelization.
+    pixelize) and Scramble's own noise (filters.py's scramble) when
+    nothing else overrides it - drawn fresh from the OS CSPRNG once, at
+    shape creation (ui/render.py's render_obfuscate still honors an
+    explicit rng= override for tests). Pinning it here means the same
+    shape renders identical noise on every redraw instead of reshuffling
+    on every unrelated repaint (moving any other shape triggers a full
+    canvas redraw); it stays *between* shapes and sessions genuinely
+    unpredictable, matching the real Windows PixelizationFilter's own
+    security intent (a fresh CryptoRandomBuffer per Apply() call - see
+    filters.py's _default_rng docstring), since each shape still gets
+    an independent, never-reused random draw of its own. compare=False:
+    two shapes with the same bounds/mode/amount/fill_color are still
+    the same shape as far as equality/undo-redo care, regardless of
+    which random seed happens to back their noise.
     """
 
     bounds: Rect
     mode: ObfuscateMode = ObfuscateMode.PIXELIZE
     amount: int = 5
+    fill_color: Color = (0, 0, 0, 255)
     seed: int = field(default_factory=lambda: secrets.randbits(128), compare=False)
