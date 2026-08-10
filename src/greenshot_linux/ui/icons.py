@@ -388,6 +388,93 @@ def _effects_icon(color: Color) -> cairo.ImageSurface:
     return surface
 
 
+def _rotate_icon(color: Color, clockwise: bool) -> cairo.ImageSurface:
+    """A circular arrow - what task #90's Rotate CW/CCW toolbar buttons
+    show (Rotate Clockwise/Counterclockwise moved here from the Image
+    menu, matching Windows' own separate rotateCwToolstripButton/
+    rotateCcwToolstripButton, ImageEditorForm.Designer.cs:565-581).
+
+    The base arc/arrowhead below is built once; clockwise is drawn by
+    mirroring it horizontally rather than re-deriving separate trig for
+    each direction - a left-right flip inverts rotational handedness,
+    so this is exact, not just visually close. (Confirmed which way is
+    which by rendering both and looking, not by eye-balling the trig -
+    the base, unflipped construction reads as counterclockwise.)
+    """
+    surface = _blank_surface()
+    ctx = cairo.Context(surface)
+    r, g, b, a = color
+    ctx.set_source_rgba(r / 255, g / 255, b / 255, a / 255)
+    ctx.set_line_width(2.2)
+    ctx.set_line_cap(cairo.LINE_CAP_ROUND)
+    ctx.set_line_join(cairo.LINE_JOIN_ROUND)
+
+    if clockwise:
+        ctx.translate(ICON_SIZE, 0)
+        ctx.scale(-1, 1)
+
+    cx, cy = ICON_SIZE / 2, ICON_SIZE / 2
+    radius = ICON_SIZE / 2 - 5.5
+    start_angle = math.radians(-70)
+    end_angle = math.radians(210)
+    ctx.arc(cx, cy, radius, start_angle, end_angle)
+    ctx.stroke()
+
+    # Arrowhead at the arc's leading end, tangent to the direction of
+    # travel (increasing angle here reads as clockwise on screen,
+    # since Cairo/GTK's y axis grows downward).
+    tip_x = cx + radius * math.cos(end_angle)
+    tip_y = cy + radius * math.sin(end_angle)
+    tangent = end_angle + math.pi / 2
+    back = tangent + math.pi
+    head_len = 5.5
+    spread = math.radians(25)
+    for sign in (-1, 1):
+        wing = back + sign * spread
+        ctx.move_to(tip_x, tip_y)
+        ctx.line_to(tip_x + head_len * math.cos(wing), tip_y + head_len * math.sin(wing))
+    ctx.stroke()
+
+    return surface
+
+
+def _resize_icon(color: Color) -> cairo.ImageSurface:
+    """A frame with a diagonal double-headed arrow through its corner -
+    the familiar "drag to resize" handle glyph. What task #90's Resize
+    toolbar button shows (moved here from the Image menu, matching
+    Windows' own separate btnResize, LanguageKey="editor_resize").
+    """
+    surface = _blank_surface()
+    ctx = cairo.Context(surface)
+    r, g, b, a = color
+    ctx.set_source_rgba(r / 255, g / 255, b / 255, a / 255)
+
+    ctx.set_line_width(1.8)
+    _rounded_rect_path(ctx, _MARGIN, _MARGIN, ICON_SIZE - 2 * _MARGIN, ICON_SIZE - 2 * _MARGIN, 2)
+    ctx.stroke()
+
+    ctx.set_line_width(2.0)
+    ctx.set_line_cap(cairo.LINE_CAP_ROUND)
+    x1, y1 = ICON_SIZE * 0.34, ICON_SIZE * 0.34
+    x2, y2 = ICON_SIZE * 0.82, ICON_SIZE * 0.82
+    ctx.move_to(x1, y1)
+    ctx.line_to(x2, y2)
+    ctx.stroke()
+
+    angle = math.atan2(y2 - y1, x2 - x1)
+    head_len = 4.5
+    spread = math.radians(28)
+    for tip_x, tip_y, direction in ((x1, y1, angle + math.pi), (x2, y2, angle)):
+        back = direction + math.pi
+        for sign in (-1, 1):
+            wing = back + sign * spread
+            ctx.move_to(tip_x, tip_y)
+            ctx.line_to(tip_x + head_len * math.cos(wing), tip_y + head_len * math.sin(wing))
+    ctx.stroke()
+
+    return surface
+
+
 def _text_icon(color: Color) -> cairo.ImageSurface:
     surface = _blank_surface()
     ctx = cairo.Context(surface)
@@ -583,5 +670,23 @@ def effects_icon_image(color: Color = _DEFAULT_COLOR) -> Gtk.Image:
     menu, like Windows' own toolStripSplitButton1).
     """
     surface = _effects_icon(color)
+    pixbuf = Gdk.pixbuf_get_from_surface(surface, 0, 0, surface.get_width(), surface.get_height())
+    return Gtk.Image.new_from_pixbuf(pixbuf)
+
+
+def rotate_cw_icon_image(color: Color = _DEFAULT_COLOR) -> Gtk.Image:
+    surface = _rotate_icon(color, clockwise=True)
+    pixbuf = Gdk.pixbuf_get_from_surface(surface, 0, 0, surface.get_width(), surface.get_height())
+    return Gtk.Image.new_from_pixbuf(pixbuf)
+
+
+def rotate_ccw_icon_image(color: Color = _DEFAULT_COLOR) -> Gtk.Image:
+    surface = _rotate_icon(color, clockwise=False)
+    pixbuf = Gdk.pixbuf_get_from_surface(surface, 0, 0, surface.get_width(), surface.get_height())
+    return Gtk.Image.new_from_pixbuf(pixbuf)
+
+
+def resize_icon_image(color: Color = _DEFAULT_COLOR) -> Gtk.Image:
+    surface = _resize_icon(color)
     pixbuf = Gdk.pixbuf_get_from_surface(surface, 0, 0, surface.get_width(), surface.get_height())
     return Gtk.Image.new_from_pixbuf(pixbuf)

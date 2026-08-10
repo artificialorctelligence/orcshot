@@ -1053,8 +1053,14 @@ so a plain `Gtk.MenuButton` matches it exactly. Drop Shadow and Torn Edge each g
 entries (instant-apply plus "...Settings") rather than Windows' single item with a
 left-click-vs-right-click(`MouseUp`) distinction, since a GTK menu item has the same
 no-right-click-affordance limitation this port's previous Image-menu placement already had to work
-around. Rotate CW/CCW and Resize — separate toolbar buttons in Windows, not part of the Effects
-split-button — remain in the "Image" menu for now, tracked as task #90. Research (before
+around. Rotate CW/CCW and Resize (task #90) moved out into their own plain toolbar buttons too
+(`_build_action_button`, new hand-drawn rotate-arrow/resize-frame icons in `ui/icons.py`) —
+separate `rotateCwToolstripButton`/`rotateCcwToolstripButton`/`btnResize` toolbar buttons in
+Windows, not part of the Effects split-button, so a plain click-to-run `Gtk.Button` per action
+matches that structure rather than reusing the dropdown pattern. The "Image" menu now holds only
+"Clear" as a result — an expected side effect of moving everything else into the toolbar across
+tasks #89/#90, not something patched here; the menu bar's own structure is task #95's scope.
+Research (before
 implementing) inventoried every effect Windows actually wires into its editor UI, citing
 `Greenshot.Base/Effects/*.cs` and `Greenshot.Base/Core/ImageHelper.cs` for each —
 `AdjustEffect`/`MonochromeEffect`/`ReduceColorsEffect` were found defined but with no UI call site

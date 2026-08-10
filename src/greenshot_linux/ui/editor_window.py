@@ -202,7 +202,10 @@ from greenshot_linux.ui.composite import composite_to_numpy
 from greenshot_linux.ui.effects import resize_image, torn_edge_image
 from greenshot_linux.ui.gdk_convert import pixbuf_to_numpy
 from greenshot_linux.ui.file_export import save_image_to_file
-from greenshot_linux.ui.icons import effects_icon_image, highlight_icon_image, obfuscate_icon_image, tool_icon_image
+from greenshot_linux.ui.icons import (
+    effects_icon_image, highlight_icon_image, obfuscate_icon_image, resize_icon_image, rotate_ccw_icon_image,
+    rotate_cw_icon_image, tool_icon_image,
+)
 from greenshot_linux.ui.printing import print_image
 from greenshot_linux.ui.render import bubble_corner_radius, render_shape, vertical_text_offset
 
@@ -261,6 +264,17 @@ _OBFUSCATE_GROUP = "obfuscate_group"
 # see _build_tool_palette's handling of this sentinel and
 # _build_effects_control.
 _EFFECTS_GROUP = "effects_group"
+
+# Task #90: Rotate CW/CCW and Resize, moved out of the Image menu -
+# plain one-shot action buttons like _EFFECTS_GROUP above (no Tool
+# enum member, no RadioButton membership), but unlike Effects each is
+# its own single click-to-run action rather than a grouped dropdown,
+# matching Windows' own separate rotateCwToolstripButton/
+# rotateCcwToolstripButton/btnResize. See _build_tool_palette's
+# handling of these sentinels and _build_action_button.
+_ROTATE_CW_ACTION = "rotate_cw_action"
+_ROTATE_CCW_ACTION = "rotate_ccw_action"
+_RESIZE_ACTION = "resize_action"
 
 # Task #60: two modes added alongside Blur/Pixelize, no Windows
 # equivalent for either - see core/shapes.py's ObfuscateMode docstring
@@ -400,16 +414,22 @@ _TOOL_LABELS = [
     (Tool.EMOJI, "Emoji"),
     None,
     # Real Windows order (ImageEditorForm.Designer.cs's toolsToolStrip.
-    # Items): ...Emoji, [separator], Highlight, Obfuscate, Effects -
-    # Obfuscate used to sit *before* Text/SpeechBubble/StepLabel/Emoji
-    # here, which didn't match; corrected while placing Highlight
-    # (task #88) in its own real position, since leaving Obfuscate
-    # wrong while placing Highlight right next to it would only be
-    # more confusing. Effects (task #89) belongs right after Obfuscate
-    # too.
+    # Items): ...Emoji, [separator], Highlight, Obfuscate, Effects,
+    # [separator], Crop, RotateCW, RotateCCW, Resize - Obfuscate used
+    # to sit *before* Text/SpeechBubble/StepLabel/Emoji here, which
+    # didn't match; corrected while placing Highlight (task #88) in
+    # its own real position, since leaving Obfuscate wrong while
+    # placing Highlight right next to it would only be more confusing.
+    # Crop (task #91) isn't built yet - RotateCW/RotateCCW/Resize
+    # (task #90) are positioned where they'll end up once it exists,
+    # not shifted earlier to fill the gap.
     _HIGHLIGHT_GROUP,
     _OBFUSCATE_GROUP,
     _EFFECTS_GROUP,
+    None,
+    _ROTATE_CW_ACTION,
+    _ROTATE_CCW_ACTION,
+    _RESIZE_ACTION,
 ]
 
 _HANDLE_SIZE = 6
@@ -899,19 +919,16 @@ class EditorWindow(Gtk.Window):
         # Border/Drop Shadow/Torn Edge/Grayscale/Invert/Remove
         # Transparency group moved out of here into the toolbar's
         # Effects dropdown (task #89, _build_effects_control/
-        # _build_effects_menu), matching Windows' real
-        # toolStripSplitButton1. Rotate/Resize still live here for now
-        # - Windows puts those in the toolbar too (separate buttons,
-        # not part of the Effects split-button), tracked as its own
-        # task (#90) rather than folded in here. "Enlarge Canvas"/
-        # "Shrink Canvas" deliberately have no item here - Windows
-        # itself has no menu/toolbar entry for either, keyboard-only
-        # (Ctrl+Shift++ / Ctrl+Shift+-, see _on_key_press).
+        # _build_effects_menu), and Rotate CW/CCW/Resize moved out into
+        # their own plain toolbar buttons (task #90,
+        # _build_action_button) - matching Windows' real toolbar
+        # layout for both. "Enlarge Canvas"/"Shrink Canvas" deliberately
+        # have no item here - Windows itself has no menu/toolbar entry
+        # for either, keyboard-only (Ctrl+Shift++ / Ctrl+Shift+-, see
+        # _on_key_press). Only "Clear" is left; a near-empty Image menu
+        # is an expected side effect of tasks #89/#90, not something to
+        # patch here - the menu bar's own structure is task #95's scope.
         image_menu = add_menu("Image")
-        add_item(image_menu, "Rotate Clockwise", self._do_rotate_cw)
-        add_item(image_menu, "Rotate Counterclockwise", self._do_rotate_ccw)
-        add_item(image_menu, "Resize...", self._do_resize)
-        image_menu.append(Gtk.SeparatorMenuItem())
         add_item(image_menu, "Clear", self._do_clear)
 
         help_menu = add_menu("Help")
@@ -972,6 +989,19 @@ class EditorWindow(Gtk.Window):
                 continue
             if entry is _EFFECTS_GROUP:
                 self._build_effects_control(box, icon_color)
+                continue
+            if entry is _ROTATE_CW_ACTION:
+                self._build_action_button(
+                    box, rotate_cw_icon_image(icon_color), "Rotate Clockwise", self._do_rotate_cw,
+                )
+                continue
+            if entry is _ROTATE_CCW_ACTION:
+                self._build_action_button(
+                    box, rotate_ccw_icon_image(icon_color), "Rotate Counterclockwise", self._do_rotate_ccw,
+                )
+                continue
+            if entry is _RESIZE_ACTION:
+                self._build_action_button(box, resize_icon_image(icon_color), "Resize...", self._do_resize)
                 continue
             tool, label = entry
             button = Gtk.RadioButton.new_from_widget(group_leader)
@@ -1280,6 +1310,22 @@ class EditorWindow(Gtk.Window):
         add_item("Remove Transparency...", self._do_remove_transparency)
         menu.show_all()
         return menu
+
+    def _build_action_button(self, box: Gtk.Box, image: Gtk.Image, tooltip: str, handler) -> None:
+        """A plain one-shot toolbar icon button (task #90's Rotate CW/
+        Rotate CCW/Resize) - not a drawing tool (no RadioButton
+        membership, no self.tool involvement) and not a dropdown (no
+        popup menu, unlike _build_effects_control) - just click-to-
+        run, matching Windows' own separate rotateCwToolstripButton/
+        rotateCcwToolstripButton/btnResize rather than a grouped
+        split-button.
+        """
+        button = Gtk.Button()
+        button.set_relief(Gtk.ReliefStyle.NONE)
+        button.set_image(image)
+        button.set_tooltip_text(tooltip)
+        button.connect("clicked", lambda _b: handler())
+        box.pack_start(button, False, False, 0)
 
     def _build_action_toolbar(self) -> Gtk.Toolbar:
         """Matches the real Windows order (confirmed from
