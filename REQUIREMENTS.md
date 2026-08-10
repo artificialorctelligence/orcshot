@@ -2929,6 +2929,78 @@ Obfuscate changes nothing. Also a real screenshot of the rebuilt Help dialog con
 header/key indentation relationship, and (running under X11 in this dev environment) the X11-specific
 Tray Icon wording.
 
+## Editor title bar text (complete 2026-08-09)
+
+`EditorWindow`'s title changed from "Greenshot Linux" to "Greenshot for Linux image editor", by
+request. Only the editor window itself - the tray icon's own tooltip and the About dialog's program
+name (both still "Greenshot Linux") weren't part of this request and were left alone.
+
+## Speech Bubble tail anchor point (complete 2026-08-09)
+
+Real bug, reported live with a screenshot: the tail visibly moved to a different side of the bubble
+depending on which direction you dragged from the same start point, rather than staying put. Root
+cause: `create_shape_from_drag`'s old formula derived the tail's target from the *final* bounding box's
+bottom-left corner (`bubble_bounds.left`, `bubble_bounds.bottom + 30`) - but `Rect.from_points` always
+normalizes `start`/`end` into a proper left<=right/top<=bottom rect regardless of which way you actually
+dragged, so "the bottom-left corner" can correspond to any of the four *actual* dragged corners
+depending on direction, making the tail seem to jump around unpredictably.
+
+Fixed as a faithful port of the real Windows source (`Greenshot.Editor/Drawing/SpeechbubbleContainer.
+cs`), not guessed - its own `HandleMouseDown`/`HandleMouseMove` carry a comment citing a real prior
+Windows bug ("BUG-1682") this exact mechanism was built to fix: the tail is anchored to
+`_initialGripperPoint`, the drag's own fixed start point (mouse-down location, never moves for the rest
+of the drag), offset by a constant 20px in each axis - the offset's *sign* flips based on
+`leftAligned`/`topAligned` (whether the box is still growing in its original direction or has been
+dragged back past the start point), so the tail always points away from wherever the bubble is
+currently growing, never into it. Ported directly: `core/tools.py`'s `_SPEECH_BUBBLE_TAIL_DROP` (a
+single 30px drop below the bottom-left corner) replaced with `_SPEECH_BUBBLE_TAIL_OFFSET = 20` and the
+same `end[0] >= start[0]` / `end[1] >= start[1]` direction check Windows' own `Right - Left >= 0` /
+`Bottom - Top >= 0` comparison amounts to once you account for Windows' own `Rectangle` not
+auto-normalizing negative width/height the way this port's `Rect.from_points` does.
+
+Verified: new unit tests asserting the tail always sits exactly 20px outside the start point in both
+axes regardless of drag direction (4 directions tested), that it points the correct diagonal direction
+for two opposite drags, and that reversing a drag past its own start point flips the offset rather than
+leaving the tail stranded mid-drag. Also live in a real GTK session - two bubbles dragged in opposite
+diagonal directions both show the tail correctly pointing away from the bubble, anchored near the drag's
+own start point in both cases.
+
+## Task backlog from a side-by-side comparison with the real Windows editor (2026-08-09)
+
+A large batch of gaps/fixes (tasks #87-101) came from the user directly comparing this port's editor
+against a real running Windows Greenshot instance, rather than this port's own read-through-the-source
+approach used for everything before this. Surfaced several real, previously-unknown-to-this-port
+issues no amount of source-reading alone had caught, and one real correction to something this project's
+own REQUIREMENTS.md previously claimed:
+
+- **The real Windows keyboard shortcut scheme uses letter mnemonics, not numbers** (`ImageEditorFormKeyDown`,
+  `ImageEditorForm.cs`) - Escape=Select, R/E/L/F/A/T/S/I/H/O/C/M/Z for
+  Rectangle/Ellipse/Line/Freehand/Arrow/Text/SpeechBubble/StepLabel/Highlight/Obfuscate/Crop/Emoji/Resize,
+  plus Ctrl+./Ctrl+, for rotate and Ctrl+Q/B/T/I/G for the individual Effects. This directly corrects an
+  earlier claim in this same file (see the now-superseded "Editor keyboard shortcuts" section above) that
+  Select "has no clear Windows precedent" for a shortcut - that was based on checking only the Designer.cs
+  `ShortcutKeys` properties (all empty), not the real `KeyDown` handler where Windows actually implements
+  this. Task #92 tracks replacing this port's own invented `` ` ``+1-9+0 scheme with the real one.
+- **Effects is a toolbar dropdown in Windows, not a popup dialog** - confirmed from the real
+  `toolStripSplitButton1.DropDownItems` list, contradicting this port's current modal-dialog
+  implementation (task #89).
+- **Crop and Highlight tools were never built** (tasks #91, #88).
+- **Rotate CW/CCW and Resize belong in the toolbar, not the Image menu** (task #90).
+- An unresolved discrepancy surfaced mid-conversation: the real Windows *source* lists 7 Effects dropdown
+  items, but a real screenshot of the actual running Windows app the user provided shows only 5 - missing
+  Remove Transparency and the OCR-based "Obfuscate Text" item. Not yet explained (version mismatch?
+  conditionally hidden at runtime?) - tracked as its own task (#101) rather than guessed at, since it
+  affects the real scope of both #89 and #100.
+- Windows 10's own OCR integration (auto-obfuscate detected text, confusingly labeled "Obfuscate Text"
+  inside the Effects dropdown) and Share integration (native DataTransferManager share-sheet, no Linux
+  equivalent) were investigated and split into two tasks with very different shapes: OCR is confirmed to
+  build (task #100, needs a Linux-side OCR engine like Tesseract swapped in for `IOcrProvider`), Share is
+  deliberately kept as a discussion-only task (task #94) since there's no universal Linux desktop
+  share-sheet standard to port to.
+
+Full task list and citations live in the task tracker (tasks #87-101); this section is a pointer to how
+they were found, not a duplicate of each one's own description.
+
 ## Unverified assumptions
 
 Implemented, believed correct (spec, docs, or code-reading), but not directly observed working

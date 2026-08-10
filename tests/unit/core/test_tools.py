@@ -191,17 +191,50 @@ class TestCreateShapeFromDrag:
         with pytest.raises(ValueError):
             create_shape_from_drag(Tool.SELECT, (10, 40), (60, 10), STYLE)
 
-    def test_speech_bubble_starts_empty_with_a_tail_pointing_below_the_bubble(self):
+    def test_speech_bubble_starts_empty(self):
         shape = create_shape_from_drag(Tool.SPEECH_BUBBLE, (10, 40), (60, 10), STYLE)
         assert isinstance(shape, SpeechBubbleShape)
         assert shape.bubble_bounds == Rect(10, 10, 60, 40)
         assert shape.text == ""
         assert shape.style is STYLE
-        # tail aims somewhere below the bubble by default - there's no
-        # dedicated handle to reposition just the tail after creation
-        # (see core/tools.py's shape_handles), so this has to be a
-        # sensible one-shot default, not degenerate/zero-length.
-        assert shape.target[1] > shape.bubble_bounds.bottom
+
+    def test_speech_bubble_tail_is_anchored_to_the_drag_start_point_not_a_bounds_corner(self):
+        # Faithful port of SpeechbubbleContainer's own BUG-1682 fix: the
+        # tail sits a fixed 20px outside the drag's own start point,
+        # never on a corner of the final (post-normalization) bounds -
+        # which is what the pre-fix version did, and which flips
+        # depending on drag direction since Rect.from_points always
+        # normalizes start/end regardless of which way you dragged.
+        start = (100, 100)
+        for end in [(150, 150), (50, 150), (150, 50), (50, 50)]:
+            shape = create_shape_from_drag(Tool.SPEECH_BUBBLE, start, end, STYLE)
+            assert abs(shape.target[0] - start[0]) == 20
+            assert abs(shape.target[1] - start[1]) == 20
+
+    def test_speech_bubble_tail_points_away_from_the_direction_the_bubble_grows(self):
+        # Dragging down-and-right (bubble grows toward positive x/y from
+        # the start point) - the tail should sit up-and-left of start,
+        # outside the bubble's own growth direction, not inside it.
+        shape = create_shape_from_drag(Tool.SPEECH_BUBBLE, (100, 100), (200, 200), STYLE)
+        assert shape.target == (80, 80)
+
+        # Dragging up-and-left (bubble grows toward negative x/y) - the
+        # tail flips to sit down-and-right of the same start point.
+        shape = create_shape_from_drag(Tool.SPEECH_BUBBLE, (100, 100), (0, 0), STYLE)
+        assert shape.target == (120, 120)
+
+    def test_speech_bubble_tail_stays_put_if_the_drag_reverses_past_the_start_point(self):
+        # A drag that starts moving one way then crosses back over the
+        # start point in the opposite direction shouldn't leave the
+        # tail stranded somewhere in the middle - it's still just
+        # "outside the start point, opposite the current drag
+        # direction" at every step, recomputed fresh each call (this
+        # function has no memory of earlier calls in the same drag).
+        start = (100, 100)
+        first = create_shape_from_drag(Tool.SPEECH_BUBBLE, start, (150, 150), STYLE)
+        reversed_ = create_shape_from_drag(Tool.SPEECH_BUBBLE, start, (50, 50), STYLE)
+        assert first.target == (80, 80)
+        assert reversed_.target == (120, 120)
 
     def test_step_label_is_a_fixed_size_circle_at_the_start_point_ignoring_drag_end(self):
         shape = create_shape_from_drag(Tool.STEP_LABEL, (100, 100), (999, 999), STYLE, next_step_number=3)

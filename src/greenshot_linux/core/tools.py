@@ -270,14 +270,19 @@ def visible_style_fields(tool: Tool, selected_shape=None) -> frozenset:
 # typing new text on any other TextShape.
 _DEFAULT_EMOJI = "\U0001F642"
 
-# How far below the bubble the tail's default target sits, in pixels -
-# SpeechBubbleShape has no dedicated handle to reposition just the
-# tail after creation (see shape_handles below: only bubble_bounds
-# gets handles, target moves along for the ride during a whole-shape
-# move), so creation has to pick a sensible one-shot default rather
-# than something degenerate like the drag's own start point (which
-# would put the target right on the bubble's own edge).
-_SPEECH_BUBBLE_TAIL_DROP = 30
+# How far outside the drag's own start corner the tail sits, in
+# pixels - faithful port of SpeechbubbleContainer.HandleMouseMove's
+# own offset (a fix for the real Windows source's own BUG-1682: the
+# tail used to be computed from the *final* bounding box's corner,
+# which - after Rect.from_points below normalizes start/end into a
+# rect - can land on any of the four actual dragged corners depending
+# on drag direction, making the tail visibly jump around depending on
+# which way you dragged from the same start point. The real fix
+# anchors the tail to the drag's own fixed start point instead (never
+# moves once you've pressed down) and only flips which side of it the
+# tail sits on, so it always points away from wherever the bubble is
+# growing rather than tracking the bubble's own final shape.
+_SPEECH_BUBBLE_TAIL_OFFSET = 20
 
 # StepLabelShape is click-to-place in the source, not drag-to-size -
 # always this fixed radius regardless of where a drag ends.
@@ -328,7 +333,14 @@ def create_shape_from_drag(
         return TextShape(Rect.from_points(*start, *end), text=_DEFAULT_EMOJI, style=style)
     if tool is Tool.SPEECH_BUBBLE:
         bubble_bounds = Rect.from_points(*start, *end)
-        target = (bubble_bounds.left, bubble_bounds.bottom + _SPEECH_BUBBLE_TAIL_DROP)
+        # leftAligned/topAligned in the real source: whether the drag
+        # is still growing in its original direction (end past start)
+        # or has crossed back over the start point - determines which
+        # side of the fixed start point the tail sits on, so it always
+        # points away from the bubble rather than into it.
+        x_offset = -_SPEECH_BUBBLE_TAIL_OFFSET if end[0] >= start[0] else _SPEECH_BUBBLE_TAIL_OFFSET
+        y_offset = -_SPEECH_BUBBLE_TAIL_OFFSET if end[1] >= start[1] else _SPEECH_BUBBLE_TAIL_OFFSET
+        target = (start[0] + x_offset, start[1] + y_offset)
         return SpeechBubbleShape(bubble_bounds=bubble_bounds, target=target, text="", style=style)
     if tool is Tool.STEP_LABEL:
         cx, cy = start

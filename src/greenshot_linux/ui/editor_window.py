@@ -381,7 +381,7 @@ def _css_rgba(color) -> str:
 
 class EditorWindow(Gtk.Window):
     def __init__(self, image: np.ndarray, clipboard_backend: ClipboardBackend = None):
-        super().__init__(title="Greenshot Linux")
+        super().__init__(title="Greenshot for Linux image editor")
         self._base_image = image
         self._surface = numpy_to_cairo_surface(image)
         height, width = image.shape[:2]
