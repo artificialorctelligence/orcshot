@@ -24,7 +24,7 @@ import numpy as np
 
 from greenshot_linux.core.tools import Tool
 from greenshot_linux.ui.cairo_convert import cairo_surface_to_numpy
-from greenshot_linux.ui.icons import ICON_SIZE, _effects_icon, _obfuscate_icon, tool_icon_surface
+from greenshot_linux.ui.icons import ICON_SIZE, _effects_icon, _highlight_icon, _obfuscate_icon, tool_icon_surface
 
 
 def test_every_tool_has_an_icon_builder():
@@ -126,4 +126,25 @@ def test_effects_icon_uses_the_given_color():
 def test_effects_icon_changes_visibly_between_colors():
     white_image = cairo_surface_to_numpy(_effects_icon((255, 255, 255, 255)))
     black_image = cairo_surface_to_numpy(_effects_icon((0, 0, 0, 255)))
+    assert not np.array_equal(white_image, black_image)
+
+
+def test_highlight_icon_draws_something_visible():
+    surface = _highlight_icon((60, 60, 60, 255))
+    assert surface.get_width() == ICON_SIZE
+    assert surface.get_height() == ICON_SIZE
+    image = cairo_surface_to_numpy(surface)
+    assert image[:, :, 3].max() > 0
+
+
+def test_highlight_icon_uses_the_given_color():
+    red = (255, 0, 0, 255)
+    image = cairo_surface_to_numpy(_highlight_icon(red))
+    mask = (image[:, :, 0] > 200) & (image[:, :, 1] < 50) & (image[:, :, 2] < 50) & (image[:, :, 3] > 0)
+    assert mask.any()
+
+
+def test_highlight_icon_changes_visibly_between_colors():
+    white_image = cairo_surface_to_numpy(_highlight_icon((255, 255, 255, 255)))
+    black_image = cairo_surface_to_numpy(_highlight_icon((0, 0, 0, 255)))
     assert not np.array_equal(white_image, black_image)
