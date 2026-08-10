@@ -32,6 +32,7 @@ from greenshot_linux.core.shapes import (
     TextShape,
 )
 from greenshot_linux.core.tools import (
+    STYLE_FIELD_CROP_MODE,
     STYLE_FIELD_FILL_COLOR,
     STYLE_FIELD_HIGHLIGHT_BLUR_RADIUS,
     STYLE_FIELD_HIGHLIGHT_BRIGHTNESS,
@@ -330,6 +331,7 @@ _HIGHLIGHT_AREA_FIELDS = frozenset({
 })
 _HIGHLIGHT_MODE_ONLY_FIELDS = frozenset({STYLE_FIELD_HIGHLIGHT_MODE})
 _HIGHLIGHT_MAGNIFY_FIELDS = frozenset({STYLE_FIELD_HIGHLIGHT_MAGNIFICATION, STYLE_FIELD_HIGHLIGHT_MODE})
+_CROP_FIELDS = frozenset({STYLE_FIELD_CROP_MODE})
 
 
 class TestVisibleStyleFields:
@@ -351,6 +353,9 @@ class TestVisibleStyleFields:
         (Tool.HIGHLIGHT_AREA, _HIGHLIGHT_AREA_FIELDS),
         (Tool.HIGHLIGHT_GRAYSCALE, _HIGHLIGHT_MODE_ONLY_FIELDS),
         (Tool.HIGHLIGHT_MAGNIFY, _HIGHLIGHT_MAGNIFY_FIELDS),
+        (Tool.CROP_DEFAULT, _CROP_FIELDS),
+        (Tool.CROP_VERTICAL, _CROP_FIELDS),
+        (Tool.CROP_HORIZONTAL, _CROP_FIELDS),
     ])
     def test_tool_without_a_selection(self, tool, expected):
         assert visible_style_fields(tool) == expected

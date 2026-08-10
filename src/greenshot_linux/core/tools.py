@@ -71,6 +71,20 @@ class Tool(str, Enum):
     BLUR = "blur"
     SOLID_FILL = "solid_fill"
     SCRAMBLE = "scramble"
+    # Task #91: real toolbar order puts Crop right after Effects, before
+    # RotateCW/RotateCCW/Resize (ImageEditorForm.Designer.cs's
+    # toolsToolStrip.Items). Three Tool values sharing one toolbar
+    # button, mirroring Highlight/Obfuscate's own pattern - but unlike
+    # those, Crop never creates a Shape at all (CropContainer isn't a
+    # drawn annotation, ui/editor_window.py tracks its in-progress
+    # selection as separate state, not a Layer entry - see
+    # core/crop.py's own module docstring). AutoCrop isn't its own Tool
+    # value here either, matching Windows: it's a one-time seed action
+    # that then behaves exactly like CROP_DEFAULT (InitCropMode,
+    # ImageEditorForm.cs:1674-1696), not a persistent mode.
+    CROP_DEFAULT = "crop_default"
+    CROP_VERTICAL = "crop_vertical"
+    CROP_HORIZONTAL = "crop_horizontal"
 
 
 # Named style-panel fields, matching Windows' own FieldType names for
@@ -119,6 +133,16 @@ STYLE_FIELD_HIGHLIGHT_FILL_COLOR = "highlight_fill_color"
 STYLE_FIELD_HIGHLIGHT_BRIGHTNESS = "highlight_brightness"
 STYLE_FIELD_HIGHLIGHT_BLUR_RADIUS = "highlight_blur_radius"
 STYLE_FIELD_HIGHLIGHT_MAGNIFICATION = "highlight_magnification"
+# Crop (task #91) mirrors Windows' own cropModeButton visibility rule
+# (ImageEditorForm.cs:1402, `cropModeButton.Visible =
+# props.HasFieldValue(FieldType.CROPMODE)`) - just the one field, since
+# Crop has no ShapeStyle-backed fields at all (no Shape exists until
+# confirm - see core/crop.py's own module docstring). Confirm/Cancel
+# button visibility is handled separately in ui/editor_window.py,
+# driven by whether a crop selection is in progress rather than by
+# which tool is active - Windows shows those for *any* CONFIRMABLE
+# selection, not specifically Crop's own field.
+STYLE_FIELD_CROP_MODE = "crop_mode"
 
 _FULL_STYLE_FIELDS = frozenset({
     STYLE_FIELD_LINE_COLOR, STYLE_FIELD_FILL_COLOR, STYLE_FIELD_LINE_THICKNESS, STYLE_FIELD_SHADOW,
@@ -152,6 +176,7 @@ _HIGHLIGHT_STYLE_FIELDS_AREA = frozenset({
 })
 _HIGHLIGHT_STYLE_FIELDS_MODE_ONLY = frozenset({STYLE_FIELD_HIGHLIGHT_MODE})
 _HIGHLIGHT_STYLE_FIELDS_MAGNIFY = frozenset({STYLE_FIELD_HIGHLIGHT_MAGNIFICATION, STYLE_FIELD_HIGHLIGHT_MODE})
+_CROP_STYLE_FIELDS = frozenset({STYLE_FIELD_CROP_MODE})
 
 # Which style-panel fields each tool's shape actually has, cross-
 # checked against the real Windows source's own per-container AddField
@@ -182,6 +207,9 @@ _TOOL_STYLE_FIELDS = {
     Tool.HIGHLIGHT_AREA: _HIGHLIGHT_STYLE_FIELDS_AREA,
     Tool.HIGHLIGHT_GRAYSCALE: _HIGHLIGHT_STYLE_FIELDS_MODE_ONLY,
     Tool.HIGHLIGHT_MAGNIFY: _HIGHLIGHT_STYLE_FIELDS_MAGNIFY,
+    Tool.CROP_DEFAULT: _CROP_STYLE_FIELDS,
+    Tool.CROP_VERTICAL: _CROP_STYLE_FIELDS,
+    Tool.CROP_HORIZONTAL: _CROP_STYLE_FIELDS,
     Tool.TEXT: _FULL_STYLE_FIELDS,
     Tool.SPEECH_BUBBLE: _FULL_STYLE_FIELDS,
     Tool.STEP_LABEL: _FULL_STYLE_FIELDS,

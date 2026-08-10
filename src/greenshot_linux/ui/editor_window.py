@@ -125,8 +125,11 @@ import numpy as np
 from gi.repository import Gdk, GdkPixbuf, Gio, GLib, Gtk, Pango, Rsvg
 
 from greenshot_linux.capture.clipboard import ClipboardBackend
-from greenshot_linux.core.crop import autocrop_rect, crop_to_rect
+from greenshot_linux.core.crop import (
+    autocrop_rect, crop_out_horizontal_strip, crop_out_vertical_strip, crop_to_rect,
+)
 from greenshot_linux.core.drawing import Layer
+from greenshot_linux.core.geometry import Rect
 from greenshot_linux.core.effects import (
     add_border_image,
     clear_image,
@@ -159,6 +162,7 @@ from greenshot_linux.settings import (
 )
 from greenshot_linux.resources import LOGO_PATH
 from greenshot_linux.core.tools import (
+    STYLE_FIELD_CROP_MODE,
     STYLE_FIELD_FILL_COLOR,
     STYLE_FIELD_HIGHLIGHT_BLUR_RADIUS,
     STYLE_FIELD_HIGHLIGHT_BRIGHTNESS,
@@ -203,8 +207,8 @@ from greenshot_linux.ui.effects import resize_image, torn_edge_image
 from greenshot_linux.ui.gdk_convert import pixbuf_to_numpy
 from greenshot_linux.ui.file_export import save_image_to_file
 from greenshot_linux.ui.icons import (
-    effects_icon_image, highlight_icon_image, obfuscate_icon_image, resize_icon_image, rotate_ccw_icon_image,
-    rotate_cw_icon_image, tool_icon_image,
+    crop_icon_image, effects_icon_image, highlight_icon_image, obfuscate_icon_image, resize_icon_image,
+    rotate_ccw_icon_image, rotate_cw_icon_image, tool_icon_image,
 )
 from greenshot_linux.ui.printing import print_image
 from greenshot_linux.ui.render import bubble_corner_radius, render_shape, vertical_text_offset
@@ -370,6 +374,26 @@ _HIGHLIGHT_MODE_LABELS = {
 # to sort by the way Obfuscate's own order has.
 _HIGHLIGHT_MODE_ORDER = (Tool.HIGHLIGHT_TEXT, Tool.HIGHLIGHT_AREA, Tool.HIGHLIGHT_GRAYSCALE, Tool.HIGHLIGHT_MAGNIFY)
 
+# Crop (task #91) - three Tool values sharing one toolbar button, same
+# shape as Highlight/Obfuscate above, but no separate Tool<->Mode
+# mapping dance is needed: unlike ObfuscateShape/HighlightShape, no
+# Shape (and so no shape.mode field of a different enum type) ever
+# exists for Crop, so Tool.CROP_DEFAULT/VERTICAL/HORIZONTAL directly
+# *are* the modes core/crop.py's crop_to_rect/crop_out_vertical_strip/
+# crop_out_horizontal_strip dispatch on - see _confirm_crop.
+_CROP_GROUP = "crop_group"
+_CROP_MODE_ORDER = (Tool.CROP_DEFAULT, Tool.CROP_VERTICAL, Tool.CROP_HORIZONTAL)
+# Dropdown order matches the real Windows declaration order
+# (cropModeButton.DropDownItems, ImageEditorForm.Designer.cs:1143-
+# 1145): Default, Vertical, Horizontal, then Auto - Auto isn't in
+# _CROP_MODE_ORDER above since it's a one-time seed action, not a
+# persistent mode (see _do_auto_crop's own docstring).
+_CROP_MODE_LABELS = {
+    Tool.CROP_DEFAULT: "Default",
+    Tool.CROP_VERTICAL: "Vertical",
+    Tool.CROP_HORIZONTAL: "Horizontal",
+}
+
 # Solid Fill's own preset redaction labels (task #60 follow-up) - "" is
 # "None" (plain box, no text, ObfuscateShape.fill_text's own default).
 # Deliberately a fixed list, not free text entry - anyone wanting a
@@ -420,13 +444,11 @@ _TOOL_LABELS = [
     # didn't match; corrected while placing Highlight (task #88) in
     # its own real position, since leaving Obfuscate wrong while
     # placing Highlight right next to it would only be more confusing.
-    # Crop (task #91) isn't built yet - RotateCW/RotateCCW/Resize
-    # (task #90) are positioned where they'll end up once it exists,
-    # not shifted earlier to fill the gap.
     _HIGHLIGHT_GROUP,
     _OBFUSCATE_GROUP,
     _EFFECTS_GROUP,
     None,
+    _CROP_GROUP,
     _ROTATE_CW_ACTION,
     _ROTATE_CCW_ACTION,
     _RESIZE_ACTION,
@@ -542,6 +564,19 @@ class EditorWindow(Gtk.Window):
         self._default_highlight_brightness = 0.9
         self._default_highlight_blur_radius = 3
         self._default_highlight_magnification = 2
+        # Crop's own defaults (task #91) - matches Windows'
+        # cropModeButton.SelectedTag/Tag default (ImageEditorForm.
+        # Designer.cs:1152-1153), CropModes.Default.
+        self._default_crop_mode = Tool.CROP_DEFAULT
+        # The in-progress crop selection - not a Shape/Layer entry at
+        # all (see core/crop.py's own module docstring on why Crop
+        # isn't Layer-participating), just a plain Rect the user is
+        # dragging/resizing, confirmed or cancelled via the style
+        # panel's own Confirm/Cancel buttons (_build_crop_confirm_
+        # buttons), matching Windows' CONFIRMABLE-flag-driven
+        # btnConfirm/btnCancel (ImageEditorForm.cs:1399).
+        self._crop_selection = None
+        self._crop_resize_handle = None
         # Bypasses the selected_shape property below - same reason the
         # base_image property's docstring gives for __init__ setting
         # self._base_image directly: its setter refreshes the
@@ -721,7 +756,19 @@ class EditorWindow(Gtk.Window):
         _active_style. Centralized here for the same reason
         selected_shape's setter is. Bypassed by __init__ - see
         self._tool's own comment there.
+
+        Also discards any in-progress crop selection when switching to
+        a non-Crop tool - the single choke point every tool switch
+        passes through (palette clicks, keyboard shortcuts, Crop's own
+        mode-dropdown), so this is the one place that needs to enforce
+        it rather than every caller remembering to. Matches Windows:
+        picking a different tool implicitly abandons an unconfirmed
+        CropContainer the same way InitCropMode's own RemoveCropContainer
+        call does on an explicit mode change (see _set_crop_mode).
         """
+        if value not in _CROP_MODE_ORDER:
+            self._crop_selection = None
+            self._crop_resize_handle = None
         self._tool = value
         self._refresh_style_panel()
 
@@ -848,6 +895,14 @@ class EditorWindow(Gtk.Window):
                 self._highlight_magnification_spin.set_value(self._default_highlight_magnification)
         finally:
             self._syncing_style_panel = False
+
+        # Crop (task #91) has no selected-shape state to fall back to
+        # (see _build_crop_control's own docstring on why) - the Mode
+        # label always just reflects self._default_crop_mode.
+        self._crop_mode_button.set_label(_CROP_MODE_LABELS[self._default_crop_mode])
+        if not self._crop_mode_items[self._default_crop_mode].get_active():
+            self._crop_mode_items[self._default_crop_mode].set_active(True)
+        self._crop_confirm_cell.set_visible(self._crop_selection is not None)
 
     @property
     def base_image(self) -> np.ndarray:
@@ -989,6 +1044,9 @@ class EditorWindow(Gtk.Window):
                 continue
             if entry is _EFFECTS_GROUP:
                 self._build_effects_control(box, icon_color)
+                continue
+            if entry is _CROP_GROUP:
+                group_leader = self._build_crop_control(box, group_leader, icon_color)
                 continue
             if entry is _ROTATE_CW_ACTION:
                 self._build_action_button(
@@ -1251,6 +1309,227 @@ class EditorWindow(Gtk.Window):
             self._refresh_style_panel()
         else:
             self._highlight_button.set_active(True)  # fires "toggled" -> _on_highlight_button_toggled
+
+    def _build_crop_control(self, box: Gtk.Box, group_leader, icon_color) -> Gtk.RadioButton:
+        """The single "Crop" palette entry - mirrors _build_highlight_
+        control's shape exactly (one button standing in for three Tool
+        values, real cropModeButton lives in propertiesToolStrip, not
+        attached to btnCrop) - but Crop never creates a Shape, so
+        there's no shape.mode field to retroactively update in
+        _set_crop_mode below, unlike Highlight/Obfuscate.
+        """
+        button = Gtk.RadioButton.new_from_widget(group_leader)
+        if group_leader is None:
+            group_leader = button
+        button.set_mode(False)
+        button.set_relief(Gtk.ReliefStyle.NONE)
+        button.set_image(crop_icon_image(icon_color))
+        button.set_tooltip_text("Crop")
+        button.set_active(self.tool in _CROP_MODE_ORDER)
+        button.connect("toggled", self._on_crop_button_toggled)
+        box.pack_start(button, False, False, 0)
+        self._crop_button = button
+        for mode in _CROP_MODE_ORDER:
+            self._tool_buttons[mode] = button
+        return group_leader
+
+    def _build_crop_mode_menu(self) -> Gtk.Menu:
+        """Real Windows dropdown order (cropModeButton.DropDownItems,
+        ImageEditorForm.Designer.cs:1143-1145): Default, Vertical,
+        Horizontal, then Auto. The first three are mutually exclusive
+        persistent modes (RadioMenuItems, like Highlight/Obfuscate's
+        own mode dropdowns); Auto is a plain one-shot trigger item, not
+        part of that radio group - see _do_auto_crop's own docstring
+        for why it isn't a fourth _CROP_MODE_ORDER entry.
+        """
+        menu = Gtk.Menu()
+        self._crop_mode_items = {}
+        item_group_leader = None
+        for mode in _CROP_MODE_ORDER:
+            item = Gtk.RadioMenuItem.new_with_label_from_widget(item_group_leader, _CROP_MODE_LABELS[mode])
+            if item_group_leader is None:
+                item_group_leader = item
+            item.set_active(mode is self._default_crop_mode)
+            item.connect("toggled", self._on_crop_mode_item_toggled, mode)
+            menu.append(item)
+            self._crop_mode_items[mode] = item
+        auto_item = Gtk.MenuItem(label="Auto")
+        auto_item.connect("activate", lambda _i: self._do_auto_crop())
+        menu.append(auto_item)
+        menu.show_all()
+        return menu
+
+    def _on_crop_button_toggled(self, button: Gtk.RadioButton) -> None:
+        if button.get_active():
+            self.tool = self._default_crop_mode
+            self._refresh_style_panel()
+
+    def _on_crop_mode_item_toggled(self, item: Gtk.RadioMenuItem, mode: Tool) -> None:
+        if item.get_active():
+            self._set_crop_mode(mode)
+
+    def _set_crop_mode(self, mode: Tool) -> None:
+        """Changes which crop mode is prepared next. Discards any
+        in-progress crop selection - faithful to Windows' own
+        InitCropMode (ImageEditorForm.cs:1674-1696), which always calls
+        Surface.RemoveCropContainer() before re-entering crop mode on
+        every mode change, not just some of them (AutoCrop is the one
+        exception, and even that only reuses the *old* selection's
+        bounds as a search hint for the new auto-detected one, not by
+        keeping the container itself - see _do_auto_crop).
+        """
+        self._default_crop_mode = mode
+        self._crop_mode_button.set_label(_CROP_MODE_LABELS[mode])
+        if not self._crop_mode_items[mode].get_active():
+            self._crop_mode_items[mode].set_active(True)
+        self._crop_selection = None
+        self._crop_resize_handle = None
+        if self.tool in _CROP_MODE_ORDER:
+            self.tool = mode
+            self._refresh_style_panel()
+        self._drawing_area.queue_draw()
+
+    def _activate_crop_tool(self) -> None:
+        """What clicking the main Crop button does - mirrors
+        _activate_highlight_tool exactly.
+        """
+        if self._crop_button.get_active():
+            self.tool = self._default_crop_mode
+            self._refresh_style_panel()
+        else:
+            self._crop_button.set_active(True)  # fires "toggled" -> _on_crop_button_toggled
+
+    def _do_auto_crop(self) -> None:
+        """The Mode dropdown's "Auto" item - a one-time seed action,
+        not a persistent mode (Windows' own CropModes.AutoCrop is
+        handled the same way: InitCropMode calls Surface.AutoCrop(),
+        which auto-detects a rect and creates a *Default*-mode
+        CropContainer already sized to it, rather than tracking
+        "AutoCrop" as an ongoing UI state anywhere). If no crop is
+        possible (autocrop_rect finds nothing to trim), Windows falls
+        back to plain empty Default mode with a status message
+        (editor_autocrop_not_possible) - matched here by just staying
+        in empty Default mode, since this port has no toolbar status-
+        message mechanism to route real text through.
+        """
+        self._default_crop_mode = Tool.CROP_DEFAULT
+        self._crop_mode_button.set_label(_CROP_MODE_LABELS[Tool.CROP_DEFAULT])
+        if not self._crop_mode_items[Tool.CROP_DEFAULT].get_active():
+            self._crop_mode_items[Tool.CROP_DEFAULT].set_active(True)
+        rect = autocrop_rect(self._base_image)
+        self._crop_selection = rect
+        self._crop_resize_handle = None
+        self.tool = Tool.CROP_DEFAULT
+        if not self._crop_button.get_active():
+            self._crop_button.set_active(True)
+        self._refresh_style_panel()
+        self._drawing_area.queue_draw()
+
+    def _crop_handles(self, rect: Rect) -> dict:
+        """The resize handles for the in-progress crop selection - 4
+        corners for Default mode (CreateDefaultAdorners), or 2 edge
+        handles for Vertical/Horizontal (CreateLeftRightAdorners/
+        CreateTopBottomAdorners, CropContainer.cs) - only the axis that
+        mode's own drag actually varies gets a handle, matching the
+        real adorner sets exactly.
+        """
+        if self.tool is Tool.CROP_VERTICAL:
+            mid_y = (rect.top + rect.bottom) // 2
+            return {"left": (rect.left, mid_y), "right": (rect.right, mid_y)}
+        if self.tool is Tool.CROP_HORIZONTAL:
+            mid_x = (rect.left + rect.right) // 2
+            return {"top": (mid_x, rect.top), "bottom": (mid_x, rect.bottom)}
+        return {
+            "top_left": (rect.left, rect.top), "top_right": (rect.right, rect.top),
+            "bottom_left": (rect.left, rect.bottom), "bottom_right": (rect.right, rect.bottom),
+        }
+
+    def _crop_handle_at(self, rect: Rect, x: int, y: int, margin: int = 6) -> str | None:
+        for name, (hx, hy) in self._crop_handles(rect).items():
+            if abs(x - hx) <= margin and abs(y - hy) <= margin:
+                return name
+        return None
+
+    @staticmethod
+    def _resize_crop_rect(rect: Rect, handle: str, x: int, y: int) -> Rect:
+        """Not a reuse of core/tools.py's own _resized_rect (same
+        "top"/"bottom"/"left"/"right" substring-matching idea, small
+        enough to duplicate here rather than exporting a private
+        helper across modules for one caller).
+        """
+        left, top, right, bottom = rect.left, rect.top, rect.right, rect.bottom
+        if "top" in handle:
+            top = y
+        if "bottom" in handle:
+            bottom = y
+        if "left" in handle:
+            left = x
+        if "right" in handle:
+            right = x
+        return Rect.from_points(left, top, right, bottom)
+
+    def _crop_selection_from_drag(self, origin, x: int, y: int) -> Rect:
+        """The in-progress selection rect for a drag from ``origin`` to
+        (x, y) - Default mode is a normal from_points rect; Vertical/
+        Horizontal force the perpendicular axis to the full image
+        extent with the *other* axis anchored at the drag's own
+        origin, faithfully matching CropContainer.HandleMouseDown's
+        (0, y)/(x, 0)-forcing override plus HandleMouseMove's own
+        Left=0,Width=image.Width / Top=0,Height=image.Height forcing
+        (CropContainer.cs) - not a guess, both read directly from the
+        real source.
+        """
+        img_h, img_w = self._base_image.shape[:2]
+        if self.tool is Tool.CROP_VERTICAL:
+            return Rect.from_points(origin[0], 0, x, img_h)
+        if self.tool is Tool.CROP_HORIZONTAL:
+            return Rect.from_points(0, origin[1], img_w, y)
+        return Rect.from_points(origin[0], origin[1], x, y)
+
+    def _confirm_crop(self) -> None:
+        """What clicking the style panel's Confirm button does -
+        faithful port of Surface.ConfirmCrop(true) (Surface.cs:2193-
+        2210): dispatches to the right core/crop.py transform by mode,
+        then applies it the same way every other whole-image effect
+        does (_apply_background_effect - shared BackgroundChangeMemento
+        undo path, canvas/window resize, element repositioning all
+        "for free"). The element-repositioning offset for Vertical/
+        Horizontal deliberately matches Windows' own single *global*
+        translate (ApplyVerticalCrop/ApplyHorizontalCrop, Surface.cs)
+        rather than a smarter per-element left-of-band-stays-put
+        conditional - Windows itself doesn't do that either, so this
+        isn't a simplification, it's the faithful behavior (elements
+        that were left of/above a removed band shift too, same as
+        elements that were right of/below it).
+        """
+        if self._crop_selection is None:
+            return
+        rect = self._crop_selection
+        if self.tool is Tool.CROP_VERTICAL:
+            new_image = crop_out_vertical_strip(self._base_image, rect)
+            transform = lambda s: translate_shape(s, -rect.right, 0)  # noqa: E731
+        elif self.tool is Tool.CROP_HORIZONTAL:
+            new_image = crop_out_horizontal_strip(self._base_image, rect)
+            transform = lambda s: translate_shape(s, 0, -rect.bottom)  # noqa: E731
+        else:
+            new_image = crop_to_rect(self._base_image, rect)
+            transform = lambda s: translate_shape(s, -rect.left, -rect.top)  # noqa: E731
+        self._crop_selection = None
+        self._crop_resize_handle = None
+        self._apply_background_effect(new_image, transform=transform)
+        self._refresh_style_panel()
+
+    def _cancel_crop(self) -> None:
+        """What clicking the style panel's Cancel button (or pressing
+        Escape while a crop selection is in progress) does - discards
+        the selection without touching the image, matching Windows'
+        Surface.ConfirmCrop(false) (just removes the CropContainer, no
+        Apply* call).
+        """
+        self._crop_selection = None
+        self._crop_resize_handle = None
+        self._refresh_style_panel()
+        self._drawing_area.queue_draw()
 
     def _build_effects_control(self, box: Gtk.Box, icon_color) -> None:
         """The single "Effects" toolbar entry (task #89) - a plain
@@ -1557,6 +1836,33 @@ class EditorWindow(Gtk.Window):
         self._highlight_magnification_spin = Gtk.SpinButton(adjustment=magnification_adjustment)
         self._highlight_magnification_spin.connect("value-changed", self._on_highlight_magnification_changed)
         add_cell(STYLE_FIELD_HIGHLIGHT_MAGNIFICATION, magnification_label, self._highlight_magnification_spin)
+
+        # Crop's own Mode cell (task #91) - mirrors Obfuscate/Highlight's
+        # own Mode dropdowns exactly (real cropModeButton also lives in
+        # propertiesToolStrip, not attached to btnCrop).
+        crop_mode_label = Gtk.Label(label="Mode:")
+        self._crop_mode_button = Gtk.MenuButton(label=_CROP_MODE_LABELS[self._default_crop_mode])
+        self._crop_mode_button.set_popup(self._build_crop_mode_menu())
+        add_cell(STYLE_FIELD_CROP_MODE, crop_mode_label, self._crop_mode_button)
+
+        # Confirm/Cancel - not a STYLE_FIELD cell like everything else
+        # above: Windows shows btnConfirm/btnCancel for *any*
+        # CONFIRMABLE selection (ImageEditorForm.cs:1399,
+        # `props.HasFieldValue(FieldType.FLAGS) &&
+        # ...HasFlag(FieldFlag.CONFIRMABLE)`), driven by whether a crop
+        # selection actually exists right now, not by which tool is
+        # active - visible_style_fields has no equivalent concept, so
+        # this cell's own visibility is set directly in
+        # _refresh_style_panel instead of through the generic
+        # field_name/visible_fields loop.
+        self._crop_confirm_cell = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        confirm_button = Gtk.Button(label="Confirm")
+        confirm_button.connect("clicked", lambda _b: self._confirm_crop())
+        cancel_button = Gtk.Button(label="Cancel")
+        cancel_button.connect("clicked", lambda _b: self._cancel_crop())
+        self._crop_confirm_cell.pack_start(confirm_button, False, False, 0)
+        self._crop_confirm_cell.pack_start(cancel_button, False, False, 0)
+        box.pack_start(self._crop_confirm_cell, False, False, 0)
 
         self._refresh_style_panel()
         return box
@@ -2949,7 +3255,52 @@ class EditorWindow(Gtk.Window):
         display_shape = self._selected_display_shape()
         if display_shape is not None:
             self._draw_handles(ctx, display_shape)
+
+        if self.tool in _CROP_MODE_ORDER and self._crop_selection is not None:
+            self._draw_crop_overlay(ctx, self._crop_selection)
         return False
+
+    def _draw_crop_overlay(self, ctx, rect: Rect) -> None:
+        """The in-progress crop selection's own overlay - faithful port
+        of CropContainer.Draw (CropContainer.cs): a translucent tint
+        (Windows: Color.FromArgb(100, 150, 150, 100), alpha~0.39) over
+        whichever region *won't* survive confirming - outside the
+        selection for Default (crop-to), inside it for Vertical/
+        Horizontal (crop-out, matching those modes' own "remove this
+        band" semantic, see core/crop.py's own module docstring) - plus
+        a solid selection border and resize handles. core/crop.py's own
+        docstring explicitly calls this preview an "editing-UI
+        rendering concern... not ported" there, meaning here, in the
+        UI layer, is exactly where it belongs.
+        """
+        img_h, img_w = self._base_image.shape[:2]
+        ctx.save()
+        ctx.set_source_rgba(150 / 255, 150 / 255, 100 / 255, 100 / 255)
+        if self.tool in (Tool.CROP_VERTICAL, Tool.CROP_HORIZONTAL):
+            ctx.rectangle(rect.left, rect.top, rect.width, rect.height)
+            ctx.fill()
+        else:
+            ctx.rectangle(0, 0, img_w, rect.top)  # top
+            ctx.rectangle(0, rect.top, rect.left, rect.height)  # left
+            ctx.rectangle(rect.right, rect.top, img_w - rect.right, rect.height)  # right
+            ctx.rectangle(0, rect.bottom, img_w, img_h - rect.bottom)  # bottom
+            ctx.fill()
+        ctx.set_source_rgb(*_HANDLE_STROKE)
+        ctx.set_line_width(1)
+        ctx.rectangle(rect.left, rect.top, rect.width, rect.height)
+        ctx.stroke()
+        ctx.restore()
+
+        half = _HANDLE_SIZE / 2
+        for hx, hy in self._crop_handles(rect).values():
+            ctx.save()
+            ctx.rectangle(hx - half, hy - half, _HANDLE_SIZE, _HANDLE_SIZE)
+            ctx.set_source_rgb(*_HANDLE_FILL)
+            ctx.fill_preserve()
+            ctx.set_source_rgb(*_HANDLE_STROKE)
+            ctx.set_line_width(1)
+            ctx.stroke()
+            ctx.restore()
 
     def _on_button_press(self, widget, event):
         self._commit_text_editing_if_active()
@@ -2959,6 +3310,23 @@ class EditorWindow(Gtk.Window):
         # drawing/hit-testing stays accurate at any zoom level.
         zoom = float(self._zoom)
         x, y = int((event.x - offset_x) / zoom), int((event.y - offset_y) / zoom)
+
+        if self.tool in _CROP_MODE_ORDER:
+            # Never creates/hits a Shape at all - see core/crop.py's
+            # own module docstring - so this branches before the
+            # normal Layer-hit-testing/shape-drag logic below entirely
+            # rather than trying to weave into it.
+            if self._crop_selection is not None:
+                handle = self._crop_handle_at(self._crop_selection, x, y)
+                if handle is not None:
+                    self._crop_resize_handle = handle
+                    widget.queue_draw()
+                    return True
+            self._crop_selection = self._crop_selection_from_drag((x, y), x, y)
+            self._drag_origin = (x, y)
+            self._refresh_style_panel()
+            widget.queue_draw()
+            return True
 
         if self.selected_shape is not None:
             handle = handle_at(self.selected_shape, x, y)
@@ -3018,6 +3386,13 @@ class EditorWindow(Gtk.Window):
         # drawing/hit-testing stays accurate at any zoom level.
         zoom = float(self._zoom)
         x, y = int((event.x - offset_x) / zoom), int((event.y - offset_y) / zoom)
+        if self.tool in _CROP_MODE_ORDER and self._crop_selection is not None:
+            if self._crop_resize_handle is not None:
+                self._crop_selection = self._resize_crop_rect(self._crop_selection, self._crop_resize_handle, x, y)
+            elif self._drag_origin is not None:
+                self._crop_selection = self._crop_selection_from_drag(self._drag_origin, x, y)
+            widget.queue_draw()
+            return True
         if self._resize_shape is not None:
             self._resize_preview = resize_shape(self._resize_shape, self._resize_handle, x, y)
             widget.queue_draw()
@@ -3052,6 +3427,15 @@ class EditorWindow(Gtk.Window):
         # drawing/hit-testing stays accurate at any zoom level.
         zoom = float(self._zoom)
         x, y = int((event.x - offset_x) / zoom), int((event.y - offset_y) / zoom)
+        if self.tool in _CROP_MODE_ORDER and self._crop_selection is not None:
+            if self._crop_resize_handle is not None:
+                self._crop_selection = self._resize_crop_rect(self._crop_selection, self._crop_resize_handle, x, y)
+                self._crop_resize_handle = None
+            elif self._drag_origin is not None:
+                self._crop_selection = self._crop_selection_from_drag(self._drag_origin, x, y)
+                self._drag_origin = None
+            widget.queue_draw()
+            return True
         if self._resize_shape is not None:
             final = resize_shape(self._resize_shape, self._resize_handle, x, y)
             self.layer.replace(self._resize_shape, final)
@@ -3121,6 +3505,15 @@ class EditorWindow(Gtk.Window):
             # the way this window-level handler does the rest of the
             # time.
             return False
+
+        if event.keyval == Gdk.KEY_Escape and self._crop_selection is not None:
+            # Scoped to just "a crop selection is in progress" rather
+            # than a global Escape-switches-to-Select remap (real
+            # Windows' own Escape=Cursor mapping isn't ported yet -
+            # task #92) - matches Surface.ConfirmCrop(false)'s own
+            # effect (discard the selection, no image change).
+            self._cancel_crop()
+            return True
 
         ctrl_held = bool(event.state & Gdk.ModifierType.CONTROL_MASK)
         shift_held = bool(event.state & Gdk.ModifierType.SHIFT_MASK)

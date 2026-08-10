@@ -3048,6 +3048,83 @@ Magnification confirmed via direct pixel-level inspection of the shape object th
 (not just the isolated filter function), since a smooth test gradient made the zoom effect hard to judge
 by eye alone.
 
+## Crop tool (task #91, complete 2026-08-09)
+
+Faithful port of `CropContainer.cs` plus its supporting `Surface.cs` methods, cited directly rather
+than guessed. Architecturally the first tool in this port that doesn't produce a persistent
+annotation shape — `CropContainer.IsUndoable => false` / `HasContextMenu => false` in the real
+source, and functionally it's a one-time "transform the whole canvas on confirm" operation
+(`Surface.ConfirmCrop`), not something composited into the image like every other drawing tool.
+`core/crop.py`'s pure functions (`crop_to_rect`, `crop_out_vertical_strip`,
+`crop_out_horizontal_strip`, `autocrop_rect`) already existed — built ahead of time during an
+earlier task in anticipation of this one, already tested — so this task was entirely the
+interactive UI layer on top of them: `editor_window.py` tracks the in-progress selection as a plain
+`Rect` (`self._crop_selection`), never a `Layer` entry, confirmed or cancelled via the style
+panel's own Confirm/Cancel buttons.
+
+- **Three modes, one toolbar button** — `Tool.CROP_DEFAULT`/`CROP_VERTICAL`/`CROP_HORIZONTAL`
+  mirror Highlight/Obfuscate's own four/three-Tool-values-one-button architecture, but *without*
+  the Tool↔shape-mode translation dance those two need (`_TOOL_TO_HIGHLIGHT_MODE` etc.) — since no
+  Shape ever exists for Crop, the Tool values directly *are* the modes `core/crop.py` dispatches on.
+  Real dropdown order confirmed from `cropModeButton.DropDownItems`
+  (`ImageEditorForm.Designer.cs:1143-1145`): Default, Vertical, Horizontal, then Auto — the last is
+  a plain one-shot trigger item, not a fourth persistent mode (matching `InitCropMode`,
+  `ImageEditorForm.cs:1674-1696`: `AutoCrop()` seeds a rect and leaves the UI in *Default* mode
+  going forward, never tracking "AutoCrop" as ongoing state anywhere).
+- **Default crops *to* the selection** (`crop_to_rect`, keep-this-discard-rest); **Vertical/
+  Horizontal crop it *out*** (`crop_out_vertical_strip`/`crop_out_horizontal_strip` — remove the
+  selected full-height/full-width band and splice the remaining pieces back together, closing the
+  gap). Confirmed directly from the source's own enum doc comments on `CropContainer.CropModes`,
+  not inferred from the draw/resize code.
+- **Drag-to-create respects each mode's own axis constraint** — `CropContainer.HandleMouseDown`'s
+  override forces the initial corner to `(0, y)` for Horizontal / `(x, 0)` for Vertical, and
+  `HandleMouseMove` forces the perpendicular axis to the full image extent every frame
+  (`Left=0,Width=image.Width` / `Top=0,Height=image.Height`) — ported as
+  `_crop_selection_from_drag`, which anchors the relevant axis at the drag's own origin and lets
+  `Rect.from_points` normalize the rest, reproducing "a full-height/full-width band whose anchored
+  edge stays put while the other follows the mouse" exactly.
+- **Resize handles match the real adorner sets** — 4 corners for Default
+  (`CreateDefaultAdorners`), 2 edge handles for Vertical/Horizontal
+  (`CreateLeftRightAdorners`/`CreateTopBottomAdorners`) — only the axis that mode's own drag
+  actually varies gets a handle. `_crop_handle_at`/`_resize_crop_rect` are small dedicated
+  duplicates of `core/tools.py`'s own `handle_at`/`_resized_rect` idea rather than exporting a
+  private cross-module helper for one caller — Crop's selection is a bare `Rect`, not a `Shape`,
+  so the existing shape-oriented functions don't apply directly anyway.
+- **Confirm reuses the existing whole-image-effect machinery** (`_apply_background_effect`, the
+  same helper Rotate/Border/Resize/Shrink Canvas already use) rather than new undo-plumbing —
+  faithful port of `Surface.ConfirmCrop(true)`/`ApplyCrop`/`ApplyVerticalCrop`/
+  `ApplyHorizontalCrop`. The element-repositioning offset for Vertical/Horizontal deliberately
+  matches Windows' own single *global* `matrix.Translate` (a uniform shift applied to every
+  element regardless of whether it sat left/right of the removed band) rather than a "smarter"
+  per-element conditional — confirmed from the source this isn't a simplification on this port's
+  part, Windows itself doesn't do the smarter thing either.
+- **Confirm/Cancel buttons, not a keyboard shortcut** — real Windows shows `btnConfirm`/`btnCancel`
+  in `propertiesToolStrip` for *any* `CONFIRMABLE`-flagged selection (`ImageEditorForm.cs:1399`),
+  not a Tool-driven `STYLE_FIELD` the way every other style-panel cell is — so this cell's
+  visibility is set directly from `self._crop_selection is not None` in `_refresh_style_panel`
+  rather than through the generic `visible_style_fields` loop. Escape also cancels an in-progress
+  selection, scoped narrowly to "a crop selection exists" rather than a global Escape-switches-to-
+  Select remap (real Windows' own plain-Escape-to-Cursor mapping isn't ported yet — task #92).
+- **Switching tools discards an unconfirmed selection** — enforced once, in the `tool` property
+  setter itself (the single choke point every tool switch passes through: palette clicks, keyboard
+  shortcuts, Crop's own mode-dropdown), matching `InitCropMode`'s own
+  `Surface.RemoveCropContainer()` call on every mode/tool change.
+- New hand-drawn crop-bracket toolbar icon (`_crop_icon` in `ui/icons.py`) — a first version with
+  overlapping brackets read as two nested squares rather than a frame with a gap, caught by
+  rendering and zooming in, not guessed; widened the corner spacing to fix.
+
+Verified: `tools.py` unit tests mirroring the existing Highlight/Obfuscate `TestVisibleStyleFields`
+coverage for all 3 Crop tools; icon tests (draws-something-visible/uses-given-color/changes-
+between-colors, matching every sibling icon). Also live in a real GTK session end-to-end: drag-to-
+create and resize-handle-drag for all 3 modes: the overlay's outside-vs-inside tint confirmed via
+direct pixel inspection (not just eyeballing a screenshot, since a smooth test gradient's own
+natural desaturation toward its center looked deceptively similar to a tint at first glance);
+Confirm applying the correct pixel transform and producing the correct new canvas size for all 3
+modes, with working undo/redo; Cancel discarding the selection without touching the image; Auto
+correctly seeding from `autocrop_rect`'s real border detection; element repositioning verified to
+translate an existing shape by the exact expected offset on confirm; switching to a different tool
+mid-selection confirmed to clear both the selection and the Confirm/Cancel buttons' visibility.
+
 ## Task backlog from a side-by-side comparison with the real Windows editor (2026-08-09)
 
 A large batch of gaps/fixes (tasks #87-101) came from the user directly comparing this port's editor

@@ -475,6 +475,89 @@ def _resize_icon(color: Color) -> cairo.ImageSurface:
     return surface
 
 
+def _crop_default_icon(color: Color) -> cairo.ImageSurface:
+    # Per-mode icon, never shown anywhere (same reasoning as the four
+    # Highlight/Obfuscate mode icons above - the single unified Crop
+    # toolbar button always shows _crop_icon instead, see its own
+    # docstring) - kept only so every Tool enum member still has one,
+    # matching this module's existing tool_icon_surface contract.
+    return _crop_icon(color)
+
+
+def _crop_vertical_icon(color: Color) -> cairo.ImageSurface:
+    surface = _blank_surface()
+    ctx = cairo.Context(surface)
+    r, g, b, a = color
+    ctx.set_source_rgba(r / 255, g / 255, b / 255, a / 255 * 0.35)
+    ctx.rectangle(ICON_SIZE * 0.4, _MARGIN, ICON_SIZE * 0.2, ICON_SIZE - 2 * _MARGIN)
+    ctx.fill()
+    ctx.set_source_rgba(r / 255, g / 255, b / 255, a / 255)
+    ctx.set_line_width(2)
+    ctx.move_to(ICON_SIZE * 0.4, _MARGIN)
+    ctx.line_to(ICON_SIZE * 0.4, ICON_SIZE - _MARGIN)
+    ctx.move_to(ICON_SIZE * 0.6, _MARGIN)
+    ctx.line_to(ICON_SIZE * 0.6, ICON_SIZE - _MARGIN)
+    ctx.stroke()
+    return surface
+
+
+def _crop_horizontal_icon(color: Color) -> cairo.ImageSurface:
+    surface = _blank_surface()
+    ctx = cairo.Context(surface)
+    r, g, b, a = color
+    ctx.set_source_rgba(r / 255, g / 255, b / 255, a / 255 * 0.35)
+    ctx.rectangle(_MARGIN, ICON_SIZE * 0.4, ICON_SIZE - 2 * _MARGIN, ICON_SIZE * 0.2)
+    ctx.fill()
+    ctx.set_source_rgba(r / 255, g / 255, b / 255, a / 255)
+    ctx.set_line_width(2)
+    ctx.move_to(_MARGIN, ICON_SIZE * 0.4)
+    ctx.line_to(ICON_SIZE - _MARGIN, ICON_SIZE * 0.4)
+    ctx.move_to(_MARGIN, ICON_SIZE * 0.6)
+    ctx.line_to(ICON_SIZE - _MARGIN, ICON_SIZE * 0.6)
+    ctx.stroke()
+    return surface
+
+
+def _crop_icon(color: Color) -> cairo.ImageSurface:
+    """Two overlapping L-shaped corner brackets - the crop-tool glyph
+    used across most image editors (Photoshop/GIMP/etc). What task
+    #91's Crop toolbar button shows - Windows' own icon for this is a
+    bundled ruler-crop.png (Fugue icon set); matched in spirit here,
+    hand-drawn in Cairo like every icon in this file rather than a
+    downloaded/bundled asset (see this module's own docstring).
+    """
+    surface = _blank_surface()
+    ctx = cairo.Context(surface)
+    r, g, b, a = color
+    ctx.set_source_rgba(r / 255, g / 255, b / 255, a / 255)
+    ctx.set_line_width(2.2)
+    ctx.set_line_cap(cairo.LINE_CAP_SQUARE)
+
+    # Corners near the icon's own edges with a short arm, leaving a
+    # clear gap in the middle - reads as "framing a region" rather
+    # than two overlapping squares (a first attempt with a larger
+    # inset/arm pair overlapped enough to look like nested squares
+    # instead, caught by looking at a rendered zoom, not guessed).
+    inset = 3
+    arm = 7
+
+    # Top-left bracket.
+    ctx.move_to(inset, inset + arm)
+    ctx.line_to(inset, inset)
+    ctx.line_to(inset + arm, inset)
+    ctx.stroke()
+
+    # Bottom-right bracket.
+    ctx.move_to(ICON_SIZE - inset, ICON_SIZE - inset - arm)
+    ctx.line_to(ICON_SIZE - inset, ICON_SIZE - inset)
+    ctx.line_to(ICON_SIZE - inset - arm, ICON_SIZE - inset)
+    ctx.stroke()
+
+    return surface
+
+    return surface
+
+
 def _text_icon(color: Color) -> cairo.ImageSurface:
     surface = _blank_surface()
     ctx = cairo.Context(surface)
@@ -624,6 +707,9 @@ _TOOL_ICON_BUILDERS = {
     Tool.SPEECH_BUBBLE: _speech_bubble_icon,
     Tool.STEP_LABEL: _step_label_icon,
     Tool.EMOJI: _emoji_icon,
+    Tool.CROP_DEFAULT: _crop_default_icon,
+    Tool.CROP_VERTICAL: _crop_vertical_icon,
+    Tool.CROP_HORIZONTAL: _crop_horizontal_icon,
 }
 
 
@@ -688,5 +774,16 @@ def rotate_ccw_icon_image(color: Color = _DEFAULT_COLOR) -> Gtk.Image:
 
 def resize_icon_image(color: Color = _DEFAULT_COLOR) -> Gtk.Image:
     surface = _resize_icon(color)
+    pixbuf = Gdk.pixbuf_get_from_surface(surface, 0, 0, surface.get_width(), surface.get_height())
+    return Gtk.Image.new_from_pixbuf(pixbuf)
+
+
+def crop_icon_image(color: Color = _DEFAULT_COLOR) -> Gtk.Image:
+    """Not keyed by Tool like tool_icon_image above - mirrors
+    obfuscate_icon_image/highlight_icon_image: _crop_icon represents
+    the single unified Crop button (task #91), not any one of its
+    three selectable modes.
+    """
+    surface = _crop_icon(color)
     pixbuf = Gdk.pixbuf_get_from_surface(surface, 0, 0, surface.get_width(), surface.get_height())
     return Gtk.Image.new_from_pixbuf(pixbuf)
