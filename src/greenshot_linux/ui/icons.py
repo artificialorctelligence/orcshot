@@ -174,6 +174,112 @@ def _scramble_icon(color: Color) -> cairo.ImageSurface:
     return surface
 
 
+def _text_highlight_icon(color: Color) -> cairo.ImageSurface:
+    # Ignores color like every other mode icon here - a fixed yellow
+    # highlighter swatch behind a dark "T", standing in for Text
+    # Highlight's own default fill_color (yellow) regardless of the
+    # current theme color, the same reasoning _solid_fill_icon gives
+    # for always drawing in a fixed tone.
+    surface = _blank_surface()
+    ctx = cairo.Context(surface)
+    ctx.set_source_rgb(1.0, 0.9, 0.1)
+    ctx.rectangle(_MARGIN, ICON_SIZE * 0.4, ICON_SIZE - 2 * _MARGIN, ICON_SIZE * 0.35)
+    ctx.fill()
+    ctx.set_source_rgb(0.15, 0.15, 0.15)
+    ctx.set_line_width(2)
+    ctx.move_to(ICON_SIZE * 0.3, ICON_SIZE * 0.3)
+    ctx.line_to(ICON_SIZE * 0.7, ICON_SIZE * 0.3)
+    ctx.move_to(ICON_SIZE / 2, ICON_SIZE * 0.3)
+    ctx.line_to(ICON_SIZE / 2, ICON_SIZE * 0.75)
+    ctx.stroke()
+    return surface
+
+
+def _area_highlight_icon(color: Color) -> cairo.ImageSurface:
+    # A bright center with darkened corners - the "spotlight" look
+    # Area Highlight actually produces (dims/blurs everywhere except
+    # its own bounds), not a literal render of the filter itself.
+    surface = _blank_surface()
+    ctx = cairo.Context(surface)
+    ctx.set_source_rgb(0.15, 0.15, 0.15)
+    ctx.rectangle(0, 0, ICON_SIZE, ICON_SIZE)
+    ctx.fill()
+    ctx.set_source_rgb(0.95, 0.9, 0.6)
+    ctx.rectangle(ICON_SIZE * 0.3, ICON_SIZE * 0.3, ICON_SIZE * 0.4, ICON_SIZE * 0.4)
+    ctx.fill()
+    return surface
+
+
+def _grayscale_highlight_icon(color: Color) -> cairo.ImageSurface:
+    # Half color, half gray - a literal split demonstrating what the
+    # filter does, distinct from Area Highlight's spotlight look even
+    # though both are "invert" (outside-the-rect) modes.
+    surface = _blank_surface()
+    ctx = cairo.Context(surface)
+    ctx.set_source_rgb(0.35, 0.55, 0.75)
+    ctx.rectangle(_MARGIN, _MARGIN, (ICON_SIZE - 2 * _MARGIN) / 2, ICON_SIZE - 2 * _MARGIN)
+    ctx.fill()
+    ctx.set_source_rgb(0.55, 0.55, 0.55)
+    ctx.rectangle(ICON_SIZE / 2, _MARGIN, (ICON_SIZE - 2 * _MARGIN) / 2, ICON_SIZE - 2 * _MARGIN)
+    ctx.fill()
+    return surface
+
+
+def _magnify_highlight_icon(color: Color) -> cairo.ImageSurface:
+    # A literal magnifying glass - clearer than trying to depict the
+    # zoomed-crop effect itself at icon scale.
+    surface = _blank_surface()
+    ctx = cairo.Context(surface)
+    ctx.set_source_rgb(0.25, 0.45, 0.7)
+    cx, cy, r = ICON_SIZE * 0.42, ICON_SIZE * 0.42, ICON_SIZE * 0.28
+    ctx.set_line_width(2.5)
+    ctx.arc(cx, cy, r, 0, 2 * math.pi)
+    ctx.stroke()
+    handle_start = (cx + r * 0.7, cy + r * 0.7)
+    handle_end = (ICON_SIZE - _MARGIN, ICON_SIZE - _MARGIN)
+    ctx.move_to(*handle_start)
+    ctx.line_to(*handle_end)
+    ctx.stroke()
+    return surface
+
+
+def _highlight_icon(color: Color) -> cairo.ImageSurface:
+    """A highlighter-marker glyph - what the single, Windows-style
+    unified Highlight toolbar button actually shows (mirrors
+    _obfuscate_icon's own approach exactly, see its docstring):
+    represents the whole feature, not any one of its four modes (Text
+    Highlight/Area Highlight/Grayscale/Magnification above), none of
+    which are otherwise ever shown anywhere - the mode dropdown is
+    text-only, same as Obfuscate's.
+
+    A slanted marker pen (body + chiseled tip) over a short
+    highlighted stroke - the familiar "highlighter" glyph most
+    desktop/office apps use, hand-drawn in Cairo like every icon in
+    this file, monochrome and theme-colored like every other tool
+    icon rather than the fixed-color mode icons above.
+    """
+    surface = _blank_surface()
+    ctx = cairo.Context(surface)
+    r, g, b, a = color
+    ctx.set_source_rgba(r / 255, g / 255, b / 255, a / 255)
+
+    ctx.save()
+    ctx.translate(ICON_SIZE * 0.62, ICON_SIZE * 0.42)
+    ctx.rotate(math.radians(45))
+    _rounded_rect_path(ctx, -3, -9, 6, 12, 1.5)
+    ctx.fill()
+    ctx.move_to(-3, 3)
+    ctx.line_to(3, 3)
+    ctx.line_to(0, 8)
+    ctx.close_path()
+    ctx.fill()
+    ctx.restore()
+
+    ctx.rectangle(4, ICON_SIZE - 6, ICON_SIZE - 8, 3)
+    ctx.fill()
+    return surface
+
+
 def _obfuscate_icon(color: Color) -> cairo.ImageSurface:
     """A fedora-and-sunglasses "incognito" glyph - what the single,
     Windows-style unified Obfuscate toolbar button actually shows
@@ -366,6 +472,10 @@ _TOOL_ICON_BUILDERS = {
     Tool.BLUR: _blur_icon,
     Tool.SOLID_FILL: _solid_fill_icon,
     Tool.SCRAMBLE: _scramble_icon,
+    Tool.HIGHLIGHT_TEXT: _text_highlight_icon,
+    Tool.HIGHLIGHT_AREA: _area_highlight_icon,
+    Tool.HIGHLIGHT_GRAYSCALE: _grayscale_highlight_icon,
+    Tool.HIGHLIGHT_MAGNIFY: _magnify_highlight_icon,
     Tool.TEXT: _text_icon,
     Tool.SPEECH_BUBBLE: _speech_bubble_icon,
     Tool.STEP_LABEL: _step_label_icon,
@@ -391,5 +501,18 @@ def obfuscate_icon_image(color: Color = _DEFAULT_COLOR) -> Gtk.Image:
     shown anywhere - see _obfuscate_icon's own docstring).
     """
     surface = _obfuscate_icon(color)
+    pixbuf = Gdk.pixbuf_get_from_surface(surface, 0, 0, surface.get_width(), surface.get_height())
+    return Gtk.Image.new_from_pixbuf(pixbuf)
+
+
+def highlight_icon_image(color: Color = _DEFAULT_COLOR) -> Gtk.Image:
+    """Not keyed by Tool like tool_icon_image above - mirrors
+    obfuscate_icon_image exactly: _highlight_icon represents the
+    single unified Highlight button (task #88), not any one of the
+    four selectable modes (all still have their own _TOOL_ICON_
+    BUILDERS entries, just never shown anywhere - see _highlight_
+    icon's own docstring).
+    """
+    surface = _highlight_icon(color)
     pixbuf = Gdk.pixbuf_get_from_surface(surface, 0, 0, surface.get_width(), surface.get_height())
     return Gtk.Image.new_from_pixbuf(pixbuf)

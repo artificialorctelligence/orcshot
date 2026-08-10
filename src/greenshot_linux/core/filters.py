@@ -155,6 +155,42 @@ def grayscale_filter(image: np.ndarray, rect: Rect, invert: bool = False) -> np.
     return _composite_masked(image, rect, filtered, invert)
 
 
+def magnify_filter(image: np.ndarray, rect: Rect, magnification_factor: int = 2) -> np.ndarray:
+    """Behavioral port of MagnifierFilter: crops a smaller region from
+    the center of ``rect`` (``rect``'s own size divided by
+    ``magnification_factor``) and nearest-neighbor upscales it back to
+    fill all of ``rect`` - the "chunky zoomed-in magnifying glass"
+    look, not a smooth resample (matches the source's own
+    InterpolationMode.NearestNeighbor). Always operates strictly
+    inside ``rect`` - MagnifierFilter is the only HighlightContainer
+    preset that never sets Invert, unlike highlight_filter/
+    brightness_filter/grayscale_filter above.
+    """
+    out = image.copy()
+    apply_rect = rect.intersect(_image_bounds(image))
+    if apply_rect is None or magnification_factor <= 1:
+        return out
+
+    half_width = rect.width // 2
+    half_height = rect.height // 2
+    new_width = max(1, rect.width // magnification_factor)
+    new_height = max(1, rect.height // magnification_factor)
+    source_left = rect.left + half_width - new_width // 2
+    source_top = rect.top + half_height - new_height // 2
+    source_rect = Rect(source_left, source_top, source_left + new_width, source_top + new_height)
+    source_rect = source_rect.intersect(_image_bounds(image))
+    if source_rect is None:
+        return out
+
+    source_region = image[source_rect.top:source_rect.bottom, source_rect.left:source_rect.right]
+    dest_height, dest_width = apply_rect.height, apply_rect.width
+    row_indices = (np.arange(dest_height) * source_region.shape[0] // dest_height).clip(0, source_region.shape[0] - 1)
+    col_indices = (np.arange(dest_width) * source_region.shape[1] // dest_width).clip(0, source_region.shape[1] - 1)
+    upscaled = source_region[row_indices][:, col_indices]
+    out[apply_rect.top:apply_rect.bottom, apply_rect.left:apply_rect.right] = upscaled
+    return out
+
+
 def _jittered_boundaries(length: int, pixel_size: int, jitter: int, rng) -> list[int]:
     bounds = [0]
     position = 0

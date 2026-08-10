@@ -2965,6 +2965,72 @@ leaving the tail stranded mid-drag. Also live in a real GTK session - two bubble
 diagonal directions both show the tail correctly pointing away from the bubble, anchored near the drag's
 own start point in both cases.
 
+## Highlight tool (task #88, complete 2026-08-09)
+
+Faithful port of `Greenshot.Editor/Drawing/HighlightContainer.cs` and its four filters, cited directly
+rather than guessed (per this project's own port-verification rule): the real toolbar exposes a single
+`btnHighlight` button (`ImageEditorForm.Designer.cs`, `LanguageKey="editor_drawhighlighter"`) plus a
+`highlightModeButton` dropdown with four `Tag`s drawn from `FilterContainer.PreparedFilter`:
+`TEXT_HIGHTLIGHT` (sic - the real enum member has this exact typo, corrected in this port's own
+`HighlightMode.TEXT_HIGHLIGHT` since it's purely an internal identifier with no user-visible spelling to
+preserve), `AREA_HIGHLIGHT`, `GRAYSCALE`, `MAGNIFICATION`. `HighlightContainer.ConfigurePreparedFilters`
+swaps in a different filter (or filter pair) per mode:
+
+- **Text Highlight** -> `HighlightFilter` (`Filters/HighlightFilter.cs`): per-pixel
+  `Color.FromArgb(color.A, Min(highlight.R, color.R), Min(highlight.G, color.G), Min(highlight.B,
+  color.B))` against the default `FILL_COLOR = Color.Yellow` - since yellow's blue channel is 0, this
+  clamps every pixel's blue channel to 0 inside the shape's own bounds, tinting it yellow without ever
+  brightening anything. Non-invert (paints inside its own bounds only).
+- **Area Highlight** -> `BrightnessFilter{Invert=true}` (default `BRIGHTNESS=0.9`) chained with
+  `BlurFilter{Invert=true}` (default `BLUR_RADIUS=3`) - both inverted, so together they darken+blur
+  everything *outside* the shape's bounds, leaving the shape's own interior untouched: a "spotlight"
+  effect, not a highlight-the-inside effect.
+- **Grayscale** -> `GrayscaleFilter{Invert=true}` - same spotlight semantic, desaturating everything
+  outside the shape's bounds.
+- **Magnification** -> `MagnifierFilter` (`Filters/MagnifierFilter.cs`, default `MAGNIFICATION_FACTOR=2`,
+  non-invert) - crops a `rect.Width/factor` x `rect.Height/factor` region centered on the shape's own
+  center, then `DrawImage`s that crop stretched to fill the full shape bounds using
+  `InterpolationMode.NearestNeighbor` (a hard-edged zoom, not smoothed).
+
+Ported to `core/shapes.py`'s `HighlightShape`/`HighlightMode` and `core/filters.py`'s `highlight_filter`/
+`brightness_filter`/`grayscale_filter`/`magnify_filter` (the first three already existed in this
+codebase, written but never wired up or tested until now; `magnify_filter` is new, replicating
+`MagnifierFilter.Apply`'s exact `halfWidth`/`halfHeight`/`newWidth`/`newHeight`/`source` arithmetic).
+`ui/render.py`'s `render_highlight` reproduces the real `GraphicsState.SetClip(applyRect);
+ExcludeClip(rect)` invert mechanism using Cairo's even-odd fill rule (a full-canvas rect XOR'd with the
+shape's own bounds, clipped, then the filtered full-canvas surface painted through that clip) - critically,
+because it clips rather than painting-then-erasing, an *earlier* shape sitting inside a *later*
+invert-mode Highlight's own bounds survives untouched, matching Windows' own clip-based (not
+paint-order-based) exclusion. Toolbar/style-panel wiring in `ui/editor_window.py` mirrors the existing
+Obfuscate mode-dropdown architecture exactly (`_HIGHLIGHT_GROUP` sentinel, `_build_highlight_control`,
+`_set_highlight_mode`/`_activate_highlight_tool` split matching Windows' own `BindableToolStripDropDownButton`
+vs `BtnHighlightClick` separation), positioned in the toolbar immediately before Obfuscate, matching the
+real `toolsToolStrip.Items` order confirmed directly from the Designer file.
+
+**Bug found and fixed along the way, affecting already-shipped Obfuscate code too**: `_set_obfuscate_mode`
+and (the new) `_set_highlight_mode` had an `if isinstance(shape, ...): ... elif self.tool in
+_MODE_ORDER: self.tool = mode` structure, treating "a shape is selected" and "the tool itself should
+track this mode" as mutually exclusive. Since drawing a shape leaves it selected, changing that shape's
+mode via the dropdown updated only the *shape*, never `self.tool` - so the next shape drawn without first
+re-clicking the tool button silently used the stale old mode. Reproduced live for both Highlight
+(`HIGHLIGHT_TEXT` -> `HIGHLIGHT_AREA`) and Obfuscate (`SOLID_FILL` -> `SCRAMBLE`) before the fix, confirmed
+gone after. Fixed by making the two updates independent (`elif` -> `if`) rather than removing the
+selected-shape branch, since both need to happen together, not as alternatives.
+
+Verified: 9 new `render.py` unit tests (`TestRenderHighlight`, covering all 4 modes' pixel output against
+the filters module directly, that non-invert modes paint nothing outside their bounds and invert modes
+paint nothing inside, and specifically that a shape drawn earlier *inside* a later invert-mode Highlight's
+bounds survives), `filters.py` unit tests for the 3 previously-untested filter functions plus the new
+`magnify_filter` (`TestHighlightFilter`, `TestBrightnessFilter`, `TestGrayscaleFilter`,
+`TestMagnifyFilter`), and `tools.py` unit tests mirroring the existing Obfuscate
+`TestCreateShapeFromDrag`/`TestVisibleStyleFields` coverage for all 4 Highlight tools/modes. Also live in a
+real GTK session: Text Highlight and Area Highlight (strong test brightness, since the real default 0.9 is
+a deliberately subtle ~10% darkening) both visually confirmed painting only where expected; Grayscale
+visually confirmed preserving its own interior's original color while desaturating everything else;
+Magnification confirmed via direct pixel-level inspection of the shape object the live UI actually created
+(not just the isolated filter function), since a smooth test gradient made the zoom effect hard to judge
+by eye alone.
+
 ## Task backlog from a side-by-side comparison with the real Windows editor (2026-08-09)
 
 A large batch of gaps/fixes (tasks #87-101) came from the user directly comparing this port's editor

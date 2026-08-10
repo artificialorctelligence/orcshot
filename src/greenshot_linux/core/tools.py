@@ -17,6 +17,8 @@ from greenshot_linux.core.shapes import (
     CursorShape,
     EllipseShape,
     FreehandShape,
+    HighlightMode,
+    HighlightShape,
     IconShape,
     ImageShape,
     LineShape,
@@ -39,7 +41,7 @@ Point = Tuple[int, int]
 # bbox respectively), so replace(shape, bounds=...) would fail; they
 # get their own branches below.
 _BOUNDS_RESIZABLE = (
-    RectangleShape, EllipseShape, ObfuscateShape, TextShape,
+    RectangleShape, EllipseShape, ObfuscateShape, HighlightShape, TextShape,
     StepLabelShape, IconShape, CursorShape, ImageShape, SvgShape,
 )
 
@@ -51,14 +53,24 @@ class Tool(str, Enum):
     LINE = "line"
     ARROW = "arrow"
     FREEHAND = "freehand"
-    PIXELIZE = "pixelize"
-    BLUR = "blur"
-    SOLID_FILL = "solid_fill"
-    SCRAMBLE = "scramble"
+    # Real Windows toolbar order (ImageEditorForm.Designer.cs's
+    # toolsToolStrip.Items): ...Freehand, Text, SpeechBubble, StepLabel,
+    # Emoji, [separator], Highlight, Obfuscate... - the four Highlight
+    # modes go here, mirroring Obfuscate's own four-Tool-values-one-
+    # shared-button pattern below (see _TOOL_TO_HIGHLIGHT_MODE in
+    # ui/editor_window.py).
     TEXT = "text"
     SPEECH_BUBBLE = "speech_bubble"
     STEP_LABEL = "step_label"
     EMOJI = "emoji"
+    HIGHLIGHT_TEXT = "highlight_text"
+    HIGHLIGHT_AREA = "highlight_area"
+    HIGHLIGHT_GRAYSCALE = "highlight_grayscale"
+    HIGHLIGHT_MAGNIFY = "highlight_magnify"
+    PIXELIZE = "pixelize"
+    BLUR = "blur"
+    SOLID_FILL = "solid_fill"
+    SCRAMBLE = "scramble"
 
 
 # Named style-panel fields, matching Windows' own FieldType names for
@@ -97,6 +109,16 @@ STYLE_FIELD_OBFUSCATE_FILL_COLOR = "obfuscate_fill_color"
 # dedicated handlers, not the generic style machinery.
 STYLE_FIELD_OBFUSCATE_FILL_TEXT = "obfuscate_fill_text"
 STYLE_FIELD_OBFUSCATE_TEXT_COLOR = "obfuscate_text_color"
+# Highlight (task #88) mirrors Obfuscate's own pattern exactly - four
+# Tool values (Tool.HIGHLIGHT_TEXT/AREA/GRAYSCALE/MAGNIFY) sharing one
+# toolbar button, a Mode dropdown, and per-mode dedicated fields, since
+# HighlightShape (like ObfuscateShape) has no ShapeStyle of its own -
+# see HighlightShape's own docstring in core/shapes.py.
+STYLE_FIELD_HIGHLIGHT_MODE = "highlight_mode"
+STYLE_FIELD_HIGHLIGHT_FILL_COLOR = "highlight_fill_color"
+STYLE_FIELD_HIGHLIGHT_BRIGHTNESS = "highlight_brightness"
+STYLE_FIELD_HIGHLIGHT_BLUR_RADIUS = "highlight_blur_radius"
+STYLE_FIELD_HIGHLIGHT_MAGNIFICATION = "highlight_magnification"
 
 _FULL_STYLE_FIELDS = frozenset({
     STYLE_FIELD_LINE_COLOR, STYLE_FIELD_FILL_COLOR, STYLE_FIELD_LINE_THICKNESS, STYLE_FIELD_SHADOW,
@@ -117,6 +139,19 @@ _OBFUSCATE_STYLE_FIELDS_COLOR = frozenset({
 })
 _OBFUSCATE_STYLE_FIELDS_MODE_ONLY = frozenset({STYLE_FIELD_OBFUSCATE_MODE})
 _NO_STYLE_FIELDS = frozenset()
+
+# Same idea as the three _OBFUSCATE_STYLE_FIELDS_* sets above, one per
+# group of Highlight modes with the same relevant controls - real
+# Windows exposes all of these as actual style-panel controls
+# (blurRadiusUpDown/brightnessUpDown/magnificationFactorUpDown/
+# highlightModeButton, ImageEditorForm.Designer.cs), not just internal
+# filter parameters. All four still always include HIGHLIGHT_MODE.
+_HIGHLIGHT_STYLE_FIELDS_COLOR = frozenset({STYLE_FIELD_HIGHLIGHT_FILL_COLOR, STYLE_FIELD_HIGHLIGHT_MODE})
+_HIGHLIGHT_STYLE_FIELDS_AREA = frozenset({
+    STYLE_FIELD_HIGHLIGHT_BRIGHTNESS, STYLE_FIELD_HIGHLIGHT_BLUR_RADIUS, STYLE_FIELD_HIGHLIGHT_MODE,
+})
+_HIGHLIGHT_STYLE_FIELDS_MODE_ONLY = frozenset({STYLE_FIELD_HIGHLIGHT_MODE})
+_HIGHLIGHT_STYLE_FIELDS_MAGNIFY = frozenset({STYLE_FIELD_HIGHLIGHT_MAGNIFICATION, STYLE_FIELD_HIGHLIGHT_MODE})
 
 # Which style-panel fields each tool's shape actually has, cross-
 # checked against the real Windows source's own per-container AddField
@@ -143,6 +178,10 @@ _TOOL_STYLE_FIELDS = {
     Tool.BLUR: _OBFUSCATE_STYLE_FIELDS_AMOUNT,
     Tool.SOLID_FILL: _OBFUSCATE_STYLE_FIELDS_COLOR,
     Tool.SCRAMBLE: _OBFUSCATE_STYLE_FIELDS_MODE_ONLY,
+    Tool.HIGHLIGHT_TEXT: _HIGHLIGHT_STYLE_FIELDS_COLOR,
+    Tool.HIGHLIGHT_AREA: _HIGHLIGHT_STYLE_FIELDS_AREA,
+    Tool.HIGHLIGHT_GRAYSCALE: _HIGHLIGHT_STYLE_FIELDS_MODE_ONLY,
+    Tool.HIGHLIGHT_MAGNIFY: _HIGHLIGHT_STYLE_FIELDS_MAGNIFY,
     Tool.TEXT: _FULL_STYLE_FIELDS,
     Tool.SPEECH_BUBBLE: _FULL_STYLE_FIELDS,
     Tool.STEP_LABEL: _FULL_STYLE_FIELDS,
@@ -161,10 +200,23 @@ _OBFUSCATE_MODE_STYLE_FIELDS = {
     ObfuscateMode.SCRAMBLE: _OBFUSCATE_STYLE_FIELDS_MODE_ONLY,
 }
 
+# The _shape_style_fields counterpart to _TOOL_STYLE_FIELDS's four
+# Highlight entries above, same reasoning as _OBFUSCATE_MODE_STYLE_
+# FIELDS - a *selected* HighlightShape's fields depend on its own
+# mode, not whichever tool happens to be active.
+_HIGHLIGHT_MODE_STYLE_FIELDS = {
+    HighlightMode.TEXT_HIGHLIGHT: _HIGHLIGHT_STYLE_FIELDS_COLOR,
+    HighlightMode.AREA_HIGHLIGHT: _HIGHLIGHT_STYLE_FIELDS_AREA,
+    HighlightMode.GRAYSCALE: _HIGHLIGHT_STYLE_FIELDS_MODE_ONLY,
+    HighlightMode.MAGNIFICATION: _HIGHLIGHT_STYLE_FIELDS_MAGNIFY,
+}
+
 
 def _shape_style_fields(shape) -> frozenset:
     if isinstance(shape, ObfuscateShape):
         return _OBFUSCATE_MODE_STYLE_FIELDS[shape.mode]
+    if isinstance(shape, HighlightShape):
+        return _HIGHLIGHT_MODE_STYLE_FIELDS[shape.mode]
     if isinstance(shape, FreehandShape):
         return _FREEHAND_STYLE_FIELDS
     if isinstance(shape, LineShape):  # also covers ArrowShape, a subclass
@@ -292,16 +344,23 @@ _STEP_LABEL_RADIUS = 15
 def create_shape_from_drag(
     tool: Tool, start: Point, end: Point, style: ShapeStyle, amount: int = 5, next_step_number: int = 1,
     fill_color=(0, 0, 0, 255), fill_text: str = "", text_color=(255, 255, 255, 255),
+    highlight_color=(255, 255, 0, 255), highlight_brightness: float = 0.9,
+    highlight_blur_radius: int = 3, highlight_magnification: int = 2,
 ):
     """For tools defined by a single start/end drag. Freehand is built
     incrementally from a point list instead - use create_freehand_shape.
     ``amount`` (blur radius / pixel size) only applies to Pixelize/Blur;
     ``fill_color``/``fill_text``/``text_color`` only apply to Solid Fill
-    (task #60); all default to ObfuscateShape's own defaults;
-    ``next_step_number`` only applies to StepLabel; every other tool
-    ignores whichever of these doesn't apply to it, so callers can pass
-    all of them unconditionally rather than branching on the current
-    tool first.
+    (task #60); ``highlight_color``/``highlight_brightness``/
+    ``highlight_blur_radius``/``highlight_magnification`` only apply to
+    the four Highlight modes (task #88) - deliberately separate
+    parameters from Obfuscate's own fill_color rather than reused, so
+    each tool keeps its own independent last-used value, matching every
+    other tool's own per-type style memory; all default to
+    HighlightShape's own defaults; ``next_step_number`` only applies to
+    StepLabel; every other tool ignores whichever of these doesn't
+    apply to it, so callers can pass all of them unconditionally rather
+    than branching on the current tool first.
     """
     if tool is Tool.RECTANGLE:
         return RectangleShape(Rect.from_points(*start, *end), style)
@@ -322,6 +381,22 @@ def create_shape_from_drag(
         )
     if tool is Tool.SCRAMBLE:
         return ObfuscateShape(Rect.from_points(*start, *end), mode=ObfuscateMode.SCRAMBLE)
+    if tool is Tool.HIGHLIGHT_TEXT:
+        return HighlightShape(
+            Rect.from_points(*start, *end), mode=HighlightMode.TEXT_HIGHLIGHT, fill_color=highlight_color,
+        )
+    if tool is Tool.HIGHLIGHT_AREA:
+        return HighlightShape(
+            Rect.from_points(*start, *end), mode=HighlightMode.AREA_HIGHLIGHT,
+            brightness=highlight_brightness, blur_radius=highlight_blur_radius,
+        )
+    if tool is Tool.HIGHLIGHT_GRAYSCALE:
+        return HighlightShape(Rect.from_points(*start, *end), mode=HighlightMode.GRAYSCALE)
+    if tool is Tool.HIGHLIGHT_MAGNIFY:
+        return HighlightShape(
+            Rect.from_points(*start, *end), mode=HighlightMode.MAGNIFICATION,
+            magnification_factor=highlight_magnification,
+        )
     if tool is Tool.TEXT:
         return TextShape(Rect.from_points(*start, *end), text="", style=style)
     if tool is Tool.EMOJI:

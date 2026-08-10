@@ -67,7 +67,9 @@ gi.require_version("Rsvg", "2.0")
 from gi.repository import Pango, PangoCairo, Rsvg
 
 from greenshot_linux.core.drawing import Layer
-from greenshot_linux.core.filters import box_blur, pixelize, scramble, solid_fill
+from greenshot_linux.core.filters import (
+    box_blur, brightness_filter, grayscale_filter, highlight_filter, magnify_filter, pixelize, scramble, solid_fill,
+)
 from greenshot_linux.core.geometry import Rect
 from greenshot_linux.core.shapes import (
     ArrowShape,
@@ -75,6 +77,8 @@ from greenshot_linux.core.shapes import (
     CursorShape,
     EllipseShape,
     FreehandShape,
+    HighlightMode,
+    HighlightShape,
     IconShape,
     ImageShape,
     LineShape,
@@ -683,6 +687,52 @@ def render_obfuscate(ctx: cairo.Context, shape: ObfuscateShape, base_image, rng=
         _draw_fitted_centered_text(ctx, shape.fill_text, shape.text_color, shape.bounds)
 
 
+# AREA_HIGHLIGHT/GRAYSCALE are "spotlight" modes - they affect the
+# whole canvas *except* the shape's own bounds, not just inside them
+# like every ObfuscateMode and Highlight's own other two modes.
+_INVERT_HIGHLIGHT_MODES = (HighlightMode.AREA_HIGHLIGHT, HighlightMode.GRAYSCALE)
+
+
+def render_highlight(ctx: cairo.Context, shape: HighlightShape, base_image, rng=None) -> None:
+    image_bounds = Rect(0, 0, base_image.shape[1], base_image.shape[0])
+    apply_rect = shape.bounds.intersect(image_bounds)
+    if apply_rect is None:
+        return
+
+    if shape.mode is HighlightMode.TEXT_HIGHLIGHT:
+        filtered = highlight_filter(base_image, shape.bounds, shape.fill_color)
+    elif shape.mode is HighlightMode.AREA_HIGHLIGHT:
+        filtered = brightness_filter(base_image, shape.bounds, shape.brightness, invert=True)
+        filtered = box_blur(filtered, shape.bounds, shape.blur_radius, invert=True)
+    elif shape.mode is HighlightMode.GRAYSCALE:
+        filtered = grayscale_filter(base_image, shape.bounds, invert=True)
+    else:  # HighlightMode.MAGNIFICATION
+        filtered = magnify_filter(base_image, shape.bounds, shape.magnification_factor)
+
+    ctx.save()
+    if shape.mode in _INVERT_HIGHLIGHT_MODES:
+        # Faithful port of the real Windows clip approach (GDI+'s
+        # SetClip(applyRect)/ExcludeClip(rect)): paint the filtered
+        # whole image, but only within an L-shaped "everywhere except
+        # the rect" clip (an even-odd-rule "donut" of the full canvas
+        # minus apply_rect) - not the raw full canvas, which would
+        # blow away any other shape drawn earlier in the layer
+        # anywhere else on the canvas, not just near this one.
+        surface = numpy_to_cairo_surface(filtered)
+        ctx.rectangle(0, 0, base_image.shape[1], base_image.shape[0])
+        ctx.rectangle(apply_rect.left, apply_rect.top, apply_rect.width, apply_rect.height)
+        ctx.set_fill_rule(cairo.FILL_RULE_EVEN_ODD)
+        ctx.clip()
+        ctx.set_source_surface(surface, 0, 0)
+        ctx.paint()
+    else:
+        region = filtered[apply_rect.top : apply_rect.bottom, apply_rect.left : apply_rect.right]
+        surface = numpy_to_cairo_surface(region)
+        ctx.set_source_surface(surface, apply_rect.left, apply_rect.top)
+        ctx.paint()
+    ctx.restore()
+
+
 _RENDERERS = {
     RectangleShape: render_rectangle,
     EllipseShape: render_ellipse,
@@ -704,6 +754,11 @@ def render_shape(ctx: cairo.Context, shape, base_image=None, rng=None) -> None:
         if base_image is None:
             raise ValueError("rendering an ObfuscateShape requires base_image")
         render_obfuscate(ctx, shape, base_image, rng=rng)
+        return
+    if isinstance(shape, HighlightShape):
+        if base_image is None:
+            raise ValueError("rendering a HighlightShape requires base_image")
+        render_highlight(ctx, shape, base_image, rng=rng)
         return
 
     renderer = _RENDERERS.get(type(shape))

@@ -1,6 +1,8 @@
 import numpy as np
 
-from greenshot_linux.core.filters import box_blur, pixelize, scramble, solid_fill
+from greenshot_linux.core.filters import (
+    box_blur, brightness_filter, grayscale_filter, highlight_filter, magnify_filter, pixelize, scramble, solid_fill,
+)
 from greenshot_linux.core.geometry import Rect
 
 
@@ -111,6 +113,196 @@ class TestBoxBlur:
         original = image.copy()
 
         box_blur(image, full_rect(image), 5)
+
+        assert np.array_equal(image, original)
+
+    def test_invert_blurs_everything_except_the_rect(self):
+        image = checkerboard(8, square=1)
+        rect = Rect(2, 2, 6, 6)
+
+        result = box_blur(image, rect, 3, invert=True)
+
+        # Inside the rect is untouched - still the original checkerboard.
+        assert np.array_equal(result[2:6, 2:6], image[2:6, 2:6])
+        # Outside the rect, high-frequency checkerboard noise should be
+        # smoothed - not identical to the sharp original.
+        assert not np.array_equal(result[:2, :], image[:2, :])
+
+
+class TestHighlightFilter:
+    def test_clamps_each_channel_to_the_highlight_color(self):
+        image = solid_image(4, 4, 200, 200, 200)
+
+        result = highlight_filter(image, full_rect(image), highlight_color=(255, 255, 0, 255))
+
+        # Default yellow only clamps blue (R/G channels of 255 don't
+        # constrain anything below the image's own 200) - the
+        # "highlighter pen" look: light backgrounds tint yellow, dark
+        # content is untouched either way since min() only ever lowers.
+        assert np.array_equal(result[:, :, 0], np.full((4, 4), 200, dtype=np.uint8))
+        assert np.array_equal(result[:, :, 1], np.full((4, 4), 200, dtype=np.uint8))
+        assert np.array_equal(result[:, :, 2], np.zeros((4, 4), dtype=np.uint8))
+
+    def test_red_and_green_are_untouched_by_the_default_yellow_highlight(self):
+        # Yellow's own R/G channels are both 255, so min() against them
+        # never lowers anything - only the blue channel (0 in yellow)
+        # ever changes, regardless of how dark the pixel already is.
+        image = solid_image(4, 4, 10, 10, 10)
+
+        result = highlight_filter(image, full_rect(image), highlight_color=(255, 255, 0, 255))
+
+        assert np.array_equal(result[:, :, 0], image[:, :, 0])
+        assert np.array_equal(result[:, :, 1], image[:, :, 1])
+        assert np.all(result[:, :, 2] == 0)
+
+    def test_leaves_everything_outside_the_rect_unchanged(self):
+        image = checkerboard(8)
+
+        result = highlight_filter(image, Rect(2, 2, 6, 6))
+
+        result_outside = result.copy()
+        result_outside[2:6, 2:6] = 0
+        expected_outside = image.copy()
+        expected_outside[2:6, 2:6] = 0
+        assert np.array_equal(result_outside, expected_outside)
+
+    def test_invert_highlights_everything_except_the_rect(self):
+        image = solid_image(6, 6, 200, 200, 200)
+
+        result = highlight_filter(image, Rect(2, 2, 4, 4), invert=True)
+
+        assert np.array_equal(result[2:4, 2:4], image[2:4, 2:4])  # inside untouched
+        assert np.array_equal(result[0, 0, 2], np.uint8(0))  # outside clamped to yellow
+
+    def test_alpha_is_untouched(self):
+        image = solid_image(4, 4, 200, 200, 200, a=128)
+
+        result = highlight_filter(image, full_rect(image))
+
+        assert np.all(result[:, :, 3] == 128)
+
+
+class TestBrightnessFilter:
+    def test_darkens_toward_zero_with_brightness_below_one(self):
+        image = solid_image(4, 4, 200, 200, 200)
+
+        result = brightness_filter(image, full_rect(image), brightness=0.9)
+
+        # shift = (0.9 - 1) * 255 = -25.5, rounds to -26 or -25 depending
+        # on round-half-to-even - either way strictly darker.
+        assert np.all(result[:, :, :3] < image[:, :, :3])
+
+    def test_clips_at_zero_rather_than_wrapping(self):
+        image = solid_image(4, 4, 5, 5, 5)
+
+        result = brightness_filter(image, full_rect(image), brightness=0.5)
+
+        assert np.all(result[:, :, :3] == 0)
+
+    def test_invert_darkens_everything_except_the_rect(self):
+        image = solid_image(6, 6, 200, 200, 200)
+
+        result = brightness_filter(image, Rect(2, 2, 4, 4), brightness=0.5, invert=True)
+
+        assert np.array_equal(result[2:4, 2:4], image[2:4, 2:4])  # inside untouched
+        assert np.all(result[0, 0, :3] < image[0, 0, :3])  # outside darkened
+
+
+class TestGrayscaleFilter:
+    def test_desaturates_using_standard_luma_weights(self):
+        image = solid_image(1, 1, 100, 200, 50)
+
+        result = grayscale_filter(image, full_rect(image))
+
+        expected_luma = round(0.3 * 100 + 0.59 * 200 + 0.11 * 50)
+        assert result[0, 0, 0] == expected_luma
+        assert result[0, 0, 1] == expected_luma
+        assert result[0, 0, 2] == expected_luma
+
+    def test_a_gray_pixel_is_unchanged(self):
+        image = solid_image(2, 2, 128, 128, 128)
+
+        result = grayscale_filter(image, full_rect(image))
+
+        assert np.array_equal(result[:, :, :3], image[:, :, :3])
+
+    def test_invert_desaturates_everything_except_the_rect(self):
+        image = solid_image(6, 6, 100, 200, 50)
+
+        result = grayscale_filter(image, Rect(2, 2, 4, 4), invert=True)
+
+        assert np.array_equal(result[2:4, 2:4], image[2:4, 2:4])  # inside untouched (still colorful)
+        assert result[0, 0, 0] == result[0, 0, 1] == result[0, 0, 2]  # outside is gray
+
+
+class TestMagnifyFilter:
+    def test_factor_of_one_or_less_returns_unchanged_copy(self):
+        image = checkerboard(8, square=1)
+
+        result = magnify_filter(image, full_rect(image), magnification_factor=1)
+
+        assert np.array_equal(result, image)
+
+    def test_preserves_shape_and_dtype(self):
+        image = checkerboard(16, square=1)
+        rect = Rect(2, 2, 14, 14)
+
+        result = magnify_filter(image, rect, magnification_factor=2)
+
+        assert result.shape == image.shape
+        assert result.dtype == image.dtype
+
+    def test_leaves_everything_outside_the_rect_unchanged(self):
+        image = checkerboard(16, square=1)
+        rect = Rect(4, 4, 12, 12)
+
+        result = magnify_filter(image, rect, magnification_factor=2)
+
+        result_outside = result.copy()
+        result_outside[4:12, 4:12] = 0
+        expected_outside = image.copy()
+        expected_outside[4:12, 4:12] = 0
+        assert np.array_equal(result_outside, expected_outside)
+
+    def test_a_uniform_region_stays_uniform(self):
+        image = solid_image(16, 16, 10, 20, 30)
+        rect = Rect(4, 4, 12, 12)
+
+        result = magnify_filter(image, rect, magnification_factor=2)
+
+        assert np.all(result[4:12, 4:12, :3] == (10, 20, 30))
+
+    def test_output_is_a_zoomed_crop_of_the_rects_own_center(self):
+        # A single 2x2 colored square dead center of an otherwise-black
+        # 16x16 rect, magnified 4x - the source crop is rect size / 4 =
+        # 4x4, centered on the rect (rows/cols 6-9), so the 2x2 red
+        # square [7:9, 7:9] occupies exactly 4 of its 16 pixels (25%).
+        # Nearest-neighbor upscaling to fill the full 16x16 output
+        # preserves that same area ratio - it doesn't concentrate or
+        # dilute how much of the crop was red, just repeats each source
+        # pixel into a same-sized block.
+        image = np.zeros((16, 16, 4), dtype=np.uint8)
+        image[:, :, 3] = 255
+        image[7:9, 7:9] = (255, 0, 0, 255)
+        rect = Rect(0, 0, 16, 16)
+
+        result = magnify_filter(image, rect, magnification_factor=4)
+
+        red_fraction = np.mean(np.all(result[:, :, :3] == (255, 0, 0), axis=-1))
+        assert red_fraction == 0.25
+
+    def test_rect_outside_image_returns_unchanged_copy(self):
+        image = checkerboard(8)
+
+        result = magnify_filter(image, Rect(100, 100, 200, 200), magnification_factor=2)
+
+        assert np.array_equal(result, image)
+
+    def test_input_image_is_not_modified(self):
+        image = checkerboard(8, square=1)
+        original = image.copy()
+
+        magnify_filter(image, full_rect(image), magnification_factor=2)
 
         assert np.array_equal(image, original)
 

@@ -368,6 +368,61 @@ class SvgShape:
     svg_data: str
 
 
+class HighlightMode(str, Enum):
+    # Windows' own PreparedFilter enum spells this TEXT_HIGHTLIGHT (a
+    # typo in the real source, HighlightContainer.cs) - corrected here
+    # since it's an internal identifier, not user-facing text; noted
+    # for traceability back to the source, not reproduced.
+    TEXT_HIGHLIGHT = "text_highlight"
+    AREA_HIGHLIGHT = "area_highlight"
+    GRAYSCALE = "grayscale"
+    MAGNIFICATION = "magnification"
+
+
+@dataclass(frozen=True)
+class HighlightShape:
+    """Behavioral port of HighlightContainer: like ObfuscateShape, has
+    no visual content of its own - rendering it means re-filtering the
+    region of the original captured image under ``bounds`` (see
+    ui/render.py's render_highlight), using the highlight_text/
+    highlight_area/highlight_grayscale/highlight_magnify functions in
+    filters.py.
+
+    Unlike every ObfuscateMode, two of these four modes act as a
+    "spotlight" rather than filtering the region itself - real
+    Windows' AREA_HIGHLIGHT (BrightnessFilter+BlurFilter, both with
+    their own Invert=true) and GRAYSCALE (GrayscaleFilter, Invert=true)
+    apply their effect to the rest of the *whole image*, excluding
+    ``bounds``, leaving the bounds themselves untouched - the opposite
+    direction from every Obfuscate mode, which always filters *inside*
+    its own bounds and leaves everything else alone.
+
+    ``fill_color`` is TEXT_HIGHLIGHT's own highlighter-marker color
+    (default opaque yellow, matching HighlightFilter's own
+    FILL_COLOR default) - unused by every other mode.
+
+    ``brightness``/``blur_radius`` are AREA_HIGHLIGHT's own two
+    stacked filters' fields (BrightnessFilter's own BRIGHTNESS default
+    0.9, BlurFilter's own BLUR_RADIUS default 3, both applied together
+    in the source, not swappable independently) - unused by every
+    other mode.
+
+    ``magnification_factor`` is MAGNIFICATION's own zoom level
+    (MagnifierFilter's own MAGNIFICATION_FACTOR default 2) - unused by
+    every other mode.
+
+    No ``seed`` field, unlike ObfuscateShape - none of these four
+    modes use randomness (no Pixelize/Scramble equivalent here).
+    """
+
+    bounds: Rect
+    mode: HighlightMode = HighlightMode.TEXT_HIGHLIGHT
+    fill_color: Color = (255, 255, 0, 255)
+    brightness: float = 0.9
+    blur_radius: int = 3
+    magnification_factor: int = 2
+
+
 class ObfuscateMode(str, Enum):
     BLUR = "blur"
     PIXELIZE = "pixelize"

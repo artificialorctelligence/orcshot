@@ -17,6 +17,8 @@ from greenshot_linux.core.shapes import (
     CursorShape,
     EllipseShape,
     FreehandShape,
+    HighlightMode,
+    HighlightShape,
     IconShape,
     ImageShape,
     LineShape,
@@ -31,6 +33,11 @@ from greenshot_linux.core.shapes import (
 )
 from greenshot_linux.core.tools import (
     STYLE_FIELD_FILL_COLOR,
+    STYLE_FIELD_HIGHLIGHT_BLUR_RADIUS,
+    STYLE_FIELD_HIGHLIGHT_BRIGHTNESS,
+    STYLE_FIELD_HIGHLIGHT_FILL_COLOR,
+    STYLE_FIELD_HIGHLIGHT_MAGNIFICATION,
+    STYLE_FIELD_HIGHLIGHT_MODE,
     STYLE_FIELD_LINE_COLOR,
     STYLE_FIELD_LINE_THICKNESS,
     STYLE_FIELD_OBFUSCATE_AMOUNT,
@@ -152,6 +159,54 @@ class TestCreateShapeFromDrag:
         assert shape.bounds == Rect(10, 10, 60, 40)
         assert shape.mode is ObfuscateMode.SCRAMBLE
 
+    def test_highlight_text(self):
+        shape = create_shape_from_drag(Tool.HIGHLIGHT_TEXT, (10, 40), (60, 10), STYLE)
+        assert isinstance(shape, HighlightShape)
+        assert shape.bounds == Rect(10, 10, 60, 40)
+        assert shape.mode is HighlightMode.TEXT_HIGHLIGHT
+        assert shape.fill_color == (255, 255, 0, 255)  # HighlightShape's own default
+
+    def test_highlight_text_with_an_explicit_fill_color(self):
+        shape = create_shape_from_drag(
+            Tool.HIGHLIGHT_TEXT, (10, 40), (60, 10), STYLE, highlight_color=(0, 255, 0, 255),
+        )
+        assert shape.fill_color == (0, 255, 0, 255)
+
+    def test_highlight_area(self):
+        shape = create_shape_from_drag(Tool.HIGHLIGHT_AREA, (10, 40), (60, 10), STYLE)
+        assert isinstance(shape, HighlightShape)
+        assert shape.bounds == Rect(10, 10, 60, 40)
+        assert shape.mode is HighlightMode.AREA_HIGHLIGHT
+        assert shape.brightness == 0.9  # HighlightShape's own default
+        assert shape.blur_radius == 3
+
+    def test_highlight_area_with_explicit_brightness_and_blur_radius(self):
+        shape = create_shape_from_drag(
+            Tool.HIGHLIGHT_AREA, (10, 40), (60, 10), STYLE,
+            highlight_brightness=0.5, highlight_blur_radius=8,
+        )
+        assert shape.brightness == 0.5
+        assert shape.blur_radius == 8
+
+    def test_highlight_grayscale(self):
+        shape = create_shape_from_drag(Tool.HIGHLIGHT_GRAYSCALE, (10, 40), (60, 10), STYLE)
+        assert isinstance(shape, HighlightShape)
+        assert shape.bounds == Rect(10, 10, 60, 40)
+        assert shape.mode is HighlightMode.GRAYSCALE
+
+    def test_highlight_magnify(self):
+        shape = create_shape_from_drag(Tool.HIGHLIGHT_MAGNIFY, (10, 40), (60, 10), STYLE)
+        assert isinstance(shape, HighlightShape)
+        assert shape.bounds == Rect(10, 10, 60, 40)
+        assert shape.mode is HighlightMode.MAGNIFICATION
+        assert shape.magnification_factor == 2  # HighlightShape's own default
+
+    def test_highlight_magnify_with_an_explicit_factor(self):
+        shape = create_shape_from_drag(
+            Tool.HIGHLIGHT_MAGNIFY, (10, 40), (60, 10), STYLE, highlight_magnification=4,
+        )
+        assert shape.magnification_factor == 4
+
     def test_fill_color_is_ignored_for_tools_that_do_not_use_it(self):
         shape = create_shape_from_drag(
             Tool.RECTANGLE, (10, 40), (60, 10), STYLE, fill_color=(9, 9, 9, 9),
@@ -269,6 +324,12 @@ _OBFUSCATE_COLOR_FIELDS = frozenset({
     STYLE_FIELD_OBFUSCATE_MODE,
 })
 _OBFUSCATE_MODE_ONLY_FIELDS = frozenset({STYLE_FIELD_OBFUSCATE_MODE})
+_HIGHLIGHT_COLOR_FIELDS = frozenset({STYLE_FIELD_HIGHLIGHT_FILL_COLOR, STYLE_FIELD_HIGHLIGHT_MODE})
+_HIGHLIGHT_AREA_FIELDS = frozenset({
+    STYLE_FIELD_HIGHLIGHT_BRIGHTNESS, STYLE_FIELD_HIGHLIGHT_BLUR_RADIUS, STYLE_FIELD_HIGHLIGHT_MODE,
+})
+_HIGHLIGHT_MODE_ONLY_FIELDS = frozenset({STYLE_FIELD_HIGHLIGHT_MODE})
+_HIGHLIGHT_MAGNIFY_FIELDS = frozenset({STYLE_FIELD_HIGHLIGHT_MAGNIFICATION, STYLE_FIELD_HIGHLIGHT_MODE})
 
 
 class TestVisibleStyleFields:
@@ -286,6 +347,10 @@ class TestVisibleStyleFields:
         (Tool.BLUR, _OBFUSCATE_FIELDS),
         (Tool.SOLID_FILL, _OBFUSCATE_COLOR_FIELDS),
         (Tool.SCRAMBLE, _OBFUSCATE_MODE_ONLY_FIELDS),
+        (Tool.HIGHLIGHT_TEXT, _HIGHLIGHT_COLOR_FIELDS),
+        (Tool.HIGHLIGHT_AREA, _HIGHLIGHT_AREA_FIELDS),
+        (Tool.HIGHLIGHT_GRAYSCALE, _HIGHLIGHT_MODE_ONLY_FIELDS),
+        (Tool.HIGHLIGHT_MAGNIFY, _HIGHLIGHT_MAGNIFY_FIELDS),
     ])
     def test_tool_without_a_selection(self, tool, expected):
         assert visible_style_fields(tool) == expected
@@ -309,6 +374,10 @@ class TestVisibleStyleFields:
         (ObfuscateShape(Rect(0, 0, 10, 10), mode=ObfuscateMode.PIXELIZE), _OBFUSCATE_FIELDS),
         (ObfuscateShape(Rect(0, 0, 10, 10), mode=ObfuscateMode.SOLID_FILL), _OBFUSCATE_COLOR_FIELDS),
         (ObfuscateShape(Rect(0, 0, 10, 10), mode=ObfuscateMode.SCRAMBLE), _OBFUSCATE_MODE_ONLY_FIELDS),
+        (HighlightShape(Rect(0, 0, 10, 10), mode=HighlightMode.TEXT_HIGHLIGHT), _HIGHLIGHT_COLOR_FIELDS),
+        (HighlightShape(Rect(0, 0, 10, 10), mode=HighlightMode.AREA_HIGHLIGHT), _HIGHLIGHT_AREA_FIELDS),
+        (HighlightShape(Rect(0, 0, 10, 10), mode=HighlightMode.GRAYSCALE), _HIGHLIGHT_MODE_ONLY_FIELDS),
+        (HighlightShape(Rect(0, 0, 10, 10), mode=HighlightMode.MAGNIFICATION), _HIGHLIGHT_MAGNIFY_FIELDS),
         (IconShape(bounds=Rect(0, 0, 10, 10), image=rgba_image()), frozenset()),
         (CursorShape(bounds=Rect(0, 0, 10, 10), image=rgba_image()), frozenset()),
         (ImageShape(bounds=Rect(0, 0, 10, 10), image=rgba_image()), frozenset()),

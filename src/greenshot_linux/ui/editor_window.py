@@ -145,7 +145,8 @@ from greenshot_linux.core.history import (
     UndoRedoStack,
 )
 from greenshot_linux.core.shapes import (
-    ImageShape, ObfuscateMode, ObfuscateShape, ShapeStyle, SpeechBubbleShape, StepLabelShape, SvgShape, TextShape,
+    HighlightMode, HighlightShape, ImageShape, ObfuscateMode, ObfuscateShape, ShapeStyle, SpeechBubbleShape,
+    StepLabelShape, SvgShape, TextShape,
 )
 from greenshot_linux.settings import (
     EXTERNAL_EDITOR_AUTO,
@@ -159,6 +160,11 @@ from greenshot_linux.settings import (
 from greenshot_linux.resources import LOGO_PATH
 from greenshot_linux.core.tools import (
     STYLE_FIELD_FILL_COLOR,
+    STYLE_FIELD_HIGHLIGHT_BLUR_RADIUS,
+    STYLE_FIELD_HIGHLIGHT_BRIGHTNESS,
+    STYLE_FIELD_HIGHLIGHT_FILL_COLOR,
+    STYLE_FIELD_HIGHLIGHT_MAGNIFICATION,
+    STYLE_FIELD_HIGHLIGHT_MODE,
     STYLE_FIELD_LINE_COLOR,
     STYLE_FIELD_LINE_THICKNESS,
     STYLE_FIELD_OBFUSCATE_AMOUNT,
@@ -196,7 +202,7 @@ from greenshot_linux.ui.composite import composite_to_numpy
 from greenshot_linux.ui.effects import resize_image, torn_edge_image
 from greenshot_linux.ui.gdk_convert import pixbuf_to_numpy
 from greenshot_linux.ui.file_export import save_image_to_file
-from greenshot_linux.ui.icons import obfuscate_icon_image, tool_icon_image
+from greenshot_linux.ui.icons import highlight_icon_image, obfuscate_icon_image, tool_icon_image
 from greenshot_linux.ui.printing import print_image
 from greenshot_linux.ui.render import bubble_corner_radius, render_shape, vertical_text_offset
 
@@ -311,6 +317,38 @@ _OBFUSCATE_MODE_TOOLTIPS = {
 # order from before task #60.
 _OBFUSCATE_MODE_ORDER = (Tool.SOLID_FILL, Tool.SCRAMBLE, Tool.PIXELIZE, Tool.BLUR)
 
+# Highlight (task #88) mirrors Obfuscate's entire palette/dropdown
+# pattern above - one toolbar button standing in for four modes, a
+# style-panel Mode dropdown to choose between them, same reasoning as
+# _OBFUSCATE_GROUP's own docstring (real Windows: highlightModeButton
+# lives in propertiesToolStrip too, not attached to btnHighlight).
+_HIGHLIGHT_GROUP = "highlight_group"
+_TOOL_TO_HIGHLIGHT_MODE = {
+    Tool.HIGHLIGHT_TEXT: HighlightMode.TEXT_HIGHLIGHT,
+    Tool.HIGHLIGHT_AREA: HighlightMode.AREA_HIGHLIGHT,
+    Tool.HIGHLIGHT_GRAYSCALE: HighlightMode.GRAYSCALE,
+    Tool.HIGHLIGHT_MAGNIFY: HighlightMode.MAGNIFICATION,
+}
+_HIGHLIGHT_MODE_TO_TOOL = {mode: tool for tool, mode in _TOOL_TO_HIGHLIGHT_MODE.items()}
+
+# No security-tier suffix the way _OBFUSCATE_MODE_SECURITY_SUFFIX has -
+# Highlight isn't a redaction/security feature, these are just visual
+# style choices, so the dropdown just shows plain names, matching the
+# real highlightModeButton's own dropdown items (ImageEditorForm.
+# Designer.cs:1191-1196 - plain LanguageKey-driven labels, no rating).
+_HIGHLIGHT_MODE_LABELS = {
+    Tool.HIGHLIGHT_TEXT: "Text Highlight",
+    Tool.HIGHLIGHT_AREA: "Area Highlight",
+    Tool.HIGHLIGHT_GRAYSCALE: "Grayscale",
+    Tool.HIGHLIGHT_MAGNIFY: "Magnification",
+}
+
+# Dropdown order matches the real Windows enum/dropdown declaration
+# order (FilterContainer.PreparedFilter: TEXT_HIGHTLIGHT, AREA_
+# HIGHLIGHT, GRAYSCALE, MAGNIFICATION) - no secure-to-insecure ranking
+# to sort by the way Obfuscate's own order has.
+_HIGHLIGHT_MODE_ORDER = (Tool.HIGHLIGHT_TEXT, Tool.HIGHLIGHT_AREA, Tool.HIGHLIGHT_GRAYSCALE, Tool.HIGHLIGHT_MAGNIFY)
+
 # Solid Fill's own preset redaction labels (task #60 follow-up) - "" is
 # "None" (plain box, no text, ObfuscateShape.fill_text's own default).
 # Deliberately a fixed list, not free text entry - anyone wanting a
@@ -349,11 +387,21 @@ _TOOL_LABELS = [
     (Tool.LINE, "Line"),
     (Tool.ARROW, "Arrow"),
     (Tool.FREEHAND, "Freehand"),
-    _OBFUSCATE_GROUP,
     (Tool.TEXT, "Text"),
     (Tool.SPEECH_BUBBLE, "Speech Bubble"),
     (Tool.STEP_LABEL, "Step Label"),
     (Tool.EMOJI, "Emoji"),
+    None,
+    # Real Windows order (ImageEditorForm.Designer.cs's toolsToolStrip.
+    # Items): ...Emoji, [separator], Highlight, Obfuscate, [Effects] -
+    # Obfuscate used to sit *before* Text/SpeechBubble/StepLabel/Emoji
+    # here, which didn't match; corrected while placing Highlight
+    # (task #88) in its own real position, since leaving Obfuscate
+    # wrong while placing Highlight right next to it would only be
+    # more confusing. Effects (task #89) belongs right after Obfuscate
+    # too, not built yet.
+    _HIGHLIGHT_GROUP,
+    _OBFUSCATE_GROUP,
 ]
 
 _HANDLE_SIZE = 6
@@ -452,6 +500,20 @@ class EditorWindow(Gtk.Window):
         # research trail) and Solid Fill is the only mode with a
         # provable zero-leak guarantee.
         self._default_obfuscate_mode = Tool.SOLID_FILL
+        # Highlight's own defaults (task #88) - unlike Obfuscate above,
+        # no security reasoning to deviate from Windows for, so these
+        # match the real source exactly: highlightModeButton's own
+        # SelectedTag/Tag default (ImageEditorForm.Designer.cs:1200-
+        # 1201) is PreparedFilter.TEXT_HIGHTLIGHT, and each filter's own
+        # AddField default (HighlightFilter's FILL_COLOR=Yellow,
+        # BrightnessFilter's BRIGHTNESS=0.9, BlurFilter's BLUR_RADIUS=3,
+        # MagnifierFilter's MAGNIFICATION_FACTOR=2 - Filters.cs, cited
+        # in full in HighlightShape's own docstring, core/shapes.py).
+        self._default_highlight_mode = Tool.HIGHLIGHT_TEXT
+        self._default_highlight_fill_color = (255, 255, 0, 255)
+        self._default_highlight_brightness = 0.9
+        self._default_highlight_blur_radius = 3
+        self._default_highlight_magnification = 2
         # Bypasses the selected_shape property below - same reason the
         # base_image property's docstring gives for __init__ setting
         # self._base_image directly: its setter refreshes the
@@ -725,6 +787,40 @@ class EditorWindow(Gtk.Window):
         if not self._obfuscate_fill_text_items[fill_text].get_active():
             self._obfuscate_fill_text_items[fill_text].set_active(True)
 
+        # Mode dropdown button labels weren't previously kept in sync
+        # here either (only _set_obfuscate_mode itself updated them,
+        # so selecting an *existing* shape whose mode differs from
+        # whatever was last prepared left the button showing the wrong
+        # mode) - a real, pre-existing gap, fixed here alongside adding
+        # Highlight's own equivalent rather than copying the same bug
+        # into new code (same reasoning as the swatch queue_draw()
+        # calls above).
+        obfuscate_mode_tool = _OBFUSCATE_MODE_TO_TOOL[shape.mode] if isinstance(shape, ObfuscateShape) \
+            else self._default_obfuscate_mode
+        self._obfuscate_mode_button.set_label(self._obfuscate_mode_label(obfuscate_mode_tool))
+        if not self._obfuscate_mode_items[obfuscate_mode_tool].get_active():
+            self._obfuscate_mode_items[obfuscate_mode_tool].set_active(True)
+
+        self._highlight_fill_swatch.queue_draw()
+        highlight_mode_tool = _HIGHLIGHT_MODE_TO_TOOL[shape.mode] if isinstance(shape, HighlightShape) \
+            else self._default_highlight_mode
+        self._highlight_mode_button.set_label(self._highlight_mode_label(highlight_mode_tool))
+        if not self._highlight_mode_items[highlight_mode_tool].get_active():
+            self._highlight_mode_items[highlight_mode_tool].set_active(True)
+
+        self._syncing_style_panel = True
+        try:
+            if isinstance(shape, HighlightShape):
+                self._highlight_brightness_spin.set_value(shape.brightness)
+                self._highlight_blur_radius_spin.set_value(shape.blur_radius)
+                self._highlight_magnification_spin.set_value(shape.magnification_factor)
+            else:
+                self._highlight_brightness_spin.set_value(self._default_highlight_brightness)
+                self._highlight_blur_radius_spin.set_value(self._default_highlight_blur_radius)
+                self._highlight_magnification_spin.set_value(self._default_highlight_magnification)
+        finally:
+            self._syncing_style_panel = False
+
     @property
     def base_image(self) -> np.ndarray:
         return self._base_image
@@ -871,6 +967,9 @@ class EditorWindow(Gtk.Window):
             if entry is _OBFUSCATE_GROUP:
                 group_leader = self._build_obfuscate_control(box, group_leader, icon_color)
                 continue
+            if entry is _HIGHLIGHT_GROUP:
+                group_leader = self._build_highlight_control(box, group_leader, icon_color)
+                continue
             tool, label = entry
             button = Gtk.RadioButton.new_from_widget(group_leader)
             if group_leader is None:
@@ -935,6 +1034,31 @@ class EditorWindow(Gtk.Window):
     def _obfuscate_mode_label(mode: Tool) -> str:
         return _OBFUSCATE_MODE_LABELS[mode]
 
+    def _build_highlight_control(self, box: Gtk.Box, group_leader, icon_color) -> Gtk.RadioButton:
+        """The single "Highlight" palette entry - mirrors
+        _build_obfuscate_control exactly, see its own docstring for
+        the full reasoning (same real-Windows layout: highlightModeButton
+        lives in propertiesToolStrip, not attached to btnHighlight).
+        """
+        button = Gtk.RadioButton.new_from_widget(group_leader)
+        if group_leader is None:
+            group_leader = button
+        button.set_mode(False)
+        button.set_relief(Gtk.ReliefStyle.NONE)
+        button.set_image(highlight_icon_image(icon_color))
+        button.set_tooltip_text("Highlight")
+        button.set_active(self.tool in _HIGHLIGHT_MODE_ORDER)
+        button.connect("toggled", self._on_highlight_button_toggled)
+        box.pack_start(button, False, False, 0)
+        self._highlight_button = button
+        for mode in _HIGHLIGHT_MODE_ORDER:
+            self._tool_buttons[mode] = button
+        return group_leader
+
+    @staticmethod
+    def _highlight_mode_label(mode: Tool) -> str:
+        return _HIGHLIGHT_MODE_LABELS[mode]
+
     def _build_obfuscate_mode_menu(self) -> Gtk.Menu:
         menu = Gtk.Menu()
         self._obfuscate_mode_items = {}
@@ -982,12 +1106,22 @@ class EditorWindow(Gtk.Window):
         preference (missed when this control was first split out;
         the amount spinner already did this correctly).
 
-        Otherwise, if Obfuscate already *is* the active tool (and
-        nothing's selected), its own fields still update live (the
-        amount label swaps between "Blur Radius:"/"Pixel Size:"
-        immediately) - that mirrors Windows' FieldAggregator reflecting
-        the newly prepared filter's fields right away, even though
-        nothing here changes *whether* Obfuscate is active.
+        If Obfuscate is *also* already the active tool, self.tool is
+        kept in sync with the new mode too - independently of the
+        shape-retroactive-update above, not as an alternative to it.
+        Originally these were mutually exclusive (an if/elif), on the
+        assumption that "something's selected" and "Obfuscate is the
+        active drawing tool" couldn't both matter at once - but they
+        very much can: drawing a shape leaves it selected, so picking
+        a new mode from the dropdown right after finishing a drag hits
+        exactly this case. Without also updating self.tool here, it
+        stays pointed at the *old* mode, and the very next shape drawn
+        - without first explicitly reactivating Obfuscate - silently
+        uses that stale mode instead of the one just picked. Reported
+        live by testing the identical pattern while building Highlight
+        (task #88, same shared logic) - confirmed this already-shipped
+        Obfuscate code had the same bug, just never exercised in quite
+        this sequence before.
         """
         self._default_obfuscate_mode = mode
         self._obfuscate_mode_button.set_label(self._obfuscate_mode_label(mode))
@@ -1002,7 +1136,7 @@ class EditorWindow(Gtk.Window):
             self.undo_redo.push(ElementChangeMemento(self.layer, before=shape, after=updated))
             self.selected_shape = updated  # setter already calls _refresh_style_panel
             self._drawing_area.queue_draw()
-        elif self.tool in _OBFUSCATE_MODE_ORDER:
+        if self.tool in _OBFUSCATE_MODE_ORDER:
             self.tool = mode
             self._refresh_style_panel()
             self._drawing_area.queue_draw()
@@ -1022,6 +1156,68 @@ class EditorWindow(Gtk.Window):
             self._refresh_style_panel()
         else:
             self._obfuscate_button.set_active(True)  # fires "toggled" -> _on_obfuscate_button_toggled
+
+    def _build_highlight_mode_menu(self) -> Gtk.Menu:
+        menu = Gtk.Menu()
+        self._highlight_mode_items = {}
+        item_group_leader = None
+        for mode in _HIGHLIGHT_MODE_ORDER:
+            item = Gtk.RadioMenuItem.new_with_label_from_widget(item_group_leader, _HIGHLIGHT_MODE_LABELS[mode])
+            if item_group_leader is None:
+                item_group_leader = item
+            item.set_active(mode is self._default_highlight_mode)
+            item.connect("toggled", self._on_highlight_mode_item_toggled, mode)
+            menu.append(item)
+            self._highlight_mode_items[mode] = item
+        menu.show_all()
+        return menu
+
+    def _on_highlight_button_toggled(self, button: Gtk.RadioButton) -> None:
+        if button.get_active():
+            self.tool = self._default_highlight_mode
+            self._refresh_style_panel()
+
+    def _on_highlight_mode_item_toggled(self, item: Gtk.RadioMenuItem, mode: Tool) -> None:
+        if item.get_active():
+            self._set_highlight_mode(mode)
+
+    def _set_highlight_mode(self, mode: Tool) -> None:
+        """Changes which filter Highlight will use next - mirrors
+        _set_obfuscate_mode exactly, see its own docstring for the
+        full reasoning (does not activate the tool; retroactively
+        updates a selected HighlightShape's own mode; live-updates
+        the style panel if Highlight is already the active tool).
+        """
+        self._default_highlight_mode = mode
+        self._highlight_mode_button.set_label(self._highlight_mode_label(mode))
+        if not self._highlight_mode_items[mode].get_active():
+            self._highlight_mode_items[mode].set_active(True)
+
+        shape = self.selected_shape
+        if isinstance(shape, HighlightShape):
+            highlight_mode = _TOOL_TO_HIGHLIGHT_MODE[mode]
+            updated = dataclass_replace(shape, mode=highlight_mode)
+            self.layer.replace(shape, updated)
+            self.undo_redo.push(ElementChangeMemento(self.layer, before=shape, after=updated))
+            self.selected_shape = updated  # setter already calls _refresh_style_panel
+            self._drawing_area.queue_draw()
+        # Not an elif - see _set_obfuscate_mode's own docstring for why
+        # this needs to run independently of the retroactive-shape-
+        # update above, not as an alternative to it.
+        if self.tool in _HIGHLIGHT_MODE_ORDER:
+            self.tool = mode
+            self._refresh_style_panel()
+            self._drawing_area.queue_draw()
+
+    def _activate_highlight_tool(self) -> None:
+        """What clicking the main Highlight button does - mirrors
+        _activate_obfuscate_tool exactly, see its own docstring.
+        """
+        if self._highlight_button.get_active():
+            self.tool = self._default_highlight_mode
+            self._refresh_style_panel()
+        else:
+            self._highlight_button.set_active(True)  # fires "toggled" -> _on_highlight_button_toggled
 
     def _build_action_toolbar(self) -> Gtk.Toolbar:
         """Matches the real Windows order (confirmed from
@@ -1214,6 +1410,46 @@ class EditorWindow(Gtk.Window):
         self._obfuscate_amount_spin.connect("value-changed", self._on_obfuscate_amount_changed)
         add_cell(STYLE_FIELD_OBFUSCATE_AMOUNT, self._obfuscate_amount_label, self._obfuscate_amount_spin)
 
+        # Highlight's own style-panel cells (task #88) - mirrors
+        # Obfuscate's own Mode/Fill cells immediately above exactly,
+        # plus its own real Windows controls (blurRadiusUpDown/
+        # brightnessUpDown/magnificationFactorUpDown, ImageEditorForm.
+        # Designer.cs) that Obfuscate has no equivalent of.
+        highlight_mode_label = Gtk.Label(label="Mode:")
+        self._highlight_mode_button = Gtk.MenuButton(label=self._highlight_mode_label(self._default_highlight_mode))
+        self._highlight_mode_button.set_popup(self._build_highlight_mode_menu())
+        add_cell(STYLE_FIELD_HIGHLIGHT_MODE, highlight_mode_label, self._highlight_mode_button)
+
+        highlight_fill_label = Gtk.Label(label="Fill:")
+        highlight_fill_button, self._highlight_fill_swatch = self._build_color_button(
+            self._active_highlight_fill_color, self._on_highlight_fill_color_changed,
+        )
+        add_cell(STYLE_FIELD_HIGHLIGHT_FILL_COLOR, highlight_fill_label, highlight_fill_button)
+
+        brightness_label = Gtk.Label(label="Brightness:")
+        brightness_adjustment = Gtk.Adjustment(
+            value=self._default_highlight_brightness, lower=0.0, upper=1.0, step_increment=0.05,
+        )
+        self._highlight_brightness_spin = Gtk.SpinButton(adjustment=brightness_adjustment, digits=2)
+        self._highlight_brightness_spin.connect("value-changed", self._on_highlight_brightness_changed)
+        add_cell(STYLE_FIELD_HIGHLIGHT_BRIGHTNESS, brightness_label, self._highlight_brightness_spin)
+
+        blur_radius_label = Gtk.Label(label="Blur Radius:")
+        blur_radius_adjustment = Gtk.Adjustment(
+            value=self._default_highlight_blur_radius, lower=1, upper=50, step_increment=1,
+        )
+        self._highlight_blur_radius_spin = Gtk.SpinButton(adjustment=blur_radius_adjustment)
+        self._highlight_blur_radius_spin.connect("value-changed", self._on_highlight_blur_radius_changed)
+        add_cell(STYLE_FIELD_HIGHLIGHT_BLUR_RADIUS, blur_radius_label, self._highlight_blur_radius_spin)
+
+        magnification_label = Gtk.Label(label="Magnification:")
+        magnification_adjustment = Gtk.Adjustment(
+            value=self._default_highlight_magnification, lower=2, upper=10, step_increment=1,
+        )
+        self._highlight_magnification_spin = Gtk.SpinButton(adjustment=magnification_adjustment)
+        self._highlight_magnification_spin.connect("value-changed", self._on_highlight_magnification_changed)
+        add_cell(STYLE_FIELD_HIGHLIGHT_MAGNIFICATION, magnification_label, self._highlight_magnification_spin)
+
         self._refresh_style_panel()
         return box
 
@@ -1252,6 +1488,64 @@ class EditorWindow(Gtk.Window):
         shape = self.selected_shape
         if isinstance(shape, ObfuscateShape):
             updated = dataclass_replace(shape, fill_color=color)
+            self.layer.replace(shape, updated)
+            self.undo_redo.push(ElementChangeMemento(self.layer, before=shape, after=updated))
+            self.selected_shape = updated
+            self._drawing_area.queue_draw()
+
+    def _active_highlight_fill_color(self):
+        """Mirrors _active_obfuscate_fill_color exactly, for
+        Text Highlight's own Fill: swatch instead of Solid Fill's.
+        """
+        shape = self._selected_shape
+        if isinstance(shape, HighlightShape):
+            return shape.fill_color
+        return self._default_highlight_fill_color
+
+    def _on_highlight_fill_color_changed(self, color) -> None:
+        self._default_highlight_fill_color = color
+        shape = self.selected_shape
+        if isinstance(shape, HighlightShape):
+            updated = dataclass_replace(shape, fill_color=color)
+            self.layer.replace(shape, updated)
+            self.undo_redo.push(ElementChangeMemento(self.layer, before=shape, after=updated))
+            self.selected_shape = updated
+            self._drawing_area.queue_draw()
+
+    def _on_highlight_brightness_changed(self, spin: Gtk.SpinButton) -> None:
+        if self._syncing_style_panel:
+            return
+        brightness = spin.get_value()
+        self._default_highlight_brightness = brightness
+        shape = self.selected_shape
+        if isinstance(shape, HighlightShape):
+            updated = dataclass_replace(shape, brightness=brightness)
+            self.layer.replace(shape, updated)
+            self.undo_redo.push(ElementChangeMemento(self.layer, before=shape, after=updated))
+            self.selected_shape = updated
+            self._drawing_area.queue_draw()
+
+    def _on_highlight_blur_radius_changed(self, spin: Gtk.SpinButton) -> None:
+        if self._syncing_style_panel:
+            return
+        blur_radius = spin.get_value_as_int()
+        self._default_highlight_blur_radius = blur_radius
+        shape = self.selected_shape
+        if isinstance(shape, HighlightShape):
+            updated = dataclass_replace(shape, blur_radius=blur_radius)
+            self.layer.replace(shape, updated)
+            self.undo_redo.push(ElementChangeMemento(self.layer, before=shape, after=updated))
+            self.selected_shape = updated
+            self._drawing_area.queue_draw()
+
+    def _on_highlight_magnification_changed(self, spin: Gtk.SpinButton) -> None:
+        if self._syncing_style_panel:
+            return
+        magnification = spin.get_value_as_int()
+        self._default_highlight_magnification = magnification
+        shape = self.selected_shape
+        if isinstance(shape, HighlightShape):
+            updated = dataclass_replace(shape, magnification_factor=magnification)
             self.layer.replace(shape, updated)
             self.undo_redo.push(ElementChangeMemento(self.layer, before=shape, after=updated))
             self.selected_shape = updated
@@ -2599,6 +2893,10 @@ class EditorWindow(Gtk.Window):
                     self.tool, (x, y), (x, y), self._style_for_tool(self.tool),
                     amount=self._default_obfuscate_amount, fill_color=self._default_obfuscate_fill_color,
                     fill_text=self._default_obfuscate_fill_text, text_color=self._default_obfuscate_text_color,
+                    highlight_color=self._default_highlight_fill_color,
+                    highlight_brightness=self._default_highlight_brightness,
+                    highlight_blur_radius=self._default_highlight_blur_radius,
+                    highlight_magnification=self._default_highlight_magnification,
                 )
         else:
             self.selected_shape = None
@@ -2630,6 +2928,10 @@ class EditorWindow(Gtk.Window):
                     self.tool, self._drag_origin, (x, y), self._style_for_tool(self.tool),
                     amount=self._default_obfuscate_amount, fill_color=self._default_obfuscate_fill_color,
                     fill_text=self._default_obfuscate_fill_text, text_color=self._default_obfuscate_text_color,
+                    highlight_color=self._default_highlight_fill_color,
+                    highlight_brightness=self._default_highlight_brightness,
+                    highlight_blur_radius=self._default_highlight_blur_radius,
+                    highlight_magnification=self._default_highlight_magnification,
                 )
             widget.queue_draw()
             return True
@@ -2679,6 +2981,10 @@ class EditorWindow(Gtk.Window):
                     amount=self._default_obfuscate_amount, next_step_number=self._next_step_number(),
                     fill_color=self._default_obfuscate_fill_color,
                     fill_text=self._default_obfuscate_fill_text, text_color=self._default_obfuscate_text_color,
+                    highlight_color=self._default_highlight_fill_color,
+                    highlight_brightness=self._default_highlight_brightness,
+                    highlight_blur_radius=self._default_highlight_blur_radius,
+                    highlight_magnification=self._default_highlight_magnification,
                 )
             self._drag_origin = None
             self._drag_points = None

@@ -24,12 +24,16 @@ import cairo
 import numpy as np
 import pytest
 
-from greenshot_linux.core.filters import box_blur, pixelize, scramble, solid_fill
+from greenshot_linux.core.filters import (
+    box_blur, brightness_filter, grayscale_filter, highlight_filter, magnify_filter, pixelize, scramble, solid_fill,
+)
 from greenshot_linux.core.geometry import Rect
 from greenshot_linux.core.shapes import (
     ArrowShape,
     EllipseShape,
     FreehandShape,
+    HighlightMode,
+    HighlightShape,
     LineShape,
     ObfuscateMode,
     ObfuscateShape,
@@ -359,6 +363,129 @@ class TestRenderObfuscate:
 
     def test_raises_a_clear_error_without_a_base_image(self):
         shape = ObfuscateShape(Rect(0, 0, 10, 10))
+        surface = cairo.ImageSurface(cairo.FORMAT_ARGB32, 10, 10)
+        ctx = cairo.Context(surface)
+        with pytest.raises(ValueError):
+            render_shape(ctx, shape)
+
+
+class TestRenderHighlight:
+    def test_text_highlight_matches_the_filters_module_exactly(self):
+        base_image = noisy_base_image()
+        bounds = Rect(5, 5, 35, 35)
+        shape = HighlightShape(bounds, mode=HighlightMode.TEXT_HIGHLIGHT, fill_color=(255, 255, 0, 255))
+
+        result = render_to_numpy(50, 50, lambda ctx: render_shape(ctx, shape, base_image=base_image))
+
+        expected = highlight_filter(base_image, bounds, (255, 255, 0, 255))
+        region = expected[bounds.top:bounds.bottom, bounds.left:bounds.right]
+        assert np.array_equal(result[bounds.top:bounds.bottom, bounds.left:bounds.right], region)
+
+    def test_magnification_matches_the_filters_module_exactly(self):
+        base_image = noisy_base_image()
+        bounds = Rect(5, 5, 35, 35)
+        shape = HighlightShape(bounds, mode=HighlightMode.MAGNIFICATION, magnification_factor=3)
+
+        result = render_to_numpy(50, 50, lambda ctx: render_shape(ctx, shape, base_image=base_image))
+
+        expected = magnify_filter(base_image, bounds, 3)
+        region = expected[bounds.top:bounds.bottom, bounds.left:bounds.right]
+        assert np.array_equal(result[bounds.top:bounds.bottom, bounds.left:bounds.right], region)
+
+    def test_text_highlight_and_magnification_paint_nothing_outside_bounds(self):
+        # Like every ObfuscateMode (test_pixels_outside_bounds_are_left_
+        # untouched_by_rendering above): render_shape never pre-paints
+        # base_image onto the canvas itself, so "untouched" here means
+        # nothing was painted at all - still transparent, not "matches
+        # the original" (there's no original on a bare render_to_numpy
+        # canvas to match against).
+        base_image = noisy_base_image()
+        bounds = Rect(5, 5, 35, 35)
+
+        for shape in [
+            HighlightShape(bounds, mode=HighlightMode.TEXT_HIGHLIGHT),
+            HighlightShape(bounds, mode=HighlightMode.MAGNIFICATION),
+        ]:
+            result = render_to_numpy(50, 50, lambda ctx: render_shape(ctx, shape, base_image=base_image))
+            assert result[0:5, :, 3].max() == 0
+            assert result[:, 0:5, 3].max() == 0
+
+    def test_area_highlight_and_grayscale_paint_nothing_inside_bounds(self):
+        # The "spotlight" modes affect everywhere *except* bounds - the
+        # inverse of every other mode here, and of every ObfuscateMode -
+        # so *inside* bounds is what stays unpainted/transparent for
+        # these two, not outside.
+        base_image = noisy_base_image()
+        bounds = Rect(5, 5, 35, 35)
+
+        for shape in [
+            HighlightShape(bounds, mode=HighlightMode.AREA_HIGHLIGHT, brightness=0.5, blur_radius=3),
+            HighlightShape(bounds, mode=HighlightMode.GRAYSCALE),
+        ]:
+            result = render_to_numpy(50, 50, lambda ctx: render_shape(ctx, shape, base_image=base_image))
+            inside = result[bounds.top:bounds.bottom, bounds.left:bounds.right]
+            assert inside[:, :, 3].max() == 0
+
+    def test_area_highlight_and_grayscale_paint_the_outside_of_bounds(self):
+        base_image = noisy_base_image()
+        bounds = Rect(5, 5, 35, 35)
+        outside_mask = np.ones((50, 50), dtype=bool)
+        outside_mask[bounds.top:bounds.bottom, bounds.left:bounds.right] = False
+
+        for shape in [
+            HighlightShape(bounds, mode=HighlightMode.AREA_HIGHLIGHT, brightness=0.5, blur_radius=3),
+            HighlightShape(bounds, mode=HighlightMode.GRAYSCALE),
+        ]:
+            result = render_to_numpy(50, 50, lambda ctx: render_shape(ctx, shape, base_image=base_image))
+            assert result[outside_mask][:, 3].min() == 255  # fully painted (opaque), not left transparent
+            assert not np.array_equal(result[outside_mask], base_image[outside_mask])  # and actually filtered
+
+    def test_area_highlight_matches_the_filters_module_exactly(self):
+        base_image = noisy_base_image()
+        bounds = Rect(5, 5, 35, 35)
+        shape = HighlightShape(bounds, mode=HighlightMode.AREA_HIGHLIGHT, brightness=0.5, blur_radius=3)
+        outside_mask = np.ones((50, 50), dtype=bool)
+        outside_mask[bounds.top:bounds.bottom, bounds.left:bounds.right] = False
+
+        result = render_to_numpy(50, 50, lambda ctx: render_shape(ctx, shape, base_image=base_image))
+
+        expected = brightness_filter(base_image, bounds, 0.5, invert=True)
+        expected = box_blur(expected, bounds, 3, invert=True)
+        assert np.array_equal(result[outside_mask], expected[outside_mask])
+
+    def test_grayscale_matches_the_filters_module_exactly(self):
+        base_image = noisy_base_image()
+        bounds = Rect(5, 5, 35, 35)
+        shape = HighlightShape(bounds, mode=HighlightMode.GRAYSCALE)
+        outside_mask = np.ones((50, 50), dtype=bool)
+        outside_mask[bounds.top:bounds.bottom, bounds.left:bounds.right] = False
+
+        result = render_to_numpy(50, 50, lambda ctx: render_shape(ctx, shape, base_image=base_image))
+
+        expected = grayscale_filter(base_image, bounds, invert=True)
+        assert np.array_equal(result[outside_mask], expected[outside_mask])
+
+    def test_a_shape_drawn_earlier_inside_bounds_survives_a_later_spotlight_highlight(self):
+        # The clip-based "spotlight" paint must not blow away an
+        # earlier-drawn shape sitting *inside* the highlight's own
+        # bounds - only the region outside bounds should ever get
+        # overpainted by the darkened/grayscaled content.
+        base_image = noisy_base_image()
+        bounds = Rect(5, 5, 35, 35)
+        inner_rect = RectangleShape(
+            Rect(10, 10, 20, 20), ShapeStyle(line_thickness=0, fill_color=(0, 255, 0, 255), shadow=False),
+        )
+        highlight = HighlightShape(bounds, mode=HighlightMode.GRAYSCALE)
+        layer = Layer()
+        layer.add(inner_rect)
+        layer.add(highlight)
+
+        result = render_to_numpy(50, 50, lambda ctx: render_layer(ctx, layer, base_image=base_image))
+
+        assert np.array_equal(result[10:20, 10:20], np.full((10, 10, 4), (0, 255, 0, 255), dtype=np.uint8))
+
+    def test_raises_a_clear_error_without_a_base_image(self):
+        shape = HighlightShape(Rect(0, 0, 10, 10))
         surface = cairo.ImageSurface(cairo.FORMAT_ARGB32, 10, 10)
         ctx = cairo.Context(surface)
         with pytest.raises(ValueError):
