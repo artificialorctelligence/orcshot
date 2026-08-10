@@ -202,7 +202,7 @@ from greenshot_linux.ui.composite import composite_to_numpy
 from greenshot_linux.ui.effects import resize_image, torn_edge_image
 from greenshot_linux.ui.gdk_convert import pixbuf_to_numpy
 from greenshot_linux.ui.file_export import save_image_to_file
-from greenshot_linux.ui.icons import highlight_icon_image, obfuscate_icon_image, tool_icon_image
+from greenshot_linux.ui.icons import effects_icon_image, highlight_icon_image, obfuscate_icon_image, tool_icon_image
 from greenshot_linux.ui.printing import print_image
 from greenshot_linux.ui.render import bubble_corner_radius, render_shape, vertical_text_offset
 
@@ -254,6 +254,13 @@ _TOOL_KEYS = {
 # directly) - this only changes how the palette *presents* choosing
 # between them; see _build_tool_palette's handling of this sentinel.
 _OBFUSCATE_GROUP = "obfuscate_group"
+
+# Task #89: the Effects toolbar dropdown - not a drawing tool at all
+# (no Tool enum member, doesn't touch self.tool), so it isn't part of
+# the Gtk.RadioButton group the other _TOOL_LABELS entries build -
+# see _build_tool_palette's handling of this sentinel and
+# _build_effects_control.
+_EFFECTS_GROUP = "effects_group"
 
 # Task #60: two modes added alongside Blur/Pixelize, no Windows
 # equivalent for either - see core/shapes.py's ObfuscateMode docstring
@@ -393,15 +400,16 @@ _TOOL_LABELS = [
     (Tool.EMOJI, "Emoji"),
     None,
     # Real Windows order (ImageEditorForm.Designer.cs's toolsToolStrip.
-    # Items): ...Emoji, [separator], Highlight, Obfuscate, [Effects] -
+    # Items): ...Emoji, [separator], Highlight, Obfuscate, Effects -
     # Obfuscate used to sit *before* Text/SpeechBubble/StepLabel/Emoji
     # here, which didn't match; corrected while placing Highlight
     # (task #88) in its own real position, since leaving Obfuscate
     # wrong while placing Highlight right next to it would only be
     # more confusing. Effects (task #89) belongs right after Obfuscate
-    # too, not built yet.
+    # too.
     _HIGHLIGHT_GROUP,
     _OBFUSCATE_GROUP,
+    _EFFECTS_GROUP,
 ]
 
 _HANDLE_SIZE = 6
@@ -887,13 +895,15 @@ class EditorWindow(Gtk.Window):
         add_item(object_menu, "Bring to Front", self._do_bring_to_front)
         add_item(object_menu, "Send to Back", self._do_send_to_back)
 
-        # Whole-image effects (core/effects.py + ui/effects.py) -
-        # Windows exposes these via a toolbar split-button + separate
-        # toolbar buttons (toolStripSplitButton1/btnCrop/rotateCw.../
-        # btnResize, ImageEditorForm.Designer.cs:334-355,491-499), not
-        # a menu - grouped into a dedicated menu here instead, matching
-        # how this port already puts some toolbar-button actions
-        # (Insert Image, Print) in File instead. "Enlarge Canvas"/
+        # Whole-image effects (core/effects.py + ui/effects.py) - the
+        # Border/Drop Shadow/Torn Edge/Grayscale/Invert/Remove
+        # Transparency group moved out of here into the toolbar's
+        # Effects dropdown (task #89, _build_effects_control/
+        # _build_effects_menu), matching Windows' real
+        # toolStripSplitButton1. Rotate/Resize still live here for now
+        # - Windows puts those in the toolbar too (separate buttons,
+        # not part of the Effects split-button), tracked as its own
+        # task (#90) rather than folded in here. "Enlarge Canvas"/
         # "Shrink Canvas" deliberately have no item here - Windows
         # itself has no menu/toolbar entry for either, keyboard-only
         # (Ctrl+Shift++ / Ctrl+Shift+-, see _on_key_press).
@@ -901,16 +911,6 @@ class EditorWindow(Gtk.Window):
         add_item(image_menu, "Rotate Clockwise", self._do_rotate_cw)
         add_item(image_menu, "Rotate Counterclockwise", self._do_rotate_ccw)
         add_item(image_menu, "Resize...", self._do_resize)
-        image_menu.append(Gtk.SeparatorMenuItem())
-        add_item(image_menu, "Grayscale", self._do_grayscale)
-        add_item(image_menu, "Invert Colors", self._do_invert)
-        add_item(image_menu, "Remove Transparency...", self._do_remove_transparency)
-        image_menu.append(Gtk.SeparatorMenuItem())
-        add_item(image_menu, "Border", self._do_border)
-        add_item(image_menu, "Drop Shadow", self._do_drop_shadow)
-        add_item(image_menu, "Drop Shadow Settings...", self._do_drop_shadow_settings)
-        add_item(image_menu, "Torn Edge", self._do_torn_edge)
-        add_item(image_menu, "Torn Edge Settings...", self._do_torn_edge_settings)
         image_menu.append(Gtk.SeparatorMenuItem())
         add_item(image_menu, "Clear", self._do_clear)
 
@@ -969,6 +969,9 @@ class EditorWindow(Gtk.Window):
                 continue
             if entry is _HIGHLIGHT_GROUP:
                 group_leader = self._build_highlight_control(box, group_leader, icon_color)
+                continue
+            if entry is _EFFECTS_GROUP:
+                self._build_effects_control(box, icon_color)
                 continue
             tool, label = entry
             button = Gtk.RadioButton.new_from_widget(group_leader)
@@ -1218,6 +1221,65 @@ class EditorWindow(Gtk.Window):
             self._refresh_style_panel()
         else:
             self._highlight_button.set_active(True)  # fires "toggled" -> _on_highlight_button_toggled
+
+    def _build_effects_control(self, box: Gtk.Box, icon_color) -> None:
+        """The single "Effects" toolbar entry (task #89) - a plain
+        dropdown button, not a drawing tool: no Gtk.RadioButton
+        membership, never touches self.tool, doesn't take a
+        group_leader/return one the way _build_obfuscate_control/
+        _build_highlight_control do. Faithful to the real
+        toolStripSplitButton1 (ImageEditorForm.Designer.cs,
+        LanguageKey="editor_effects"): despite the "SplitButton" class
+        name it's actually a GreenshotToolStripDropDownButton, not a
+        true split button with separate click-vs-arrow regions - the
+        whole control just opens its dropdown, so a plain Gtk.MenuButton
+        matches it exactly, no click/toggle state to track.
+
+        Wraps this port's already-working whole-image effect handlers
+        (previously only reachable from the Image menu, task #36) -
+        Windows' real 7th dropdown item, "Obfuscate Text" (OCR-based
+        auto-redaction), is deliberately excluded here, tracked
+        separately as task #100.
+        """
+        button = Gtk.MenuButton()
+        button.set_relief(Gtk.ReliefStyle.NONE)
+        button.set_image(effects_icon_image(icon_color))
+        button.set_tooltip_text("Effects")
+        button.set_popup(self._build_effects_menu())
+        box.pack_start(button, False, False, 0)
+        self._effects_button = button
+
+    def _build_effects_menu(self) -> Gtk.Menu:
+        """Real Windows dropdown order (toolStripSplitButton1.
+        DropDownItems, ImageEditorForm.Designer.cs:491-499): Add
+        Border, Add Drop Shadow, Torn Edges, Grayscale, Invert, Remove
+        Transparency, [Obfuscate Text - excluded, see
+        _build_effects_control's docstring]. Drop Shadow/Torn Edge
+        each get *two* entries here (an instant-apply one plus a
+        "...Settings" one) rather than Windows' single item with a
+        left-click-vs-right-click(MouseUp) distinction - this port
+        already made that same menu-vs-toolbar-widget tradeoff when
+        these lived in the Image menu (task #36), and a GTK dropdown
+        menu item has the identical no-right-click-affordance
+        limitation a menu bar item does.
+        """
+        menu = Gtk.Menu()
+
+        def add_item(label: str, handler) -> None:
+            item = Gtk.MenuItem(label=label)
+            item.connect("activate", lambda _i: handler())
+            menu.append(item)
+
+        add_item("Add Border", self._do_border)
+        add_item("Add Drop Shadow", self._do_drop_shadow)
+        add_item("Drop Shadow Settings...", self._do_drop_shadow_settings)
+        add_item("Torn Edges", self._do_torn_edge)
+        add_item("Torn Edge Settings...", self._do_torn_edge_settings)
+        add_item("Grayscale", self._do_grayscale)
+        add_item("Invert", self._do_invert)
+        add_item("Remove Transparency...", self._do_remove_transparency)
+        menu.show_all()
+        return menu
 
     def _build_action_toolbar(self) -> Gtk.Toolbar:
         """Matches the real Windows order (confirmed from

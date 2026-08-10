@@ -331,6 +331,63 @@ def _obfuscate_icon(color: Color) -> cairo.ImageSurface:
     return surface
 
 
+def _effects_icon(color: Color) -> cairo.ImageSurface:
+    """A magic-wand-with-sparkle glyph - what the toolbar's Effects
+    dropdown (task #89) shows. Real Windows' own toolStripSplitButton1
+    (LanguageKey="editor_effects") uses a bundled wand-hat.png (Fugue
+    icon set) for this same button; matched in spirit here, hand-drawn
+    in Cairo like every icon in this file rather than a downloaded/
+    bundled asset (see this module's own docstring). Represents the
+    whole grouped dropdown (Border/Drop Shadow/Torn Edge/Grayscale/
+    Invert/Remove Transparency), not any one specific effect - the
+    same "one icon for the whole control" approach as
+    _obfuscate_icon/_highlight_icon above.
+    """
+    surface = _blank_surface()
+    ctx = cairo.Context(surface)
+    r, g, b, a = color
+    ctx.set_source_rgba(r / 255, g / 255, b / 255, a / 255)
+
+    # Wand shaft: a thin rounded rect running diagonally from the
+    # bottom-left toward the sparkle at the upper-right, the same
+    # rotate-then-draw-centered idiom _highlight_icon uses for its
+    # marker pen.
+    ctx.save()
+    ctx.translate(ICON_SIZE * 0.38, ICON_SIZE * 0.66)
+    ctx.rotate(math.radians(-45))
+    _rounded_rect_path(ctx, -2, -8, 4, 13, 2)
+    ctx.fill()
+    ctx.restore()
+
+    # Sparkle: a 4-point star at the wand's tip, built from two long
+    # thin diamonds crossed at 90 degrees around the same center.
+    tip_x, tip_y = ICON_SIZE * 0.68, ICON_SIZE * 0.3
+
+    def _diamond(length: float, width: float) -> None:
+        ctx.move_to(tip_x, tip_y - length)
+        ctx.line_to(tip_x + width, tip_y)
+        ctx.line_to(tip_x, tip_y + length)
+        ctx.line_to(tip_x - width, tip_y)
+        ctx.close_path()
+        ctx.fill()
+
+    _diamond(6, 1.6)
+    ctx.save()
+    ctx.translate(tip_x, tip_y)
+    ctx.rotate(math.radians(90))
+    ctx.translate(-tip_x, -tip_y)
+    _diamond(6, 1.6)
+    ctx.restore()
+
+    # Two smaller flourish dots, the familiar "magic effects" glyph.
+    ctx.arc(ICON_SIZE * 0.85, ICON_SIZE * 0.52, 1.3, 0, 2 * math.pi)
+    ctx.fill()
+    ctx.arc(ICON_SIZE * 0.56, ICON_SIZE * 0.1, 1.0, 0, 2 * math.pi)
+    ctx.fill()
+
+    return surface
+
+
 def _text_icon(color: Color) -> cairo.ImageSurface:
     surface = _blank_surface()
     ctx = cairo.Context(surface)
@@ -514,5 +571,17 @@ def highlight_icon_image(color: Color = _DEFAULT_COLOR) -> Gtk.Image:
     icon's own docstring).
     """
     surface = _highlight_icon(color)
+    pixbuf = Gdk.pixbuf_get_from_surface(surface, 0, 0, surface.get_width(), surface.get_height())
+    return Gtk.Image.new_from_pixbuf(pixbuf)
+
+
+def effects_icon_image(color: Color = _DEFAULT_COLOR) -> Gtk.Image:
+    """Not keyed by Tool like tool_icon_image above - mirrors
+    obfuscate_icon_image/highlight_icon_image exactly: _effects_icon
+    represents the whole Effects dropdown (task #89), which isn't a
+    drawing tool at all (no Tool enum member - it's a one-shot action
+    menu, like Windows' own toolStripSplitButton1).
+    """
+    surface = _effects_icon(color)
     pixbuf = Gdk.pixbuf_get_from_surface(surface, 0, 0, surface.get_width(), surface.get_height())
     return Gtk.Image.new_from_pixbuf(pixbuf)

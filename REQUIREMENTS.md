@@ -1042,13 +1042,23 @@ logic anywhere, confirmed by reading the source — so this port's version does 
 
 ### Whole-image effects (faithful port of `Greenshot.Base/Effects`)
 **Status: done.** Operations on the *entire* captured image, distinct from drawn annotation shapes
-(`core/tools.py`) — grouped in a dedicated "Image" menu (`_build_menu_bar`) rather than Windows'
-toolbar split-button, matching how this port already puts other toolbar-button actions (Insert
-Image, Print) in the menu bar instead. Research (before implementing) inventoried every effect
-Windows actually wires into its editor UI, citing `Greenshot.Base/Effects/*.cs` and
-`Greenshot.Base/Core/ImageHelper.cs` for each — `AdjustEffect`/`MonochromeEffect`/
-`ReduceColorsEffect` were found defined but with no UI call site anywhere in `ImageEditorForm.cs`,
-so they're correctly out of scope, not missing.
+(`core/tools.py`). Border/Drop Shadow/Torn Edge/Grayscale/Invert/Remove Transparency are grouped
+under the toolbar's Effects dropdown (task #89, `_build_effects_control`/`_build_effects_menu`),
+matching Windows' real `toolStripSplitButton1` (`ImageEditorForm.Designer.cs`,
+`LanguageKey="editor_effects"`, `DropDownItems`: Add Border, Add Drop Shadow, Torn Edges,
+Grayscale, Invert, Remove Transparency, Obfuscate Text — the last excluded here, tracked
+separately as task #100's OCR feature) — despite its "SplitButton" class name it's actually a
+`GreenshotToolStripDropDownButton`, not a true split button with separate click-vs-arrow regions,
+so a plain `Gtk.MenuButton` matches it exactly. Drop Shadow and Torn Edge each get *two* dropdown
+entries (instant-apply plus "...Settings") rather than Windows' single item with a
+left-click-vs-right-click(`MouseUp`) distinction, since a GTK menu item has the same
+no-right-click-affordance limitation this port's previous Image-menu placement already had to work
+around. Rotate CW/CCW and Resize — separate toolbar buttons in Windows, not part of the Effects
+split-button — remain in the "Image" menu for now, tracked as task #90. Research (before
+implementing) inventoried every effect Windows actually wires into its editor UI, citing
+`Greenshot.Base/Effects/*.cs` and `Greenshot.Base/Core/ImageHelper.cs` for each —
+`AdjustEffect`/`MonochromeEffect`/`ReduceColorsEffect` were found defined but with no UI call site
+anywhere in `ImageEditorForm.cs`, so they're correctly out of scope, not missing.
 
 - **Pure numpy pixel effects** (`core/effects.py`, tested): `rotate_90_image` (90° only, matching
   `RotateEffect.cs:32-68` — arbitrary angles throw `NotSupportedException` there too),
@@ -1097,9 +1107,10 @@ so they're correctly out of scope, not missing.
   custom UI beyond the fill color); Drop Shadow/Torn Edge follow Windows' real left-click-instant
   vs. right-click-opens-settings split (`_do_drop_shadow`/`_do_torn_edge` instant-apply the last-used
   settings; `_do_drop_shadow_settings`/`_do_torn_edge_settings` open a dialog, then apply) — except
-  triggered from separate menu items here (`Drop Shadow` / `Drop Shadow Settings...`) rather than a
-  left/right-click distinction on one toolbar button, since this port uses menus, not that toolbar
-  widget, for these actions. **Settings are session-only** (an instance dict, `self._drop_shadow_settings`/
+  triggered from two separate dropdown entries here (`Add Drop Shadow` / `Drop Shadow Settings...`,
+  in the toolbar's Effects dropdown as of task #89) rather than a left/right-click distinction on
+  one button, since a GTK menu item has no right-click affordance to bind the settings variant to.
+  **Settings are session-only** (an instance dict, `self._drop_shadow_settings`/
   `self._torn_edge_settings` in `EditorWindow.__init__`), not persisted across app restarts the way
   Windows' `EditorConfiguration.DropShadowEffectSettings`/`TornEdgeEffectSettings` are — a deliberate
   scope reduction, not silently dropped.
