@@ -3228,6 +3228,44 @@ correctly seeding from `autocrop_rect`'s real border detection; element repositi
 translate an existing shape by the exact expected offset on confirm; switching to a different tool
 mid-selection confirmed to clear both the selection and the Confirm/Cancel buttons' visibility.
 
+## Highlight tool mode renames + restricted fill-color picker (task #106, complete 2026-08-10)
+
+Port-local wording/UX decisions, not Windows behavior changes - `core/filters.py`/`core/shapes.py`'s
+actual filter logic is byte-for-byte unchanged from task #88, and the underlying `HighlightMode`/
+`Tool` enum members keep their original internal names (`TEXT_HIGHLIGHT`, `HIGHLIGHT_TEXT`, etc.) -
+only `_HIGHLIGHT_MODE_LABELS`'s *displayed* strings and the fill-color picker's own widget changed:
+
+- **"Text Highlight" → "Highlight"** - dropped "Text" since the filter is a per-channel min-clamp
+  against the fill color (`highlight_filter`) with no text-detection involved at all; the old name
+  implied a capability that doesn't exist, confirmed while investigating what looked like a bug
+  report but turned out to be exactly this naming confusion (task #107, resolved not-a-bug).
+- **"Area Highlight" → "Spotlight Focus"; "Grayscale" → "Spotlight Colorize"** - working names for
+  the two invert-mode filters (darken/desaturate everywhere *outside* the shape's own bounds,
+  leaving the inside untouched - see task #88's own writeup for the mechanism), explicitly flagged
+  by the user as not fully satisfying ("not sure that captures what it does... not sure how to put
+  that in two words") - kept as the best available two-word names for now, open to revision.
+- **Magnification's own field label → "Amount"** - the spinner underneath the Magnification mode
+  used to say "Magnification:", redundant with the mode name sitting right above it; renamed to
+  match Obfuscate's own Pixelize/Blur amount field, which is already just "Amount".
+- **Text Highlight/"Highlight" mode's Fill swatch is now a restricted 5-color picker**
+  (`_HIGHLIGHT_FILL_COLORS`, `_build_highlight_fill_button`) instead of the arbitrary Greenshot-
+  style palette dialog every other color field in the style panel opens (`_build_color_button`) -
+  user's own words: "not looking for weird color tricks. this isn't photoshop." Reported live: a
+  dark/low-brightness fill collapses `highlight_filter`'s effect into a flat translucent box instead
+  of a highlight (task #107's resolved mechanism) - every offered color (Yellow, Green, Pink,
+  Orange, Blue) deliberately keeps at least one RGB channel at full 255, so the filter always
+  leaves *something* visibly unclamped underneath, avoiding that failure mode by construction
+  rather than by picking "nice-looking" colors and hoping. A small `Gtk.MenuButton` + swatch-and-
+  label menu items, not a dialog - no arbitrary-color escape hatch, matching the "not photoshop"
+  framing precisely.
+
+Verified live: mode dropdown shows the three renamed labels plus unchanged "Magnification" in the
+real Windows declaration order; the Amount field's label confirmed via the actual constructed
+widget after switching to Magnification mode; the Fill button's popup confirmed to offer exactly
+the 5 named colors and correctly apply Green on click (`self._default_highlight_fill_color`
+updated); a real screenshot of the style panel showing "Mode: Highlight" and the yellow Fill
+swatch together.
+
 ## Task backlog from a side-by-side comparison with the real Windows editor (2026-08-09)
 
 A large batch of gaps/fixes (tasks #87-101) came from the user directly comparing this port's editor

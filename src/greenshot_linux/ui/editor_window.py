@@ -377,10 +377,23 @@ _HIGHLIGHT_MODE_TO_TOOL = {mode: tool for tool, mode in _TOOL_TO_HIGHLIGHT_MODE.
 # style choices, so the dropdown just shows plain names, matching the
 # real highlightModeButton's own dropdown items (ImageEditorForm.
 # Designer.cs:1191-1196 - plain LanguageKey-driven labels, no rating).
+#
+# Task #106 port-local renames (user's own call, not a Windows label
+# change - real Windows still calls these TEXT_HIGHTLIGHT/AREA_
+# HIGHLIGHT/GRAYSCALE): "Text Highlight" -> "Highlight" - the filter
+# doesn't detect or relate to text at all (see task #107's resolved
+# writeup), just a per-channel min-clamp against the fill color, so
+# the old name implied a capability that doesn't exist. "Area
+# Highlight"/"Grayscale" -> "Spotlight Focus"/"Spotlight Colorize" -
+# working names for the two invert-mode filters (darken/desaturate
+# everywhere *outside* the shape, leaving the inside untouched) that
+# the user explicitly flagged as not fully satisfying ("not sure that
+# captures what it does") - open to a better pair of words later,
+# not treated as final. Magnification's own name needed no change.
 _HIGHLIGHT_MODE_LABELS = {
-    Tool.HIGHLIGHT_TEXT: "Text Highlight",
-    Tool.HIGHLIGHT_AREA: "Area Highlight",
-    Tool.HIGHLIGHT_GRAYSCALE: "Grayscale",
+    Tool.HIGHLIGHT_TEXT: "Highlight",
+    Tool.HIGHLIGHT_AREA: "Spotlight Focus",
+    Tool.HIGHLIGHT_GRAYSCALE: "Spotlight Colorize",
     Tool.HIGHLIGHT_MAGNIFY: "Magnification",
 }
 
@@ -389,6 +402,25 @@ _HIGHLIGHT_MODE_LABELS = {
 # HIGHLIGHT, GRAYSCALE, MAGNIFICATION) - no secure-to-insecure ranking
 # to sort by the way Obfuscate's own order has.
 _HIGHLIGHT_MODE_ORDER = (Tool.HIGHLIGHT_TEXT, Tool.HIGHLIGHT_AREA, Tool.HIGHLIGHT_GRAYSCALE, Tool.HIGHLIGHT_MAGNIFY)
+
+# Task #106: Highlight mode's own fill color is deliberately restricted
+# to this fixed set, unlike every other color field in the style panel
+# (_build_color_button's arbitrary Greenshot-style palette dialog) -
+# user's own words: "not looking for weird color tricks. this isn't
+# photoshop." highlight_filter (core/filters.py) is a per-channel
+# min-clamp against the fill color, so a color that keeps at least one
+# channel at full 255 always leaves *something* unclamped underneath -
+# a dark/low-brightness fill instead collapses the whole effect into a
+# flat translucent box (task #107's resolved finding, reported live).
+# Every color below satisfies that "at least one full channel" property
+# and reads as a classic highlighter-pen color, not an arbitrary choice.
+_HIGHLIGHT_FILL_COLORS = [
+    ("Yellow", (255, 255, 0, 255)),
+    ("Green", (0, 255, 0, 255)),
+    ("Pink", (255, 20, 147, 255)),
+    ("Orange", (255, 140, 0, 255)),
+    ("Blue", (30, 144, 255, 255)),
+]
 
 # Crop (task #91) - three Tool values sharing one toolbar button, same
 # shape as Highlight/Obfuscate above, but no separate Tool<->Mode
@@ -1727,6 +1759,55 @@ class EditorWindow(Gtk.Window):
         button.connect("clicked", on_clicked)
         return button, swatch
 
+    def _build_highlight_fill_button(self, get_color, on_picked):
+        """Highlight's own restricted Fill swatch (task #106) - same
+        (button, swatch) contract as _build_color_button above, but
+        opens a small fixed-choice popup (_HIGHLIGHT_FILL_COLORS)
+        instead of the arbitrary Greenshot-style palette dialog every
+        other color field in this panel uses - see that constant's own
+        docstring for why.
+        """
+        button = Gtk.MenuButton()
+        swatch = Gtk.DrawingArea()
+        swatch.set_size_request(24, 16)
+        button.add(swatch)
+
+        def on_draw(widget, ctx):
+            r, g, b, a = get_color()
+            ctx.set_source_rgba(r / 255, g / 255, b / 255, a / 255)
+            ctx.paint()
+            return False
+
+        swatch.connect("draw", on_draw)
+
+        menu = Gtk.Menu()
+        for name, color in _HIGHLIGHT_FILL_COLORS:
+            item = Gtk.MenuItem()
+            row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+            item_swatch = Gtk.DrawingArea()
+            item_swatch.set_size_request(16, 16)
+            r, g, b, a = color
+
+            def on_item_draw(widget, ctx, r=r, g=g, b=b, a=a):
+                ctx.set_source_rgba(r / 255, g / 255, b / 255, a / 255)
+                ctx.paint()
+                return False
+
+            item_swatch.connect("draw", on_item_draw)
+            row.pack_start(item_swatch, False, False, 0)
+            row.pack_start(Gtk.Label(label=name), False, False, 0)
+            item.add(row)
+
+            def on_activate(_item, color=color):
+                on_picked(color)
+                swatch.queue_draw()
+
+            item.connect("activate", on_activate)
+            menu.append(item)
+        menu.show_all()
+        button.set_popup(menu)
+        return button, swatch
+
     def _build_style_panel(self) -> Gtk.Box:
         """Color/thickness/shadow controls that edit self._active_style()
         (the selected shape's own style, or else the active tool's own
@@ -1855,7 +1936,7 @@ class EditorWindow(Gtk.Window):
         add_cell(STYLE_FIELD_HIGHLIGHT_MODE, highlight_mode_label, self._highlight_mode_button)
 
         highlight_fill_label = Gtk.Label(label="Fill:")
-        highlight_fill_button, self._highlight_fill_swatch = self._build_color_button(
+        highlight_fill_button, self._highlight_fill_swatch = self._build_highlight_fill_button(
             self._active_highlight_fill_color, self._on_highlight_fill_color_changed,
         )
         add_cell(STYLE_FIELD_HIGHLIGHT_FILL_COLOR, highlight_fill_label, highlight_fill_button)
@@ -1876,7 +1957,10 @@ class EditorWindow(Gtk.Window):
         self._highlight_blur_radius_spin.connect("value-changed", self._on_highlight_blur_radius_changed)
         add_cell(STYLE_FIELD_HIGHLIGHT_BLUR_RADIUS, blur_radius_label, self._highlight_blur_radius_spin)
 
-        magnification_label = Gtk.Label(label="Magnification:")
+        # "Amount:" (task #106), not "Magnification:" - redundant with
+        # the mode's own name right next to it (paralleling Obfuscate's
+        # Pixelize/Blur amount field, already just called "Amount").
+        magnification_label = Gtk.Label(label="Amount:")
         magnification_adjustment = Gtk.Adjustment(
             value=self._default_highlight_magnification, lower=2, upper=10, step_increment=1,
         )
