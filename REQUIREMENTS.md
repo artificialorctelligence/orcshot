@@ -3105,6 +3105,17 @@ panel's own Confirm/Cancel buttons.
   rather than through the generic `visible_style_fields` loop. Escape also cancels an in-progress
   selection, scoped narrowly to "a crop selection exists" rather than a global Escape-switches-to-
   Select remap (real Windows' own plain-Escape-to-Cursor mapping isn't ported yet — task #92).
+  Icon buttons (`emblem-ok-symbolic`/`action-unavailable-symbolic`, the standard freedesktop
+  checkmark and "no entry" circle-with-a-slash), not text labels — matching real Windows'
+  `btnConfirm`/`btnCancel` appearance, confirmed by the user comparing side-by-side with the real
+  app; same icon-name convention `_build_action_toolbar` already uses for Save/Copy/Print, not
+  hand-drawn Cairo icons, since these are generic actions rather than tools.
+- **"Follow Border" is a deliberate port-local rename of Windows' own "Auto" dropdown label** — the
+  user's own words after using both: real Windows' "Auto" label didn't make clear what it actually
+  does even after having it explained, so this port names it after the concrete behavior
+  (`autocrop_rect` scanning the image's own edges for a uniform border color) instead. Purely a
+  label change — `_do_auto_crop`'s own behavior, and Windows' underlying `CropModes.AutoCrop`
+  semantics it ports, are unchanged.
 - **Switching tools discards an unconfirmed selection** — enforced once, in the `tool` property
   setter itself (the single choke point every tool switch passes through: palette clicks, keyboard
   shortcuts, Crop's own mode-dropdown), matching `InitCropMode`'s own

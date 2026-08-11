@@ -1336,9 +1336,15 @@ class EditorWindow(Gtk.Window):
     def _build_crop_mode_menu(self) -> Gtk.Menu:
         """Real Windows dropdown order (cropModeButton.DropDownItems,
         ImageEditorForm.Designer.cs:1143-1145): Default, Vertical,
-        Horizontal, then Auto. The first three are mutually exclusive
-        persistent modes (RadioMenuItems, like Highlight/Obfuscate's
-        own mode dropdowns); Auto is a plain one-shot trigger item, not
+        Horizontal, then Auto - labeled "Follow Border" here instead,
+        a port-local rename (user's own words: real Windows' "Auto"
+        label didn't make its actual behavior clear even after
+        explaining it) since it describes the actual trigger (scans
+        the image's own edges for a uniform border color and seeds a
+        selection sized to it) more concretely than a generic "Auto"
+        ever could. The first three are mutually exclusive persistent
+        modes (RadioMenuItems, like Highlight/Obfuscate's own mode
+        dropdowns); Follow Border is a plain one-shot trigger item, not
         part of that radio group - see _do_auto_crop's own docstring
         for why it isn't a fourth _CROP_MODE_ORDER entry.
         """
@@ -1353,9 +1359,9 @@ class EditorWindow(Gtk.Window):
             item.connect("toggled", self._on_crop_mode_item_toggled, mode)
             menu.append(item)
             self._crop_mode_items[mode] = item
-        auto_item = Gtk.MenuItem(label="Auto")
-        auto_item.connect("activate", lambda _i: self._do_auto_crop())
-        menu.append(auto_item)
+        follow_border_item = Gtk.MenuItem(label="Follow Border")
+        follow_border_item.connect("activate", lambda _i: self._do_auto_crop())
+        menu.append(follow_border_item)
         menu.show_all()
         return menu
 
@@ -1400,14 +1406,15 @@ class EditorWindow(Gtk.Window):
             self._crop_button.set_active(True)  # fires "toggled" -> _on_crop_button_toggled
 
     def _do_auto_crop(self) -> None:
-        """The Mode dropdown's "Auto" item - a one-time seed action,
-        not a persistent mode (Windows' own CropModes.AutoCrop is
-        handled the same way: InitCropMode calls Surface.AutoCrop(),
-        which auto-detects a rect and creates a *Default*-mode
-        CropContainer already sized to it, rather than tracking
-        "AutoCrop" as an ongoing UI state anywhere). If no crop is
-        possible (autocrop_rect finds nothing to trim), Windows falls
-        back to plain empty Default mode with a status message
+        """The Mode dropdown's "Follow Border" item (port-local label,
+        Windows' own is "Auto" - see _build_crop_mode_menu's docstring)
+        - a one-time seed action, not a persistent mode (Windows' own
+        CropModes.AutoCrop is handled the same way: InitCropMode calls
+        Surface.AutoCrop(), which auto-detects a rect and creates a
+        *Default*-mode CropContainer already sized to it, rather than
+        tracking "AutoCrop" as an ongoing UI state anywhere). If no
+        crop is possible (autocrop_rect finds nothing to trim), Windows
+        falls back to plain empty Default mode with a status message
         (editor_autocrop_not_possible) - matched here by just staying
         in empty Default mode, since this port has no toolbar status-
         message mechanism to route real text through.
@@ -1855,10 +1862,22 @@ class EditorWindow(Gtk.Window):
         # this cell's own visibility is set directly in
         # _refresh_style_panel instead of through the generic
         # field_name/visible_fields loop.
+        # Icon buttons, not text labels - matches the real
+        # btnConfirm/btnCancel's own appearance (a checkmark and a
+        # "no entry" circle-with-a-line-through-it, confirmed by the
+        # user comparing side-by-side with the real app) more closely
+        # than a text label would. Standard freedesktop theme icons,
+        # same convention _build_action_toolbar already uses for the
+        # generic Save/Copy/Print/etc buttons, not hand-drawn Cairo
+        # icons - Confirm/Cancel are generic actions, not tools.
         self._crop_confirm_cell = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
-        confirm_button = Gtk.Button(label="Confirm")
+        confirm_button = Gtk.Button()
+        confirm_button.set_image(Gtk.Image.new_from_icon_name("emblem-ok-symbolic", Gtk.IconSize.BUTTON))
+        confirm_button.set_tooltip_text("Confirm")
         confirm_button.connect("clicked", lambda _b: self._confirm_crop())
-        cancel_button = Gtk.Button(label="Cancel")
+        cancel_button = Gtk.Button()
+        cancel_button.set_image(Gtk.Image.new_from_icon_name("action-unavailable-symbolic", Gtk.IconSize.BUTTON))
+        cancel_button.set_tooltip_text("Cancel")
         cancel_button.connect("clicked", lambda _b: self._cancel_crop())
         self._crop_confirm_cell.pack_start(confirm_button, False, False, 0)
         self._crop_confirm_cell.pack_start(cancel_button, False, False, 0)
