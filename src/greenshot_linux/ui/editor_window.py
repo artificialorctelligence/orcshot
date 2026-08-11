@@ -153,7 +153,6 @@ from greenshot_linux.core.shapes import (
 )
 from greenshot_linux.settings import (
     EXTERNAL_EDITOR_AUTO,
-    get_auto_reduce_colors,
     get_capture_mouse_cursor,
     get_check_unstable_updates,
     get_external_editor_preference,
@@ -161,7 +160,6 @@ from greenshot_linux.settings import (
     get_footer_pattern,
     get_output_directory,
     get_suppress_save_dialog_at_close,
-    set_auto_reduce_colors,
     set_capture_mouse_cursor,
     set_check_unstable_updates,
     set_external_editor_preference,
@@ -2541,9 +2539,9 @@ class EditorWindow(Gtk.Window):
 
         Not every Expert-tab field from Windows' groupbox_expert is
         here - clipboard formats, reuse editor, minimize memory
-        footprint, thumbnail preview, and optimize for RDP were
-        explicitly scoped out (see REQUIREMENTS.md's "Preferences
-        dialog audit" section for the reasoning on each).
+        footprint, thumbnail preview, auto reduce colors, and optimize
+        for RDP were explicitly scoped out (see REQUIREMENTS.md's
+        "Preferences dialog audit" section for the reasoning on each).
         """
         frame = Gtk.Frame(label="Expert Settings")
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
@@ -2569,19 +2567,6 @@ class EditorWindow(Gtk.Window):
         )
         unstable_updates_check.connect("toggled", lambda btn: set_check_unstable_updates(btn.get_active()))
         add_gated(unstable_updates_check)
-
-        # Stub - documented no-op until this port has any color-
-        # reduction/quantization pipeline for it to switch on (see
-        # settings.get_auto_reduce_colors).
-        auto_reduce_colors_check = Gtk.CheckButton(
-            label="Create an 8-bit image if the colors are less than 256"
-        )
-        auto_reduce_colors_check.set_active(get_auto_reduce_colors())
-        auto_reduce_colors_check.set_tooltip_text(
-            "Has no effect yet - this port always saves full-color images, with no color-reduction step to enable."
-        )
-        auto_reduce_colors_check.connect("toggled", lambda btn: set_auto_reduce_colors(btn.get_active()))
-        add_gated(auto_reduce_colors_check)
 
         suppress_save_dialog_check = Gtk.CheckButton(
             label="Suppress the save dialog when closing the editor"

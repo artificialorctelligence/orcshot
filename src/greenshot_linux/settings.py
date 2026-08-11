@@ -30,7 +30,6 @@ _RECENT_COLORS_KEY = "recent_colors"
 _EXTERNAL_EDITOR_KEY = "external_editor"
 _CHECK_UNSTABLE_UPDATES_KEY = "check_unstable_updates"
 _SUPPRESS_SAVE_DIALOG_AT_CLOSE_KEY = "suppress_save_dialog_at_close"
-_AUTO_REDUCE_COLORS_KEY = "auto_reduce_colors"
 _FILENAME_COUNTER_KEY = "filename_counter"
 _FOOTER_PATTERN_KEY = "footer_pattern"
 _DEFAULT_OUTPUT_DIRNAME = "Screenshots"
@@ -246,31 +245,6 @@ def set_suppress_save_dialog_at_close(enabled: bool, path: Path = None) -> None:
         path = config_file_path()
     settings = _load(path)
     settings[_SUPPRESS_SAVE_DIALOG_AT_CLOSE_KEY] = enabled
-    _save(settings, path)
-
-
-def get_auto_reduce_colors(path: Path = None) -> bool:
-    """Faithful port of Windows' "Auto reduce colors" Expert setting
-    (ICoreConfiguration.cs:139-141, OutputFileAutoReduceColors, default
-    False) - a stub, like get_check_unstable_updates above. Windows'
-    version automatically reduces to an 8-bit palette when a save has
-    fewer than 256 distinct colors; this port's ui/file_export.py has
-    no color-reduction/quantization pipeline at all yet (every save is
-    a lossless GdkPixbuf write), so there's nothing for this flag to
-    switch on. Persisted now so the setting exists and is documented;
-    wiring it up is future work alongside the rest of the Output tab's
-    color settings, which weren't in this audit's scope.
-    """
-    if path is None:
-        path = config_file_path()
-    return _load(path).get(_AUTO_REDUCE_COLORS_KEY, False)
-
-
-def set_auto_reduce_colors(enabled: bool, path: Path = None) -> None:
-    if path is None:
-        path = config_file_path()
-    settings = _load(path)
-    settings[_AUTO_REDUCE_COLORS_KEY] = enabled
     _save(settings, path)
 
 

@@ -3290,20 +3290,57 @@ dropped, in case it's picked up as its own dedicated effort later.
 **Icon size** (`DpiCalculator.ScaleWithDpi`, destination-picker listview icons) - a Windows-specific
 manual DPI-scaling workaround; GTK scales its own icons natively. No Linux equivalent needed, left out.
 
-**Plugins tab** (Jira/Box/Dropbox/Imgur, `checkbox_pluginenabled` listview) - all four are cloud-upload
-destinations requiring per-service OAuth flows and API integration; already covered by this port's
-existing "Explicitly cut" list (see above) and not revisited here. `ExternalCommandPlugin.cs`
-("An Plugin to run commands after an image was written") is the one Plugins-tab item that's generic
-rather than cloud-specific, and worth a closer look on its own merits if pursued later:
-`IExternalCommandConfiguration.cs:35-36` (`List<string> Commands`) plus parallel
-`Dictionary<string, string>` maps for `Commandline`/`Argument`/`OutputFormat`/`RunInbackground`, all
-keyed by command name, confirm it supports multiple independently-configured, persistently-stored named
-commands (not a single one-shot command) - `ExternalCommandConfigurationImpl.cs:87-115` auto-registers
-"MS Paint" and "Paint.NET" as built-in entries the same way if found on the system, each becoming its
-own destination-picker entry. A Linux port would look like: a settings-backed list of
-(name, command template, run-in-background) entries, each showing up as its own destination-picker
-menu item that runs `command_template.format(saved_file_path)`. Not built this round - flagged as a
-real, scoped, worthwhile follow-up, distinct from the cloud plugins above.
+**Plugins tab** (`checkbox_pluginenabled` listview, populated dynamically at runtime by
+`PluginHelper.Instance.FillListView` from whichever plugin DLLs are actually loaded - not a fixed list).
+The real bundled set is six, not four as first assumed: `Greenshot.Plugin.Jira`,
+`Greenshot.Plugin.Confluence`, `Greenshot.Plugin.Box`, `Greenshot.Plugin.Dropbox`,
+`Greenshot.Plugin.Imgur`, `Greenshot.Plugin.Office`, plus `Greenshot.Plugin.ExternalCommand` (tracked
+separately, task #110, since it's generic rather than cloud/Office-specific - see below). Effort/library
+research per plugin, not attempted this round, all confirmed via the real plugin source plus a check of
+the current Python/Linux library landscape:
+
+- **Box, Dropbox** (`BoxUtils.cs`/`DropboxUtils.cs`) - real OAuth2 (`Greenshot.Base.Core.OAuth`,
+  authorization-code flow with a browser popup + redirect capture + token exchange/refresh). Both
+  services have official, actively-maintained Python SDKs with OAuth2 built in -
+  [`boxsdk`](https://box-python-sdk.readthedocs.io/) and the official
+  [`dropbox`](https://github.com/dropbox/dropbox-sdk-python) package - so the SDK/API-call side is a
+  solved problem; the actual work is per-service developer-app registration (see below) plus the
+  redirect-capture UI. Neither plugin ships working credentials even on Windows - each has only a
+  `Greenshot.Plugin.{Box,Dropbox}.Credentials.template` placeholder file in the real repo
+  (`ClientId`/`ClientSecret` left as `${...}` tokens) - meaning **every Greenshot build, including the
+  official one, requires whoever's building it to register their own OAuth app** with Box/Dropbox first.
+  That's a real prerequisite, not an integration-code problem.
+- **Imgur** (`ImgurUtils.cs`) - simpler than Box/Dropbox: a plain HTTP POST with a `Client-ID` header,
+  not a full OAuth dance (anonymous uploads only need a registered Client ID, no user login). Same
+  credentials-template situation - needs a registered Imgur app. The official Python client
+  ([`imgurpython`](https://github.com/Imgur/imgurpython)) is deprecated and archived as of 2023; given
+  how simple the API actually is, a plain `requests` POST is arguably simpler than pulling in one of the
+  unofficial community replacements anyway.
+- **Jira, Confluence** (`JiraConnector.cs:118`, `Confluence.cs:96`, `SetBasicAuthentication`) - HTTP
+  Basic auth against a self-hosted or cloud instance, no app registration or OAuth needed. Less auth
+  friction than Box/Dropbox/Imgur, but more API-surface work: the real plugins pull in typed REST
+  clients for each service's own object model (issues/filters for Jira, pages/spaces for Confluence) -
+  there's no single drop-in Python library for either that matches Greenshot's specific usage, so this
+  would mean hand-rolling a small REST client against each API directly (`requests` + each service's
+  documented REST endpoints), not just wiring up an existing SDK.
+- **Office** (`OfficeInterop`, Word/Excel/PowerPoint destinations) - genuinely Windows-only as first
+  assessed: this is COM automation of installed Office applications, with no Linux equivalent. However,
+  LibreOffice/OpenOffice do have their own analogous automation surface - the
+  [UNO API](https://mobiarch.wordpress.com/2023/03/05/using-the-libreoffice-python-api/) (Universal
+  Network Objects), reachable from Python either in-process (LibreOffice's bundled Python) or by
+  connecting to a headless `soffice` instance over a socket
+  (`--accept=socket,host=localhost,port=...;urp;StarOffice.ServiceManager`). Inserting an image into a
+  Writer document is a documented, working pattern
+  (`com.sun.star.drawing.GraphicObjectShape`, `GraphicURL` set via `uno.systemPathToFileUrl()`) - so a
+  "send to LibreOffice Writer" destination is technically buildable, but it's not a port of
+  `OfficeInterop` (different API entirely, would need to be designed from scratch against UNO) and
+  depends on LibreOffice being installed, running headless or launched fresh, and the `python3-uno`
+  bridge being available - a real but separate feature, not attempted this round.
+
+None of the six are small - each is its own multi-day feature, and three (Box/Dropbox/Imgur) need
+developer-account credentials registered before there's anything to test against. Still out of scope by
+default per this port's existing "Explicitly cut" list, but the effort is now grounded rather than
+assumed, in case one is worth picking up individually later.
 
 **Expert tab** (`groupbox_expert`, gated behind `checkbox_enableexpert` - see below) - covered item by
 item:
@@ -3351,12 +3388,13 @@ item:
   the setting's own default is that exact same string, so a fresh install's printed footer is
   unchanged from before this setting existed.
 - **Auto reduce colors** (`OutputFileAutoReduceColors`, `ICoreConfiguration.cs:139-141`, default
-  `False`) - a stub, same treatment as "Check for unstable updates" above:
-  `settings.get_auto_reduce_colors`/`set_auto_reduce_colors` plus a checkbox, but
-  `ui/file_export.py` has no color-reduction/quantization pipeline at all (every save is a lossless
-  GdkPixbuf write) for the flag to switch on. Documented via the checkbox's own tooltip; wiring it up
-  is future work alongside the rest of the Output tab's color settings, which weren't in this audit's
-  scope.
+  `False`) - traced the real save-path logic (`ImageIO.cs:205-243`, not just the config declaration):
+  on save, for opaque images only (anything with alpha is skipped outright), it counts the image's
+  actual distinct colors via a quantizer and, only if that count is already under 256, re-encodes as an
+  indexed/palette image instead of full RGB - a free file-size win with no visible quality loss, never a
+  forced reduction. Genuinely buildable (Pillow's `Image.quantize()` could drive it, since GdkPixbuf has
+  no quantizer of its own), but left out by explicit decision - a dedicated paint/image tool is a better
+  place for deliberate color reduction than a silent screenshot-save side effect.
 - **Thumbnail preview** (`checkbox_thumbnailpreview`, tray-icon-hover thumbnail) - tray-specific, and a
   stretch given this port's already-documented Wayland tray limitations (see "Tray icon under Wayland"
   above). Left out.

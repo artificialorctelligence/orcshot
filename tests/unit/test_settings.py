@@ -16,7 +16,6 @@ from greenshot_linux.settings import (
     config_file_path,
     consume_filename_counter,
     default_output_directory,
-    get_auto_reduce_colors,
     get_capture_mouse_cursor,
     get_check_unstable_updates,
     get_external_editor_preference,
@@ -29,7 +28,6 @@ from greenshot_linux.settings import (
     is_first_run_setup_done,
     mark_first_run_setup_done,
     quick_save_filename,
-    set_auto_reduce_colors,
     set_capture_mouse_cursor,
     set_check_unstable_updates,
     set_external_editor_preference,
@@ -246,19 +244,6 @@ class TestSuppressSaveDialogAtClose:
         set_suppress_save_dialog_at_close(True, path=path)
 
         assert get_suppress_save_dialog_at_close(path=path) is True
-
-
-class TestAutoReduceColors:
-    def test_defaults_to_false(self, tmp_path):
-        path = tmp_path / "config.json"
-        assert get_auto_reduce_colors(path=path) is False
-
-    def test_set_then_get_round_trips(self, tmp_path):
-        path = tmp_path / "config.json"
-
-        set_auto_reduce_colors(True, path=path)
-
-        assert get_auto_reduce_colors(path=path) is True
 
 
 class TestFilenameCounter:
