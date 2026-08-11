@@ -3110,12 +3110,13 @@ panel's own Confirm/Cancel buttons.
   `btnConfirm`/`btnCancel` appearance, confirmed by the user comparing side-by-side with the real
   app; same icon-name convention `_build_action_toolbar` already uses for Save/Copy/Print, not
   hand-drawn Cairo icons, since these are generic actions rather than tools.
-- **"Follow Border" is a deliberate port-local rename of Windows' own "Auto" dropdown label** — the
-  user's own words after using both: real Windows' "Auto" label didn't make clear what it actually
-  does even after having it explained, so this port names it after the concrete behavior
-  (`autocrop_rect` scanning the image's own edges for a uniform border color) instead. Purely a
-  label change — `_do_auto_crop`'s own behavior, and Windows' underlying `CropModes.AutoCrop`
-  semantics it ports, are unchanged.
+- **Dropdown label stays "Auto", matching Windows** — a "Follow Border" rename was tried and then
+  reverted at the user's own call: it didn't reduce the confusion enough to be worth diverging
+  from the real Windows label (their words: the underlying feature — silently doing nothing when
+  it finds no border, no radio indicator since it's a one-shot trigger, not a mode — "is already
+  weird" regardless of what it's called). Purely a label question either way — `_do_auto_crop`'s
+  own behavior, and Windows' underlying `CropModes.AutoCrop` semantics it ports, were never in
+  question.
 - **Switching tools discards an unconfirmed selection** — enforced once, in the `tool` property
   setter itself (the single choke point every tool switch passes through: palette clicks, keyboard
   shortcuts, Crop's own mode-dropdown), matching `InitCropMode`'s own

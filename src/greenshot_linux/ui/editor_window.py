@@ -1336,17 +1336,15 @@ class EditorWindow(Gtk.Window):
     def _build_crop_mode_menu(self) -> Gtk.Menu:
         """Real Windows dropdown order (cropModeButton.DropDownItems,
         ImageEditorForm.Designer.cs:1143-1145): Default, Vertical,
-        Horizontal, then Auto - labeled "Follow Border" here instead,
-        a port-local rename (user's own words: real Windows' "Auto"
-        label didn't make its actual behavior clear even after
-        explaining it) since it describes the actual trigger (scans
-        the image's own edges for a uniform border color and seeds a
-        selection sized to it) more concretely than a generic "Auto"
-        ever could. The first three are mutually exclusive persistent
-        modes (RadioMenuItems, like Highlight/Obfuscate's own mode
-        dropdowns); Follow Border is a plain one-shot trigger item, not
-        part of that radio group - see _do_auto_crop's own docstring
-        for why it isn't a fourth _CROP_MODE_ORDER entry.
+        Horizontal, then Auto. A brief port-local rename to "Follow
+        Border" was tried and reverted (user's own call: the rename
+        didn't reduce confusion enough to be worth diverging from
+        Windows' own label) - back to the real Windows name. The first
+        three are mutually exclusive persistent modes (RadioMenuItems,
+        like Highlight/Obfuscate's own mode dropdowns); Auto is a plain
+        one-shot trigger item, not part of that radio group - see
+        _do_auto_crop's own docstring for why it isn't a fourth
+        _CROP_MODE_ORDER entry.
         """
         menu = Gtk.Menu()
         self._crop_mode_items = {}
@@ -1359,9 +1357,9 @@ class EditorWindow(Gtk.Window):
             item.connect("toggled", self._on_crop_mode_item_toggled, mode)
             menu.append(item)
             self._crop_mode_items[mode] = item
-        follow_border_item = Gtk.MenuItem(label="Follow Border")
-        follow_border_item.connect("activate", lambda _i: self._do_auto_crop())
-        menu.append(follow_border_item)
+        auto_item = Gtk.MenuItem(label="Auto")
+        auto_item.connect("activate", lambda _i: self._do_auto_crop())
+        menu.append(auto_item)
         menu.show_all()
         return menu
 
@@ -1406,10 +1404,9 @@ class EditorWindow(Gtk.Window):
             self._crop_button.set_active(True)  # fires "toggled" -> _on_crop_button_toggled
 
     def _do_auto_crop(self) -> None:
-        """The Mode dropdown's "Follow Border" item (port-local label,
-        Windows' own is "Auto" - see _build_crop_mode_menu's docstring)
-        - a one-time seed action, not a persistent mode (Windows' own
-        CropModes.AutoCrop is handled the same way: InitCropMode calls
+        """The Mode dropdown's "Auto" item - a one-time seed action,
+        not a persistent mode (Windows' own CropModes.AutoCrop is
+        handled the same way: InitCropMode calls
         Surface.AutoCrop(), which auto-detects a rect and creates a
         *Default*-mode CropContainer already sized to it, rather than
         tracking "AutoCrop" as an ongoing UI state anywhere). If no
