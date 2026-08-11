@@ -42,6 +42,16 @@ class UndoRedoStack:
     def __init__(self):
         self._undo: List[Memento] = []
         self._redo: List[Memento] = []
+        # Monotonic counter bumped by every push/undo/redo - a cheap
+        # proxy for Surface.Modified (ISurface.cs:193), which real
+        # Greenshot also sets true on undo/redo, not just fresh edits
+        # (DrawableContainerList.cs:176 etc. - Restore() routes back
+        # through the same Add/Remove that sets Modified regardless of
+        # who called it). ui/editor_window.py's EditorWindow compares
+        # this against the generation at its last successful save
+        # (self._saved_generation) rather than every push call site
+        # setting a dirty flag by hand.
+        self.generation = 0
 
     @property
     def can_undo(self) -> bool:
@@ -52,6 +62,7 @@ class UndoRedoStack:
         return bool(self._redo)
 
     def push(self, memento: Memento, allow_merge: bool = True) -> None:
+        self.generation += 1
         if allow_merge and self._undo and self._undo[-1].merge(memento):
             return
         self._redo.clear()
@@ -62,6 +73,7 @@ class UndoRedoStack:
             return False
         top = self._undo.pop()
         self._redo.append(top.restore())
+        self.generation += 1
         return True
 
     def redo(self) -> bool:
@@ -69,6 +81,7 @@ class UndoRedoStack:
             return False
         top = self._redo.pop()
         self._undo.append(top.restore())
+        self.generation += 1
         return True
 
 

@@ -28,7 +28,13 @@ _CAPTURE_MOUSE_CURSOR_KEY = "capture_mouse_cursor"
 _PRINT_OPTIONS_KEY = "print_options"
 _RECENT_COLORS_KEY = "recent_colors"
 _EXTERNAL_EDITOR_KEY = "external_editor"
+_CHECK_UNSTABLE_UPDATES_KEY = "check_unstable_updates"
+_SUPPRESS_SAVE_DIALOG_AT_CLOSE_KEY = "suppress_save_dialog_at_close"
+_AUTO_REDUCE_COLORS_KEY = "auto_reduce_colors"
+_FILENAME_COUNTER_KEY = "filename_counter"
+_FOOTER_PATTERN_KEY = "footer_pattern"
 _DEFAULT_OUTPUT_DIRNAME = "Screenshots"
+_DEFAULT_FOOTER_PATTERN = "%B %d, %Y %I:%M %p"
 EXTERNAL_EDITOR_AUTO = "auto"
 
 
@@ -77,15 +83,23 @@ def set_output_directory(directory: Path, path: Path = None) -> None:
     _save(settings, path)
 
 
-def quick_save_filename(when: datetime) -> str:
+def quick_save_filename(when: datetime, counter: int) -> str:
     """The filename a silent quick-save (destination picker's "Save",
     see ui/destination_picker.py) writes to. Matches Windows' own
     default OutputFileFilenamePattern timestamp format (yyyy-MM-dd
     HH_mm_ss) but deliberately drops its "-${title}" suffix - not
     every capture mode here has a single associated window title
     (region/full-screen capture don't).
+
+    ``counter`` is this port's equivalent of Windows' ${NUM} filename
+    token (OutputFileIncrementingNumber, ICoreConfiguration.cs:163-165)
+    - always appended here rather than an opt-in pattern placeholder,
+    since this port has no editable filename-pattern template. Callers
+    get the value to pass from get_filename_counter (peek, e.g. for a
+    Save As dialog's suggested name) or consume_filename_counter (peek
+    + advance, for a save that's actually happening).
     """
-    return when.strftime("%Y-%m-%d %H_%M_%S") + ".png"
+    return f"{when.strftime('%Y-%m-%d %H_%M_%S')} ({counter:03d}).png"
 
 
 def get_capture_mouse_cursor(path: Path = None) -> bool:
@@ -190,6 +204,133 @@ def set_external_editor_preference(name: str, path: Path = None) -> None:
         path = config_file_path()
     settings = _load(path)
     settings[_EXTERNAL_EDITOR_KEY] = name
+    _save(settings, path)
+
+
+def get_check_unstable_updates(path: Path = None) -> bool:
+    """Faithful port of Windows' "Check for unstable updates" Expert
+    setting (ICoreConfiguration.cs:287-289, CheckForUnstable, default
+    False) - a stub. This port has no update-checking system at all
+    yet (see task #103), so this flag currently has nowhere to plug
+    in; it's ported now as a persisted, documented placeholder rather
+    than skipped, so #103's eventual update checker just needs to read
+    it rather than also inventing where it lives.
+    """
+    if path is None:
+        path = config_file_path()
+    return _load(path).get(_CHECK_UNSTABLE_UPDATES_KEY, False)
+
+
+def set_check_unstable_updates(enabled: bool, path: Path = None) -> None:
+    if path is None:
+        path = config_file_path()
+    settings = _load(path)
+    settings[_CHECK_UNSTABLE_UPDATES_KEY] = enabled
+    _save(settings, path)
+
+
+def get_suppress_save_dialog_at_close(path: Path = None) -> bool:
+    """Faithful port of IEditorConfiguration.SuppressSaveDialogAtClose
+    (IEditorConfiguration.cs:83-85, default False) - whether closing an
+    editor with unsaved changes skips the "Save image?" Yes/No/Cancel
+    prompt (see ui/editor_window.py's EditorWindow._on_delete_event,
+    a port of ImageEditorFormFormClosing, ImageEditorForm.cs:1004-1033).
+    """
+    if path is None:
+        path = config_file_path()
+    return _load(path).get(_SUPPRESS_SAVE_DIALOG_AT_CLOSE_KEY, False)
+
+
+def set_suppress_save_dialog_at_close(enabled: bool, path: Path = None) -> None:
+    if path is None:
+        path = config_file_path()
+    settings = _load(path)
+    settings[_SUPPRESS_SAVE_DIALOG_AT_CLOSE_KEY] = enabled
+    _save(settings, path)
+
+
+def get_auto_reduce_colors(path: Path = None) -> bool:
+    """Faithful port of Windows' "Auto reduce colors" Expert setting
+    (ICoreConfiguration.cs:139-141, OutputFileAutoReduceColors, default
+    False) - a stub, like get_check_unstable_updates above. Windows'
+    version automatically reduces to an 8-bit palette when a save has
+    fewer than 256 distinct colors; this port's ui/file_export.py has
+    no color-reduction/quantization pipeline at all yet (every save is
+    a lossless GdkPixbuf write), so there's nothing for this flag to
+    switch on. Persisted now so the setting exists and is documented;
+    wiring it up is future work alongside the rest of the Output tab's
+    color settings, which weren't in this audit's scope.
+    """
+    if path is None:
+        path = config_file_path()
+    return _load(path).get(_AUTO_REDUCE_COLORS_KEY, False)
+
+
+def set_auto_reduce_colors(enabled: bool, path: Path = None) -> None:
+    if path is None:
+        path = config_file_path()
+    settings = _load(path)
+    settings[_AUTO_REDUCE_COLORS_KEY] = enabled
+    _save(settings, path)
+
+
+def get_filename_counter(path: Path = None) -> int:
+    """Faithful port of OutputFileIncrementingNumber (ICoreConfiguration
+    .cs:163-165, default 1) - the number quick_save_filename appends to
+    each generated filename. Use this (peek, no side effect) for
+    display or a suggested-but-not-yet-committed filename (e.g. Save
+    As's default name); use consume_filename_counter for a save that's
+    actually about to happen.
+    """
+    if path is None:
+        path = config_file_path()
+    return _load(path).get(_FILENAME_COUNTER_KEY, 1)
+
+
+def set_filename_counter(value: int, path: Path = None) -> None:
+    if path is None:
+        path = config_file_path()
+    settings = _load(path)
+    settings[_FILENAME_COUNTER_KEY] = value
+    _save(settings, path)
+
+
+def consume_filename_counter(path: Path = None) -> int:
+    """Returns the counter value to use for the save happening right
+    now, then persists it incremented by one - matches Windows' own
+    doc comment on OutputFileIncrementingNumber: "is increased
+    automatically after each save."
+    """
+    if path is None:
+        path = config_file_path()
+    current = get_filename_counter(path)
+    set_filename_counter(current + 1, path)
+    return current
+
+
+def get_footer_pattern(path: Path = None) -> str:
+    """Faithful-in-spirit port of Windows' "Printer footer pattern"
+    Expert setting (ICoreConfiguration.cs:206-209,
+    OutputPrintFooterPattern). Windows' own default is a token pattern
+    (``${capturetime:d"D"} ${capturetime:d"T"} - ${title}``) resolved
+    by its own template engine; this port has no such engine (nor a
+    per-capture title to substitute - see ui/printing.py's
+    _footer_text docstring), so the setting is a plain strftime format
+    string instead. The default matches what ui/printing.py's
+    _footer_text already hardcoded before this setting existed
+    ("%B %d, %Y %I:%M %p"), so a fresh install prints the same footer
+    as before.
+    """
+    if path is None:
+        path = config_file_path()
+    return _load(path).get(_FOOTER_PATTERN_KEY, _DEFAULT_FOOTER_PATTERN)
+
+
+def set_footer_pattern(pattern: str, path: Path = None) -> None:
+    if path is None:
+        path = config_file_path()
+    settings = _load(path)
+    settings[_FOOTER_PATTERN_KEY] = pattern
     _save(settings, path)
 
 

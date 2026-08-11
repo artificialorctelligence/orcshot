@@ -135,6 +135,32 @@ class TestUndoRedoStackBasics:
         assert not stack.can_redo
         assert log == ["restore(B)", "restore(A)", "restore(~A)", "restore(~B)"]
 
+    def test_generation_starts_at_zero(self):
+        assert UndoRedoStack().generation == 0
+
+    def test_generation_advances_on_push_undo_and_redo(self):
+        stack = UndoRedoStack()
+        stack.push(FakeMemento("A", []))
+        assert stack.generation == 1
+
+        stack.undo()
+        assert stack.generation == 2
+
+        stack.redo()
+        assert stack.generation == 3
+
+    def test_generation_advances_even_on_a_merged_push(self):
+        # Surface.Modified goes true on any drawable-list change, merged
+        # or not (DrawableContainerList.cs:176 etc.) - generation should
+        # track the same way, not just "real" (non-absorbed) pushes.
+        stack = UndoRedoStack()
+        stack.push(FakeMemento("A", [], mergeable_with={"B"}))
+        before = stack.generation
+
+        stack.push(FakeMemento("B", []))  # absorbed by the merge above
+
+        assert stack.generation == before + 1
+
 
 class TestUndoRedoStackMerging:
     def test_a_mergeable_push_is_absorbed_not_pushed(self):

@@ -14,20 +14,31 @@ from greenshot_linux.settings import (
     EXTERNAL_EDITOR_AUTO,
     PrintOptions,
     config_file_path,
+    consume_filename_counter,
     default_output_directory,
+    get_auto_reduce_colors,
     get_capture_mouse_cursor,
+    get_check_unstable_updates,
     get_external_editor_preference,
+    get_filename_counter,
+    get_footer_pattern,
     get_output_directory,
     get_print_options,
     get_recent_colors,
+    get_suppress_save_dialog_at_close,
     is_first_run_setup_done,
     mark_first_run_setup_done,
     quick_save_filename,
+    set_auto_reduce_colors,
     set_capture_mouse_cursor,
+    set_check_unstable_updates,
     set_external_editor_preference,
+    set_filename_counter,
+    set_footer_pattern,
     set_output_directory,
     set_print_options,
     set_recent_colors,
+    set_suppress_save_dialog_at_close,
 )
 
 
@@ -84,12 +95,20 @@ class TestQuickSaveFilename:
         # drop - not every capture mode here has a single associated
         # window title, e.g. region/full-screen capture don't).
         when = datetime(2026, 7, 26, 14, 23, 5)
-        assert quick_save_filename(when) == "2026-07-26 14_23_05.png"
+        assert quick_save_filename(when, counter=1) == "2026-07-26 14_23_05 (001).png"
 
     def test_different_times_produce_different_filenames(self):
-        a = quick_save_filename(datetime(2026, 7, 26, 14, 23, 5))
-        b = quick_save_filename(datetime(2026, 7, 26, 14, 23, 6))
+        a = quick_save_filename(datetime(2026, 7, 26, 14, 23, 5), counter=1)
+        b = quick_save_filename(datetime(2026, 7, 26, 14, 23, 6), counter=1)
         assert a != b
+
+    def test_different_counters_produce_different_filenames(self):
+        when = datetime(2026, 7, 26, 14, 23, 5)
+        assert quick_save_filename(when, counter=1) != quick_save_filename(when, counter=2)
+
+    def test_counter_is_zero_padded_to_three_digits(self):
+        when = datetime(2026, 7, 26, 14, 23, 5)
+        assert quick_save_filename(when, counter=7) == "2026-07-26 14_23_05 (007).png"
 
 
 class TestCaptureMouseCursor:
@@ -201,6 +220,96 @@ class TestPrintOptions:
 
         assert options.allow_shrink is False
         assert options.center is True  # falls back to the default
+
+
+class TestCheckUnstableUpdates:
+    def test_defaults_to_false(self, tmp_path):
+        path = tmp_path / "config.json"
+        assert get_check_unstable_updates(path=path) is False
+
+    def test_set_then_get_round_trips(self, tmp_path):
+        path = tmp_path / "config.json"
+
+        set_check_unstable_updates(True, path=path)
+
+        assert get_check_unstable_updates(path=path) is True
+
+
+class TestSuppressSaveDialogAtClose:
+    def test_defaults_to_false(self, tmp_path):
+        path = tmp_path / "config.json"
+        assert get_suppress_save_dialog_at_close(path=path) is False
+
+    def test_set_then_get_round_trips(self, tmp_path):
+        path = tmp_path / "config.json"
+
+        set_suppress_save_dialog_at_close(True, path=path)
+
+        assert get_suppress_save_dialog_at_close(path=path) is True
+
+
+class TestAutoReduceColors:
+    def test_defaults_to_false(self, tmp_path):
+        path = tmp_path / "config.json"
+        assert get_auto_reduce_colors(path=path) is False
+
+    def test_set_then_get_round_trips(self, tmp_path):
+        path = tmp_path / "config.json"
+
+        set_auto_reduce_colors(True, path=path)
+
+        assert get_auto_reduce_colors(path=path) is True
+
+
+class TestFilenameCounter:
+    def test_defaults_to_one(self, tmp_path):
+        # matches Windows' OutputFileIncrementingNumber default (ICoreConfiguration.cs:163-165)
+        path = tmp_path / "config.json"
+        assert get_filename_counter(path=path) == 1
+
+    def test_set_then_get_round_trips(self, tmp_path):
+        path = tmp_path / "config.json"
+
+        set_filename_counter(42, path=path)
+
+        assert get_filename_counter(path=path) == 42
+
+    def test_consume_returns_the_current_value(self, tmp_path):
+        path = tmp_path / "config.json"
+        set_filename_counter(5, path=path)
+
+        assert consume_filename_counter(path=path) == 5
+
+    def test_consume_persists_the_incremented_value(self, tmp_path):
+        path = tmp_path / "config.json"
+        set_filename_counter(5, path=path)
+
+        consume_filename_counter(path=path)
+
+        assert get_filename_counter(path=path) == 6
+
+    def test_repeated_consume_calls_increment_each_time(self, tmp_path):
+        path = tmp_path / "config.json"
+
+        values = [consume_filename_counter(path=path) for _ in range(3)]
+
+        assert values == [1, 2, 3]
+
+
+class TestFooterPattern:
+    def test_defaults_to_the_previously_hardcoded_pattern(self, tmp_path):
+        # ui/printing.py's _footer_text hardcoded this exact strftime
+        # pattern before this setting existed - a fresh install must
+        # keep printing the same footer.
+        path = tmp_path / "config.json"
+        assert get_footer_pattern(path=path) == "%B %d, %Y %I:%M %p"
+
+    def test_set_then_get_round_trips(self, tmp_path):
+        path = tmp_path / "config.json"
+
+        set_footer_pattern("%Y-%m-%d", path=path)
+
+        assert get_footer_pattern(path=path) == "%Y-%m-%d"
 
 
 class TestFirstRunSetupFlag:

@@ -48,7 +48,7 @@ from gi.repository import Gtk, Pango, PangoCairo
 
 from greenshot_linux.core.effects import grayscale_image, invert_image, monochrome_image, rotate_90_image
 from greenshot_linux.core.print_layout import compute_print_layout
-from greenshot_linux.settings import PrintOptions, get_print_options, set_print_options
+from greenshot_linux.settings import PrintOptions, get_footer_pattern, get_print_options, set_print_options
 from greenshot_linux.ui.cairo_convert import numpy_to_cairo_surface
 
 _FOOTER_FONT_FAMILY = "sans-serif"
@@ -76,15 +76,18 @@ def _apply_color_mode(image: np.ndarray, options: PrintOptions) -> np.ndarray:
     return image
 
 
-def _footer_text(when: datetime) -> str:
+def _footer_text(when: datetime, pattern: str) -> str:
     """A simplified equivalent of Windows' footer pattern
     (``${capturetime:d"D"} ${capturetime:d"T"} - ${title}``,
-    ICoreConfiguration.cs:207-209) - just the print-time timestamp, no
+    ICoreConfiguration.cs:206-209, "Printer footer pattern" in the
+    Expert tab - see settings.get_footer_pattern/set_footer_pattern) -
+    just the print-time timestamp via a plain strftime format, no
     "- title" suffix: this port doesn't track a per-capture title/
     window-name through to printing the way Windows' CaptureDetails
-    does. A deliberate scope reduction, not silently dropped.
+    does, nor Windows' own ${token} template engine. A deliberate
+    scope reduction, not silently dropped.
     """
-    return when.strftime("%B %d, %Y %I:%M %p")
+    return when.strftime(pattern)
 
 
 def _footer_layout(context, text: str):
@@ -110,7 +113,7 @@ def _draw_print_page(image: np.ndarray, options: PrintOptions, operation, contex
     footer_text = footer_layout = None
     footer_height = 0.0
     if options.footer:
-        footer_text = _footer_text(datetime.now())
+        footer_text = _footer_text(datetime.now(), get_footer_pattern())
         footer_layout = _footer_layout(context, footer_text)
         _, extents = footer_layout.get_pixel_extents()
         footer_height = extents.height

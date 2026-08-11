@@ -3266,6 +3266,158 @@ the 5 named colors and correctly apply Green on click (`self._default_highlight_
 updated); a real screenshot of the style panel showing "Mode: Highlight" and the yellow Fill
 swatch together.
 
+## Preferences dialog: Expert tab audit + close-time save prompt (task #93, complete 2026-08-10)
+
+An audit of the real Settings dialog (`Greenshot/Forms/SettingsForm.cs`/`.Designer.cs`, 7 tabs, traced
+via `.Controls.Add()` parent-child relationships) against this port's much smaller Preferences dialog
+(`EditorWindow._do_show_settings`). Most tabs (Capture/Output/Destinations/Printer/Plugins) are out of
+this round's scope or already covered elsewhere (Printer's settings live in `ui/printing.py`'s own
+dialog, task #39); this pass covered the **Language** and **Icon size** items from the General tab, the
+**Plugins** tab, and every item in the **Expert** tab (`groupbox_expert`).
+
+**Language** - the real app ships 39 translations (`Greenshot/Languages/language-*.xml`: ar-SY, ca-CA,
+cs-CZ, da-DK, de-DE, de-x-franconia, el-GR, en-US, es-ES, et-EE, fa-IR, fi-FI, fr-FR, fr-QC, he-IL,
+hu-HU, id-ID, it-IT, ja-JP, kab-DZ, ko-KR, lt-LT, lv-LV, nl-NL, nn-NO, pl-PL, pt-BR, pt-PT, ro-RO,
+ru-RU, sk-SK, sl-SI, sr-RS, sv-SE, tr-TR, uk-UA, vi-VN, zh-CN, zh-TW), each a `LanguageKey`-driven
+resource file (~304 `<resource>` entries in `language-en-US.xml` alone). This port has zero i18n
+infrastructure - every user-facing string is a hardcoded English literal in the Python source, not a
+lookup against any resource table. Adding real translation support isn't a Preferences-dialog checkbox;
+it's a foundational rework (extract ~300+ literals into a resource/gettext layer, wire every widget
+construction site to look them up, then translate and maintain N language files) that touches nearly
+every file under `ui/`. Not attempted this round - noted here as a scoping decision, not silently
+dropped, in case it's picked up as its own dedicated effort later.
+
+**Icon size** (`DpiCalculator.ScaleWithDpi`, destination-picker listview icons) - a Windows-specific
+manual DPI-scaling workaround; GTK scales its own icons natively. No Linux equivalent needed, left out.
+
+**Plugins tab** (Jira/Box/Dropbox/Imgur, `checkbox_pluginenabled` listview) - all four are cloud-upload
+destinations requiring per-service OAuth flows and API integration; already covered by this port's
+existing "Explicitly cut" list (see above) and not revisited here. `ExternalCommandPlugin.cs`
+("An Plugin to run commands after an image was written") is the one Plugins-tab item that's generic
+rather than cloud-specific, and worth a closer look on its own merits if pursued later:
+`IExternalCommandConfiguration.cs:35-36` (`List<string> Commands`) plus parallel
+`Dictionary<string, string>` maps for `Commandline`/`Argument`/`OutputFormat`/`RunInbackground`, all
+keyed by command name, confirm it supports multiple independently-configured, persistently-stored named
+commands (not a single one-shot command) - `ExternalCommandConfigurationImpl.cs:87-115` auto-registers
+"MS Paint" and "Paint.NET" as built-in entries the same way if found on the system, each becoming its
+own destination-picker entry. A Linux port would look like: a settings-backed list of
+(name, command template, run-in-background) entries, each showing up as its own destination-picker
+menu item that runs `command_template.format(saved_file_path)`. Not built this round - flagged as a
+real, scoped, worthwhile follow-up, distinct from the cloud plugins above.
+
+**Expert tab** (`groupbox_expert`, gated behind `checkbox_enableexpert` - see below) - covered item by
+item:
+
+- **Reuse Editor** (`IEditorConfiguration.ReuseEditor`, `EditorDestination.cs:96`) - when a new capture
+  is about to open an editor, if enabled *and* an already-open editor exists *and* that editor has no
+  unsaved changes, the capture reuses that editor's surface (replaces its image/shapes) instead of
+  opening a second editor window. Concretely: capture a region, annotate it, then capture *again*
+  without closing the first editor - with Reuse Editor on, the second capture replaces the content of
+  the window you already have open instead of spawning a new one, so repeated quick captures don't pile
+  up a stack of editor windows. Confirmed portable (nothing Windows-specific in the logic), but not
+  built this round - left as an open decision, not yet implemented, pending confirmation it's wanted.
+- **Minimize memory footprint** (`checkbox_minimizememoryfootprint`) - grep-confirmed no
+  `ICoreConfiguration` property and no code path anywhere in the real Windows app reads a setting by
+  this name outside the Settings form's own enable/disable UI logic. Genuinely decorative in real
+  Greenshot itself, not a gap in this port. Left out.
+- **Check for unstable updates** (`ICoreConfiguration.cs:287-289`, `CheckForUnstable`, default `False`)
+  - a stub: `settings.get_check_unstable_updates`/`set_check_unstable_updates`, a checkbox in the new
+  Expert section, but no update-checking system exists in this port at all yet (task #103), so the flag
+  currently has nowhere to plug in. Ported now, documented as a no-op via the checkbox's own tooltip,
+  so #103's eventual update checker only needs to read an existing setting rather than also inventing
+  where it lives.
+- **Suppress the save dialog when closing the editor**
+  (`IEditorConfiguration.SuppressSaveDialogAtClose`, `IEditorConfiguration.cs:83-85`, default `False`) -
+  implemented for real, both the setting (`settings.get_suppress_save_dialog_at_close`/
+  `set_suppress_save_dialog_at_close`) and the behavior it gates. See "Close-time save prompt" below.
+- **Counter** (`OutputFileIncrementingNumber`, `ICoreConfiguration.cs:163-165`, default `1`, "increased
+  automatically after each save") - implemented as `settings.get_filename_counter`/
+  `set_filename_counter` (peek) and `consume_filename_counter` (peek-then-increment-and-persist).
+  Windows' own version is an opt-in `${NUM}` token in an arbitrary, user-editable filename pattern
+  (`OutputFileFilenamePattern`); this port has no such pattern engine (`settings.quick_save_filename`
+  is a fixed timestamp format, by design - see its own docstring), so the counter is always appended
+  here as a zero-padded `(NNN)` suffix rather than an opt-in placeholder:
+  `"2026-08-10 14_23_05 (007).png"`. Wired into both of `ui/destination_picker.py`'s save paths - the
+  silent "Save" destination consumes (and advances) the counter for the file it actually writes; "Save
+  As..." only *peeks* the counter for its suggested default filename, and only consumes/advances it if
+  the user actually completes the save (so a cancelled Save As doesn't burn a counter value).
+- **Printer footer pattern** (`OutputPrintFooterPattern`, `ICoreConfiguration.cs:206-209`, default
+  `${capturetime:d"D"} ${capturetime:d"T"} - ${title}`) - implemented as `settings.get_footer_pattern`/
+  `set_footer_pattern`. Windows resolves its own `${token}` template engine against a `${title}` this
+  port has no equivalent for (region/full-screen captures have no single associated window title - see
+  `quick_save_filename`'s own docstring for the same limitation); the setting here is a plain Python
+  `strftime` format string instead, editable via a new Expert-section text field. Wired into
+  `ui/printing.py`'s `_footer_text`, replacing what used to be a hardcoded `"%B %d, %Y %I:%M %p"` -
+  the setting's own default is that exact same string, so a fresh install's printed footer is
+  unchanged from before this setting existed.
+- **Auto reduce colors** (`OutputFileAutoReduceColors`, `ICoreConfiguration.cs:139-141`, default
+  `False`) - a stub, same treatment as "Check for unstable updates" above:
+  `settings.get_auto_reduce_colors`/`set_auto_reduce_colors` plus a checkbox, but
+  `ui/file_export.py` has no color-reduction/quantization pipeline at all (every save is a lossless
+  GdkPixbuf write) for the flag to switch on. Documented via the checkbox's own tooltip; wiring it up
+  is future work alongside the rest of the Output tab's color settings, which weren't in this audit's
+  scope.
+- **Thumbnail preview** (`checkbox_thumbnailpreview`, tray-icon-hover thumbnail) - tray-specific, and a
+  stretch given this port's already-documented Wayland tray limitations (see "Tray icon under Wayland"
+  above). Left out.
+- **Optimize for RDP** (`AnimatingForm.cs:50`, `IsTerminalServerSession`) - confirmed genuinely
+  RDP-session-specific via source; this port has no UI animations that would need it either way. Left
+  out.
+- **Clipboard formats** (`ClipboardHelper.cs:963-1122`, `ICoreConfiguration.ClipboardFormats`) -
+  controls which Win32 clipboard formats get written *simultaneously* on copy, tied to Windows' own
+  multi-format-at-once `SetClipboardData` model; doesn't map onto X11/Wayland's on-demand target
+  negotiation, which this port's clipboard backend already handles correctly for GTK's own model. Left
+  out (confirmed, not newly revisited this round).
+
+**"I know what I am doing!" master toggle** (`checkbox_enableexpert`) - ported as a plain
+`Gtk.CheckButton` gating every Expert-section widget's `set_sensitive` (`_build_expert_settings_frame`,
+`EditorWindow._do_show_settings`), matching `ExpertSettingsEnableState`/`Checkbox_enableexpert_
+CheckedChanged` (`SettingsForm.cs:844-869`) exactly. Confirmed via the real source that this checkbox
+has no `PropertyName` binding of its own in `SettingsForm.Designer.cs` at all - it's session-only UI
+state even on the real form, unchecked again every time the dialog reopens, not a persisted setting -
+so it isn't written to `settings.py` here either.
+
+### Close-time save prompt (`_on_delete_event`)
+
+Faithful port of `ImageEditorFormFormClosing` (`ImageEditorForm.cs:1004-1033`): closing an editor
+(window-manager close button or File → Close, both arrive as the same GTK `delete-event` - `Gtk.Window.
+close()` synthesizes one) with unsaved changes and "Suppress the save dialog when closing the editor"
+off shows a Yes/No/Cancel prompt before allowing the close.
+
+- **Dirty tracking** (`EditorWindow.is_modified`) - a port of `Surface.Modified` (`ISurface.cs:193`).
+  Real Greenshot sets `Modified` true on *any* drawable-list change, including via undo/redo restoring
+  a previous state (`DrawableContainerList.cs:176` etc. fire regardless of whether the caller is a
+  fresh edit or a memento's `Restore()`) - it's an activity flag, not a true state diff, so undoing back
+  to the original content still reads as modified. Ported the same way: `core/history.py`'s
+  `UndoRedoStack` gained a monotonic `generation` counter bumped by every `push`/`undo`/`redo` (merged
+  pushes included, since `DrawableContainerList.cs` doesn't distinguish those either);
+  `EditorWindow.is_modified` compares the current generation against `self._saved_generation`, updated
+  only by a completed save. Chosen over hand-setting a dirty flag at each of `_do_save`'s ~20 existing
+  `undo_redo.push(...)` call sites, all of which stay untouched.
+- **The prompt** - `Gtk.MessageDialog(message_type=QUESTION, text="Do you want to save the screenshot?")`
+  with `set_title("Save image?")`, Yes/No/Cancel buttons - `QUESTION` message type renders GTK's own
+  question-mark icon to the left, matching the requested layout without a custom icon. Exact strings
+  from `LangKey.editor_close_on_save`/`editor_close_on_save_title`
+  (`language-en-US.xml`: "Do you want to save the screenshot?" / "Save image?"). "Yes" calls the
+  existing `_do_save` (now returns whether a save actually completed, mirroring
+  `ImageEditorForm.cs:1024-1028`'s own `if (_surface.Modified)` re-check after `BtnSaveClick`) and
+  blocks the close if the save dialog itself was cancelled; "No" allows the close unsaved; "Cancel" (or
+  closing the prompt itself) blocks the close. Windows drops the Cancel option specifically when the
+  *application* is shutting down (`CloseReason.ApplicationExitCall`/`WindowsShutDown`/
+  `TaskManagerClosing`) - this port has no equivalent distinction (every close of this window arrives
+  as the same `delete-event`), so Cancel is always offered, matching how Windows itself handles every
+  other single-window close.
+
+Verified live: a scripted `EditorWindow` exercising `is_modified` through change → save → change →
+undo cycles (undo confirmed to re-dirty a saved editor, matching `Surface.Modified`'s own behavior);
+`_on_delete_event`'s six branches (not modified, suppressed, No, Cancel, Yes-with-cancelled-save,
+Yes-with-successful-save) driven directly with `Gtk.MessageDialog.run` monkeypatched to avoid blocking
+the verification script on a real modal loop; the Expert section's gating (checkbox unchecked → every
+other Expert widget insensitive → checked → all sensitive → unchecked again → insensitive again) and
+the Counter/Footer pattern fields' round-trip into `settings.py`, all driven directly against the
+actual constructed widgets; a real screenshot of the open Preferences dialog with Expert Settings
+expanded, confirming the full layout renders as intended.
+
 ## Task backlog from a side-by-side comparison with the real Windows editor (2026-08-09)
 
 A large batch of gaps/fixes (tasks #87-101) came from the user directly comparing this port's editor

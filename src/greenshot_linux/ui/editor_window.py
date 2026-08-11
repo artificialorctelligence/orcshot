@@ -153,12 +153,22 @@ from greenshot_linux.core.shapes import (
 )
 from greenshot_linux.settings import (
     EXTERNAL_EDITOR_AUTO,
+    get_auto_reduce_colors,
     get_capture_mouse_cursor,
+    get_check_unstable_updates,
     get_external_editor_preference,
+    get_filename_counter,
+    get_footer_pattern,
     get_output_directory,
+    get_suppress_save_dialog_at_close,
+    set_auto_reduce_colors,
     set_capture_mouse_cursor,
+    set_check_unstable_updates,
     set_external_editor_preference,
+    set_filename_counter,
+    set_footer_pattern,
     set_output_directory,
+    set_suppress_save_dialog_at_close,
 )
 from greenshot_linux.resources import LOGO_PATH
 from greenshot_linux.core.tools import (
@@ -566,6 +576,9 @@ class EditorWindow(Gtk.Window):
 
         self.layer = Layer()
         self.undo_redo = UndoRedoStack()
+        # The undo_redo.generation as of the last successful save - see
+        # the is_modified property below (Surface.Modified port).
+        self._saved_generation = 0
         # Faithful port of ImageEditorForm/Surface's zoom (see
         # core/zoom.py's module docstring for citations). Actual Size
         # (100%) is Windows' own initial ZoomFactor too.
@@ -785,6 +798,11 @@ class EditorWindow(Gtk.Window):
         if app is not None:
             app.register_editor_window(self)
         self.connect("destroy", self._on_destroy)
+        # Faithful port of ImageEditorFormFormClosing (ImageEditorForm.
+        # cs:1004-1033) - see _on_delete_event. Covers both the window
+        # manager's own close button and File > Close (self.close(),
+        # which Gtk.Window.close() turns into the same delete-event).
+        self.connect("delete-event", self._on_delete_event)
 
     def show_all(self) -> None:
         """Overridden because Gtk.Widget.show_all() unconditionally
@@ -801,6 +819,18 @@ class EditorWindow(Gtk.Window):
         """
         super().show_all()
         self._refresh_style_panel()
+
+    @property
+    def is_modified(self) -> bool:
+        """Faithful port of Surface.Modified (ISurface.cs:193) - true
+        whenever anything has changed since the last successful save
+        (including via undo/redo, which real Greenshot also counts as
+        a modification - see core/history.py's UndoRedoStack.generation
+        docstring). Checked by _on_delete_event before closing, matching
+        ImageEditorFormFormClosing's own `_surface.Modified` check
+        (ImageEditorForm.cs:1006).
+        """
+        return self.undo_redo.generation != self._saved_generation
 
     @property
     def selected_shape(self):
@@ -2306,7 +2336,12 @@ class EditorWindow(Gtk.Window):
         self._commit_text_editing_if_active()
         self._clipboard.set_image(self._composited_image())
 
-    def _do_save(self) -> None:
+    def _do_save(self) -> bool:
+        """Returns whether a save actually happened - lets
+        _on_delete_event tell a completed save apart from a cancelled
+        one, matching ImageEditorFormFormClosing's own post-BtnSaveClick
+        `if (_surface.Modified)` check (ImageEditorForm.cs:1024-1028).
+        """
         self._commit_text_editing_if_active()
         dialog = Gtk.FileChooserDialog(
             title="Save Screenshot", transient_for=self, action=Gtk.FileChooserAction.SAVE
@@ -2318,11 +2353,15 @@ class EditorWindow(Gtk.Window):
         dialog.set_current_folder(str(get_output_directory()))
         dialog.set_current_name("screenshot.png")
         dialog.set_do_overwrite_confirmation(True)
+        saved = False
         try:
             if dialog.run() == Gtk.ResponseType.OK:
                 save_image_to_file(self._composited_image(), dialog.get_filename())
+                self._saved_generation = self.undo_redo.generation
+                saved = True
         finally:
             dialog.destroy()
+        return saved
 
     def _do_choose_save_location(self) -> None:
         """Lets the user view/change the folder the destination
@@ -2482,9 +2521,104 @@ class EditorWindow(Gtk.Window):
         editor_row.pack_start(editor_combo, False, False, 0)
         content.pack_start(editor_row, False, False, 0)
 
+        content.pack_start(self._build_expert_settings_frame(), False, False, 0)
+
         dialog.show_all()
         dialog.run()
         dialog.destroy()
+
+    def _build_expert_settings_frame(self) -> Gtk.Frame:
+        """Faithful port of groupbox_expert (SettingsForm.Designer.cs:
+        1049-1188) - every field below is locked (set_sensitive(False))
+        until "I know what I am doing!" is checked, exactly matching
+        Windows' own ExpertSettingsEnableState/Checkbox_enableexpert_
+        CheckedChanged (SettingsForm.cs:844-869). That checkbox is
+        itself session-only UI state on the real form too - it has no
+        PropertyName binding in SettingsForm.Designer.cs at all, so it
+        isn't persisted here either; it just re-locks every time this
+        dialog reopens, a deliberate "read this before you touch it"
+        speed bump rather than a real setting.
+
+        Not every Expert-tab field from Windows' groupbox_expert is
+        here - clipboard formats, reuse editor, minimize memory
+        footprint, thumbnail preview, and optimize for RDP were
+        explicitly scoped out (see REQUIREMENTS.md's "Preferences
+        dialog audit" section for the reasoning on each).
+        """
+        frame = Gtk.Frame(label="Expert Settings")
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        box.set_border_width(8)
+        frame.add(box)
+
+        enable_expert_check = Gtk.CheckButton(label="I know what I am doing!")
+        box.pack_start(enable_expert_check, False, False, 0)
+
+        gated_widgets = []
+
+        def add_gated(widget) -> None:
+            widget.set_sensitive(False)
+            gated_widgets.append(widget)
+            box.pack_start(widget, False, False, 0)
+
+        # Stub - documented no-op until #103 builds an update checker
+        # for it to actually gate (see settings.get_check_unstable_updates).
+        unstable_updates_check = Gtk.CheckButton(label="Check for unstable updates")
+        unstable_updates_check.set_active(get_check_unstable_updates())
+        unstable_updates_check.set_tooltip_text(
+            "Has no effect yet - this port doesn't check for updates at all (see task #103)."
+        )
+        unstable_updates_check.connect("toggled", lambda btn: set_check_unstable_updates(btn.get_active()))
+        add_gated(unstable_updates_check)
+
+        # Stub - documented no-op until this port has any color-
+        # reduction/quantization pipeline for it to switch on (see
+        # settings.get_auto_reduce_colors).
+        auto_reduce_colors_check = Gtk.CheckButton(
+            label="Create an 8-bit image if the colors are less than 256"
+        )
+        auto_reduce_colors_check.set_active(get_auto_reduce_colors())
+        auto_reduce_colors_check.set_tooltip_text(
+            "Has no effect yet - this port always saves full-color images, with no color-reduction step to enable."
+        )
+        auto_reduce_colors_check.connect("toggled", lambda btn: set_auto_reduce_colors(btn.get_active()))
+        add_gated(auto_reduce_colors_check)
+
+        suppress_save_dialog_check = Gtk.CheckButton(
+            label="Suppress the save dialog when closing the editor"
+        )
+        suppress_save_dialog_check.set_active(get_suppress_save_dialog_at_close())
+        suppress_save_dialog_check.connect(
+            "toggled", lambda btn: set_suppress_save_dialog_at_close(btn.get_active())
+        )
+        add_gated(suppress_save_dialog_check)
+
+        counter_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        counter_row.pack_start(Gtk.Label(label="Counter (${NUM} in filename):"), False, False, 0)
+        counter_spin = Gtk.SpinButton.new_with_range(1, 999999, 1)
+        counter_spin.set_value(get_filename_counter())
+        counter_spin.connect("value-changed", lambda spin: set_filename_counter(spin.get_value_as_int()))
+        counter_row.pack_start(counter_spin, False, False, 0)
+        add_gated(counter_row)
+
+        footer_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        footer_row.pack_start(Gtk.Label(label="Printer footer pattern:"), False, False, 0)
+        footer_entry = Gtk.Entry()
+        footer_entry.set_text(get_footer_pattern())
+        footer_entry.set_tooltip_text(
+            "A Python strftime format, e.g. %B %d, %Y %I:%M %p - printed at the bottom of the page (Print > "
+            "“Print date / time at bottom of page”)."
+        )
+        footer_entry.connect("changed", lambda entry: set_footer_pattern(entry.get_text()))
+        footer_row.pack_start(footer_entry, True, True, 0)
+        add_gated(footer_row)
+
+        def on_enable_expert_toggled(btn) -> None:
+            for widget in gated_widgets:
+                widget.set_sensitive(btn.get_active())
+
+        enable_expert_check.connect("toggled", on_enable_expert_toggled)
+
+        return frame
 
     # Not a Windows feature - Windows has no "open in an external
     # editor" destination. A new addition, not a port, per explicit
@@ -3787,3 +3921,46 @@ class EditorWindow(Gtk.Window):
         app = Gio.Application.get_default()
         if app is not None:
             app.unregister_editor_window(self)
+
+    def _on_delete_event(self, _window, _event) -> bool:
+        """Faithful port of ImageEditorFormFormClosing (ImageEditorForm.
+        cs:1004-1033): with unsaved changes and the "Suppress the save
+        dialog when closing the editor" Expert setting off (see
+        settings.get_suppress_save_dialog_at_close), asks Yes/No/Cancel
+        before closing - "Yes" saves first (and still cancels the close
+        if that save itself gets cancelled), "No" closes without saving,
+        "Cancel" aborts the close entirely. Windows drops the Cancel
+        option specifically when the whole *application* is shutting
+        down (ApplicationExitCall/WindowsShutDown/TaskManagerClosing) -
+        this port has no such distinction (every close of this window
+        arrives as the same GTK delete-event), so Cancel is always
+        offered here, matching how Windows itself handles every other
+        single-window close.
+
+        Returning True from a "delete-event" handler blocks the close,
+        the GTK equivalent of FormClosingEventArgs.Cancel = true.
+        """
+        if not self.is_modified or get_suppress_save_dialog_at_close():
+            return False
+
+        self.present()
+        dialog = Gtk.MessageDialog(
+            transient_for=self, modal=True, message_type=Gtk.MessageType.QUESTION,
+            buttons=Gtk.ButtonsType.NONE, text="Do you want to save the screenshot?",
+        )
+        dialog.set_title("Save image?")
+        dialog.add_buttons(
+            "Yes", Gtk.ResponseType.YES,
+            "No", Gtk.ResponseType.NO,
+            "Cancel", Gtk.ResponseType.CANCEL,
+        )
+        response = dialog.run()
+        dialog.destroy()
+
+        if response == Gtk.ResponseType.NO:
+            return False
+        if response == Gtk.ResponseType.YES:
+            return not self._do_save()
+        # Cancel, or the dialog's own close button (DELETE_EVENT) - both
+        # default to the safe choice: don't close, don't lose anything.
+        return True

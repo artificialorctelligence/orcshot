@@ -72,7 +72,12 @@ from gi.repository import Gdk, Gtk
 from greenshot_linux.capture.clipboard import ClipboardBackend
 from greenshot_linux.core.drawing import Layer
 from greenshot_linux.core.shapes import CursorShape
-from greenshot_linux.settings import get_output_directory, quick_save_filename
+from greenshot_linux.settings import (
+    consume_filename_counter,
+    get_filename_counter,
+    get_output_directory,
+    quick_save_filename,
+)
 from greenshot_linux.ui.composite import composite_to_numpy
 from greenshot_linux.ui.file_export import save_image_to_file
 from greenshot_linux.ui.printing import print_image
@@ -101,7 +106,8 @@ def _open_editor(image: np.ndarray, cursor_shape: CursorShape = None) -> None:
 def _quick_save(image: np.ndarray, cursor_shape: CursorShape = None) -> None:
     directory = get_output_directory()
     directory.mkdir(parents=True, exist_ok=True)
-    save_image_to_file(_flattened(image, cursor_shape), directory / quick_save_filename(datetime.now()))
+    counter = consume_filename_counter()
+    save_image_to_file(_flattened(image, cursor_shape), directory / quick_save_filename(datetime.now(), counter))
 
 
 def _save_as(image: np.ndarray, cursor_shape: CursorShape = None) -> None:
@@ -111,11 +117,15 @@ def _save_as(image: np.ndarray, cursor_shape: CursorShape = None) -> None:
         Gtk.STOCK_SAVE, Gtk.ResponseType.OK,
     )
     dialog.set_current_folder(str(get_output_directory()))
-    dialog.set_current_name(quick_save_filename(datetime.now()))
+    # Peek, don't consume - the counter should only advance once a save
+    # actually happens (below), not just because a dialog with a
+    # suggested name was shown and possibly cancelled.
+    dialog.set_current_name(quick_save_filename(datetime.now(), get_filename_counter()))
     dialog.set_do_overwrite_confirmation(True)
     try:
         if dialog.run() == Gtk.ResponseType.OK:
             save_image_to_file(_flattened(image, cursor_shape), dialog.get_filename())
+            consume_filename_counter()
     finally:
         dialog.destroy()
 
