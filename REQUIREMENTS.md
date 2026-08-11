@@ -3012,6 +3012,31 @@ Grayscale/Invert/Copy/Save/Print/Undo/Redo/Rotate CCW/Rotate CW) confirmed to st
 uncollided with the new bare-letter dispatch; a real screenshot of the rebuilt Help dialog confirming
 every row's wording and layout.
 
+### Toolbar tooltip shortcut suffixes (task #92 follow-up, complete 2026-08-10)
+
+By request: every icon tooltip that has a real keyboard shortcut now shows it in parentheses -
+`"Select (Esc)"`, `"Rectangle (R)"`, `"Highlight (H)"`, `"Rotate Clockwise (Ctrl+.)"`, `"Save
+(Ctrl+S)"`, and so on - covering the tool palette (`_TOOL_TOOLTIP_SHORTCUTS`, a small dict keyed by
+the exact label already used in `_TOOL_LABELS`, plus `_with_shortcut`), the Highlight/Obfuscate/Crop/
+Rotate/Resize buttons (hardcoded directly, one-off), the action toolbar (Save/Copy/Print/Delete/Undo/
+Redo), and Crop's own Cancel button (`"Cancel (Esc)"` - accurate even though it's not a *dedicated*
+key for Cancel specifically, just the observable effect of the general Escape→Select mapping
+discarding an unconfirmed selection, per the section above). Tools/actions with no real shortcut
+(Effects, Confirm, Preferences, Cut/Copy Shape/Paste Shape, Help, External Editor) were deliberately
+left with a plain label rather than inventing one.
+
+Verified each suffix via `get_tooltip_text()` on the actual constructed widget for every case except
+the action toolbar's `Gtk.ToolButton`s, where that getter returns `None` even immediately after
+`set_tooltip_text()` - confirmed to be a pre-existing quirk of this GTK/PyGObject environment
+specifically for `Gtk.ToolItem` subclasses (a plain `Gtk.Button`/`Gtk.RadioButton` round-trips
+correctly; a bare `Gtk.ToolButton` does not, even with `set_has_tooltip(True)` forced explicitly),
+not something this change caused - it affects buttons this task never touched (Preferences/Help)
+identically. A tooltip *popup* itself renders in its own separate top-level window a main-window
+screenshot can't capture regardless, so that avenue couldn't close the loop either; treated as
+sufficiently verified given every other tooltip category round-trips correctly and this one is a
+same-call-site text edit to an already-shipped, already-working `set_tooltip_text()` invocation from
+an earlier task, not new mechanism.
+
 ## Editor title bar text (complete 2026-08-09)
 
 `EditorWindow`'s title changed from "Greenshot Linux" to "Greenshot for Linux image editor", by

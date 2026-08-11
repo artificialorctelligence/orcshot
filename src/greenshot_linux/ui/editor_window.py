@@ -470,6 +470,32 @@ _TOOL_LABELS = [
     _RESIZE_ACTION,
 ]
 
+# Appended to a tooltip in parentheses wherever a real keyboard
+# shortcut exists (by request) - keyed by the exact tool label used
+# in _TOOL_LABELS above, so it's read alongside the same _TOOL_KEYS
+# mapping the tooltip is describing rather than duplicating it by
+# hand. Tools/actions with no dedicated key (Effects, Preferences,
+# Cut/Copy Shape/Paste Shape - the last three deliberately have none,
+# since Ctrl+C is already claimed by whole-image copy) simply have no
+# entry here and keep their plain label.
+_TOOL_TOOLTIP_SHORTCUTS = {
+    "Select": "Esc",
+    "Rectangle": "R",
+    "Ellipse": "E",
+    "Line": "L",
+    "Arrow": "A",
+    "Freehand": "F",
+    "Text": "T",
+    "Speech Bubble": "S",
+    "Step Label": "I",
+    "Emoji": "M",
+}
+
+
+def _with_shortcut(label: str, shortcut: str | None) -> str:
+    return f"{label} ({shortcut})" if shortcut else label
+
+
 _HANDLE_SIZE = 6
 _HANDLE_FILL = (1.0, 1.0, 1.0)
 _HANDLE_STROKE = (0.1, 0.4, 0.9)
@@ -1066,16 +1092,17 @@ class EditorWindow(Gtk.Window):
                 continue
             if entry is _ROTATE_CW_ACTION:
                 self._build_action_button(
-                    box, rotate_cw_icon_image(icon_color), "Rotate Clockwise", self._do_rotate_cw,
+                    box, rotate_cw_icon_image(icon_color), "Rotate Clockwise (Ctrl+.)", self._do_rotate_cw,
                 )
                 continue
             if entry is _ROTATE_CCW_ACTION:
                 self._build_action_button(
-                    box, rotate_ccw_icon_image(icon_color), "Rotate Counterclockwise", self._do_rotate_ccw,
+                    box, rotate_ccw_icon_image(icon_color), "Rotate Counterclockwise (Ctrl+,)",
+                    self._do_rotate_ccw,
                 )
                 continue
             if entry is _RESIZE_ACTION:
-                self._build_action_button(box, resize_icon_image(icon_color), "Resize...", self._do_resize)
+                self._build_action_button(box, resize_icon_image(icon_color), "Resize... (Z)", self._do_resize)
                 continue
             tool, label = entry
             button = Gtk.RadioButton.new_from_widget(group_leader)
@@ -1084,7 +1111,7 @@ class EditorWindow(Gtk.Window):
             button.set_mode(False)  # flat icon toggle, not a radio-circle-plus-label
             button.set_relief(Gtk.ReliefStyle.NONE)
             button.set_image(tool_icon_image(tool, color=icon_color))
-            button.set_tooltip_text(label)
+            button.set_tooltip_text(_with_shortcut(label, _TOOL_TOOLTIP_SHORTCUTS.get(label)))
             button.set_active(tool is self.tool)
             button.connect("toggled", self._on_tool_button_toggled, tool)
             box.pack_start(button, False, False, 0)
@@ -1128,7 +1155,7 @@ class EditorWindow(Gtk.Window):
         button.set_mode(False)
         button.set_relief(Gtk.ReliefStyle.NONE)
         button.set_image(obfuscate_icon_image(icon_color))
-        button.set_tooltip_text("Obfuscate")
+        button.set_tooltip_text("Obfuscate (O)")
         button.set_active(self.tool in _OBFUSCATE_MODE_ORDER)
         button.connect("toggled", self._on_obfuscate_button_toggled)
         box.pack_start(button, False, False, 0)
@@ -1153,7 +1180,7 @@ class EditorWindow(Gtk.Window):
         button.set_mode(False)
         button.set_relief(Gtk.ReliefStyle.NONE)
         button.set_image(highlight_icon_image(icon_color))
-        button.set_tooltip_text("Highlight")
+        button.set_tooltip_text("Highlight (H)")
         button.set_active(self.tool in _HIGHLIGHT_MODE_ORDER)
         button.connect("toggled", self._on_highlight_button_toggled)
         box.pack_start(button, False, False, 0)
@@ -1340,7 +1367,7 @@ class EditorWindow(Gtk.Window):
         button.set_mode(False)
         button.set_relief(Gtk.ReliefStyle.NONE)
         button.set_image(crop_icon_image(icon_color))
-        button.set_tooltip_text("Crop")
+        button.set_tooltip_text("Crop (C)")
         button.set_active(self.tool in _CROP_MODE_ORDER)
         button.connect("toggled", self._on_crop_button_toggled)
         box.pack_start(button, False, False, 0)
@@ -1644,19 +1671,19 @@ class EditorWindow(Gtk.Window):
             toolbar.insert(button, -1)
             return button
 
-        add_button("document-save-symbolic", "Save", self._do_save)
-        add_button("edit-copy-symbolic", "Copy Image to Clipboard", self._do_copy)
-        add_button("document-print-symbolic", "Print", self._do_print)
+        add_button("document-save-symbolic", "Save (Ctrl+S)", self._do_save)
+        add_button("edit-copy-symbolic", "Copy Image to Clipboard (Ctrl+C)", self._do_copy)
+        add_button("document-print-symbolic", "Print (Ctrl+P)", self._do_print)
 
         toolbar.insert(Gtk.SeparatorToolItem(), -1)
-        add_button("edit-delete-symbolic", "Delete", self._do_delete)
+        add_button("edit-delete-symbolic", "Delete (Del)", self._do_delete)
 
         toolbar.insert(Gtk.SeparatorToolItem(), -1)
         add_button("edit-cut-symbolic", "Cut", self._do_cut_shape)
         add_button("edit-copy-symbolic", "Copy Shape", self._do_copy_shape)
         add_button("edit-paste-symbolic", "Paste Shape", self._do_paste_shape)
-        add_button("edit-undo-symbolic", "Undo", self._do_undo)
-        add_button("edit-redo-symbolic", "Redo", self._do_redo)
+        add_button("edit-undo-symbolic", "Undo (Ctrl+Z)", self._do_undo)
+        add_button("edit-redo-symbolic", "Redo (Ctrl+Y)", self._do_redo)
 
         toolbar.insert(Gtk.SeparatorToolItem(), -1)
         add_button("preferences-system-symbolic", "Preferences", self._do_show_settings)
@@ -1890,7 +1917,7 @@ class EditorWindow(Gtk.Window):
         confirm_button.connect("clicked", lambda _b: self._confirm_crop())
         cancel_button = Gtk.Button()
         cancel_button.set_image(Gtk.Image.new_from_icon_name("action-unavailable-symbolic", Gtk.IconSize.BUTTON))
-        cancel_button.set_tooltip_text("Cancel")
+        cancel_button.set_tooltip_text("Cancel (Esc)")
         cancel_button.connect("clicked", lambda _b: self._cancel_crop())
         self._crop_confirm_cell.pack_start(confirm_button, False, False, 0)
         self._crop_confirm_cell.pack_start(cancel_button, False, False, 0)
