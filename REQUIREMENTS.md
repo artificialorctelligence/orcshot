@@ -2946,6 +2946,72 @@ Obfuscate changes nothing. Also a real screenshot of the rebuilt Help dialog con
 header/key indentation relationship, and (running under X11 in this dev environment) the X11-specific
 Tray Icon wording.
 
+## Editor keyboard shortcuts replaced with the real Windows letter-mnemonic scheme (task #92, complete 2026-08-10)
+
+The backtick+1-0 layout documented in the section above was this port's own invented scheme, adopted
+before the real one had been found - `ImageEditorForm.Designer.cs`'s `ShortcutKeys` properties are all
+empty, which an earlier pass in this project mistook for "no shortcut exists." The real shortcuts live
+in the actual `KeyDown` handler instead (`ImageEditorFormKeyDown`, `ImageEditorForm.cs:1055-1107`),
+confirmed directly from source, not guessed:
+
+| Key | Tool | | Key | Tool |
+|---|---|---|---|---|
+| Escape | Select | | H | Highlight (whichever mode was last prepared) |
+| R | Rectangle | | O | Obfuscate (whichever mode was last prepared) |
+| E | Ellipse | | C | Crop (whichever mode was last prepared) |
+| L | Line | | M | Emoji |
+| F | Freehand | | Z | Resize (a whole-image effect, not a `Tool`) |
+| A | Arrow | | | |
+| T | Text | | | |
+| S | Speech Bubble | | | |
+| I | Step Label | | | |
+
+Every letter is real Windows, not invented - including **Escape for Select**, which directly corrects
+the previous section's own claim that Select "has no clear Windows precedent": that was true of the
+Designer.cs properties, false of the real `KeyDown` handler (`case Keys.Escape: BtnCursorClick(...)`).
+H/O/C aren't `Tool` mappings in `_TOOL_KEYS` any more than the old "6" was - Highlight/Obfuscate/Crop
+are each one toolbar button standing in for several modes, so they're their own dedicated branches in
+`_on_key_press` calling `_activate_highlight_tool`/`_activate_obfuscate_tool`/`_activate_crop_tool`
+(same reasoning the old "6" already established, just extended to the two tools built since). Z's
+own bare-key handling (already correct, predates this task) is untouched - Ctrl+Z still means Undo,
+disambiguated by `ctrl_held`, matching Windows' own identical Z-means-two-different-things-by-modifier
+design.
+
+Both GDK keyval cases are bound per letter (`Gdk.KEY_r`/`Gdk.KEY_R`, etc.) - GDK reports a distinct
+keyval per case for letters (unlike the numeric row, where Ctrl++/Ctrl+Shift++ needed Shift-state
+disambiguation instead - see the section above). Not a literal replica of Windows' own
+`Modifiers.Equals(Keys.None)` check, which excludes Shift+letter entirely and would mean Shift+R does
+nothing special in real Windows - a deliberate consistency choice with how this file already treats
+every Ctrl-combo shortcut (both cases bound there too, e.g. `Gdk.KEY_z`/`Gdk.KEY_Z` for undo), not a
+second, stricter convention invented just for these.
+
+None of the existing Ctrl-modified shortcuts changed - they already matched Windows before this task
+(confirmed again against the same `ImageEditorFormKeyDown` listing while verifying: Ctrl+Z/Y, Ctrl+Q/B/T/
+G/I, Ctrl+Delete, Ctrl+,/. , Ctrl+/-, Ctrl+Shift+/-, Ctrl+0/9). The old collision-avoidance code for
+"plain 0/9 switch tools, but Ctrl+0/Ctrl+9 are zoom" was deleted outright rather than kept dormant - it
+only existed because the old scheme's Step Label(9)/Emoji(0) keys shared a base keyval with the zoom
+shortcuts; with those tools moved to I/M, the collision it guarded against no longer exists.
+
+The old special-cased "Escape cancels an in-progress crop selection" branch (added with task #91, before
+this task existed) was removed too, not kept alongside the new general Escape→Select mapping - it's now
+subsumed by it: switching tools away from Crop already discards an unconfirmed selection (the `tool`
+property setter's own logic, task #91), so Escape→Select produces the identical effect as a special case
+of the general rule, matching real Windows' own unconditional Escape=Cursor behavior rather than this
+port's previous crop-only-scoped approximation of it.
+
+Help dialog's "Tools" section rewritten to match; "Actions" gained rows for Ctrl+B/Q/T/G/I/Delete/,/. -
+already-implemented shortcuts that were simply never listed before, discovered while rewriting the
+section next to them, not a new task #92 behavior.
+
+Verified live: a driven GTK script exercising every new letter (bare, not Ctrl) and confirming it lands
+on the correct `win.tool`, including Escape→Select, and the H/O/C special dispatch landing on each
+tool's currently-prepared mode (`Tool.HIGHLIGHT_TEXT`/`Tool.SOLID_FILL`/`Tool.CROP_DEFAULT` by default);
+bare Z confirmed to call `_do_resize()` without changing `self.tool`, and Ctrl+Z confirmed to leave the
+active tool alone too (undo path); every pre-existing Ctrl-combo shortcut (Border/Torn Edge/Drop Shadow/
+Grayscale/Invert/Copy/Save/Print/Undo/Redo/Rotate CCW/Rotate CW) confirmed to still fire correctly and
+uncollided with the new bare-letter dispatch; a real screenshot of the rebuilt Help dialog confirming
+every row's wording and layout.
+
 ## Editor title bar text (complete 2026-08-09)
 
 `EditorWindow`'s title changed from "Greenshot Linux" to "Greenshot for Linux image editor", by

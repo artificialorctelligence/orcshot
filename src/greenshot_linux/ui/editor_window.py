@@ -220,28 +220,44 @@ _MIN_WINDOW_WIDTH = 650
 _MIN_WINDOW_HEIGHT = 530
 
 _TOOL_KEYS = {
-    # Select, requested specifically (not a Windows-ported convention -
-    # ImageEditorForm has no cursor-tool shortcut - this port's own
-    # addition): not a Linux/desktop-wide reserved shortcut (those are
-    # almost always modifier combos - Super, Ctrl+Alt - never a bare
-    # printable key), not bound anywhere else in this app, and only
-    # ever dispatched here while the editor window has keyboard focus
-    # and no text field is being edited (see the early return above
-    # for self._editing_text_shape), so it can't collide with typing
-    # backtick/grave into any of those.
-    Gdk.KEY_grave: Tool.SELECT,
-    Gdk.KEY_1: Tool.RECTANGLE,
-    Gdk.KEY_2: Tool.ELLIPSE,
-    Gdk.KEY_3: Tool.LINE,
-    Gdk.KEY_4: Tool.ARROW,
-    Gdk.KEY_5: Tool.FREEHAND,
-    # 6 (Obfuscate as a whole) is handled separately in _on_key_press,
-    # not here - it's not a 1:1 Tool mapping like every other key in
-    # this dict, see that handling's own comment for why.
-    Gdk.KEY_7: Tool.TEXT,
-    Gdk.KEY_8: Tool.SPEECH_BUBBLE,
-    Gdk.KEY_9: Tool.STEP_LABEL,
-    Gdk.KEY_0: Tool.EMOJI,
+    # Real Windows letter-mnemonic scheme (task #92), replacing this
+    # port's own earlier invented backtick+1-0 layout - confirmed
+    # directly from ImageEditorFormKeyDown (ImageEditorForm.cs:1055-
+    # 1107), the actual KeyDown handler, not the empty Designer.cs
+    # ShortcutKeys properties an earlier pass in this project mistook
+    # for "no shortcut exists" evidence. Escape *does* have a real
+    # Windows precedent after all (case Keys.Escape: BtnCursorClick) -
+    # correcting that same earlier claim. Both cased keyvals are bound
+    # for every letter (GDK reports a distinct keyval per case, unlike
+    # the numeric row) - not a strict replica of Windows' own
+    # Modifiers.Equals(Keys.None) check, which would exclude Shift+
+    # letter entirely, but consistent with how this file already
+    # treats every Ctrl-combo shortcut below (e.g. Gdk.KEY_z/Gdk.KEY_Z
+    # both trigger undo) rather than introducing a second, stricter
+    # convention just for these.
+    Gdk.KEY_Escape: Tool.SELECT,
+    Gdk.KEY_r: Tool.RECTANGLE,
+    Gdk.KEY_R: Tool.RECTANGLE,
+    Gdk.KEY_e: Tool.ELLIPSE,
+    Gdk.KEY_E: Tool.ELLIPSE,
+    Gdk.KEY_l: Tool.LINE,
+    Gdk.KEY_L: Tool.LINE,
+    Gdk.KEY_f: Tool.FREEHAND,
+    Gdk.KEY_F: Tool.FREEHAND,
+    Gdk.KEY_a: Tool.ARROW,
+    Gdk.KEY_A: Tool.ARROW,
+    Gdk.KEY_t: Tool.TEXT,
+    Gdk.KEY_T: Tool.TEXT,
+    Gdk.KEY_s: Tool.SPEECH_BUBBLE,
+    Gdk.KEY_S: Tool.SPEECH_BUBBLE,
+    Gdk.KEY_i: Tool.STEP_LABEL,
+    Gdk.KEY_I: Tool.STEP_LABEL,
+    Gdk.KEY_m: Tool.EMOJI,
+    Gdk.KEY_M: Tool.EMOJI,
+    # H/O/C (Highlight/Obfuscate/Crop) and Z (Resize) aren't 1:1 Tool
+    # mappings / aren't a Tool at all, so they're handled by their own
+    # branches in _on_key_press instead of this dict - see those
+    # branches' own comments for why.
 }
 
 # Matches the real Windows editor's left-toolbar grouping
@@ -2498,30 +2514,42 @@ class EditorWindow(Gtk.Window):
     # read as though they were just forgotten.
     _HELP_SECTIONS = [
         ("Tools", [
-            ("`", "Select"),
-            ("1", "Rectangle"),
-            ("2", "Ellipse"),
-            ("3", "Line"),
-            ("4", "Arrow"),
-            ("5", "Freehand"),
-            ("6", "Obfuscate (whichever mode was last prepared)"),
-            ("7", "Text"),
-            ("8", "Speech Bubble"),
-            ("9", "Step Label"),
-            ("0", "Emoji"),
-            ("", "Solid Fill / Scramble / Pixelize / Blur - via Obfuscate's own Mode dropdown, no dedicated key each"),
+            ("Escape", "Select"),
+            ("R", "Rectangle"),
+            ("E", "Ellipse"),
+            ("L", "Line"),
+            ("F", "Freehand"),
+            ("A", "Arrow"),
+            ("T", "Text"),
+            ("S", "Speech Bubble"),
+            ("I", "Step Label"),
+            ("H", "Highlight (whichever mode was last prepared)"),
+            ("O", "Obfuscate (whichever mode was last prepared)"),
+            ("C", "Crop (whichever mode was last prepared)"),
+            ("M", "Emoji"),
+            ("Z", "Resize (a whole-image effect, not a drawing tool)"),
+            ("", "Every tool's own sub-modes (Text/Area/Grayscale/Magnify Highlight; Solid Fill/Scramble/"
+                  "Pixelize/Blur Obfuscate; Default/Vertical/Horizontal Crop) - via that tool's own Mode "
+                  "dropdown, no dedicated key each"),
         ]),
         ("Editing", [
             ("Delete", "Delete the selected shape"),
             ("Double-click", "Re-edit an existing text/speech bubble/emoji shape"),
             ("Enter", "Commit a text/speech bubble/emoji edit"),
-            ("Escape", "Cancel a text/speech bubble/emoji edit"),
+            ("Escape", "Cancel a text/speech bubble/emoji edit, or an in-progress crop selection"),
         ]),
         ("Actions", [
             ("Ctrl+Z / Ctrl+Y", "Undo / Redo"),
             ("Ctrl+C", "Copy the whole image to the clipboard"),
             ("Ctrl+S", "Save"),
             ("Ctrl+P", "Print"),
+            ("Ctrl+B", "Add Border"),
+            ("Ctrl+Q", "Add Drop Shadow"),
+            ("Ctrl+T", "Add Torn Edge"),
+            ("Ctrl+G", "Grayscale"),
+            ("Ctrl+I", "Invert Colors"),
+            ("Ctrl+Delete", "Clear (transparent background)"),
+            ("Ctrl+, / Ctrl+.", "Rotate counterclockwise / clockwise"),
             ("Ctrl+ +/-", "Zoom in / out"),
             ("Ctrl+Shift+ +/-", "Enlarge / shrink canvas"),
             ("Ctrl+0", "Zoom to actual size"),
@@ -3522,24 +3550,9 @@ class EditorWindow(Gtk.Window):
             # time.
             return False
 
-        if event.keyval == Gdk.KEY_Escape and self._crop_selection is not None:
-            # Scoped to just "a crop selection is in progress" rather
-            # than a global Escape-switches-to-Select remap (real
-            # Windows' own Escape=Cursor mapping isn't ported yet -
-            # task #92) - matches Surface.ConfirmCrop(false)'s own
-            # effect (discard the selection, no image change).
-            self._cancel_crop()
-            return True
-
         ctrl_held = bool(event.state & Gdk.ModifierType.CONTROL_MASK)
         shift_held = bool(event.state & Gdk.ModifierType.SHIFT_MASK)
 
-        # Checked before _TOOL_KEYS: plain 0/9 switch tools (Step
-        # Label/Speech Bubble), but Ctrl+0/Ctrl+9 are zoom shortcuts
-        # (Actual Size/Best Fit, ImageEditorForm.cs:1153-1157) - since
-        # GDK reports the same base keyval regardless of Ctrl, the
-        # tool-switch lookup below would otherwise swallow them first.
-        #
         # Zoom in/out (Ctrl++/Ctrl+-) vs Enlarge/Shrink Canvas
         # (Ctrl+Shift++/Ctrl+Shift+-, ImageEditorForm.cs:1164-1171)
         # share the same physical +/- key and, on keyboards where
@@ -3566,19 +3579,30 @@ class EditorWindow(Gtk.Window):
             self._do_zoom_best_fit()
             return True
 
-        # "6" for Obfuscate isn't in _TOOL_KEYS with the rest - unlike
-        # every other tool key, it's not a 1:1 Tool mapping (Obfuscate
-        # is one toolbar button standing in for four modes - Solid
-        # Fill/Scramble/Pixelize/Blur - with no key of its own for any
-        # specific one, only the Mode dropdown). _activate_obfuscate_
-        # tool already does exactly the right thing: activates whatever
-        # mode is currently prepared, the same as clicking the real
-        # toolbar button, and is a correct no-op if Obfuscate's already
-        # active (it doesn't rely on GTK's set_active() no-refire
-        # quirk the way the generic dispatch below does - it explicitly
-        # branches on whether the button's already active).
-        if event.keyval == Gdk.KEY_6 and not ctrl_held:
+        # H/O/C (Highlight/Obfuscate/Crop) aren't 1:1 Tool mappings the
+        # way every key in _TOOL_KEYS is - each is one toolbar button
+        # standing in for several modes (Highlight: Text/Area/
+        # Grayscale/Magnify; Obfuscate: Solid Fill/Scramble/Pixelize/
+        # Blur; Crop: Default/Vertical/Horizontal), with no key of its
+        # own for any specific mode, only each one's own Mode dropdown
+        # - matching real Windows, whose H/O/C keys
+        # (ImageEditorFormKeyDown, ImageEditorForm.cs:1091-1099) fire
+        # BtnHighlightClick/BtnObfuscateClick/BtnCropClick, not a mode-
+        # specific handler. Each _activate_*_tool() already does
+        # exactly the right thing: activates whichever mode is
+        # currently prepared, the same as clicking the real toolbar
+        # button, and is a correct no-op if that tool's already active
+        # (doesn't rely on GTK's set_active() no-refire quirk the way
+        # the generic dispatch below does - it explicitly branches on
+        # whether the button's already active).
+        if not ctrl_held and event.keyval in (Gdk.KEY_h, Gdk.KEY_H):
+            self._activate_highlight_tool()
+            return True
+        if not ctrl_held and event.keyval in (Gdk.KEY_o, Gdk.KEY_O):
             self._activate_obfuscate_tool()
+            return True
+        if not ctrl_held and event.keyval in (Gdk.KEY_c, Gdk.KEY_C):
+            self._activate_crop_tool()
             return True
 
         tool = _TOOL_KEYS.get(event.keyval)
