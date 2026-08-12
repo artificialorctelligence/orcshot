@@ -787,3 +787,118 @@ def crop_icon_image(color: Color = _DEFAULT_COLOR) -> Gtk.Image:
     surface = _crop_icon(color)
     pixbuf = Gdk.pixbuf_get_from_surface(surface, 0, 0, surface.get_width(), surface.get_height())
     return Gtk.Image.new_from_pixbuf(pixbuf)
+
+
+# --- destination-picker icons (task #96) ---------------------------------
+
+def _clipboard_icon(color: Color) -> cairo.ImageSurface:
+    surface = _blank_surface()
+    ctx = cairo.Context(surface)
+    r, g, b, a = color
+    ctx.set_source_rgba(r / 255, g / 255, b / 255, a / 255)
+    ctx.set_line_width(1.8)
+    _rounded_rect_path(ctx, _MARGIN + 1, _MARGIN + 3, ICON_SIZE - 2 * _MARGIN - 2, ICON_SIZE - 2 * _MARGIN - 4, 2)
+    ctx.stroke()
+    _rounded_rect_path(ctx, ICON_SIZE / 2 - 4, _MARGIN, 8, 5, 1.5)
+    ctx.stroke()
+    return surface
+
+
+def _save_icon(color: Color) -> cairo.ImageSurface:
+    """Floppy disk - also used for "Save As...", same as most apps
+    don't bother with a second icon for it."""
+    surface = _blank_surface()
+    ctx = cairo.Context(surface)
+    r, g, b, a = color
+    ctx.set_source_rgba(r / 255, g / 255, b / 255, a / 255)
+    ctx.set_line_width(1.8)
+    _rounded_rect_path(ctx, _MARGIN, _MARGIN, ICON_SIZE - 2 * _MARGIN, ICON_SIZE - 2 * _MARGIN, 2)
+    ctx.stroke()
+    ctx.rectangle(ICON_SIZE * 0.55, _MARGIN, ICON_SIZE * 0.2, ICON_SIZE * 0.22)
+    ctx.fill()
+    ctx.rectangle(ICON_SIZE * 0.3, ICON_SIZE * 0.55, ICON_SIZE * 0.4, ICON_SIZE * 0.3)
+    ctx.stroke()
+    return surface
+
+
+def _edit_icon(color: Color) -> cairo.ImageSurface:
+    surface = _blank_surface()
+    ctx = cairo.Context(surface)
+    r, g, b, a = color
+    ctx.set_source_rgba(r / 255, g / 255, b / 255, a / 255)
+    ctx.set_line_width(2)
+    ctx.set_line_cap(cairo.LINE_CAP_ROUND)
+    x1, y1 = ICON_SIZE - _MARGIN, _MARGIN
+    x2, y2 = _MARGIN + 3, ICON_SIZE - _MARGIN - 3
+    ctx.move_to(x1, y1)
+    ctx.line_to(x2, y2)
+    ctx.stroke()
+    ctx.move_to(x2, y2)
+    ctx.line_to(x2 + 5, y2)
+    ctx.line_to(x2, y2 - 5)
+    ctx.close_path()
+    ctx.fill()
+    ctx.move_to(_MARGIN, ICON_SIZE - _MARGIN)
+    ctx.line_to(ICON_SIZE * 0.45, ICON_SIZE - _MARGIN)
+    ctx.stroke()
+    return surface
+
+
+def _print_icon(color: Color) -> cairo.ImageSurface:
+    surface = _blank_surface()
+    ctx = cairo.Context(surface)
+    r, g, b, a = color
+    ctx.set_source_rgba(r / 255, g / 255, b / 255, a / 255)
+    ctx.set_line_width(1.8)
+    ctx.rectangle(_MARGIN, ICON_SIZE * 0.4, ICON_SIZE - 2 * _MARGIN, ICON_SIZE * 0.32)
+    ctx.stroke()
+    ctx.rectangle(ICON_SIZE * 0.3, _MARGIN, ICON_SIZE * 0.4, ICON_SIZE * 0.3)
+    ctx.stroke()
+    ctx.rectangle(ICON_SIZE * 0.3, ICON_SIZE * 0.72, ICON_SIZE * 0.4, ICON_SIZE * 0.18)
+    ctx.stroke()
+    return surface
+
+
+def _external_command_icon(color: Color) -> cairo.ImageSurface:
+    """Generic icon for any configured ExternalCommand destination
+    (task #110) - a terminal-prompt glyph, since these can run
+    anything, not one specific action to depict."""
+    surface = _blank_surface()
+    ctx = cairo.Context(surface)
+    r, g, b, a = color
+    ctx.set_source_rgba(r / 255, g / 255, b / 255, a / 255)
+    ctx.set_line_width(1.8)
+    _rounded_rect_path(ctx, _MARGIN, _MARGIN, ICON_SIZE - 2 * _MARGIN, ICON_SIZE - 2 * _MARGIN, 2)
+    ctx.stroke()
+    ctx.set_line_width(2)
+    ctx.set_line_cap(cairo.LINE_CAP_ROUND)
+    ctx.set_line_join(cairo.LINE_JOIN_ROUND)
+    ctx.move_to(ICON_SIZE * 0.3, ICON_SIZE * 0.35)
+    ctx.line_to(ICON_SIZE * 0.46, ICON_SIZE * 0.5)
+    ctx.line_to(ICON_SIZE * 0.3, ICON_SIZE * 0.65)
+    ctx.stroke()
+    ctx.move_to(ICON_SIZE * 0.52, ICON_SIZE * 0.68)
+    ctx.line_to(ICON_SIZE * 0.72, ICON_SIZE * 0.68)
+    ctx.stroke()
+    return surface
+
+
+_DESTINATION_ICON_BUILDERS = {
+    "clipboard": _clipboard_icon,
+    "save": _save_icon,
+    "save_as": _save_icon,
+    "edit": _edit_icon,
+    "print": _print_icon,
+}
+
+
+def destination_icon_image(destination_id: str, color: Color = _DEFAULT_COLOR) -> Gtk.Image:
+    """Icon for a destination-picker menu item (task #96) - falls back
+    to the generic command glyph for dynamically-configured
+    ExternalCommand destinations (ids like "external:My Command"),
+    which have no fixed action to depict.
+    """
+    builder = _DESTINATION_ICON_BUILDERS.get(destination_id, _external_command_icon)
+    surface = builder(color)
+    pixbuf = Gdk.pixbuf_get_from_surface(surface, 0, 0, surface.get_width(), surface.get_height())
+    return Gtk.Image.new_from_pixbuf(pixbuf)

@@ -82,7 +82,12 @@ from orcshot.settings import (
 from orcshot.ui.composite import composite_to_numpy
 from orcshot.ui.external_commands import run_external_command
 from orcshot.ui.file_export import save_image_to_file
+from orcshot.ui.icons import destination_icon_image
 from orcshot.ui.printing import print_image
+
+
+def _rgba_to_color(rgba: Gdk.RGBA) -> tuple:
+    return (round(rgba.red * 255), round(rgba.green * 255), round(rgba.blue * 255), round(rgba.alpha * 255))
 
 
 def _flattened(image: np.ndarray, cursor_shape: CursorShape = None) -> np.ndarray:
@@ -229,8 +234,13 @@ def show_destination_picker(
         clipboard_backend = default_clipboard_backend()
 
     menu = Gtk.Menu()
+    icon_color = _rgba_to_color(menu.get_style_context().get_color(Gtk.StateFlags.NORMAL))
     for item_id, label, _handler in _all_destinations():
-        item = Gtk.MenuItem(label=label)
+        item = Gtk.MenuItem()
+        box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        box.pack_start(destination_icon_image(item_id, icon_color), False, False, 0)
+        box.pack_start(Gtk.Label(label=label), False, False, 0)
+        item.add(box)
 
         def on_activate(_item, item_id=item_id) -> None:
             final_image = refresh_image() if refresh_image is not None else image
