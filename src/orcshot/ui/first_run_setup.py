@@ -115,6 +115,21 @@ def maybe_run_first_run_setup(parent: Gtk.Window = None, executable: str = None,
     """
     if is_first_run_setup_done():
         return
+    run_setup_dialog(parent, executable, settings_backend)
+
+
+def run_setup_dialog(parent: Gtk.Window = None, executable: str = None, settings_backend=None) -> None:
+    """Same dialog as the first-run prompt, but callable anytime (task
+    #104's "Help > Set Up Hotkeys & Autostart..." menu item) - not
+    gated by is_first_run_setup_done. Re-running this after a rename
+    like task #105's Greenshot->Orcshot rebrand is the intended fix for
+    hotkeys that stopped working because they were bound to a command
+    that no longer exists: find_conflicts matches existing custom
+    keybindings by binding key, not name, so a stale "Greenshot Linux -
+    Region Capture" entry still occupying Print shows up as a conflict
+    to overwrite here, the same as any other pre-existing binding
+    would.
+    """
     if executable is None:
         executable = _default_executable()
     if settings_backend is None:

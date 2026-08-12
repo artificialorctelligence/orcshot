@@ -1089,9 +1089,23 @@ class EditorWindow(Gtk.Window):
         add_item(image_menu, "Clear", self._do_clear)
 
         help_menu = add_menu("Help")
+        add_item(help_menu, "Set Up Hotkeys & Autostart...", self._do_show_setup)
         add_item(help_menu, "About Orcshot", self._do_show_about)
 
         return menu_bar
+
+    def _do_show_setup(self) -> None:
+        """Task #104: re-runs the first-run hotkey/autostart dialog on
+        demand instead of only once at first launch. Also the fix for
+        hotkeys silently breaking after a rename (task #105's Greenshot
+        -> Orcshot rebrand did exactly this on the dev machine) - a
+        stale binding still occupying e.g. Print shows up here as a
+        normal conflict to overwrite, the same as any pre-existing
+        binding would.
+        """
+        from orcshot.ui.first_run_setup import run_setup_dialog
+
+        run_setup_dialog(self)
 
     def _do_show_about(self) -> None:
         dialog = Gtk.AboutDialog(transient_for=self)
