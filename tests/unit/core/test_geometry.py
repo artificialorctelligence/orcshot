@@ -1,4 +1,4 @@
-from greenshot_linux.core.geometry import Rect
+from orcshot.core.geometry import Rect
 
 
 def test_from_points_normalizes_reversed_drag():

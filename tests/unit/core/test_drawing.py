@@ -8,9 +8,9 @@ PullElementsUp/PushElementsDown/PullElementsToTop/PushElementsToBottom
 against several layouts before writing any Python.
 """
 
-from greenshot_linux.core.drawing import Layer, hit_test
-from greenshot_linux.core.geometry import Rect
-from greenshot_linux.core.shapes import RectangleShape
+from orcshot.core.drawing import Layer, hit_test
+from orcshot.core.geometry import Rect
+from orcshot.core.shapes import RectangleShape
 
 
 class FakeDrawable:

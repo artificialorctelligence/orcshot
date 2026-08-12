@@ -20,9 +20,9 @@ switch between them. Here, switching ``mode`` without also setting
 documented rather than silently diverging.
 """
 
-from greenshot_linux.core.drawing import hit_test
-from greenshot_linux.core.geometry import Rect
-from greenshot_linux.core.shapes import ObfuscateMode, ObfuscateShape
+from orcshot.core.drawing import hit_test
+from orcshot.core.geometry import Rect
+from orcshot.core.shapes import ObfuscateMode, ObfuscateShape
 
 
 class TestObfuscateShape:

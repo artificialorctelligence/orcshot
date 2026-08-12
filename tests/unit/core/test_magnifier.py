@@ -4,8 +4,8 @@ CaptureForm.cs (DrawZoom/VerifyZoomAnimation) - see that module's
 docstring for the exact line references this was traced from.
 """
 
-from greenshot_linux.core.geometry import Rect
-from greenshot_linux.core.magnifier import magnifier_diameter, magnifier_offset, magnifier_source_rect
+from orcshot.core.geometry import Rect
+from orcshot.core.magnifier import magnifier_diameter, magnifier_offset, magnifier_source_rect
 
 
 class TestMagnifierDiameter:

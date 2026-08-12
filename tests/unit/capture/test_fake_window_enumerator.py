@@ -1,6 +1,6 @@
-from greenshot_linux.capture.fake import FakeWindowEnumerator
-from greenshot_linux.capture.window import WindowInfo
-from greenshot_linux.core.geometry import Rect
+from orcshot.capture.fake import FakeWindowEnumerator
+from orcshot.capture.window import WindowInfo
+from orcshot.core.geometry import Rect
 
 
 def make_window(window_id, title="Window", window_type="normal", **overrides):

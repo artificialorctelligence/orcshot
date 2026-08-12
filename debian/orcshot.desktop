@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=Orcshot
+Comment=Screenshot capture and annotation tool
+Exec=orcshot
+Icon=orcshot
+Terminal=false
+StartupNotify=false
+StartupWMClass=orcshot
+Categories=Graphics;

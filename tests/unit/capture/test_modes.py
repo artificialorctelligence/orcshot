@@ -5,11 +5,11 @@ separate from the actual grab + launch-EditorWindow glue
 needing GTK.
 """
 
-from greenshot_linux.capture.fake import FakeCaptureBackend, FakeWindowEnumerator
-from greenshot_linux.capture.modes import active_window_region, full_screen_region
-from greenshot_linux.capture.backend import Monitor
-from greenshot_linux.capture.window import WindowInfo
-from greenshot_linux.core.geometry import Rect
+from orcshot.capture.fake import FakeCaptureBackend, FakeWindowEnumerator
+from orcshot.capture.modes import active_window_region, full_screen_region
+from orcshot.capture.backend import Monitor
+from orcshot.capture.window import WindowInfo
+from orcshot.core.geometry import Rect
 
 
 def window(bounds, title="Some Window", minimized=False):

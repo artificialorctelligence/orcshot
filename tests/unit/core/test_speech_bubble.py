@@ -31,8 +31,8 @@ deliberately a *different*, wider concept than the source's own Bounds
 (just the bubble rectangle, used for the interior hit-test fast path).
 """
 
-from greenshot_linux.core.geometry import Rect
-from greenshot_linux.core.shapes import ShapeStyle, SpeechBubbleShape
+from orcshot.core.geometry import Rect
+from orcshot.core.shapes import ShapeStyle, SpeechBubbleShape
 
 
 class TestDefaults:

@@ -3,7 +3,7 @@ core/print_layout.py's module docstring for the Windows-source
 citation this is ported from.
 """
 
-from greenshot_linux.core.print_layout import compute_print_layout, should_rotate_for_orientation
+from orcshot.core.print_layout import compute_print_layout, should_rotate_for_orientation
 
 
 class TestShouldRotateForOrientation:

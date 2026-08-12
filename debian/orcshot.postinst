@@ -1,0 +1,16 @@
+#!/bin/sh
+set -e
+
+case "$1" in
+    configure)
+        echo ""
+        echo "Orcshot is installed. Open it from your Applications menu"
+        echo "(or run: orcshot) to finish setup - it will offer to enable"
+        echo "autostart and capture keyboard shortcuts."
+        echo ""
+        ;;
+esac
+
+#DEBHELPER#
+
+exit 0

@@ -25,7 +25,7 @@ connection needed, so these tests run headless like the rest of core.
 import cairo
 import numpy as np
 
-from greenshot_linux.ui.cairo_convert import cairo_surface_to_numpy, numpy_to_cairo_surface
+from orcshot.ui.cairo_convert import cairo_surface_to_numpy, numpy_to_cairo_surface
 
 
 def solid_image(width, height, r, g, b, a=255):

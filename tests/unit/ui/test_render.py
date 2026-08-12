@@ -24,11 +24,11 @@ import cairo
 import numpy as np
 import pytest
 
-from greenshot_linux.core.filters import (
+from orcshot.core.filters import (
     box_blur, brightness_filter, grayscale_filter, highlight_filter, magnify_filter, pixelize, scramble, solid_fill,
 )
-from greenshot_linux.core.geometry import Rect
-from greenshot_linux.core.shapes import (
+from orcshot.core.geometry import Rect
+from orcshot.core.shapes import (
     ArrowShape,
     EllipseShape,
     FreehandShape,
@@ -41,9 +41,9 @@ from greenshot_linux.core.shapes import (
     ShapeStyle,
     TRANSPARENT,
 )
-from greenshot_linux.core.drawing import Layer
-from greenshot_linux.ui.cairo_convert import cairo_surface_to_numpy
-from greenshot_linux.ui.render import render_layer, render_shape
+from orcshot.core.drawing import Layer
+from orcshot.ui.cairo_convert import cairo_surface_to_numpy
+from orcshot.ui.render import render_layer, render_shape
 
 
 class ZeroRng:

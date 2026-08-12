@@ -12,8 +12,8 @@ import threading
 import numpy as np
 import pytest
 
-from greenshot_linux.settings import ExternalCommand, set_external_commands
-from greenshot_linux.ui.external_commands import _validate, build_command_argv, run_external_command
+from orcshot.settings import ExternalCommand, set_external_commands
+from orcshot.ui.external_commands import _validate, build_command_argv, run_external_command
 
 
 def solid_image(width=4, height=3, color=(10, 20, 30, 255)):
@@ -121,7 +121,7 @@ class TestValidate:
     @pytest.fixture(autouse=True)
     def _empty_commands(self, tmp_path, monkeypatch):
         config_path = tmp_path / "config.json"
-        monkeypatch.setattr("greenshot_linux.settings.config_file_path", lambda: config_path)
+        monkeypatch.setattr("orcshot.settings.config_file_path", lambda: config_path)
         set_external_commands([])
 
     def test_empty_name_is_invalid(self):

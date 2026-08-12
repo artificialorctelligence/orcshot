@@ -23,9 +23,9 @@ data before any rendering exists.
 
 import numpy as np
 
-from greenshot_linux.core.drawing import hit_test
-from greenshot_linux.core.geometry import Rect
-from greenshot_linux.core.shapes import CursorShape, IconShape, ImageShape, SvgShape
+from orcshot.core.drawing import hit_test
+from orcshot.core.geometry import Rect
+from orcshot.core.shapes import CursorShape, IconShape, ImageShape, SvgShape
 
 
 def rgba_image(w=16, h=16):

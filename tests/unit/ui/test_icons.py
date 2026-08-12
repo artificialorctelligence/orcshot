@@ -22,9 +22,9 @@ Headless-testable like the rest of ui/ - Cairo needs no X11 connection.
 
 import numpy as np
 
-from greenshot_linux.core.tools import Tool
-from greenshot_linux.ui.cairo_convert import cairo_surface_to_numpy
-from greenshot_linux.ui.icons import (
+from orcshot.core.tools import Tool
+from orcshot.ui.cairo_convert import cairo_surface_to_numpy
+from orcshot.ui.icons import (
     ICON_SIZE, _crop_icon, _effects_icon, _highlight_icon, _obfuscate_icon, _resize_icon, _rotate_icon,
     tool_icon_surface,
 )

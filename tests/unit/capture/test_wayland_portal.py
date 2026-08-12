@@ -6,7 +6,7 @@ section), since it can block on a real permission dialog.
 
 import pytest
 
-from greenshot_linux.capture.wayland_portal import (
+from orcshot.capture.wayland_portal import (
     PortalRequestCancelled,
     PortalRequestFailed,
     _next_handle_token,

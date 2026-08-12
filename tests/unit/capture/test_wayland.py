@@ -7,8 +7,8 @@ unit-testable logic vs. live-verified glue.
 import numpy as np
 import pytest
 
-from greenshot_linux.capture.wayland import WaylandCaptureUnavailable, _crop_to_rect
-from greenshot_linux.core.geometry import Rect
+from orcshot.capture.wayland import WaylandCaptureUnavailable, _crop_to_rect
+from orcshot.core.geometry import Rect
 
 
 def _coordinate_image(bounds: Rect) -> np.ndarray:

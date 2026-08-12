@@ -10,9 +10,9 @@ import os
 import numpy as np
 import pytest
 
-from greenshot_linux.capture.backend import CaptureBackend, ScreenLayout
-from greenshot_linux.capture.fake import FakeCaptureBackend
-from greenshot_linux.core.geometry import Rect
+from orcshot.capture.backend import CaptureBackend, ScreenLayout
+from orcshot.capture.fake import FakeCaptureBackend
+from orcshot.core.geometry import Rect
 
 pytestmark = pytest.mark.parametrize(
     "backend_name", ["fake", pytest.param("x11", marks=pytest.mark.x11)]
@@ -24,7 +24,7 @@ def backend(backend_name):
     if backend_name == "x11":
         if not os.environ.get("DISPLAY"):
             pytest.skip("no X11 display available")
-        from greenshot_linux.capture.x11 import X11CaptureBackend
+        from orcshot.capture.x11 import X11CaptureBackend
 
         return X11CaptureBackend()
     return FakeCaptureBackend()

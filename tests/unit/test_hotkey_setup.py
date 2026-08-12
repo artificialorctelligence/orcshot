@@ -13,7 +13,7 @@ of this - see hotkey_setup.py's module docstring for the full findings
 something real here).
 """
 
-from greenshot_linux.hotkey_setup import (
+from orcshot.hotkey_setup import (
     CUSTOM_KEYBINDING_PATH_TEMPLATE,
     CUSTOM_KEYBINDING_SCHEMA,
     CUSTOM_LIST_SCHEMA,
@@ -79,13 +79,13 @@ class TestConfigureHotkey:
     def test_adds_a_binding_when_none_exists(self):
         backend = FakeSettingsBackend()
 
-        added = configure_hotkey(backend, "Greenshot Linux - Region Capture", "Print", "greenshot-linux --capture-region")
+        added = configure_hotkey(backend, "Orcshot - Region Capture", "Print", "orcshot --capture-region")
 
         assert added is True
         assert backend.get_strv(CUSTOM_LIST_SCHEMA, "/", "custom-list") == ["custom0"]
         path = CUSTOM_KEYBINDING_PATH_TEMPLATE.format(slot="custom0")
-        assert backend.get_string(CUSTOM_KEYBINDING_SCHEMA, path, "name") == "Greenshot Linux - Region Capture"
-        assert backend.get_string(CUSTOM_KEYBINDING_SCHEMA, path, "command") == "greenshot-linux --capture-region"
+        assert backend.get_string(CUSTOM_KEYBINDING_SCHEMA, path, "name") == "Orcshot - Region Capture"
+        assert backend.get_string(CUSTOM_KEYBINDING_SCHEMA, path, "command") == "orcshot --capture-region"
         assert backend.get_strv(CUSTOM_KEYBINDING_SCHEMA, path, "binding") == ["Print"]
 
     def test_does_not_disturb_existing_custom_keybindings(self):
@@ -97,7 +97,7 @@ class TestConfigureHotkey:
             (CUSTOM_KEYBINDING_SCHEMA, existing_path, "binding"): ["<Shift>Print"],
         })
 
-        configure_hotkey(backend, "Greenshot Linux - Region Capture", "Print", "greenshot-linux --capture-region")
+        configure_hotkey(backend, "Orcshot - Region Capture", "Print", "orcshot --capture-region")
 
         assert backend.get_string(CUSTOM_KEYBINDING_SCHEMA, existing_path, "name") == "Full Screenshot"
         assert backend.get_string(CUSTOM_KEYBINDING_SCHEMA, existing_path, "command") == "shutter -f"
@@ -105,9 +105,9 @@ class TestConfigureHotkey:
 
     def test_is_idempotent_when_already_configured(self):
         backend = FakeSettingsBackend()
-        configure_hotkey(backend, "Greenshot Linux - Region Capture", "Print", "greenshot-linux --capture-region")
+        configure_hotkey(backend, "Orcshot - Region Capture", "Print", "orcshot --capture-region")
 
-        added_again = configure_hotkey(backend, "Greenshot Linux - Region Capture", "Print", "greenshot-linux --capture-region")
+        added_again = configure_hotkey(backend, "Orcshot - Region Capture", "Print", "orcshot --capture-region")
 
         assert added_again is False
         assert backend.get_strv(CUSTOM_LIST_SCHEMA, "/", "custom-list") == ["custom0"]
@@ -119,7 +119,7 @@ class TestConfigureHotkey:
             (CUSTOM_KEYBINDING_SCHEMA, existing_path, "name"): "Something Else",
         })
 
-        added = configure_hotkey(backend, "Greenshot Linux - Region Capture", "Print", "greenshot-linux --capture-region")
+        added = configure_hotkey(backend, "Orcshot - Region Capture", "Print", "orcshot --capture-region")
 
         assert added is True
         assert set(backend.get_strv(CUSTOM_LIST_SCHEMA, "/", "custom-list")) == {"custom0", "custom1"}
@@ -179,12 +179,12 @@ class TestFindConflicts:
         path = CUSTOM_KEYBINDING_PATH_TEMPLATE.format(slot="custom0")
         backend = FakeSettingsBackend({
             (CUSTOM_LIST_SCHEMA, "/", "custom-list"): ["custom0"],
-            (CUSTOM_KEYBINDING_SCHEMA, path, "name"): "Greenshot Linux - Region Capture",
-            (CUSTOM_KEYBINDING_SCHEMA, path, "command"): "greenshot-linux --capture-region",
+            (CUSTOM_KEYBINDING_SCHEMA, path, "name"): "Orcshot - Region Capture",
+            (CUSTOM_KEYBINDING_SCHEMA, path, "command"): "orcshot --capture-region",
             (CUSTOM_KEYBINDING_SCHEMA, path, "binding"): ["Print"],
         })
 
-        conflicts = find_conflicts(backend, "Print", ignore_names={"Greenshot Linux - Region Capture"})
+        conflicts = find_conflicts(backend, "Print", ignore_names={"Orcshot - Region Capture"})
 
         assert conflicts == []
 
@@ -233,7 +233,7 @@ class TestConfigureAllHotkeys:
     def test_configures_every_default_binding(self):
         backend = FakeSettingsBackend()
 
-        results = configure_all_hotkeys(backend, "greenshot-linux")
+        results = configure_all_hotkeys(backend, "orcshot")
 
         assert set(results.values()) == {True}
         assert len(results) == 4
@@ -242,34 +242,34 @@ class TestConfigureAllHotkeys:
     def test_uses_the_given_executable_and_each_bindings_cli_flag(self):
         backend = FakeSettingsBackend()
 
-        configure_all_hotkeys(backend, "/opt/greenshot-linux/bin/greenshot-linux")
+        configure_all_hotkeys(backend, "/opt/orcshot/bin/orcshot")
 
         commands = set()
         for slot in backend.get_strv(CUSTOM_LIST_SCHEMA, "/", "custom-list"):
             path = CUSTOM_KEYBINDING_PATH_TEMPLATE.format(slot=slot)
             commands.add(backend.get_string(CUSTOM_KEYBINDING_SCHEMA, path, "command"))
         assert commands == {
-            "/opt/greenshot-linux/bin/greenshot-linux --capture-region",
-            "/opt/greenshot-linux/bin/greenshot-linux --capture-active-window",
-            "/opt/greenshot-linux/bin/greenshot-linux --capture-full-screen",
-            "/opt/greenshot-linux/bin/greenshot-linux --capture-last-region",
+            "/opt/orcshot/bin/orcshot --capture-region",
+            "/opt/orcshot/bin/orcshot --capture-active-window",
+            "/opt/orcshot/bin/orcshot --capture-full-screen",
+            "/opt/orcshot/bin/orcshot --capture-last-region",
         }
 
     def test_skips_bindings_whose_binding_is_in_skip(self):
         backend = FakeSettingsBackend()
 
-        results = configure_all_hotkeys(backend, "greenshot-linux", skip={"<Alt>Print"})
+        results = configure_all_hotkeys(backend, "orcshot", skip={"<Alt>Print"})
 
-        assert results["Greenshot Linux - Window Capture"] is False
+        assert results["Orcshot - Window Capture"] is False
         assert backend.get_strv(CUSTOM_LIST_SCHEMA, "/", "custom-list") == ["custom0", "custom1", "custom2"]
 
     def test_only_configures_the_given_bindings_subset(self):
         backend = FakeSettingsBackend()
-        just_one = (HotkeyBinding("Greenshot Linux - Region Capture", "Print", "--capture-region"),)
+        just_one = (HotkeyBinding("Orcshot - Region Capture", "Print", "--capture-region"),)
 
-        results = configure_all_hotkeys(backend, "greenshot-linux", bindings=just_one)
+        results = configure_all_hotkeys(backend, "orcshot", bindings=just_one)
 
-        assert results == {"Greenshot Linux - Region Capture": True}
+        assert results == {"Orcshot - Region Capture": True}
         assert backend.get_strv(CUSTOM_LIST_SCHEMA, "/", "custom-list") == ["custom0"]
 
 
@@ -287,12 +287,12 @@ class TestCheckAllConflicts:
 
         result = check_all_conflicts(backend)
 
-        assert len(result["Greenshot Linux - Window Capture"]) == 1
-        assert result["Greenshot Linux - Region Capture"] == []
+        assert len(result["Orcshot - Window Capture"]) == 1
+        assert result["Orcshot - Region Capture"] == []
 
     def test_does_not_flag_our_own_already_installed_bindings(self):
         backend = FakeSettingsBackend()
-        configure_all_hotkeys(backend, "greenshot-linux")
+        configure_all_hotkeys(backend, "orcshot")
 
         result = check_all_conflicts(backend)
 
@@ -311,7 +311,7 @@ class TestResolveHotkeyChoices:
 
     def test_a_disabled_binding_is_skipped_and_nothing_is_cleared_for_it(self):
         conflicts = {hb.name: [] for hb in DEFAULT_HOTKEYS}
-        enabled = {hb.name for hb in DEFAULT_HOTKEYS if hb.name != "Greenshot Linux - Window Capture"}
+        enabled = {hb.name for hb in DEFAULT_HOTKEYS if hb.name != "Orcshot - Window Capture"}
 
         skip, to_clear = resolve_hotkey_choices(enabled, conflicts)
 
@@ -320,7 +320,7 @@ class TestResolveHotkeyChoices:
 
     def test_enabling_a_conflicted_binding_queues_its_conflicts_for_clearing(self):
         conflict = BindingConflict("<Alt>Print", "Cinnamon's built-in \"window-screenshot\" shortcut", MEDIA_KEYS_SCHEMA, "/", "window-screenshot")
-        conflicts = {hb.name: ([conflict] if hb.name == "Greenshot Linux - Window Capture" else []) for hb in DEFAULT_HOTKEYS}
+        conflicts = {hb.name: ([conflict] if hb.name == "Orcshot - Window Capture" else []) for hb in DEFAULT_HOTKEYS}
         enabled = {hb.name for hb in DEFAULT_HOTKEYS}
 
         skip, to_clear = resolve_hotkey_choices(enabled, conflicts)
@@ -330,8 +330,8 @@ class TestResolveHotkeyChoices:
 
     def test_leaving_a_conflicted_binding_disabled_does_not_clear_its_conflict(self):
         conflict = BindingConflict("<Alt>Print", "Cinnamon's built-in \"window-screenshot\" shortcut", MEDIA_KEYS_SCHEMA, "/", "window-screenshot")
-        conflicts = {hb.name: ([conflict] if hb.name == "Greenshot Linux - Window Capture" else []) for hb in DEFAULT_HOTKEYS}
-        enabled = {hb.name for hb in DEFAULT_HOTKEYS if hb.name != "Greenshot Linux - Window Capture"}
+        conflicts = {hb.name: ([conflict] if hb.name == "Orcshot - Window Capture" else []) for hb in DEFAULT_HOTKEYS}
+        enabled = {hb.name for hb in DEFAULT_HOTKEYS if hb.name != "Orcshot - Window Capture"}
 
         skip, to_clear = resolve_hotkey_choices(enabled, conflicts)
 
@@ -356,7 +356,7 @@ class TestGnomeProfile:
         backend = FakeSettingsBackend()
 
         added = configure_hotkey(
-            backend, "Greenshot Linux - Region Capture", "Print", "greenshot-linux --capture-region",
+            backend, "Orcshot - Region Capture", "Print", "orcshot --capture-region",
             profile=GNOME_PROFILE,
         )
 
@@ -365,8 +365,8 @@ class TestGnomeProfile:
             GNOME_CUSTOM_KEYBINDING_PATH_TEMPLATE.format(slot="custom0")
         ]
         path = GNOME_CUSTOM_KEYBINDING_PATH_TEMPLATE.format(slot="custom0")
-        assert backend.get_string(GNOME_CUSTOM_KEYBINDING_SCHEMA, path, "name") == "Greenshot Linux - Region Capture"
-        assert backend.get_string(GNOME_CUSTOM_KEYBINDING_SCHEMA, path, "command") == "greenshot-linux --capture-region"
+        assert backend.get_string(GNOME_CUSTOM_KEYBINDING_SCHEMA, path, "name") == "Orcshot - Region Capture"
+        assert backend.get_string(GNOME_CUSTOM_KEYBINDING_SCHEMA, path, "command") == "orcshot --capture-region"
         # A plain string, not ["Print"] the way Cinnamon's own array-typed
         # binding field would be - see this class's own docstring.
         assert backend.get_string(GNOME_CUSTOM_KEYBINDING_SCHEMA, path, "binding") == "Print"
@@ -375,11 +375,11 @@ class TestGnomeProfile:
         existing_path = GNOME_CUSTOM_KEYBINDING_PATH_TEMPLATE.format(slot="custom0")
         backend = FakeSettingsBackend({
             (GNOME_CUSTOM_LIST_SCHEMA, "/", "custom-keybindings"): [existing_path],
-            (GNOME_CUSTOM_KEYBINDING_SCHEMA, existing_path, "name"): "greenshottest",
+            (GNOME_CUSTOM_KEYBINDING_SCHEMA, existing_path, "name"): "orcshottest",
         })
 
         configure_hotkey(
-            backend, "Greenshot Linux - Region Capture", "Print", "greenshot-linux --capture-region",
+            backend, "Orcshot - Region Capture", "Print", "orcshot --capture-region",
             profile=GNOME_PROFILE,
         )
 
@@ -390,12 +390,12 @@ class TestGnomeProfile:
     def test_is_idempotent_when_already_configured(self):
         backend = FakeSettingsBackend()
         configure_hotkey(
-            backend, "Greenshot Linux - Region Capture", "Print", "greenshot-linux --capture-region",
+            backend, "Orcshot - Region Capture", "Print", "orcshot --capture-region",
             profile=GNOME_PROFILE,
         )
 
         added_again = configure_hotkey(
-            backend, "Greenshot Linux - Region Capture", "Print", "greenshot-linux --capture-region",
+            backend, "Orcshot - Region Capture", "Print", "orcshot --capture-region",
             profile=GNOME_PROFILE,
         )
 
@@ -422,26 +422,26 @@ class TestGnomeProfile:
         path = GNOME_CUSTOM_KEYBINDING_PATH_TEMPLATE.format(slot="custom0")
         backend = FakeSettingsBackend({
             (GNOME_CUSTOM_LIST_SCHEMA, "/", "custom-keybindings"): [path],
-            (GNOME_CUSTOM_KEYBINDING_SCHEMA, path, "name"): "greenshottest",
+            (GNOME_CUSTOM_KEYBINDING_SCHEMA, path, "name"): "orcshottest",
             (GNOME_CUSTOM_KEYBINDING_SCHEMA, path, "binding"): "<Control>j",
         })
 
         conflicts = find_conflicts(backend, "<Control>j", profile=GNOME_PROFILE)
 
         assert len(conflicts) == 1
-        assert "greenshottest" in conflicts[0].source
+        assert "orcshottest" in conflicts[0].source
         assert conflicts[0].binding_is_array is False
 
     def test_ignore_names_excludes_our_own_previously_configured_binding(self):
         path = GNOME_CUSTOM_KEYBINDING_PATH_TEMPLATE.format(slot="custom0")
         backend = FakeSettingsBackend({
             (GNOME_CUSTOM_LIST_SCHEMA, "/", "custom-keybindings"): [path],
-            (GNOME_CUSTOM_KEYBINDING_SCHEMA, path, "name"): "Greenshot Linux - Region Capture",
+            (GNOME_CUSTOM_KEYBINDING_SCHEMA, path, "name"): "Orcshot - Region Capture",
             (GNOME_CUSTOM_KEYBINDING_SCHEMA, path, "binding"): "Print",
         })
 
         conflicts = find_conflicts(
-            backend, "Print", ignore_names={"Greenshot Linux - Region Capture"}, profile=GNOME_PROFILE,
+            backend, "Print", ignore_names={"Orcshot - Region Capture"}, profile=GNOME_PROFILE,
         )
 
         assert conflicts == []
@@ -460,7 +460,7 @@ class TestGnomeProfile:
         path = GNOME_CUSTOM_KEYBINDING_PATH_TEMPLATE.format(slot="custom0")
         backend = FakeSettingsBackend({
             (GNOME_CUSTOM_LIST_SCHEMA, "/", "custom-keybindings"): [path],
-            (GNOME_CUSTOM_KEYBINDING_SCHEMA, path, "name"): "greenshottest",
+            (GNOME_CUSTOM_KEYBINDING_SCHEMA, path, "name"): "orcshottest",
             (GNOME_CUSTOM_KEYBINDING_SCHEMA, path, "command"): "test",
             (GNOME_CUSTOM_KEYBINDING_SCHEMA, path, "binding"): "<Control>j",
         })
@@ -470,13 +470,13 @@ class TestGnomeProfile:
 
         assert backend.get_string(GNOME_CUSTOM_KEYBINDING_SCHEMA, path, "binding") == ""
         # name/command left alone - only the binding itself is freed
-        assert backend.get_string(GNOME_CUSTOM_KEYBINDING_SCHEMA, path, "name") == "greenshottest"
+        assert backend.get_string(GNOME_CUSTOM_KEYBINDING_SCHEMA, path, "name") == "orcshottest"
         assert backend.get_string(GNOME_CUSTOM_KEYBINDING_SCHEMA, path, "command") == "test"
 
     def test_configure_all_hotkeys_configures_every_default_binding_on_gnome(self):
         backend = FakeSettingsBackend()
 
-        results = configure_all_hotkeys(backend, "greenshot-linux", profile=GNOME_PROFILE)
+        results = configure_all_hotkeys(backend, "orcshot", profile=GNOME_PROFILE)
 
         assert set(results.values()) == {True}
         assert len(backend.get_strv(GNOME_CUSTOM_LIST_SCHEMA, "/", "custom-keybindings")) == 4
@@ -494,7 +494,7 @@ class TestGnomeProfile:
 
         result = check_all_conflicts(backend, profile=GNOME_PROFILE)
 
-        assert len(result["Greenshot Linux - Region Capture"]) == 1
-        assert len(result["Greenshot Linux - Window Capture"]) == 1
-        assert len(result["Greenshot Linux - Repeat Last Region"]) == 1
-        assert result["Greenshot Linux - Full Screen Capture"] == []
+        assert len(result["Orcshot - Region Capture"]) == 1
+        assert len(result["Orcshot - Window Capture"]) == 1
+        assert len(result["Orcshot - Repeat Last Region"]) == 1
+        assert result["Orcshot - Full Screen Capture"] == []

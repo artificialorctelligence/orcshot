@@ -5,7 +5,7 @@ the live-display coverage of X11CursorBackend itself.
 
 import numpy as np
 
-from greenshot_linux.capture.x11_cursor import _clamp_hotspot, cursor_image_to_rgba
+from orcshot.capture.x11_cursor import _clamp_hotspot, cursor_image_to_rgba
 
 
 class TestCursorImageToRgba:

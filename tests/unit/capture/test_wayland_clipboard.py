@@ -35,8 +35,8 @@ def test_set_image_can_be_read_back_from_the_real_clipboard():
     gi.require_version("Gdk", "3.0")
     from gi.repository import Gdk, Gtk
 
-    from greenshot_linux.capture.wayland_clipboard import WaylandClipboardBackend
-    from greenshot_linux.ui.gdk_convert import pixbuf_to_numpy
+    from orcshot.capture.wayland_clipboard import WaylandClipboardBackend
+    from orcshot.ui.gdk_convert import pixbuf_to_numpy
 
     image = np.full((4, 4, 4), (10, 20, 30, 255), dtype=np.uint8)
     WaylandClipboardBackend().set_image(image)

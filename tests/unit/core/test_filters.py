@@ -1,9 +1,9 @@
 import numpy as np
 
-from greenshot_linux.core.filters import (
+from orcshot.core.filters import (
     box_blur, brightness_filter, grayscale_filter, highlight_filter, magnify_filter, pixelize, scramble, solid_fill,
 )
-from greenshot_linux.core.geometry import Rect
+from orcshot.core.geometry import Rect
 
 
 def solid_image(width, height, r, g, b, a=255):
@@ -608,7 +608,7 @@ def test_pixelize_preserves_shape_and_dtype(width, height, pixel_size):
 
 from scipy.ndimage import uniform_filter1d
 
-from greenshot_linux.core.filters import _box_blur_pass
+from orcshot.core.filters import _box_blur_pass
 
 
 @settings(deadline=None)

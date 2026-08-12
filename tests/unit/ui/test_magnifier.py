@@ -7,8 +7,8 @@ tests/unit/core/test_magnifier.py.
 import cairo
 import numpy as np
 
-from greenshot_linux.ui.cairo_convert import cairo_surface_to_numpy
-from greenshot_linux.ui.magnifier import draw_magnifier
+from orcshot.ui.cairo_convert import cairo_surface_to_numpy
+from orcshot.ui.magnifier import draw_magnifier
 
 CANVAS = 200
 

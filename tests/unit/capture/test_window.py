@@ -8,8 +8,8 @@ checks. What's left maps to _NET_WM_WINDOW_TYPE and is tested here,
 independent of any X server.
 """
 
-from greenshot_linux.capture.window import WindowInfo, is_capturable
-from greenshot_linux.core.geometry import Rect
+from orcshot.capture.window import WindowInfo, is_capturable
+from orcshot.core.geometry import Rect
 
 
 def window(
@@ -86,7 +86,7 @@ class TestIsCapturable:
 from hypothesis import given
 from hypothesis import strategies as st
 
-from greenshot_linux.capture.window import _CHROME_WINDOW_TYPES
+from orcshot.capture.window import _CHROME_WINDOW_TYPES
 
 _chrome_type = st.sampled_from(sorted(_CHROME_WINDOW_TYPES))
 _non_chrome_type = st.sampled_from(["normal", "dialog", "unknown"])

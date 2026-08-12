@@ -3,7 +3,7 @@ core/color_palette.py's module docstring for the Windows-source
 citation this is ported from.
 """
 
-from greenshot_linux.core.color_palette import (
+from orcshot.core.color_palette import (
     RECENT_COLORS_MAX,
     SHADES_PER_COLUMN,
     add_recent_color,

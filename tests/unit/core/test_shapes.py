@@ -10,8 +10,8 @@ IsOutlineVisible calls in LineContainer/ArrowContainer.
 
 import pytest
 
-from greenshot_linux.core.geometry import Rect
-from greenshot_linux.core.shapes import (
+from orcshot.core.geometry import Rect
+from orcshot.core.shapes import (
     TRANSPARENT,
     ArrowShape,
     EllipseShape,

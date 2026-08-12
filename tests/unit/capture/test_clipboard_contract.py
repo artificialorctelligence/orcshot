@@ -13,8 +13,8 @@ import os
 import numpy as np
 import pytest
 
-from greenshot_linux.capture.clipboard import ClipboardBackend
-from greenshot_linux.capture.fake import FakeClipboardBackend
+from orcshot.capture.clipboard import ClipboardBackend
+from orcshot.capture.fake import FakeClipboardBackend
 
 pytestmark = pytest.mark.parametrize(
     "backend_name",
@@ -31,13 +31,13 @@ def backend(backend_name):
     if backend_name == "x11":
         if not os.environ.get("DISPLAY"):
             pytest.skip("no X11 display available")
-        from greenshot_linux.capture.x11_clipboard import X11ClipboardBackend
+        from orcshot.capture.x11_clipboard import X11ClipboardBackend
 
         return X11ClipboardBackend()
     if backend_name == "wayland":
         if not os.environ.get("WAYLAND_DISPLAY"):
             pytest.skip("no Wayland display available")
-        from greenshot_linux.capture.wayland_clipboard import WaylandClipboardBackend
+        from orcshot.capture.wayland_clipboard import WaylandClipboardBackend
 
         return WaylandClipboardBackend()
     return FakeClipboardBackend()

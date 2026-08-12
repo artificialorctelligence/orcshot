@@ -7,8 +7,8 @@ right-to-left arrangements and layouts with uncovered gaps.
 
 import pytest
 
-from greenshot_linux.capture.backend import Monitor, ScreenLayout
-from greenshot_linux.core.geometry import Rect
+from orcshot.capture.backend import Monitor, ScreenLayout
+from orcshot.core.geometry import Rect
 
 
 def monitor(name, left, top, width, height, primary=False):

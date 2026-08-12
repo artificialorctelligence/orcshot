@@ -5,7 +5,7 @@ for Windows-source citations.
 
 import numpy as np
 
-from greenshot_linux.core.effects import (
+from orcshot.core.effects import (
     add_border_image,
     clear_image,
     drop_shadow_image,

@@ -9,7 +9,7 @@ against a temp path, never the actual default XDG path.
 from datetime import datetime
 from pathlib import Path
 
-from greenshot_linux.settings import (
+from orcshot.settings import (
     CONFIG_FILENAME,
     EXTERNAL_EDITOR_AUTO,
     ExternalCommand,
@@ -46,12 +46,12 @@ from greenshot_linux.settings import (
 class TestConfigFilePath:
     def test_uses_xdg_config_home_when_given(self, tmp_path):
         path = config_file_path(config_home=tmp_path)
-        assert path == tmp_path / "greenshot-linux" / CONFIG_FILENAME
+        assert path == tmp_path / "orcshot" / CONFIG_FILENAME
 
     def test_defaults_to_the_real_xdg_config_home_when_not_given(self):
         path = config_file_path()
         assert path.name == CONFIG_FILENAME
-        assert path.parent.name == "greenshot-linux"
+        assert path.parent.name == "orcshot"
 
 
 class TestDefaultOutputDirectory:

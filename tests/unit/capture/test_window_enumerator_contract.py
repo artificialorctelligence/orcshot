@@ -9,9 +9,9 @@ import os
 
 import pytest
 
-from greenshot_linux.capture.fake import FakeWindowEnumerator
-from greenshot_linux.capture.window import WindowEnumerator, is_capturable
-from greenshot_linux.core.geometry import Rect
+from orcshot.capture.fake import FakeWindowEnumerator
+from orcshot.capture.window import WindowEnumerator, is_capturable
+from orcshot.core.geometry import Rect
 
 pytestmark = pytest.mark.parametrize(
     "enumerator_name", ["fake", pytest.param("x11", marks=pytest.mark.x11)]
@@ -23,7 +23,7 @@ def enumerator(enumerator_name):
     if enumerator_name == "x11":
         if not os.environ.get("DISPLAY"):
             pytest.skip("no X11 display available")
-        from greenshot_linux.capture.x11_window import X11WindowEnumerator
+        from orcshot.capture.x11_window import X11WindowEnumerator
 
         return X11WindowEnumerator()
     return FakeWindowEnumerator(
@@ -36,7 +36,7 @@ def enumerator(enumerator_name):
 
 
 def _window(window_id, title):
-    from greenshot_linux.capture.window import WindowInfo
+    from orcshot.capture.window import WindowInfo
 
     return WindowInfo(
         window_id=window_id,

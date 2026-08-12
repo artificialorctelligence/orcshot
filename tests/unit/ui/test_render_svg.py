@@ -10,10 +10,10 @@ bounds itself.
 
 import cairo
 
-from greenshot_linux.core.geometry import Rect
-from greenshot_linux.core.shapes import SvgShape
-from greenshot_linux.ui.cairo_convert import cairo_surface_to_numpy
-from greenshot_linux.ui.render import render_shape
+from orcshot.core.geometry import Rect
+from orcshot.core.shapes import SvgShape
+from orcshot.ui.cairo_convert import cairo_surface_to_numpy
+from orcshot.ui.render import render_shape
 
 
 def render_to_numpy(width, height, draw):

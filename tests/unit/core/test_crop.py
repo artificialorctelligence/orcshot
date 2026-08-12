@@ -32,8 +32,8 @@ GDI+ path geometry).
 
 import numpy as np
 
-from greenshot_linux.core.crop import autocrop_rect, crop_out_horizontal_strip, crop_out_vertical_strip, crop_to_rect
-from greenshot_linux.core.geometry import Rect
+from orcshot.core.crop import autocrop_rect, crop_out_horizontal_strip, crop_out_vertical_strip, crop_to_rect
+from orcshot.core.geometry import Rect
 
 
 def column_marked_image(width, height=1):

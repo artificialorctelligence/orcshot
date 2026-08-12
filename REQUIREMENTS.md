@@ -1,7 +1,8 @@
-# Greenshot Linux — Requirements
+# Orcshot — Requirements
 
-A Linux Mint (Cinnamon) port of [Greenshot](https://getgreenshot.org/), rebuilt from scratch as a
-faithful behavioral port — not a literal code port. The original Windows source
+Orcshot is a Linux port of [Greenshot](https://getgreenshot.org/), rebuilt from scratch as a
+faithful behavioral port — not a literal code port, and not affiliated with or endorsed by the
+Greenshot project. The original Windows source
 (a local read-only checkout of [Greenshot](https://github.com/greenshot/greenshot),
 C#/.NET/WinForms) is the reference for feature behavior and defaults, but no code is shared;
 everything here is a new Python implementation.
@@ -50,7 +51,7 @@ be unit tested headless with no X server required.
 - Window picker
 - Last region (repeat)
 
-**Status: Region select is done** (`src/greenshot_linux/ui/region_select.py`,
+**Status: Region select is done** (`src/orcshot/ui/region_select.py`,
 `RegionSelectWindow`/`start_region_capture`) — the actual click-and-drag trigger for a real capture
 flow, launching `EditorWindow` on whatever gets selected. A fullscreen, borderless overlay shows a
 frozen copy of the desktop (grabbed once up front, so the backdrop can't drift from what's actually
@@ -58,8 +59,8 @@ captured mid-drag, and cropped from that same frozen copy rather than re-grabbin
 live selection rectangle with everything outside it dimmed (even-odd fill rule "hole", not clip-
 region combination); releasing crops and opens the editor; Escape cancels.
 
-**Magnifier loupe + selection size label — done** (`src/greenshot_linux/core/magnifier.py` for the
-pure positioning/sizing math, unit tested; `src/greenshot_linux/ui/magnifier.py` for the Cairo
+**Magnifier loupe + selection size label — done** (`src/orcshot/core/magnifier.py` for the
+pure positioning/sizing math, unit tested; `src/orcshot/ui/magnifier.py` for the Cairo
 drawing, headlessly tested like `ui/render.py`). Ported from the Windows source's `CaptureForm.cs`
 (`DrawZoom`/`VerifyZoomAnimation`): a circular, nearest-neighbor-zoomed preview of the 25x25px
 region around the cursor (diameter = `min(screen_w, screen_h) // 5`, rounded down to a multiple of
@@ -104,12 +105,12 @@ Windows. Verified live against a synthetic-content window (`FakeCaptureBackend`,
 capture): `window.get_window().get_cursor().get_cursor_type() == Gdk.CursorType.CROSSHAIR`, raw
 value `34`, confirming the real glyph was actually applied, not just that the call didn't raise.
 
-**Full screen and Active window are also done.** `src/greenshot_linux/capture/modes.py` holds the
+**Full screen and Active window are also done.** `src/orcshot/capture/modes.py` holds the
 pure "which Rect to grab" logic (`full_screen_region`, `active_window_region`), unit tested against
 `FakeCaptureBackend`/`FakeWindowEnumerator` — `active_window_region` clamps the focused window's
 reported bounds to the virtual screen (a window can extend slightly past it, e.g. after being
 dragged partway off-screen) and returns `None` if there's no focused window or it's entirely
-off-screen. `src/greenshot_linux/ui/capture_modes.py` is the thin grab-then-launch-`EditorWindow`
+off-screen. `src/orcshot/ui/capture_modes.py` is the thin grab-then-launch-`EditorWindow`
 glue on top, wired into `app.py`'s `--capture-full-screen`/`--capture-active-window` CLI options and
 tray menu. Verified live: routed both through the real single-instance app (a second process
 correctly reached the running instance's handler, same as `--capture-region`), and ran both for
@@ -117,7 +118,7 @@ real, checking only `image.shape` against the expected dimensions — deliberate
 captured content for inspection, since a full-screen/active-window grab necessarily contains
 whatever's really on screen right now.
 
-**Window picker is also done** (`src/greenshot_linux/ui/window_picker.py`, `WindowPickerWindow`/
+**Window picker is also done** (`src/orcshot/ui/window_picker.py`, `WindowPickerWindow`/
 `start_window_picker`) — same frozen-backdrop overlay technique as Region select, but highlighting
 whichever window is under the cursor (dimming everything else) instead of a free-form drag
 rectangle, and capturing that window on click. Wired into `app.py`'s `--capture-window-picker` CLI
@@ -266,12 +267,12 @@ documented premultiplication limitation, which this inherits rather than separat
 Rectangle, Ellipse, Line, Arrow, Freehand, Text, Speech bubble, Step-number labels, Highlight,
 Icon/stamp, Crop, Cursor overlay, embedded Image, embedded SVG, Blur filter, Pixelize filter.
 
-**Status: all ported at the pure-data-model level** (`src/greenshot_linux/core/shapes.py`,
+**Status: all ported at the pure-data-model level** (`src/orcshot/core/shapes.py`,
 `drawing.py`, `filters.py`, `crop.py`), TDD throughout. See individual module docstrings for
 scoped-out rendering details (GDI+ Bezier smoothing, exact stroked-path geometry, font
 measurement) — each is a rendering-layer concern, not a data-model gap.
 
-**Cairo rendering (`src/greenshot_linux/ui/render.py`): done for every shape type** — Rectangle,
+**Cairo rendering (`src/orcshot/ui/render.py`): done for every shape type** — Rectangle,
 Ellipse, Line, Arrow, Freehand, Text, Speech bubble, Step-number labels, Icon/stamp, Cursor
 overlay, embedded Image, embedded SVG, and Obfuscate (Blur/Pixelize) — including the ported
 `DrawShadow` algorithm (5-step diagonal drop shadow). Headless tests draw to an in-memory
@@ -322,7 +323,7 @@ shapes and sessions, same as before, just now *stable* for one shape's own repea
 consistent with `composite.py`'s own stated WYSIWYG guarantee (exported output pixel-identical to
 the live editor) - a export-time-only re-randomization would have violated that.
 
-**Live editor window (`src/greenshot_linux/ui/editor_window.py`): create + select/move + resize +
+**Live editor window (`src/orcshot/ui/editor_window.py`): create + select/move + resize +
 toolbar + text entry, for Rectangle/Ellipse/Line/Arrow/Freehand/Pixelize/Blur/Text.** `EditorWindow`
 shows a captured image, renders the `Layer` on top every frame, and wires:
 - A `Gtk.Toolbar` of radio buttons for tool selection, plus Undo/Redo/Copy/Save/Print buttons —
@@ -368,7 +369,7 @@ shows a captured image, renders the `Layer` on top every frame, and wires:
 
 The shape-selection/move/resize logic (`create_shape_from_drag`, `create_freehand_shape`,
 `translate_shape`, `shape_handles`, `handle_at`, `resize_shape`) lives in
-`src/greenshot_linux/core/tools.py`, kept pure and unit tested (including a Hypothesis property
+`src/orcshot/core/tools.py`, kept pure and unit tested (including a Hypothesis property
 test that translation composes additively) even though the window itself isn't. Verified against a
 real on-screen window and X11 screenshots at each interaction stage: create each shape type
 (including pixelize/blur on a high-contrast test pattern, and Text/SpeechBubble/StepLabel/
@@ -420,7 +421,7 @@ field:
   a zigzag stroke, dragged its corner handle, confirmed the shape scaled up while staying
   recognizably the same zigzag.
 
-**Toolbar icons — done** (`src/greenshot_linux/ui/icons.py`, requested explicitly to make the
+**Toolbar icons — done** (`src/orcshot/ui/icons.py`, requested explicitly to make the
 toolbar look more like a real paint/Photoshop-style tool palette instead of text buttons, matching
 what Windows Greenshot's own toolbar already looks like — not a requirement to skin the *whole app*
 like Windows, which was explicitly discussed and ruled out in favor of native GTK theming). Two
@@ -528,7 +529,7 @@ below).
   yet** - `core/history.py` has no z-order memento type (only Add/Delete/ElementChange), and
   reordering is rare/easy enough to reverse manually that this is a documented simplification, not
   something worth a new memento type for right now.
-- **Help → About** (new): a `Gtk.AboutDialog` using the real logo (`resources/greenshot-linux.png`,
+- **Help → About** (new): a `Gtk.AboutDialog` using the real logo (`resources/orcshot.png`,
   see the icon-surfaces work above).
 - **Still outstanding from the original ask** (not yet done, needs product decisions before
   building - see the task list): Icon/stamp, Cursor overlay, embedded Image, and embedded SVG as
@@ -729,7 +730,7 @@ Redo | Settings | Help`.
   non-blockingly (`subprocess.Popen`), via `flatpak run <app-id>` when that's how it was found.
   - **Fixed a real bug: the temp PNG went to system `/tmp`, which a Flatpak-sandboxed editor can't
     see even with broad `filesystems=host` permission.** Reported as Krita saying *"The file
-    /tmp/greenshot-linux-....png does not exist"* immediately after clicking the button. Checked
+    /tmp/orcshot-....png does not exist"* immediately after clicking the button. Checked
     Krita's actual granted permissions first rather than guessing (`flatpak info
     --show-permissions org.kde.krita` → `filesystems=host;xdg-run/gvfs;`) - `host` looked like it
     should cover `/tmp`, but doesn't: bubblewrap always gives a Flatpak sandbox its own private,
@@ -737,13 +738,13 @@ Redo | Settings | Help`.
     carve-out). Confirmed empirically both ways rather than assumed: `flatpak run --command=ls
     org.kde.krita /tmp` came back empty (the sandbox's own private `/tmp`, not the host's, which
     has real files) while `flatpak run --command=ls org.kde.krita ~` showed the real host home
-    directory. Fixed by writing the temp PNG to `$XDG_CACHE_HOME/greenshot-linux/` instead (matching
+    directory. Fixed by writing the temp PNG to `$XDG_CACHE_HOME/orcshot/` instead (matching
     `settings.py`'s existing `$XDG_CONFIG_HOME` convention) - confirmed genuinely visible inside the
     sandbox the same way (`flatpak run --command=cat org.kde.krita
-    ~/.cache/greenshot-linux/<file>` read it back correctly). The previous export's file is deleted
+    ~/.cache/orcshot/<file>` read it back correctly). The previous export's file is deleted
     right before a new one is written (unique filenames still, so a second export mid-edit can't
     clobber a file a still-open first editor session already loaded into memory), since
-    `~/.cache/greenshot-linux` isn't OS-managed transient storage the way `/tmp` is and would
+    `~/.cache/orcshot` isn't OS-managed transient storage the way `/tmp` is and would
     otherwise accumulate one PNG per click for the life of the session.
   - **Which editor is preferred is now configurable, not just hardcoded Krita-then-GIMP.** A new
     `settings.py` key (`get_external_editor_preference`/`set_external_editor_preference`, default
@@ -1159,7 +1160,7 @@ anywhere in `ImageEditorForm.cs`, so they're correctly out of scope, not missing
   all with synthetic image data, never real desktop content.
 
 ### Undo/redo
-**Status: done at the pure-data-model level** (`src/greenshot_linux/core/history.py`) — a generic
+**Status: done at the pure-data-model level** (`src/orcshot/core/history.py`) — a generic
 `UndoRedoStack` engine plus mementos over `Layer` (add/delete/change an element, batched as one
 step via `CompositeMemento`). Faithful port of Greenshot's `IMemento`/`Surface.Undo/Redo`, with one
 deliberate architectural simplification: three Windows memento types (bounds-change, field-change,
@@ -1178,23 +1179,23 @@ yet — nothing in the UI performs a multi-shape action as a single undo step.
 
 **Status: all three — copy to clipboard, save to file, and basic print — are done and wired into
 `EditorWindow`.**
-- `src/greenshot_linux/ui/composite.py`: `composite_to_numpy(base_image, layer)` flattens the base
+- `src/orcshot/ui/composite.py`: `composite_to_numpy(base_image, layer)` flattens the base
   image + annotation `Layer` into one final image by reusing the exact same rendering pipeline the
   live editor uses (`numpy_to_cairo_surface` + `render_layer` + `cairo_surface_to_numpy`) — what
   gets exported is pixel-identical to what was on screen, not a second, potentially-diverging path.
-- `src/greenshot_linux/ui/gdk_convert.py`: numpy <-> `GdkPixbuf` conversion (headless-testable;
+- `src/orcshot/ui/gdk_convert.py`: numpy <-> `GdkPixbuf` conversion (headless-testable;
   unlike Cairo's ARGB32, GdkPixbuf's RGB colorspace needs no byte-order swap).
-- `src/greenshot_linux/capture/clipboard.py` + `x11_clipboard.py`: ports-and-adapters again, same
+- `src/orcshot/capture/clipboard.py` + `x11_clipboard.py`: ports-and-adapters again, same
   shape as `CaptureBackend` — a `ClipboardBackend` Protocol, a `FakeClipboardBackend`, and a real
   `X11ClipboardBackend` (`Gtk.Clipboard.set_image`, which advertises the standard GDK/GTK image
   targets — the X11 equivalent of the Windows source's `ClipboardFormat.PNG/DIB/BITMAP/DIBV5`;
   DIB/BITMAP/DIBV5 are Windows GDI-specific formats with no X11 analogue, so they aren't
   reproduced). Verified with a **real** in-process X11 clipboard round-trip test (`@pytest.mark.x11`,
   skipped when `DISPLAY` is unset) — not just a fake.
-- `src/greenshot_linux/ui/file_export.py`: `save_image_to_file(image, path)`, format inferred from
+- `src/orcshot/ui/file_export.py`: `save_image_to_file(image, path)`, format inferred from
   the extension via `GdkPixbuf`'s own save types, defaulting to PNG.
 - `EditorWindow` wiring: toolbar Copy/Save/Print buttons plus Ctrl+C/Ctrl+S/Ctrl+P. Save uses a real
-  `Gtk.FileChooserDialog`; Print uses `src/greenshot_linux/ui/printing.py`'s `print_image()` (a real
+  `Gtk.FileChooserDialog`; Print uses `src/orcshot/ui/printing.py`'s `print_image()` (a real
   `Gtk.PrintOperation` — scales the image to fit the page, centered — no page setup/multi-page/DPI
   options, "basic print" per the requirement), extracted out of `EditorWindow` so the destination
   picker (see Global activation below) can print a raw, not-yet-annotated capture too, not just
@@ -1205,7 +1206,7 @@ yet — nothing in the UI performs a multi-shape action as a single undo step.
   `Gtk.PrintOperationAction.EXPORT` (the same `draw-page` code path real printing uses, without
   needing a physical printer) to a PDF, rendered that PDF back to an image with `pdftoppm`, and
   visually confirmed the composited content landed centered and correctly scaled on the page.
-- **Destination picker** (`src/greenshot_linux/ui/destination_picker.py`, new): every capture now
+- **Destination picker** (`src/orcshot/ui/destination_picker.py`, new): every capture now
   shows a `Gtk.Menu` context menu at the pointer instead of unconditionally opening the editor.
   Reading the actual Windows source (`Greenshot.Base/Core/ICoreConfiguration.cs`,
   `Greenshot/Destinations/PickerDestination.cs`) before building this found that Windows' own
@@ -1231,8 +1232,8 @@ yet — nothing in the UI performs a multi-shape action as a single undo step.
   becomes visible/mapped). Fixed by anchoring to the screen's root window instead (always
   resolvable) via `popup_at_rect` at the raw pointer coordinates from `Gdk.Seat.get_pointer()`,
   confirmed live to actually show now.
-- **Configurable save location** (`src/greenshot_linux/settings.py`, new): a plain JSON file at
-  `~/.config/greenshot-linux/config.json` (XDG Base Directory spec, same testing approach as
+- **Configurable save location** (`src/orcshot/settings.py`, new): a plain JSON file at
+  `~/.config/orcshot/config.json` (XDG Base Directory spec, same testing approach as
   `autostart.py`'s `.desktop` entry — real file I/O, exercised for real in tests against a temp
   path) holding the output directory the destination picker's silent Save writes to (default
   `~/Pictures/Screenshots`, falling back to `~/Screenshots` if there's no Pictures folder) and the
@@ -1349,7 +1350,7 @@ Windows "run at startup" behavior.
 
 **Status: done, including the first-run confirmation flow — all four hotkeys, autostart, and
 collision detection are wired up and trigger for real the first time the app is actually run.**
-- `src/greenshot_linux/app.py` (`GreenshotApplication`): a `Gtk.Application` with a fixed
+- `src/orcshot/app.py` (`GreenshotApplication`): a `Gtk.Application` with a fixed
   `application_id`, using GIO's built-in single-instance-via-D-Bus behavior — re-running the entry
   point (as a hotkey binding would) gets routed to the already-running instance's
   `do_command_line`/`start_capture()` rather than spawning a duplicate process, verified empirically
@@ -1362,7 +1363,7 @@ collision detection are wired up and trigger for real the first time the app is 
   with `--capture-region`, and confirmed (via a subclass overriding `start_capture` to log instead
   of opening a real overlay, to avoid needless live desktop interaction) that it landed in the first
   process, not a new one.
-- `src/greenshot_linux/resources.py` + `resources/greenshot-linux.png` (new): the app's real logo
+- `src/orcshot/resources.py` + `resources/orcshot.png` (new): the app's real logo
   asset (a dotted-ring "G" mark, user-supplied), bundled and used for every icon surface -
   `Gtk.Window.set_default_icon_from_file` in `do_startup` for the window/taskbar icon (previously
   unset, i.e. a generic default), `Gtk.StatusIcon.set_from_file` for the tray icon (previously
@@ -1390,13 +1391,13 @@ collision detection are wired up and trigger for real the first time the app is 
   you'd want anyway. Verified live end-to-end (open an editor, confirm a capture call is blocked and
   the existing editor is presented; close it, confirm capture calls go through again; confirmed the
   `Gtk-CRITICAL` warning is gone on close too).
-- `src/greenshot_linux/autostart.py`: `install_autostart_entry(exec_command, autostart_dir=None)`
+- `src/orcshot/autostart.py`: `install_autostart_entry(exec_command, autostart_dir=None)`
   writes a `.desktop` autostart entry (XDG Desktop Entry/Autostart specs), creating
   `$XDG_CONFIG_HOME/autostart/` (default `~/.config/autostart/`) if needed. Unlike
   `hotkey_setup.py`'s gsettings/dconf writes (global session state with no safe way to test without
   touching the live system), a `.desktop` entry is just a plain file, so the actual write is
   exercised for real in tests — against a temp directory, never the real default path.
-- `src/greenshot_linux/hotkey_setup.py`: generalized from a single hardcoded PrintScreen binding to
+- `src/orcshot/hotkey_setup.py`: generalized from a single hardcoded PrintScreen binding to
   all four (`DEFAULT_HOTKEYS`, a tuple of `HotkeyBinding(name, binding, cli_flag)` matching the
   table above). `configure_hotkey(backend, name, binding, command)` idempotently adds a Cinnamon
   custom keybinding (`org.cinnamon.desktop.keybindings.custom-keybinding`, the relocatable schema
@@ -1424,7 +1425,7 @@ collision detection are wired up and trigger for real the first time the app is 
   but the only thing in this codebase that ever calls it for real is `ui/first_run_setup.py`, and
   only because a human clicked a real confirmation button in their own running app — never as a
   side effect of building or testing the feature.
-- `src/greenshot_linux/ui/first_run_setup.py` (new): the actual first-run confirmation dialog.
+- `src/orcshot/ui/first_run_setup.py` (new): the actual first-run confirmation dialog.
   `maybe_run_first_run_setup()` checks `settings.is_first_run_setup_done()` (so it only ever asks
   once — whatever the user chooses, the flag is set either way, matching "one-time") and, if not yet
   run, shows a `Gtk.Dialog` offering to enable autostart and each of the four hotkeys. Each
@@ -1439,7 +1440,7 @@ collision detection are wired up and trigger for real the first time the app is 
   sandboxed (temp `XDG_CONFIG_HOME` + a fake settings backend seeded with the two real conflicts
   above, auto-clicking through both the default-safe path and the opt-in-overwrite path via
   `dialog.response()`), then re-confirmed against this machine's *real* gsettings and
-  `~/.config/greenshot-linux/` that nothing real was touched by any of that verification.
+  `~/.config/orcshot/` that nothing real was touched by any of that verification.
 
 **Fixed a real crash on non-Cinnamon desktops: hotkey auto-configuration now checks schema
 availability first, instead of hard-aborting the whole app.** Found by actually installing the
@@ -1488,7 +1489,7 @@ on the Mint dev machine, tracked separately rather than guessed at.
 ### Wayland (task #49)
 
 First actual test against a Wayland session (Ubuntu 26.04 desktop in a VirtualBox VM, confirmed via
-`$XDG_SESSION_TYPE=wayland`), installing the real `.deb` and running `greenshot-linux
+`$XDG_SESSION_TYPE=wayland`), installing the real `.deb` and running `orcshot
 --capture-region` for real. Scoped precisely what does and doesn't work, rather than assuming
 "Wayland = broken":
 
@@ -1847,7 +1848,7 @@ faithful-to-Windows-Greenshot look), reimplement this project's *own* overlay UI
 extension code - Clutter/St actors drawn on Shell's own stage, the same category Gradia's approach
 belongs to, just built from scratch rather than piggybacking on Shell's existing screenshot UI.
 Deliberately scoped to GNOME specifically (not a generic Wayland solution) - consistent with this
-project's already-GNOME-specific window-calls and greenshot-linux-clipboard extensions. Accepted
+project's already-GNOME-specific window-calls and orcshot-clipboard extensions. Accepted
 tradeoff, explicit: Mint/Cinnamon's own eventual Wayland session will need this revisited separately
 once Cinnamon ships one (a different shell/extension system entirely, no path to reusing this code -
 same scope boundary already documented for window-calls in the Window-picker section below). Accepted
@@ -1903,7 +1904,7 @@ would risk the exact same hang class chased all through task #68's original debu
 - Cross-monitor behavior (already an open, unverified gap from task #68 - see that section) stays
   unverified either way until real multi-monitor hardware is available; this rewrite doesn't change
   that gap's status.
-- License: GPL-3.0-or-later, wholly original code, same as `greenshot-linux-clipboard` - not derived
+- License: GPL-3.0-or-later, wholly original code, same as `orcshot-clipboard` - not derived
   from Gradia's or GNOME Shell's own source, just built using the same public Clutter/St/Main APIs any
   extension has access to (see that extension's own docstring for the fuller reasoning on this point).
 
@@ -1920,7 +1921,7 @@ would risk the exact same hang class chased all through task #68's original debu
 #### Region-select implementation (2026-08-08): working end-to-end, task #76's reflow fully eliminated
 
 Built and live-verified on the VM (GNOME Shell 50.1/Mutter 18). `StartRegionSelect()`, a new async
-D-Bus method on the same bundled `greenshot-linux-clipboard` extension (kept as one extension rather
+D-Bus method on the same bundled `orcshot-clipboard` extension (kept as one extension rather
 than adding a third, per the plan above), builds a full-stage `St.Widget` (`RegionSelectOverlay`)
 added to `Main.uiGroup`, bound to `global.stage`'s geometry via `Clutter.BindConstraint`, using
 `GrabHelper` for input/Escape and `Clutter.PanGesture` for the drag gesture (mirroring GNOME Shell's
@@ -2225,7 +2226,7 @@ glue with no meaningful headless test, same precedent as the rest of `extension.
 
 Important scoping note first: task #71's original entry (this file's Wayland-eyedropper section, "Known
 follow-up, not a blocker") is about `ui/eyedropper_wayland.py`'s `_WaylandEyedropperOverlay` - the
-Python/GTK **portal-fallback** path, only used when the bundled `greenshot-linux-clipboard` extension
+Python/GTK **portal-fallback** path, only used when the bundled `orcshot-clipboard` extension
 isn't available. All of this session's work was instead on `extension.js`'s **Shell-native**
 `EyedropperOverlay` (task #77's rewrite) - the path actually active whenever the extension is available,
 which is the default/common case. The portal-fallback's own flicker was never touched here and remains
@@ -2442,7 +2443,7 @@ added (`region_select.py`'s own docstring: GTK glue with no meaningful headless 
 FakeCaptureBackend + a direct offscreen Cairo surface instead, same precedent as the rest of this file).
 
 Separately, not part of #79's own fix: the Shell-extension Wayland path (`extension.js`'s
-`RegionSelectOverlay`, the one actually used once the bundled greenshot-linux-clipboard extension is
+`RegionSelectOverlay`, the one actually used once the bundled orcshot-clipboard extension is
 available - see task #77) still has no magnifier loupe at all yet. That's a distinct, already-known
 "not yet ported" gap from task #77 (see that section above), not a sizing bug - tracked as its own task,
 #82, rather than reopening #79.
@@ -2570,15 +2571,15 @@ packaged.
 - **Two real prerequisites found and fixed before packaging could even start**, both confirmed by
   research and both real bugs, not just packaging nice-to-haves:
   - No `[project.scripts]` entry point existed — the app only ever ran via `python3 -m
-    greenshot_linux.app`. Added `greenshot-linux = "greenshot_linux.app:main"` to
-    `pyproject.toml`, giving a real `/usr/bin/greenshot-linux` once installed.
+    orcshot.app`. Added `orcshot = "orcshot.app:main"` to
+    `pyproject.toml`, giving a real `/usr/bin/orcshot` once installed.
   - `first_run_setup.py`'s `_default_executable()` hardcoded the `python3 -m` invocation into every
     hotkey binding and the autostart entry it writes — meaning a `.deb` install would have kept
     wiring hotkeys to a dev-only command that wouldn't exist on a machine without this project's
-    venv on `PATH`. Fixed to prefer the installed `greenshot-linux` binary (`shutil.which`,
+    venv on `PATH`. Fixed to prefer the installed `orcshot` binary (`shutil.which`,
     injectable for tests) and fall back to the dev-mode form only when not installed - confirmed
-    live post-install that it now correctly resolves to `/usr/bin/greenshot-linux`.
-  - Also added an explicit `GLib.set_prgname("greenshot-linux")` in `app.py`'s `main()` — without
+    live post-install that it now correctly resolves to `/usr/bin/orcshot`.
+  - Also added an explicit `GLib.set_prgname("orcshot")` in `app.py`'s `main()` — without
     it, `WM_CLASS` is inferred from `argv[0]`'s basename, which can vary by invocation method
     (bare command, absolute path, a symlink); setting it explicitly keeps it matching the packaged
     `.desktop` launcher's `StartupWMClass` unconditionally, a known gotcha for interpreted-language
@@ -2589,12 +2590,12 @@ packaged.
   with this project's own TDD emphasis, catching real build-environment problems rather than hiding
   them), `rules` (`dh $@ --buildsystem=pybuild`), `changelog`, `copyright` (DEP-5, GPL-3.0-or-later),
   `source/format` (`3.0 (native)` — this project *is* the upstream, no separate orig tarball),
-  `greenshot-linux.desktop` (the menu launcher — `Icon=greenshot-linux` as a theme name, not the
+  `orcshot.desktop` (the menu launcher — `Icon=orcshot` as a theme name, not the
   absolute path the app's own runtime tray/window icon code uses, since those are two different
   lookup mechanisms; `StartupNotify=false` since no window is shown on a plain launch;
-  `StartupWMClass=greenshot-linux`; a single `Categories=Graphics;` — an earlier `Graphics;Utility;`
+  `StartupWMClass=orcshot`; a single `Categories=Graphics;` — an earlier `Graphics;Utility;`
   tripped a real `desktop-file-validate` hint about apps with two main categories potentially
-  appearing twice in the menu, fixed after being caught), and `greenshot-linux.install` (installs
+  appearing twice in the menu, fixed after being caught), and `orcshot.install` (installs
   the launcher + a copy of the bundled icon into `/usr/share/icons/hicolor/128x128/apps/` for
   icon-theme lookup — the bundled PNG is actually 155x126, not a standard icon size, so this is the
   closest bucket, not a pixel-perfect fit; a `lintian` `icon-size-and-directory-name-mismatch`
@@ -2606,13 +2607,13 @@ packaged.
   those for real.
 - **Full local build/lint/install verified live**: `dpkg-buildpackage -us -uc -b` (all 656 tests ran
   for real during the build via `dh_auto_test`/pybuild, not just the dev venv's own suite) produced
-  `greenshot-linux_0.1.0-1_all.deb`; `lintian` on it found zero errors, three harmless warnings (the
+  `orcshot_0.1.0-1_all.deb`; `lintian` on it found zero errors, three harmless warnings (the
   icon-size mismatch above, `initial-upload-closes-no-bugs` - only relevant for real Debian-archive
   uploads, and `no-manual-page` - a nice-to-have not yet written); `dpkg -c`/`dpkg -I` confirmed
   every expected file landed in the right place with the right `Depends:` line; a real
   `sudo apt install <path-to-deb>` (run by the user, not automated - installing packages is a real
   system change) succeeded, the desktop-file/icon-theme/menu-cache triggers all fired correctly, and
-  the installed `/usr/bin/greenshot-linux` binary launched cleanly. The real first-run-setup flag
+  the installed `/usr/bin/orcshot` binary launched cleanly. The real first-run-setup flag
   was checked (read-only) *before* any launch to confirm it was already `true` from earlier genuine
   user interaction, specifically to avoid ever triggering an unsupervised real first-run dialog -
   consistent with the standing rule that only a human may click through that dialog for real.
@@ -2659,7 +2660,7 @@ than a targeted audit:
 A manual review of this whole session's diff (the packaged `/security-review` skill couldn't run in
 this repo - its preamble hardcodes a comparison against an `origin/HEAD` remote-tracking ref, and
 this repo has no remote configured at all) found one real, low-severity issue, since fixed:
-**`_external_editor_cache_dir` (`ui/editor_window.py`) created `~/.cache/greenshot-linux/` with
+**`_external_editor_cache_dir` (`ui/editor_window.py`) created `~/.cache/orcshot/` with
 umask-controlled permissions instead of an explicit restrictive mode.** The exported screenshot
 *files* were always correctly protected (`tempfile.mkstemp` forces `0600` on each one regardless of
 umask), but the directory itself would inherit whatever the umask allowed (typically `0755` -
@@ -3500,7 +3501,7 @@ confirm the real management UI is exactly a list dialog (Add/Edit/Delete) plus a
   a dedicated test asserting a path containing shell metacharacters (`` $(rm -rf ~); echo pwned.png ``)
   stays a single, inert argv item.
 - `run_external_command` - exports the screenshot to a temp file (`ui/file_export.py`'s
-  `greenshot_linux_cache_dir`, a shared home extracted from what was previously
+  `orcshot_cache_dir`, a shared home extracted from what was previously
   `EditorWindow._external_editor_cache_dir`'s own private logic - same Flatpak-`/tmp`-isolation
   reasoning applies to any external process, not just the "Open in External Editor" button), builds the
   argv, then runs it - on a background thread when `run_in_background` (so the app doesn't freeze), or
@@ -3534,7 +3535,7 @@ confirm the real management UI is exactly a list dialog (Add/Edit/Delete) plus a
   Wayland region-select fallback), `show_destination_picker`'s `Gtk.Menu` is built fresh from
   `_all_destinations()` every time, so configured commands appear immediately. Under GNOME Shell-native
   Wayland capture, the picker is rendered by the bundled Shell extension's own JavaScript
-  (`resources/gnome-shell-extensions/greenshot-linux-clipboard@greenshotlinux.org/extension.js:206-211`,
+  (`resources/gnome-shell-extensions/orcshot-clipboard@orcshot.org/extension.js:206-211`,
   a hardcoded `DESTINATIONS` array), which has no access to this port's Python-side JSON settings and
   so can't dynamically list configured commands - `dispatch_destination` *would* run one correctly if
   asked, but the Shell-native menu never offers it as a choice in the first place. A real gap, not
@@ -3606,10 +3607,109 @@ that's actually been done.
   minimize a real window via the Cinnamon UI itself (not a script) and confirm
   `X11WindowEnumerator.active_window()`/`list_windows()` reports `is_minimized=True` for it.
 
+## Branding: Orcshot rebrand (task #105, complete 2026-08-11)
+
+Task #105 (rebrand away from the "Greenshot" name/logo - GPLv3 covers the code, not the trademark)
+picked a name - **Orcshot** - and a new logo, then renamed the codebase to match: the Python package
+(`src/greenshot_linux` → `src/orcshot`, every internal import), the distributed package/executable
+name (`greenshot-linux` → `orcshot` in `pyproject.toml`, Debian `control`/`.desktop`/`.install`/
+`.postinst`), the config/cache directories (`~/.config/greenshot-linux` → `~/.config/orcshot`,
+`~/.cache/greenshot-linux` → `~/.cache/orcshot` - a fresh-start, not a migrated one; no attempt was
+made to carry old settings forward), the bundled GNOME Shell extension (directory, D-Bus interface/
+object-path names, UUID domain `@greenshotlinux.org` → `@orcshot.org`), the `Gio.Application` ID
+(`org.greenshotlinux.GreenshotLinux` → `org.orcshot.Orcshot`), the internal `GreenshotApplication`
+class → `OrcshotApplication`, and every user-visible string (window titles, About dialog, tray
+tooltip, first-run setup, autostart `.desktop` entry, the four hotkey binding display names, README/
+`REQUIREMENTS.md` titles). "Linux Mint" branding was dropped throughout too (per explicit request -
+the project already targets Ubuntu/GNOME broadly, not just Mint/Cinnamon; see tasks #37/#38/#50/#102),
+and every rewritten description now explicitly states this port is "not affiliated with or endorsed
+by the Greenshot project" - a deliberate disambiguation, not just a name swap.
+
+**Explicitly not done, by deliberate choice, not oversight:**
+- **git history** - discussed directly with the user, who agreed after hearing the tradeoff: rewriting
+  70+ published commits on a shared GitHub remote is destructive (force-push breaks every existing
+  clone/fork) and doesn't reduce the actual legal exposure, which comes from current live branding, not
+  historical commit messages accurately describing "this started as a port of Greenshot" (nominative
+  fair use). Left alone.
+- **GitHub org/repo rename** (`github.com/greenshotlinux/greenshotlinux`) - a real external-service
+  action distinct from local file edits, not bundled into this pass. Tracked separately.
+- Citations of the real upstream Windows Greenshot project (`Greenshot.Editor/Drawing/CropContainer.cs`
+  -style file paths, "matching Windows Greenshot's own tray default," etc.) were deliberately left
+  alone throughout - those are accurate references to the software being ported, not this port's own
+  branding, and renaming them would have broken the faithful-port citation trail this whole file
+  depends on.
+
+Verified live: full test suite (905 passed) after the rename; the app launched fresh via the new
+`orcshot` command (not the old `greenshot-linux` one, which was removed from the venv) with no import
+errors; `EditorWindow`'s real title read back as "Orcshot image editor" and `resources.LOGO_PATH`
+resolved to the new `orcshot.png`, both checked programmatically, not just eyeballed.
+
+The logo itself:
+
+**The idea**: reuse the real Greenshot logo's own dot-matrix rendering *technique* (a grid of green
+circles on a flat grey square) but light a different picture into it - an orc face - rather than the
+"G". Style/technique isn't the protectable part of a trademark; the specific mark is, so redrawing an
+unrelated image with the same rendering technique is a meaningfully different, safer position than
+reusing the G shape itself.
+
+**Reverse-engineering the real grid** - the logo isn't freehand-placed dots; it's a genuine rotated
+square lattice. Confirmed by blob-detecting all green circles in the real
+`orcshot.png` (155×126px) and clustering the pairwise nearest-neighbor vectors between their
+centers: two perpendicular basis vectors, each ~17.2px long, at ~20.9° off horizontal (the user's own
+eyeball guess of "maybe 30°, rotated right" was correct in kind, off by about 9° in practice) -
+confirmed by reconstructing the real G from this model and confirming it visually matches the source
+file. Every dot in both the reconstruction and the final logo is a 7px-radius circle (matching the
+real logo's own dot size measured the same way), placed at
+`anchor + col * 17.2075 * (cos21°, sin21°) + row * 17.2075 * (-sin21°, cos21°)`.
+
+**The final design** - direflail hand-specified the exact result as a 9-column × 7-row ASCII grid
+(`B`=blank, `G`=green, `R`=red, `W`=white):
+
+```
+BBBGGGBBB
+GBGGGGGBG
+BGGRGRGGB
+BGGGGGGGB
+BGWGGGWGB
+BGGWGWGGB
+BBGGGGGBB
+```
+
+Green = the same rendering as the original G. Red = two eyes. White = four tusk dots (an orc's lower
+jaw/tusks), positioned in the two rows below the eyes. The grid is anchored flush against the canvas's
+top-left corner (`anchor = (36.77, 0)`) per direflail's explicit instruction ("top and left should
+align with the greenshot logo") - since the grid's own rotated bounding box (~165×145px) is larger
+than the 155×126 canvas, the overflow is pushed entirely to the right/bottom edges, where several real
+dots are genuinely clipped by the canvas boundary - the same thing the original G's own dots already
+do (confirmed during the earlier grid-reconstruction work: a few real G dots are partially cut off at
+the image edge too), not a new technique introduced for Orcshot.
+
+**A finding worth keeping**: the two dots at row 2 (grid columns 0 and 8 - the "ears," each 4 columns
+out from the row-1 cluster's center) were flagged by direflail as visually not lining up with the rest
+of the pattern. Verified with a debug render overlaying row/column lattice lines through every dot
+center - both ear dots sit exactly on the same lattice as everything else, confirmed by direflail's
+own independent measurement too. The mismatch is perceptual, not geometric: a *rotated* square lattice doesn't preserve left-right
+visual symmetry for shapes that are symmetric in row/column-index terms (moving N columns in the
+`+col` direction and N columns in the `-col` direction cover different net pixel distances once
+combined with the same row offset, since the basis vectors aren't axis-aligned), and an isolated dot
+with no adjacent neighbor to visually connect it to the main cluster reads as "floating" even when
+it's mathematically exactly on-grid. Decided to leave both ear dots exactly where the grid places
+them.
+
+**Process artifacts** (grid measurement, reconstruction validation, and every rejected design - a
+full orc *face* attempt across six iterations, none of which read as recognizable at this dot
+density/grid resolution, before landing on the O-then-blob-then-final-grid approach) live in
+session scratch files, not the repo - not reproduced here since they were superseded, but the lesson
+that mattered is: **a sparse ring or face outline doesn't carry enough visual information at this
+dot count/spacing to read as representational art** - a dense, filled cluster with 2-3 colors does.
+
 ## Licensing
 
-**Status: decided — GPLv3.** Greenshot (Windows) is GPLv3; this is a derivative work — same name,
-same feature set, same design lineage — even though no source code is shared. Confirmed with the
+**Status: decided — GPLv3.** Greenshot (Windows) is GPLv3; this is a derivative work — same feature
+set, same design lineage — even though no source code is shared. (No longer "same name" as of the
+Orcshot rebrand, task #105 - GPLv3 covers the code being a derivative work regardless; the name/logo
+were always a separate trademark/copyright concern, addressed by the rebrand itself, not by this
+license choice.) Confirmed with the
 user (not just this file's own recommendation) when a real `LICENSE` file became a genuine blocker
 for `debian/copyright` during packaging. `LICENSE` at the repo root is the verbatim text from
 `gnu.org`, fetched via `curl` rather than a web-fetch tool that summarizes content through a model —

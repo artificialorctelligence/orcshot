@@ -1,6 +1,6 @@
 """Pure coverage for gnome_region_select.py's PNG-decoding logic - the
 D-Bus call itself needs a real GNOME/Wayland session with the
-greenshot-linux-clipboard extension enabled and its GJS-side
+orcshot-clipboard extension enabled and its GJS-side
 StartRegionSelect capability, only verified live (see REQUIREMENTS.md's
 "Planned: Shell-side rewrite of the Wayland overlays" section, task
 #77). Doesn't need a real display: GdkPixbuf's own encode/decode round
@@ -14,8 +14,8 @@ to test.
 
 import numpy as np
 
-from greenshot_linux.capture.gnome_clipboard import _encode_png
-from greenshot_linux.capture.gnome_region_select import decode_png as _decode_png
+from orcshot.capture.gnome_clipboard import _encode_png
+from orcshot.capture.gnome_region_select import decode_png as _decode_png
 
 
 class TestDecodePng:

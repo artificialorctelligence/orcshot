@@ -5,7 +5,7 @@ contract (the real adapter has no equivalent introspection).
 
 import numpy as np
 
-from greenshot_linux.capture.fake import FakeClipboardBackend
+from orcshot.capture.fake import FakeClipboardBackend
 
 
 def test_last_image_is_none_before_any_copy():

@@ -4,8 +4,8 @@ drawing are only verified live, same split as region_select.py and
 window_picker.py.
 """
 
-from greenshot_linux.core.geometry import Rect
-from greenshot_linux.ui.region_select_wayland import _rect_in_monitor_local
+from orcshot.core.geometry import Rect
+from orcshot.ui.region_select_wayland import _rect_in_monitor_local
 
 
 class TestRectInMonitorLocal:

@@ -29,8 +29,8 @@ be bit-exact.
 
 import numpy as np
 
-from greenshot_linux.core.filters import box_blur, brightness_filter, grayscale_filter, highlight_filter
-from greenshot_linux.core.geometry import Rect
+from orcshot.core.filters import box_blur, brightness_filter, grayscale_filter, highlight_filter
+from orcshot.core.geometry import Rect
 
 
 def solid_image(width, height, r, g, b, a=255):

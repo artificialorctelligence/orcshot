@@ -7,11 +7,11 @@ what was on screen - not a second, potentially-diverging render path.
 
 import numpy as np
 
-from greenshot_linux.core.drawing import Layer
-from greenshot_linux.core.filters import box_blur
-from greenshot_linux.core.geometry import Rect
-from greenshot_linux.core.shapes import ObfuscateMode, ObfuscateShape, RectangleShape, ShapeStyle
-from greenshot_linux.ui.composite import composite_to_numpy
+from orcshot.core.drawing import Layer
+from orcshot.core.filters import box_blur
+from orcshot.core.geometry import Rect
+from orcshot.core.shapes import ObfuscateMode, ObfuscateShape, RectangleShape, ShapeStyle
+from orcshot.ui.composite import composite_to_numpy
 
 
 def solid_base_image(width=40, height=40, color=(60, 60, 60, 255)):

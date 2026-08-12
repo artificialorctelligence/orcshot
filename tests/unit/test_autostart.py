@@ -10,7 +10,7 @@ autostart for real is a standing, persistent login-behavior change the
 user (or a future session, explicitly asked to) should trigger.
 """
 
-from greenshot_linux.autostart import (
+from orcshot.autostart import (
     DESKTOP_ENTRY_FILENAME,
     autostart_desktop_entry,
     autostart_file_path,
@@ -20,17 +20,17 @@ from greenshot_linux.autostart import (
 
 class TestAutostartDesktopEntry:
     def test_includes_the_exec_command(self):
-        content = autostart_desktop_entry("/usr/bin/greenshot-linux --tray")
-        assert "Exec=/usr/bin/greenshot-linux --tray" in content
+        content = autostart_desktop_entry("/usr/bin/orcshot --tray")
+        assert "Exec=/usr/bin/orcshot --tray" in content
 
     def test_is_a_valid_desktop_entry_header(self):
-        content = autostart_desktop_entry("greenshot-linux")
+        content = autostart_desktop_entry("orcshot")
         assert content.startswith("[Desktop Entry]\n")
 
     def test_has_the_fields_a_desktop_environment_expects(self):
-        content = autostart_desktop_entry("greenshot-linux")
+        content = autostart_desktop_entry("orcshot")
         assert "Type=Application" in content
-        assert "Name=Greenshot Linux" in content
+        assert "Name=Orcshot" in content
         assert "X-GNOME-Autostart-enabled=true" in content
 
 
@@ -50,15 +50,15 @@ class TestAutostartFilePath:
 
 class TestInstallAutostartEntry:
     def test_writes_the_file_and_returns_its_path(self, tmp_path):
-        result = install_autostart_entry("greenshot-linux --tray", autostart_dir=tmp_path / "autostart")
+        result = install_autostart_entry("orcshot --tray", autostart_dir=tmp_path / "autostart")
 
         assert result == tmp_path / "autostart" / DESKTOP_ENTRY_FILENAME
         assert result.exists()
-        assert "Exec=greenshot-linux --tray" in result.read_text()
+        assert "Exec=orcshot --tray" in result.read_text()
 
     def test_creates_the_autostart_directory_if_missing(self, tmp_path):
         target_dir = tmp_path / "does" / "not" / "exist" / "autostart"
-        result = install_autostart_entry("greenshot-linux", autostart_dir=target_dir)
+        result = install_autostart_entry("orcshot", autostart_dir=target_dir)
         assert result.exists()
 
     def test_overwrites_an_existing_entry(self, tmp_path):

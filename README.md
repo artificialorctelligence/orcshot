@@ -1,8 +1,8 @@
-# Greenshot Linux
+# Orcshot
 
-A Linux Mint (Cinnamon) port of [Greenshot](https://getgreenshot.org/), built as a faithful
-Python + GTK3 behavioral port. See [REQUIREMENTS.md](REQUIREMENTS.md) for full scope, platform
-priorities, and architecture decisions.
+A Linux port of [Greenshot](https://getgreenshot.org/), built as a faithful Python + GTK3
+behavioral port - not affiliated with or endorsed by the Greenshot project. See
+[REQUIREMENTS.md](REQUIREMENTS.md) for full scope, platform priorities, and architecture decisions.
 
 ## Development setup
 

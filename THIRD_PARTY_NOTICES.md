@@ -2,12 +2,12 @@
 
 ## window-calls GNOME Shell extension
 
-- **Location in this repo:** `src/greenshot_linux/resources/gnome-shell-extensions/window-calls@domandoman.xyz/`
+- **Location in this repo:** `src/orcshot/resources/gnome-shell-extensions/window-calls@domandoman.xyz/`
 - **Upstream:** https://github.com/ickyicky/window-calls
 - **License:** GPL-2.0-or-later (SPDX header in `extension.js`; compatible with this
   project's own GPLv3 license via the "or later" clause)
 - **Why it's here:** provides the window enumeration and window-activation D-Bus
-  calls that `greenshot-linux`'s "Capture Window" mode needs under Wayland, where no
+  calls that `orcshot`'s "Capture Window" mode needs under Wayland, where no
   portable equivalent exists otherwise (see `REQUIREMENTS.md`'s Wayland window-picker
   section for the full rationale).
 - **Modifications from upstream:** three bug fixes and one small addition, documented

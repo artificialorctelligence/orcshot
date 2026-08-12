@@ -1,7 +1,7 @@
-Source: greenshot-linux
+Source: orcshot
 Section: graphics
 Priority: optional
-Maintainer: Greenshot Linux <314918217+greenshotlinux@users.noreply.github.com>
+Maintainer: Orcshot <314918217+greenshotlinux@users.noreply.github.com>
 Build-Depends: debhelper-compat (= 13),
                dh-python,
                pybuild-plugin-pyproject,
@@ -24,7 +24,7 @@ Build-Depends: debhelper-compat (= 13),
 Standards-Version: 4.6.2
 Rules-Requires-Root: no
 
-Package: greenshot-linux
+Package: orcshot
 Architecture: all
 Depends: ${python3:Depends},
          ${misc:Depends},
@@ -41,10 +41,10 @@ Depends: ${python3:Depends},
          gir1.2-glib-2.0,
          gir1.2-ayatanaappindicator3-0.1
 Description: Screenshot capture and annotation tool
- A Linux Mint (Cinnamon) port of Windows Greenshot: region, window,
- and full-screen capture; an annotation editor (shapes, text, whole-
- image effects); configurable global capture hotkeys; and autostart-
- on-login integration.
+ A Linux port of Windows Greenshot (not affiliated with or endorsed by the
+ Greenshot project): region, window, and full-screen capture; an annotation
+ editor (shapes, text, whole-image effects); configurable global capture
+ hotkeys; and autostart-on-login integration.
  .
  Automatic hotkey configuration (offered once, on first run) is
  Cinnamon-specific, using org.cinnamon.desktop.keybindings. The

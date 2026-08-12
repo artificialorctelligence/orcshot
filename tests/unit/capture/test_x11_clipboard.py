@@ -26,8 +26,8 @@ def test_set_image_can_be_read_back_from_the_real_clipboard():
     gi.require_version("Gdk", "3.0")
     from gi.repository import Gdk, Gtk
 
-    from greenshot_linux.capture.x11_clipboard import X11ClipboardBackend
-    from greenshot_linux.ui.gdk_convert import pixbuf_to_numpy
+    from orcshot.capture.x11_clipboard import X11ClipboardBackend
+    from orcshot.ui.gdk_convert import pixbuf_to_numpy
 
     image = np.full((4, 4, 4), (10, 20, 30, 255), dtype=np.uint8)
     X11ClipboardBackend().set_image(image)

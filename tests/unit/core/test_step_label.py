@@ -24,8 +24,8 @@ every other shape here being a plain, referentially-transparent value
 object with no knowledge of its container.
 """
 
-from greenshot_linux.core.geometry import Rect
-from greenshot_linux.core.shapes import ShapeStyle, StepLabelShape, TRANSPARENT, renumber_step_labels
+from orcshot.core.geometry import Rect
+from orcshot.core.shapes import ShapeStyle, StepLabelShape, TRANSPARENT, renumber_step_labels
 
 
 class TestDefaults:

@@ -1,11 +1,11 @@
 Format: https://www.debian.org/doc/packaging-manuals/copyright-format/1.0/
-Upstream-Name: greenshot-linux
-Comment: A Linux Mint (Cinnamon) port of Windows Greenshot - same name,
- feature set, and design lineage, though no source code is shared with
- the original.
+Upstream-Name: orcshot
+Comment: A Linux port of Windows Greenshot - same feature set and design
+ lineage, though no source code is shared with the original and it is
+ not affiliated with or endorsed by the Greenshot project.
 
 Files: *
-Copyright: 2026 Greenshot Linux
+Copyright: 2026 Orcshot
 License: GPL-3.0-or-later
 
 License: GPL-3.0-or-later

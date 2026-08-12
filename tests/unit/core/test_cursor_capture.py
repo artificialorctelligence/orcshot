@@ -5,9 +5,9 @@ citation this formula is ported from.
 
 import numpy as np
 
-from greenshot_linux.core.cursor_capture import cursor_bounds_in_capture, cursor_shape_for_capture
-from greenshot_linux.core.geometry import Rect
-from greenshot_linux.core.shapes import CursorShape
+from orcshot.core.cursor_capture import cursor_bounds_in_capture, cursor_shape_for_capture
+from orcshot.core.geometry import Rect
+from orcshot.core.shapes import CursorShape
 
 
 def _cursor_image(w=8, h=8):

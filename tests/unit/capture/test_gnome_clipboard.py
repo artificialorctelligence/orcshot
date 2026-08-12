@@ -1,6 +1,6 @@
 """Pure coverage for gnome_clipboard.py's PNG-encoding logic - the
 D-Bus call itself needs a real GNOME/Wayland session with the
-greenshot-linux-clipboard extension enabled, only verified live (see
+orcshot-clipboard extension enabled, only verified live (see
 REQUIREMENTS.md's "Clipboard under Wayland" section). Doesn't need a
 real display: GdkPixbuf's own encode/decode round trip works headless,
 same as test_gdk_convert.py's file-based round-trip test.
@@ -15,7 +15,7 @@ from gi.repository import GdkPixbuf, Gio, GLib
 
 import numpy as np
 
-from greenshot_linux.capture.gnome_clipboard import _encode_png
+from orcshot.capture.gnome_clipboard import _encode_png
 
 
 class TestEncodePng:

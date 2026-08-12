@@ -19,7 +19,7 @@ from gi.repository import GdkPixbuf
 
 import numpy as np
 
-from greenshot_linux.ui.gdk_convert import numpy_to_pixbuf, pixbuf_to_numpy
+from orcshot.ui.gdk_convert import numpy_to_pixbuf, pixbuf_to_numpy
 
 
 def solid_image(width, height, r, g, b, a=255):

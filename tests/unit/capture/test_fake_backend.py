@@ -8,9 +8,9 @@ between two grabs.
 import numpy as np
 import pytest
 
-from greenshot_linux.capture.backend import Monitor
-from greenshot_linux.capture.fake import FakeCaptureBackend
-from greenshot_linux.core.geometry import Rect
+from orcshot.capture.backend import Monitor
+from orcshot.capture.fake import FakeCaptureBackend
+from orcshot.core.geometry import Rect
 
 
 def test_defaults_to_a_single_monitor():

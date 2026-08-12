@@ -4,9 +4,9 @@ window-calls extension enabled, only verified live (see
 REQUIREMENTS.md's Wayland window-picker section).
 """
 
-from greenshot_linux.capture.gnome_window_calls import parse_window_info
-from greenshot_linux.capture.window import WindowInfo
-from greenshot_linux.core.geometry import Rect
+from orcshot.capture.gnome_window_calls import parse_window_info
+from orcshot.capture.window import WindowInfo
+from orcshot.core.geometry import Rect
 
 
 def _raw(**overrides):

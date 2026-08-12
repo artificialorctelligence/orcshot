@@ -12,9 +12,9 @@ existing bounds-inflate-5 fallback already matches this exactly, so
 there's nothing shape-specific to write.
 """
 
-from greenshot_linux.core.drawing import hit_test
-from greenshot_linux.core.geometry import Rect
-from greenshot_linux.core.shapes import RectangleShape, ShapeStyle, TextShape
+from orcshot.core.drawing import hit_test
+from orcshot.core.geometry import Rect
+from orcshot.core.shapes import RectangleShape, ShapeStyle, TextShape
 
 
 class TestDefaults:

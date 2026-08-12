@@ -11,8 +11,8 @@ from hypothesis import strategies as st
 
 import numpy as np
 
-from greenshot_linux.core.geometry import Rect
-from greenshot_linux.core.shapes import (
+from orcshot.core.geometry import Rect
+from orcshot.core.shapes import (
     ArrowShape,
     CursorShape,
     EllipseShape,
@@ -31,7 +31,7 @@ from greenshot_linux.core.shapes import (
     SvgShape,
     TextShape,
 )
-from greenshot_linux.core.tools import (
+from orcshot.core.tools import (
     STYLE_FIELD_CROP_MODE,
     STYLE_FIELD_FILL_COLOR,
     STYLE_FIELD_HIGHLIGHT_BLUR_RADIUS,

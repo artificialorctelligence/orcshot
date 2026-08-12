@@ -5,7 +5,7 @@ touching the real desktop is reserved for a user-confirmed dialog
 click, never a test.
 """
 
-from greenshot_linux.gnome_extension_setup import (
+from orcshot.gnome_extension_setup import (
     CLIPBOARD_EXTENSION_UUID,
     WINDOW_CALLS_EXTENSION_UUID,
     enable_extension,

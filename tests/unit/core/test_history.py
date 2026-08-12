@@ -29,9 +29,9 @@ that's no longer in the layer at all. TestElementChangeMementoMerging
 exercises this directly.
 """
 
-from greenshot_linux.core.drawing import Layer
-from greenshot_linux.core.geometry import Rect
-from greenshot_linux.core.history import (
+from orcshot.core.drawing import Layer
+from orcshot.core.geometry import Rect
+from orcshot.core.history import (
     AddElementMemento,
     BackgroundChangeMemento,
     CompositeMemento,

@@ -17,8 +17,8 @@ around the actual stroke. This model only needs one concept of bounds,
 and the tight box is the useful one for z-order aggregation.
 """
 
-from greenshot_linux.core.geometry import Rect
-from greenshot_linux.core.shapes import FreehandShape, ShapeStyle
+from orcshot.core.geometry import Rect
+from orcshot.core.shapes import FreehandShape, ShapeStyle
 
 
 class TestBounds:

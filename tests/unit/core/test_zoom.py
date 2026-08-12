@@ -5,7 +5,7 @@ is ported from.
 
 from fractions import Fraction
 
-from greenshot_linux.core.zoom import ZOOM_LEVELS, best_fit_zoom, optimal_window_size, zoom_in, zoom_out, zoom_percent_label
+from orcshot.core.zoom import ZOOM_LEVELS, best_fit_zoom, optimal_window_size, zoom_in, zoom_out, zoom_percent_label
 
 
 class TestZoomIn:
