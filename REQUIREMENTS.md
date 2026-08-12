@@ -3338,9 +3338,20 @@ the current Python/Linux library landscape:
   bridge being available - a real but separate feature, not attempted this round.
 
 None of the six are small - each is its own multi-day feature, and three (Box/Dropbox/Imgur) need
-developer-account credentials registered before there's anything to test against. Still out of scope by
-default per this port's existing "Explicitly cut" list, but the effort is now grounded rather than
-assumed, in case one is worth picking up individually later.
+developer-account credentials registered before there's anything to test against.
+
+**Decided against, not just deferred** (2026-08-10): traced how the real Windows binary actually gets
+working Box/Dropbox/Imgur credentials - `Directory.Build.targets`' `ProcessTemplates` target token-
+replaces each `*.Credentials.template` file at build time, and `.github/workflows/release.yml` supplies
+those tokens from GitHub Actions secrets (`secrets.Box13_ClientId` etc.) - meaning the *project*
+registered one production OAuth app per service and bakes those shared credentials into every copy of
+the official binary it distributes; every installed copy of Greenshot authenticates as the same app.
+Explicitly rejected as a direction for this port: distributing a single shared OAuth Client
+Secret inside an open-source binary that anyone can decompile/extract is a real credential-exposure
+concern, not a hypothetical one - was going to require *this port's* maintainer to register and then be
+responsible for apps with three external services just to ship it. Task (formerly #112) deleted rather
+than left open; the six-plugin effort research above stays as a record of what was actually looked into
+and why it isn't happening, in case the question comes up again.
 
 **Expert tab** (`groupbox_expert`, gated behind `checkbox_enableexpert` - see below) - covered item by
 item:
