@@ -213,7 +213,7 @@ from greenshot_linux.ui.color_dialog import show_color_picker
 from greenshot_linux.ui.composite import composite_to_numpy
 from greenshot_linux.ui.effects import resize_image, torn_edge_image
 from greenshot_linux.ui.gdk_convert import pixbuf_to_numpy
-from greenshot_linux.ui.file_export import save_image_to_file
+from greenshot_linux.ui.file_export import greenshot_linux_cache_dir, save_image_to_file
 from greenshot_linux.ui.icons import (
     crop_icon_image, effects_icon_image, highlight_icon_image, obfuscate_icon_image, resize_icon_image,
     rotate_ccw_icon_image, rotate_cw_icon_image, tool_icon_image,
@@ -2519,6 +2519,25 @@ class EditorWindow(Gtk.Window):
         editor_row.pack_start(editor_combo, False, False, 0)
         content.pack_start(editor_row, False, False, 0)
 
+        # Task #110 - faithful-in-spirit port of the ExternalCommand
+        # plugin's own Plugins-tab "Configure" button
+        # (ExternalCommandPlugin.cs:225-229), which opened its list
+        # dialog directly - this port has no separate Plugins tab for
+        # that button to live in, so it's a row here instead. See
+        # ui/external_commands.py for the actual feature.
+        external_commands_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        external_commands_row.pack_start(Gtk.Label(label="External Commands:"), False, False, 0)
+        manage_commands_button = Gtk.Button(label="Manage...")
+
+        def on_manage_external_commands(_button) -> None:
+            from greenshot_linux.ui.external_commands import show_manage_external_commands_dialog
+
+            show_manage_external_commands_dialog(dialog)
+
+        manage_commands_button.connect("clicked", on_manage_external_commands)
+        external_commands_row.pack_start(manage_commands_button, False, False, 0)
+        content.pack_start(external_commands_row, False, False, 0)
+
         content.pack_start(self._build_expert_settings_frame(), False, False, 0)
 
         dialog.show_all()
@@ -2689,22 +2708,12 @@ class EditorWindow(Gtk.Window):
         genuinely is shared (`flatpak run org.kde.krita ls ~` shows
         the real host home) - so $XDG_CACHE_HOME (under home) is used
         instead, matching this project's existing XDG-dir convention
-        (settings.config_file_path).
+        (settings.config_file_path). Delegates to
+        ui/file_export.py's greenshot_linux_cache_dir, the shared
+        implementation - ui/external_commands.py's own temp exports
+        use the same directory for the same reason.
         """
-        cache_home = Path(os.environ.get("XDG_CACHE_HOME", Path.home() / ".cache"))
-        directory = cache_home / "greenshot-linux"
-        # mode=0o700 rather than relying on umask: the exported PNGs
-        # here can contain sensitive screen content, and while
-        # tempfile.mkstemp already forces 0600 on each individual file
-        # regardless of umask, the *directory* itself would otherwise
-        # inherit whatever the umask allows (typically 0755 -
-        # world-listable) - restricting it too means even filenames/
-        # mtimes in here aren't enumerable by another local user on a
-        # system with looser-than-default home permissions. Only takes
-        # effect on first creation - doesn't retroactively fix a
-        # pre-existing directory from before this restriction existed.
-        directory.mkdir(mode=0o700, parents=True, exist_ok=True)
-        return directory
+        return greenshot_linux_cache_dir()
 
     def _do_open_in_external_editor(self) -> None:
         self._commit_text_editing_if_active()

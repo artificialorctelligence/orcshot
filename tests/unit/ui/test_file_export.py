@@ -13,7 +13,7 @@ from gi.repository import GdkPixbuf
 
 import numpy as np
 
-from greenshot_linux.ui.file_export import save_image_to_file
+from greenshot_linux.ui.file_export import greenshot_linux_cache_dir, save_image_to_file
 from greenshot_linux.ui.gdk_convert import pixbuf_to_numpy
 
 
@@ -65,3 +65,20 @@ def test_accepts_a_string_path_as_well_as_a_path_object(tmp_path):
 
     loaded = pixbuf_to_numpy(GdkPixbuf.Pixbuf.new_from_file(path))
     assert np.array_equal(loaded, image)
+
+
+def test_cache_dir_is_under_xdg_cache_home(tmp_path, monkeypatch):
+    monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path))
+
+    directory = greenshot_linux_cache_dir()
+
+    assert directory == tmp_path / "greenshot-linux"
+    assert directory.is_dir()
+
+
+def test_cache_dir_is_created_with_restricted_permissions(tmp_path, monkeypatch):
+    monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path))
+
+    directory = greenshot_linux_cache_dir()
+
+    assert (directory.stat().st_mode & 0o777) == 0o700

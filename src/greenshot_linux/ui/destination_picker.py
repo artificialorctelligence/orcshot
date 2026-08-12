@@ -74,11 +74,13 @@ from greenshot_linux.core.drawing import Layer
 from greenshot_linux.core.shapes import CursorShape
 from greenshot_linux.settings import (
     consume_filename_counter,
+    get_external_commands,
     get_filename_counter,
     get_output_directory,
     quick_save_filename,
 )
 from greenshot_linux.ui.composite import composite_to_numpy
+from greenshot_linux.ui.external_commands import run_external_command
 from greenshot_linux.ui.file_export import save_image_to_file
 from greenshot_linux.ui.printing import print_image
 
@@ -145,11 +147,33 @@ _DESTINATION_TABLE = [
 ]
 
 
+def _external_command_entry(command):
+    def handler(img, cs, _clipboard_backend, command=command):
+        run_external_command(command, _flattened(img, cs))
+
+    return (f"external:{command.name}", command.name, handler)
+
+
+def _all_destinations() -> list:
+    """_DESTINATION_TABLE plus one entry per configured external
+    command (task #110, ui/external_commands.py) - computed fresh on
+    every call (not cached at import time) so a command added/removed/
+    renamed via Preferences shows up immediately without an app
+    restart, the same way Windows' own Destinations() re-enumerates
+    ExternalCommandConfig.Commands each time the picker is built
+    (ExternalCommandPlugin.cs:69-75). Appended after the five built-in
+    destinations rather than interleaved by Windows' own priority
+    ordering - these are user-added, so they read naturally as "extra
+    stuff you configured" tacked onto the end.
+    """
+    return _DESTINATION_TABLE + [_external_command_entry(command) for command in get_external_commands()]
+
+
 def dispatch_destination(
     destination_id: str, image: np.ndarray, cursor_shape: CursorShape = None, clipboard_backend: ClipboardBackend = None,
 ) -> None:
     """Runs whichever destination action ``destination_id`` names (one
-    of _DESTINATION_TABLE's ids) - the Shell-native picker's own
+    of _all_destinations()'s ids) - the Shell-native picker's own
     counterpart to a menu item's "activate" handler, for callers that
     already know which destination was chosen (see
     ui/region_select_gnome_shell.py) rather than needing to show a
@@ -160,7 +184,7 @@ def dispatch_destination(
 
         clipboard_backend = default_clipboard_backend()
 
-    for item_id, _label, handler in _DESTINATION_TABLE:
+    for item_id, _label, handler in _all_destinations():
         if item_id == destination_id:
             handler(image, cursor_shape, clipboard_backend)
             return
@@ -205,7 +229,7 @@ def show_destination_picker(
         clipboard_backend = default_clipboard_backend()
 
     menu = Gtk.Menu()
-    for item_id, label, _handler in _DESTINATION_TABLE:
+    for item_id, label, _handler in _all_destinations():
         item = Gtk.MenuItem(label=label)
 
         def on_activate(_item, item_id=item_id) -> None:

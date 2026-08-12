@@ -12,12 +12,14 @@ from pathlib import Path
 from greenshot_linux.settings import (
     CONFIG_FILENAME,
     EXTERNAL_EDITOR_AUTO,
+    ExternalCommand,
     PrintOptions,
     config_file_path,
     consume_filename_counter,
     default_output_directory,
     get_capture_mouse_cursor,
     get_check_unstable_updates,
+    get_external_commands,
     get_external_editor_preference,
     get_filename_counter,
     get_footer_pattern,
@@ -30,6 +32,7 @@ from greenshot_linux.settings import (
     quick_save_filename,
     set_capture_mouse_cursor,
     set_check_unstable_updates,
+    set_external_commands,
     set_external_editor_preference,
     set_filename_counter,
     set_footer_pattern,
@@ -295,6 +298,40 @@ class TestFooterPattern:
         set_footer_pattern("%Y-%m-%d", path=path)
 
         assert get_footer_pattern(path=path) == "%Y-%m-%d"
+
+
+class TestExternalCommands:
+    def test_defaults_to_empty(self, tmp_path):
+        path = tmp_path / "config.json"
+        assert get_external_commands(path=path) == []
+
+    def test_set_then_get_round_trips(self, tmp_path):
+        path = tmp_path / "config.json"
+        commands = [
+            ExternalCommand(name="Optimize", commandline="/usr/bin/optipng", argument="{0}", run_in_background=False),
+            ExternalCommand(name="Notify", commandline="/usr/bin/notify-send", argument="Screenshot {0}"),
+        ]
+
+        set_external_commands(commands, path=path)
+
+        assert get_external_commands(path=path) == commands
+
+    def test_defaults_match_the_dataclass_defaults(self, tmp_path):
+        path = tmp_path / "config.json"
+        set_external_commands([ExternalCommand(name="Minimal", commandline="/bin/true")], path=path)
+
+        [loaded] = get_external_commands(path=path)
+
+        assert loaded.argument == "{0}"
+        assert loaded.run_in_background is True
+
+    def test_set_preserves_other_settings_already_present(self, tmp_path):
+        path = tmp_path / "config.json"
+        set_capture_mouse_cursor(False, path=path)
+
+        set_external_commands([ExternalCommand(name="X", commandline="/bin/true")], path=path)
+
+        assert get_capture_mouse_cursor(path=path) is False
 
 
 class TestFirstRunSetupFlag:

@@ -3456,6 +3456,87 @@ the Counter/Footer pattern fields' round-trip into `settings.py`, all driven dir
 actual constructed widgets; a real screenshot of the open Preferences dialog with Expert Settings
 expanded, confirming the full layout renders as intended.
 
+## ExternalCommand-style destinations (task #110, complete 2026-08-10)
+
+Named, persistently-stored shell commands, each becoming its own destination-picker entry that runs
+against the just-captured screenshot's exported file path - the one Plugins-tab item from task #93's
+audit that isn't cloud/Office-specific (see the Plugins tab research above, and task #112 for the rest).
+
+Faithful port of the real plugin's structure, confirmed via source (`Greenshot.Plugin.ExternalCommand`):
+`ExternalCommandPlugin.cs:69-75`'s `Destinations()` yields one `ExternalCommandDestination` per
+configured name, `IExternalCommandConfiguration.cs:35-67` confirms `Commands` is a genuine
+`List<string>` with parallel `Commandline`/`Argument`/`RunInbackground` maps (multiple independently-
+stored commands, never a one-shot single command), and `SettingsForm.cs`/`SettingsFormDetail.cs`
+confirm the real management UI is exactly a list dialog (Add/Edit/Delete) plus a detail editor
+(Name/Commandline+Browse/Arguments/OutputFormat) - reachable via the Plugins tab's "Configure" button
+(`ExternalCommandPlugin.cs:225-229`).
+
+**Ported (`settings.py`'s `ExternalCommand` dataclass, `ui/external_commands.py`)**:
+- `name`, `commandline`, `argument` (a `str.format` template, default `"{0}"`), `run_in_background`
+  (default `True`, matching `ExternalCommandConfigurationImpl`'s own fallback for a misconfigured
+  entry) - one dataclass per command in a JSON list, rather than four parallel dicts keyed by name
+  (Python has no ini-section auto-binding to preserve).
+- `build_command_argv` - the actual execution mechanism, and the one place this port deliberately
+  diverges from the *mechanism* Windows uses while preserving the *safety property* it's for. Windows'
+  own `ExternalCommandDestination.FormatArguments` (`ExternalCommandDestination.cs:288-311`)
+  substitutes the file path into a single argument *string*, then denies a list of shell metacharacters
+  (`&|;$\`()<>\n\r"'`) - necessary there because `Process.Start`'s `Arguments` property is itself
+  re-tokenized by a shell-like parser even with `UseShellExecute=false`. `subprocess.Popen`'s
+  list-of-args form has no such parser - each argv item goes straight to `execve()`, never
+  reinterpreted - so `build_command_argv` splits the argument template into tokens *before*
+  substitution and formats each token independently: the exported file path can never be read back out
+  as shell syntax, no matter what characters it contains, with no denylist needed at all. Verified via
+  a dedicated test asserting a path containing shell metacharacters (`` $(rm -rf ~); echo pwned.png ``)
+  stays a single, inert argv item.
+- `run_external_command` - exports the screenshot to a temp file (`ui/file_export.py`'s
+  `greenshot_linux_cache_dir`, a shared home extracted from what was previously
+  `EditorWindow._external_editor_cache_dir`'s own private logic - same Flatpak-`/tmp`-isolation
+  reasoning applies to any external process, not just the "Open in External Editor" button), builds the
+  argv, then runs it - on a background thread when `run_in_background` (so the app doesn't freeze), or
+  blocking the caller when not (the same UX tradeoff Windows itself has - `WaitForExit()` freezes its
+  own UI thread in that mode too, not a regression introduced here). A 5-minute timeout guards against a
+  hung process leaking a background thread forever - Windows has no such cap (`WaitForExit()` waits
+  indefinitely), a small, deliberate hardening addition rather than a strict mechanical port.
+- The management UI (`show_manage_external_commands_dialog` + `_show_command_detail_dialog`) - a list
+  dialog with Add/Edit/Delete plus a detail editor (Name/Command+Browse/Arguments/Run in background),
+  reached from a new "External Commands: Manage..." row in `EditorWindow._do_show_settings` (this port
+  has no separate Plugins tab for Windows' own "Configure" button to live behind). Validation mirrors
+  `SettingsFormDetail.OkButtonState` (`SettingsFormDetail.cs:134-201`): name required and unique,
+  command required and resolvable (`shutil.which` or an existing file), arguments template parseable.
+- Destination-picker wiring (`ui/destination_picker.py`'s `_all_destinations`): the five built-in
+  destinations plus one entry per configured `ExternalCommand`, computed fresh on every call (not
+  cached at import time) so an added/edited/removed command shows up immediately, matching Windows' own
+  `Destinations()` re-enumerating `ExternalCommandConfig.Commands` each time. Appended after the
+  built-ins rather than interleaved into Windows' own priority ordering - these are user-added, so they
+  read naturally as extras tacked onto the end.
+
+**Deliberately not ported**:
+- Per-command `OutputFormat` - this port's save path is PNG-only (`ui/file_export.py`), so there's no
+  per-command format to choose.
+- URI-detection-in-stdout-then-clipboard (`ExternalCommandDestination.cs:149-164`,
+  `OutputToClipboard`/`UriToClipboard`) - a genuinely separate sub-feature (useful for a command that
+  uploads somewhere and prints a URL), not core to "run a command with the screenshot's path". Left for
+  later if wanted.
+- The Windows "runas" elevation retry (`CallExternalCommand`'s `Win32Exception` fallback) - a
+  UAC-specific concept with no Linux equivalent.
+- **The Wayland Shell-native destination picker does not show external commands.** Under X11 (and the
+  Wayland region-select fallback), `show_destination_picker`'s `Gtk.Menu` is built fresh from
+  `_all_destinations()` every time, so configured commands appear immediately. Under GNOME Shell-native
+  Wayland capture, the picker is rendered by the bundled Shell extension's own JavaScript
+  (`resources/gnome-shell-extensions/greenshot-linux-clipboard@greenshotlinux.org/extension.js:206-211`,
+  a hardcoded `DESTINATIONS` array), which has no access to this port's Python-side JSON settings and
+  so can't dynamically list configured commands - `dispatch_destination` *would* run one correctly if
+  asked, but the Shell-native menu never offers it as a choice in the first place. A real gap, not
+  silently dropped: fixing it means either the extension reading the same config file directly via
+  GJS's file APIs, or a D-Bus bridge - out of scope for tonight, tracked as its own follow-up.
+
+Verified live: `run_external_command` exercised end-to-end (not mocked) against a real shell script that
+records the argv it received to a marker file, for both `run_in_background=True` and `False` - confirmed
+the recorded path is a real, freshly-exported PNG; `_all_destinations()`/`dispatch_destination` confirmed
+to include and correctly run a configured command, and to no-op on an unrecognized id; both dialogs
+(list and detail) screenshotted live, confirming layout, validation-driven OK-button sensitivity, and
+the "Name is required" error text.
+
 ## Task backlog from a side-by-side comparison with the real Windows editor (2026-08-09)
 
 A large batch of gaps/fixes (tasks #87-101) came from the user directly comparing this port's editor

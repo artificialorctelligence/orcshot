@@ -32,6 +32,7 @@ _CHECK_UNSTABLE_UPDATES_KEY = "check_unstable_updates"
 _SUPPRESS_SAVE_DIALOG_AT_CLOSE_KEY = "suppress_save_dialog_at_close"
 _FILENAME_COUNTER_KEY = "filename_counter"
 _FOOTER_PATTERN_KEY = "footer_pattern"
+_EXTERNAL_COMMANDS_KEY = "external_commands"
 _DEFAULT_OUTPUT_DIRNAME = "Screenshots"
 _DEFAULT_FOOTER_PATTERN = "%B %d, %Y %I:%M %p"
 EXTERNAL_EDITOR_AUTO = "auto"
@@ -305,6 +306,49 @@ def set_footer_pattern(pattern: str, path: Path = None) -> None:
         path = config_file_path()
     settings = _load(path)
     settings[_FOOTER_PATTERN_KEY] = pattern
+    _save(settings, path)
+
+
+@dataclass(frozen=True)
+class ExternalCommand:
+    """Faithful port of one entry in the ExternalCommand plugin's
+    config (IExternalCommandConfiguration.cs:35-67: Commands is a
+    List<string> of names, with Commandline/Argument/RunInbackground
+    as parallel Dictionary<string, *> maps keyed by that same name) -
+    collapsed into one dataclass per command here rather than three
+    parallel dicts, since Python has no ini-section auto-binding to
+    preserve and a list of these round-trips through JSON just as
+    well. ``OutputFormat`` (per-command output file type) is dropped -
+    this port's own save path always writes PNG (ui/file_export.py
+    infers format from the target extension, and every caller here
+    always asks for .png), so there's no per-command format to choose.
+
+    ``argument`` is a Python str.format template - ``{0}`` is replaced
+    with the exported screenshot's path (ui/external_commands.py's
+    build_command_argv), matching Windows' own
+    ``string.Format(arguments, safePath)`` (ExternalCommandDestination
+    .cs:310) exactly, just spelled with Python's formatting syntax
+    instead of C#'s.
+    """
+
+    name: str
+    commandline: str
+    argument: str = "{0}"
+    run_in_background: bool = True
+
+
+def get_external_commands(path: Path = None) -> list[ExternalCommand]:
+    if path is None:
+        path = config_file_path()
+    saved = _load(path).get(_EXTERNAL_COMMANDS_KEY, [])
+    return [ExternalCommand(**entry) for entry in saved]
+
+
+def set_external_commands(commands: list[ExternalCommand], path: Path = None) -> None:
+    if path is None:
+        path = config_file_path()
+    settings = _load(path)
+    settings[_EXTERNAL_COMMANDS_KEY] = [asdict(command) for command in commands]
     _save(settings, path)
 
 
