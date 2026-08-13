@@ -220,6 +220,7 @@ from orcshot.ui.icons import (
 )
 from orcshot.ui.printing import print_image
 from orcshot.ui.render import bubble_corner_radius, render_shape, vertical_text_offset
+from orcshot.ui.text_obfuscation_dialog import DEFAULT_TEXT_OBFUSCATION_SETTINGS, do_obfuscate_text
 
 # ZoomSetValue's 100ms Ctrl+wheel throttle (ImageEditorForm.cs:96,1185-1187)
 _ZOOM_WHEEL_THROTTLE_SECONDS = 0.1
@@ -682,6 +683,22 @@ class EditorWindow(Gtk.Window):
             "edges": (True, True, True, True), "generate_shadow": True,
             "shadow_size": 7, "darkness": 0.6, "offset": (-1, -1),
         }
+        # Task #100's Obfuscate Text - same session-only settings
+        # precedent as drop_shadow/torn_edge above (see
+        # ui/text_obfuscation_dialog.py's DEFAULT_TEXT_OBFUSCATION_
+        # SETTINGS for the defaults' own citation).
+        self._text_obfuscation_settings = dict(DEFAULT_TEXT_OBFUSCATION_SETTINGS)
+        # ObfuscateTextToolStripMenuItemClick's own OCR cache
+        # (_surface.CaptureDetails.OcrInformation, ImageEditorForm.cs:
+        # 1732) - re-running OCR every time the dialog opens would be
+        # slow and pointless if nothing's changed. Invalidated by the
+        # base_image setter below whenever the image itself changes
+        # (undo/redo, any whole-image effect) - Windows doesn't appear
+        # to do this (CaptureDetails is never reset there), but stale
+        # OCR word/line bounds after e.g. a resize or rotate would
+        # silently misalign every match, which is worse than a
+        # redundant re-run.
+        self._ocr_result = None
         # A single cut/copied shape (Windows' per-shape Cut/Copy/Paste,
         # distinct from _do_copy's whole-image-to-system-clipboard) -
         # not the system clipboard, just in-editor state.
@@ -1046,6 +1063,10 @@ class EditorWindow(Gtk.Window):
         img_h, img_w = image.shape[:2]
         self._dimensions_label.set_text(f"{img_w} x {img_h}")
         self._refresh_remove_transparency_visibility()
+        # Task #100 - stale OCR word/line bounds from before this
+        # change would silently misalign Obfuscate Text's matches, see
+        # self._ocr_result's own __init__ comment.
+        self._ocr_result = None
 
     def _build_menu_bar(self) -> Gtk.MenuBar:
         """File/Edit/Object/Help, matching Windows Greenshot's editor
@@ -1688,10 +1709,13 @@ class EditorWindow(Gtk.Window):
         matches it exactly, no click/toggle state to track.
 
         Wraps this port's already-working whole-image effect handlers
-        (previously only reachable from the Image menu, task #36) -
-        Windows' real 7th dropdown item, "Obfuscate Text" (OCR-based
-        auto-redaction), is deliberately excluded here, tracked
-        separately as task #100.
+        (previously only reachable from the Image menu, task #36) plus
+        Obfuscate Text (task #100, ui/text_obfuscation_dialog.py) -
+        Windows' real 7th dropdown item, gated there behind
+        CoreConfiguration.IsBetaTester (see _build_effects_menu's
+        docstring) but always available here, since this port has no
+        equivalent "beta tester" concept to gate it behind and the
+        feature is fully implemented, not experimental.
         """
         button = Gtk.MenuButton()
         button.set_relief(Gtk.ReliefStyle.NONE)
@@ -1718,11 +1742,11 @@ class EditorWindow(Gtk.Window):
         vs. 5 actually seen in a typical run) turned out to be two
         separate runtime Visible gates, not a missing/extra feature:
         - obfuscateTextToolStripMenuItem.Visible = CoreConfiguration.
-          IsBetaTester (ImageEditorForm.cs:308) - off by default, no
-          equivalent "beta tester" concept exists in this port, so
-          Obfuscate Text stays excluded here rather than always-shown
-          (tracked as its own feature, task #100 - implementing it
-          isn't gated behind reproducing IsBetaTester as a setting).
+          IsBetaTester (ImageEditorForm.cs:308) - off by default there.
+          No equivalent "beta tester" concept exists in this port, so
+          Obfuscate Text (task #100) is always shown here rather than
+          gated behind reproducing IsBetaTester as a new setting just
+          for this one item.
         - removeTransparencyToolStripMenuItem.Visible = Image.
           IsAlphaPixelFormat(_surface.Image.PixelFormat) (ImageEditor
           Form.cs:1476, refreshed from RefreshEditorControls on every
@@ -1755,6 +1779,7 @@ class EditorWindow(Gtk.Window):
         add_item("Grayscale", self._do_grayscale)
         add_item("Invert", self._do_invert)
         self._remove_transparency_item = add_item("Remove Transparency...", self._do_remove_transparency)
+        add_item("Obfuscate Text...", self._do_obfuscate_text)
         menu.show_all()
         self._refresh_remove_transparency_visibility()
         return menu
@@ -3435,6 +3460,12 @@ class EditorWindow(Gtk.Window):
         finally:
             dialog.destroy()
         self._apply_background_effect(remove_transparency_image(self._base_image, fill_color=fill_color))
+
+    def _do_obfuscate_text(self) -> None:
+        """Task #100 - see ui/text_obfuscation_dialog.py's module
+        docstring for the full faithful-port writeup."""
+        self._commit_text_editing_if_active()
+        do_obfuscate_text(self)
 
     def _do_resize(self) -> None:
         """Opens ResizeSettingsForm's equivalent - width/height in

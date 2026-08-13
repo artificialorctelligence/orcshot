@@ -1239,6 +1239,76 @@ anywhere in `ImageEditorForm.cs`, so they're correctly out of scope, not missing
   auto-sync in the Resize dialog, and that every "Image" menu item actually invokes its handler —
   all with synthetic image data, never real desktop content.
 
+### Obfuscate Text / OCR (task #100, faithful port of `ObfuscateTextToolStripMenuItemClick`/`TextObfuscationForm`)
+**Status: done, live-verified except the real Tesseract subprocess call itself** (this dev machine
+didn't have `tesseract-ocr` installed at implementation time - see below). Windows' 7th Effects
+dropdown item (`ImageEditorForm.cs:1724-1768`): runs OCR on the capture, then opens
+`TextObfuscationForm` (`TextObfuscationForm.cs`) to search the recognized text and apply an
+obfuscation/highlight effect to every match, with a live preview before committing.
+
+- **OCR engine**: real Greenshot uses `Windows.Media.Ocr` via `Win10OcrProvider`
+  (`Greenshot/Native/Win10OcrProvider.cs`) - an OS-level API with no Linux equivalent. This port uses
+  **Tesseract** (`tesseract-ocr`) instead, invoked as a plain subprocess (`tesseract <file> stdout
+  tsv`, parsed with stdlib `csv` - `ui/ocr.py`/`core/ocr.py`) rather than adding `pytesseract`/Pillow
+  as new Python dependencies: the CLI's own `--tsv` output already gives word-level text, bounding
+  boxes, and a `(block_num, par_num, line_num)` grouping key, which is everything
+  `Win10OcrProvider.CreateOcrInformation` (`Win10OcrProvider.cs:157-183`) gets ready-made from the
+  Windows OCR engine's own `OcrResult.Lines`. Declared as a `Recommends` in `debian/control`, not a
+  hard `Depends`, unlike every other dependency this package has — missing it degrades gracefully (a
+  warning dialog explaining what to install) rather than breaking the app, matching
+  `ObfuscateTextToolStripMenuItemClick`'s own `IOcrProvider == null` message-box gate
+  (`ImageEditorForm.cs:1734-1739`).
+- **Data model** (`core/ocr.py`, pure, tested): `Word`/`Line`/`OcrResult` faithfully port
+  `Greenshot.Base/Interfaces/Ocr/Word.cs`/`Line.cs`/`OcrInformation.cs` - `Line.bounds` computes the
+  union of its words' bounds the same way `Line.CalculatedBounds` does (`Line.cs:59-77`), just as a
+  property instead of a mutation-invalidated cache, since this port's `Word` tuples are immutable.
+  `parse_tesseract_tsv` does the line-grouping Windows' OCR engine does for free.
+- **Search/match logic** (`core/ocr.py`, pure, tested): `find_matches`/`apply_padding`/`is_valid_regex`
+  faithfully port `TextObfuscationForm.SearchWords`/`SearchLines`/`ApplyPadding`/`IsMatch`/
+  `IsValidRegex` (`TextObfuscationForm.cs:180-297`) - word-or-line scope, plain-substring or regex,
+  case-sensitive toggle, percentage padding split evenly on both sides plus a flat pixel offset, and
+  the same "fewer than 3 characters matches nothing" gate `UpdatePreview` applies before searching at
+  all.
+- **Effects offered**: Pixelize, Blur, Text Highlight, Magnification - matches
+  `InitializeEffectDropdown`'s exact 4-item list (`TextObfuscationForm.cs:79-87`, which itself
+  excludes `AREA_HIGHLIGHT`/`GRAYSCALE` "as requested"). Reuses this port's existing
+  `ObfuscateShape`/`HighlightShape` (tasks #54/#88) directly - no new shape types needed. This port's
+  own `SOLID_FILL`/`SCRAMBLE` obfuscate modes (task #60, no Windows precedent) aren't offered here
+  either, for the same reason Windows' own dropdown doesn't offer them.
+- **Dialog** (`ui/text_obfuscation_dialog.py`, not unit tested - GTK glue, same as
+  `destination_picker.py`): search entry (min 3 chars, 300ms debounce via `GLib.timeout_add`
+  cancel-and-reschedule, matching `SetupDebouncedSearch`'s own `Throttle(300ms)`), regex/case-
+  sensitive checkboxes, word/line scope, effect dropdown with effect-specific fields shown/hidden
+  (pixel size/blur radius/highlight color/magnification factor), padding/offset spinners (exact
+  ranges from `TextObfuscationForm.Designer.cs`: padding 0-200% default 10/20, offset ±100 default
+  0/-5), and a live match-count label. Every match is rendered as a real preview shape added directly
+  to the layer (not a separate overlay), matching `ShowPreview`'s own approach
+  (`TextObfuscationForm.cs:271-286`); Apply just makes that same set of shapes undoable in one step
+  via `CompositeMemento` rather than clearing and re-adding them, since the preview shapes already
+  *are* the final ones. Cancel/close removes them with no undo entry, matching `ClearPreview`.
+  **Deliberately not ported**: the collapsible "Advanced settings" group (a UX-chrome simplification
+  only - every underlying setting is still present) and settings persistence across app restarts
+  (`EditorConfiguration.TextObfuscationSearchPattern`/etc.) - session-only here
+  (`EditorWindow._text_obfuscation_settings`), the same deliberate scope reduction already made for
+  Drop Shadow/Torn Edge Settings.
+- **OCR result caching**: `EditorWindow._ocr_result` mirrors `_surface.CaptureDetails.OcrInformation`'s
+  own cache-until-explicitly-cleared behavior (`ImageEditorForm.cs:1732` only runs OCR `if ==
+  null`) so reopening the dialog doesn't re-run OCR - but unlike Windows, this port also invalidates
+  it from the `base_image` setter (the existing single "image changed" choke point) whenever the
+  image itself changes via undo/redo or any whole-image effect. Windows doesn't appear to do this;
+  without it, a resize/rotate/crop after the first OCR run would leave every match's bounds silently
+  misaligned with the (differently-shaped) current image - a deliberate, documented improvement over
+  a narrow reading of the source, not a faithfulness gap.
+- **Not live-verified against a real Tesseract process**: `tesseract-ocr` wasn't installed on this
+  dev machine when this was implemented (no passwordless sudo available to this session; the user was
+  asked to install it via `sudo apt-get install -y tesseract-ocr` themselves). Everything downstream
+  of "having an `OcrResult`" *is* live-verified end-to-end (constructed a real `EditorWindow`, injected
+  a synthetic `OcrResult` with known words/bounds, drove the actual dialog through search → preview →
+  effect-switch → Apply → undo, and separately confirmed the missing-tesseract warning dialog fires
+  correctly) - the only untested seam is `run_tesseract_ocr`'s subprocess call and Tesseract's real
+  TSV output shape against `parse_tesseract_tsv`, which is tested against a synthetic TSV fixture
+  matching the documented format instead. Revisit once Tesseract is actually installed here.
+
 ### Undo/redo
 **Status: done at the pure-data-model level** (`src/orcshot/core/history.py`) — a generic
 `UndoRedoStack` engine plus mementos over `Layer` (add/delete/change an element, batched as one

@@ -40,6 +40,7 @@ Depends: ${python3:Depends},
          gir1.2-pango-1.0,
          gir1.2-glib-2.0,
          gir1.2-ayatanaappindicator3-0.1
+Recommends: tesseract-ocr
 Description: Screenshot capture and annotation tool
  A Linux port of Windows Greenshot (not affiliated with or endorsed by the
  Greenshot project): region, window, and full-screen capture; an annotation
@@ -51,3 +52,8 @@ Description: Screenshot capture and annotation tool
  application itself runs on any GTK3 desktop environment under X11;
  on non-Cinnamon desktops, hotkeys can still be bound manually to the
  same command-line capture options this package provides.
+ .
+ The editor's Obfuscate Text effect (Effects > Obfuscate Text...) uses
+ Tesseract OCR (tesseract-ocr, Recommends above) to find and redact text
+ in a capture; without it installed, that one menu item shows an
+ explanatory message instead of running.
