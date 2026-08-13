@@ -68,15 +68,22 @@ _DEBOUNCE_MS = 300
 _DIALOG_TITLE = "Find & Redact Text"
 
 # (label, mode-key) - mode-key is either an ObfuscateMode or a
-# HighlightMode; _make_shape below dispatches on which one it is.
-# Order/labels otherwise match effectComboBox's own
-# InitializeEffectDropdown (TextObfuscationForm.cs:79-87); Solid Fill
-# is this port's own addition (see module docstring), grouped with the
-# other two ObfuscateMode entries.
+# HighlightMode; _make_shape below dispatches on which one it is. Order
+# is security-tier-first (Solid Fill, then Pixelize/Blur), not
+# InitializeEffectDropdown's original Pixelize-first order
+# (TextObfuscationForm.cs:79-87) - direflail's live testing of this
+# exact dialog is what drove Solid Fill's addition in the first place
+# (see module docstring), so leading with it plus labeling Pixelize/
+# Blur's real weakness inline reuses the identical security-tier
+# convention the main Obfuscate tool's own dropdown already established
+# (_OBFUSCATE_MODE_SECURITY_SUFFIX/_OBFUSCATE_MODE_ORDER,
+# editor_window.py) - duplicated as literal strings here rather than
+# imported, to avoid a circular import (editor_window.py already
+# imports from this module).
 _EFFECT_CHOICES = (
-    ("Pixelize", ObfuscateMode.PIXELIZE),
-    ("Blur", ObfuscateMode.BLUR),
-    ("Solid Fill", ObfuscateMode.SOLID_FILL),
+    ("Solid Fill (most secure)", ObfuscateMode.SOLID_FILL),
+    ("Pixelize (not secure)", ObfuscateMode.PIXELIZE),
+    ("Blur (not secure)", ObfuscateMode.BLUR),
     ("Text Highlight", HighlightMode.TEXT_HIGHLIGHT),
     ("Magnification", HighlightMode.MAGNIFICATION),
 )
@@ -85,13 +92,14 @@ _EFFECT_CHOICES = (
 # (pixelSizeUpDown=5, blurRadiusUpDown=5, magnificationUpDown=2,
 # paddingHorizontalUpDown=10, paddingVerticalUpDown=20,
 # offsetHorizontalUpDown=0, highlightColorButton=Color.Yellow,
-# effectComboBox index 0 = Pixelize, searchScopeComboBox index 0 =
-# Words) - effect_index 0 is still Pixelize (Solid Fill was inserted at
-# index 2, after Blur, not before Pixelize), kept as the default
-# despite Solid Fill being the stronger redaction choice, matching
-# Windows' own default rather than silently opinionating a different
-# one; solid_fill_color defaults to ObfuscateShape's own SOLID_FILL
-# default (opaque black).
+# searchScopeComboBox index 0 = Words) - except effect_index 0, which
+# is Solid Fill here rather than Windows' own Pixelize default
+# (effectComboBox index 0, TextObfuscationForm.cs:79-87) - an explicit,
+# requested deviation, not a silently-opinionated one: direflail asked
+# for Solid Fill first in the list, and defaulting a fresh search to
+# the front-of-list (and now safest) choice is the expected behavior
+# for a dropdown, not something to special-case around; solid_fill_color
+# defaults to ObfuscateShape's own SOLID_FILL default (opaque black).
 #
 # offset_vertical is a deliberate deviation from Windows' own default
 # (-5, TextObfuscationForm.Designer.cs) - confirmed live against a real

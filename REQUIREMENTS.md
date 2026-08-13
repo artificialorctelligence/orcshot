@@ -1344,8 +1344,16 @@ screenshot-privacy rule):
   task #60's anti-depixelation hardening already applies here automatically, no extra work needed).
   Windows never built a Solid Fill mode at all, so adding it here isn't excluding something Windows
   deliberately chose not to show (unlike AREA_HIGHLIGHT/GRAYSCALE, which Windows explicitly excludes
-  by name in `TextObfuscationForm.cs:83`) - there was nothing to be unfaithful to. Effect default
-  stays Pixelize (`effect_index: 0`, matching Windows), not silently switched to Solid Fill.
+  by name in `TextObfuscationForm.cs:83`) - there was nothing to be unfaithful to.
+  - **Follow-up, explicitly requested**: reordered the dropdown to Solid Fill first (was Pixelize/
+    Blur/Solid Fill/Text Highlight/Magnification, `InitializeEffectDropdown`'s original order),
+    making Solid Fill the new default (`effect_index: 0`) rather than Windows' own Pixelize default -
+    an explicit, requested deviation this time, not a silent one. Also labeled Pixelize/Blur inline
+    as `"Pixelize (not secure)"`/`"Blur (not secure)"` and Solid Fill as `"Solid Fill (most secure)"`,
+    reusing the identical security-tier convention the main Obfuscate tool's own dropdown already
+    established (`_OBFUSCATE_MODE_SECURITY_SUFFIX`/`_OBFUSCATE_MODE_ORDER`, `editor_window.py`) -
+    duplicated as literal strings rather than imported, to avoid a circular import
+    (`editor_window.py` already imports from `text_obfuscation_dialog.py`).
 - **Renamed "Obfuscate Text..." to "Find & Redact Text..."** in this port's Effects dropdown only
   (Windows' own `obfuscateTextToolStripMenuItem` name is unchanged in every citation). direflail
   flagged, also from live testing, that the original name collides with the separate manual
