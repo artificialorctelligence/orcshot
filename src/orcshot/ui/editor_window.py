@@ -1045,6 +1045,7 @@ class EditorWindow(Gtk.Window):
         self._resize_canvas_and_window()
         img_h, img_w = image.shape[:2]
         self._dimensions_label.set_text(f"{img_w} x {img_h}")
+        self._refresh_remove_transparency_visibility()
 
     def _build_menu_bar(self) -> Gtk.MenuBar:
         """File/Edit/Object/Help, matching Windows Greenshot's editor
@@ -1704,22 +1705,47 @@ class EditorWindow(Gtk.Window):
         """Real Windows dropdown order (toolStripSplitButton1.
         DropDownItems, ImageEditorForm.Designer.cs:491-499): Add
         Border, Add Drop Shadow, Torn Edges, Grayscale, Invert, Remove
-        Transparency, [Obfuscate Text - excluded, see
-        _build_effects_control's docstring]. Drop Shadow/Torn Edge
-        each get *two* entries here (an instant-apply one plus a
-        "...Settings" one) rather than Windows' single item with a
-        left-click-vs-right-click(MouseUp) distinction - this port
-        already made that same menu-vs-toolbar-widget tradeoff when
-        these lived in the Image menu (task #36), and a GTK dropdown
-        menu item has the identical no-right-click-affordance
-        limitation a menu bar item does.
+        Transparency, Obfuscate Text. Drop Shadow/Torn Edge each get
+        *two* entries here (an instant-apply one plus a "...Settings"
+        one) rather than Windows' single item with a left-click-vs-
+        right-click(MouseUp) distinction - this port already made that
+        same menu-vs-toolbar-widget tradeoff when these lived in the
+        Image menu (task #36), and a GTK dropdown menu item has the
+        identical no-right-click-affordance limitation a menu bar item
+        does.
+
+        Task #101's item-count discrepancy (7 declared in the Designer
+        vs. 5 actually seen in a typical run) turned out to be two
+        separate runtime Visible gates, not a missing/extra feature:
+        - obfuscateTextToolStripMenuItem.Visible = CoreConfiguration.
+          IsBetaTester (ImageEditorForm.cs:308) - off by default, no
+          equivalent "beta tester" concept exists in this port, so
+          Obfuscate Text stays excluded here rather than always-shown
+          (tracked as its own feature, task #100 - implementing it
+          isn't gated behind reproducing IsBetaTester as a setting).
+        - removeTransparencyToolStripMenuItem.Visible = Image.
+          IsAlphaPixelFormat(_surface.Image.PixelFormat) (ImageEditor
+          Form.cs:1476, refreshed from RefreshEditorControls on every
+          selection/undo/image change) - ported below via
+          _refresh_remove_transparency_visibility, called from the
+          base_image setter (this port's own single "image changed"
+          choke point, already used for the resize-on-load and
+          dimensions-label updates). Windows checks the pixel *format*
+          (does this format carry an alpha channel at all); this port's
+          images are always physically RGBA regardless of origin, so
+          the faithful equivalent is content-based - any pixel actually
+          translucent - matching remove_transparency_image's own
+          docstring ("only applies if there's alpha to remove in the
+          source; this function is unconditional, callers check"),
+          which had never had a caller do that checking until now.
         """
         menu = Gtk.Menu()
 
-        def add_item(label: str, handler) -> None:
+        def add_item(label: str, handler) -> Gtk.MenuItem:
             item = Gtk.MenuItem(label=label)
             item.connect("activate", lambda _i: handler())
             menu.append(item)
+            return item
 
         add_item("Add Border", self._do_border)
         add_item("Add Drop Shadow", self._do_drop_shadow)
@@ -1728,9 +1754,19 @@ class EditorWindow(Gtk.Window):
         add_item("Torn Edge Settings...", self._do_torn_edge_settings)
         add_item("Grayscale", self._do_grayscale)
         add_item("Invert", self._do_invert)
-        add_item("Remove Transparency...", self._do_remove_transparency)
+        self._remove_transparency_item = add_item("Remove Transparency...", self._do_remove_transparency)
         menu.show_all()
+        self._refresh_remove_transparency_visibility()
         return menu
+
+    def _refresh_remove_transparency_visibility(self) -> None:
+        """See _build_effects_menu's docstring - faithful port of
+        ImageEditorForm.cs:1473-1477's Visible gate, content-based
+        rather than format-based since this port's images are always
+        RGBA.
+        """
+        has_transparency = bool((self._base_image[:, :, 3] < 255).any())
+        self._remove_transparency_item.set_visible(has_transparency)
 
     def _build_action_button(self, box: Gtk.Box, image: Gtk.Image, tooltip: str, handler) -> None:
         """A plain one-shot toolbar icon button (task #90's Rotate CW/

@@ -1127,6 +1127,26 @@ implementing) inventoried every effect Windows actually wires into its editor UI
 `AdjustEffect`/`MonochromeEffect`/`ReduceColorsEffect` were found defined but with no UI call site
 anywhere in `ImageEditorForm.cs`, so they're correctly out of scope, not missing.
 
+- **Effects dropdown item-count discrepancy, resolved (task #101)** — flagged as "7 in source vs 5
+  in the real app": the Designer declares 7 `DropDownItems`, but a typical real run only ever shows
+  5. Not a bug on either side, just two runtime `Visible` gates neither obvious from the Designer nor
+  previously replicated here: `obfuscateTextToolStripMenuItem.Visible = CoreConfiguration.
+  IsBetaTester` (`ImageEditorForm.cs:308`, off by default — no "beta tester" concept exists in this
+  port, so Obfuscate Text stays excluded, tracked as task #100 regardless of any such flag) and
+  `removeTransparencyToolStripMenuItem.Visible = Image.IsAlphaPixelFormat(_surface.Image.
+  PixelFormat)` (`ImageEditorForm.cs:1473-1477`, re-evaluated on every selection/undo/image change
+  via `RefreshEditorControls`) — Remove Transparency is hidden for the common case of an opaque
+  screen capture, which is most of them. This port's images are always physically RGBA regardless of
+  origin, so a format-level check would always be true and gate nothing; the faithful equivalent
+  ported is content-based instead (`EditorWindow._refresh_remove_transparency_visibility`: any pixel
+  actually below full opacity), called from the `base_image` setter — this port's existing single
+  "image changed" choke point (undo/redo restores, every other whole-image effect) — plus once at
+  menu-build time for the image the editor opens with. `remove_transparency_image`
+  (`core/effects.py`) had documented this exact gap in its own docstring since task #36 ("only
+  applies if there's alpha to remove in the source; this function is unconditional, callers check")
+  without any caller ever doing so until now. Verified live: an opaque synthetic image hides the
+  item, one with an actual transparent patch shows it, and swapping an opaque editor's image to a
+  transparent one via `base_image` picks the change up immediately.
 - **Pure numpy pixel effects** (`core/effects.py`, tested): `rotate_90_image` (90° only, matching
   `RotateEffect.cs:32-68` — arbitrary angles throw `NotSupportedException` there too),
   `grayscale_image` (NTSC luma weights R=.3/G=.59/B=.11, `ImageHelper.cs:1133-1161`),
