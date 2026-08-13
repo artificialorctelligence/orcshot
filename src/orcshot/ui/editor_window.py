@@ -814,9 +814,28 @@ class EditorWindow(Gtk.Window):
         at once regardless of active tool/selection, silently defeating
         tasks #57/#58's whole point. Re-running _refresh_style_panel
         after the real show_all() re-applies the correct hidden set.
+
+        Also the hook for the initial GetOptimalWindowSize-equivalent
+        resize (task #97) - Windows fires this from SurfaceSizeChanged
+        as soon as MatchSizeToCapture's default-on image-load resize
+        runs (ImageEditorForm.cs:599-604), but __init__ can't call
+        _resize_canvas_and_window itself (its docstring on the
+        base_image setter explains why: no real GdkWindow/allocation
+        exists until the window is shown). _canvas_scroller (a
+        Gtk.ScrolledWindow) doesn't propagate the canvas's size_request
+        to the top-level window the way Windows' own panel1 does, so
+        without this the window opened at a fixed toolbar/menu-driven
+        size regardless of the captured image's dimensions - confirmed
+        live, a 3000x2000 and a 40x40 capture produced the identical
+        initial window size. GLib.idle_add defers past GTK's own
+        pending resize queue (GTK_PRIORITY_RESIZE runs before default-
+        priority idle), so the allocations _resize_canvas_and_window
+        reads are real ones from the just-completed initial layout,
+        not stale pre-realize zeros.
         """
         super().show_all()
         self._refresh_style_panel()
+        GLib.idle_add(self._resize_canvas_and_window)
 
     @property
     def is_modified(self) -> bool:

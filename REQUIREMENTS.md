@@ -1016,6 +1016,34 @@ backlog - research confirmed it's a real, well-developed Windows feature (PR #20
   all four keyboard shortcuts, Ctrl+wheel with throttle, bare-digit tool-switch keys still working)
   all confirmed correct.
 
+**Default/initial editor window size (task #97) — fixed, was a real gap.** Windows applies
+`GetOptimalWindowSize` not just on zoom changes but immediately on load, via `SurfaceSizeChanged`
+firing as soon as the captured image is set on the surface, gated by `EditorConfiguration.
+MatchSizeToCapture` (`IEditorConfiguration.cs:49-51`, `[DefaultValue(true)]` - on by default, no
+opt-in needed). This port's `_set_zoom` path already replicated the clamp math correctly
+(`optimal_window_size`, above), but the *initial* open never called it - `EditorWindow.__init__`
+can't (`base_image`'s setter docstring: no real `GdkWindow`/allocation exists pre-realize), and
+nothing filled the gap afterward, so `_canvas_scroller` (a `Gtk.ScrolledWindow`, which doesn't
+propagate its child's size request the way Windows' `panel1` does) left the initial window size
+determined entirely by the toolbar/menu/palette rows' own natural size - **confirmed live: a
+3000x2000 and a 40x40 synthetic capture produced the byte-identical initial window size**, i.e. the
+window never actually reflected the captured image's dimensions at all on open, only on a
+subsequent zoom action.
+- **Fix**: `show_all()` (already overridden for the style-panel-visibility fix from tasks #57/#58 -
+  the one call site every real open goes through, `ui/destination_picker.py`'s `_open_editor`) now
+  also does `GLib.idle_add(self._resize_canvas_and_window)`. Deferred via `idle_add` rather than
+  called inline, since GTK's own pending resize/allocation queue (`GTK_PRIORITY_RESIZE`) runs at
+  higher priority than a default-priority idle callback - by the time it fires, the window has a
+  real post-realize allocation for `_resize_canvas_and_window` to measure chrome size from, instead
+  of stale pre-realize zeros.
+- **Verified live** (synthetic images only, no real desktop capture): before the fix, huge and tiny
+  captures both opened at the same fixed size; after, the initial window size responds to the
+  captured image's dimensions and stays within `optimal_window_size`'s existing 650x530-minimum/
+  screen-work-area-maximum clamp in both cases - matching `SurfaceSizeChanged`'s effect on a real
+  Windows install with the (default-on) `MatchSizeToCapture` setting. No preferences-dialog toggle
+  was added for `MatchSizeToCapture` itself, since this port has no "always open at a fixed size"
+  alternative behavior to toggle to yet - tracked as a possible follow-up, not silently dropped.
+
 ### Color picker (faithful port of `Greenshot.Editor.Forms.ColorDialog`)
 **Status: done.** Replaces the line-color/fill-color style-panel buttons' original implementation
 (plain `Gtk.ColorButton`, opening GTK's generic system color chooser). Research first corrected an
