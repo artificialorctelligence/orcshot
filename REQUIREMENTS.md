@@ -1354,6 +1354,40 @@ screenshot-privacy rule):
   Obfuscate-based ones - "Redact" describes the outcome rather than one specific shape type, so it
   stays accurate regardless of which effect is picked.
 
+#### A real, severe parsing bug found via direct testing on a real file (2026-08-12)
+After the fixes above, direflail reported single-word searches ("years", "Peacock", "robot", "banks",
+"legally") still missing on a real screenshot even though the words were big and clearly legible -
+the two synthetic reproductions built to investigate (a dense multi-column card grid, and small
+10pt UI text) both worked perfectly, ruling out layout/segmentation and font size as causes. direflail
+then explicitly authorized testing against the specific real file directly (`~/Pictures/Screenshots/
+ocr.png` - a page of ads and social-media cards), which the standing screenshot-privacy rule would
+otherwise rule out; only program output (text/confidence/bounds), never the rendered image itself,
+was used.
+
+Root cause, found by diffing `tesseract <file> stdout tsv` run directly (which direflail ran and
+pasted output from) against this port's own `run_tesseract_ocr`/`parse_tesseract_tsv`: Tesseract's
+TSV output is a naive tab-split dump with **no quoting or escaping of any kind** - a literal `"`
+character in recognized text (here, a low-confidence misread of some punctuation, `conf=22`, its own
+standalone "word") is just a `"` in the file. `csv.DictReader`, however, applies CSV-style quote
+handling *by default even when the delimiter is `\t`* - it saw that stray `"` as an open quote and
+silently treated every row after it as one enormous mangled field, until another `"` happened to
+appear 170 lines later (`"The golden age". FML`, from an unrelated comment). Every real, high-
+confidence row in between - including all 5 occurrences of "years" and both of "Peacock" (91-97%
+confidence) - was swallowed with **no error, no exception, nothing** - `has_content` was still `True`
+and everything else on the page still worked, which is exactly why this was reported as
+inconsistent/spotty rather than as an obvious crash. Word count for this file went from 127 (silently
+truncated) to 231 (correct) after the fix.
+
+Fixed with one keyword: `csv.DictReader(..., quoting=csv.QUOTE_NONE)`. Verified three ways: (1) the
+real file's word count and target-word matches, both before/after; (2) a regression test
+(`test_stray_unescaped_quote_does_not_swallow_later_rows`, `test_ocr.py`) reproducing the exact
+mechanism with a synthetic 3-row TSV fixture; (3) the full pipeline end-to-end
+(`run_tesseract_ocr` → `find_matches`) against the real file, confirming all 6 previously-missing
+words now resolve to the correct match counts. This bug predates every other fix in this section -
+it was silently truncating OCR results on *any* image where recognized text happened to contain an
+unbalanced quote character, which is not a rare occurrence in real screenshots (quoted text, smart
+quotes, apostrophes misread as `"`, stray punctuation).
+
 ### Undo/redo
 **Status: done at the pure-data-model level** (`src/orcshot/core/history.py`) — a generic
 `UndoRedoStack` engine plus mementos over `Layer` (add/delete/change an element, batched as one

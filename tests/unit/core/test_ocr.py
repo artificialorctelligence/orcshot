@@ -84,6 +84,25 @@ class TestParseTesseractTsv:
         assert not parse_tesseract_tsv(tsv).has_content
         assert parse_tesseract_tsv(tsv, min_confidence=0).has_content
 
+    def test_stray_unescaped_quote_does_not_swallow_later_rows(self):
+        # Confirmed live against a real screenshot: Tesseract's TSV
+        # output is a naive tab-split dump with no quoting/escaping,
+        # but csv.DictReader's default dialect treats a bare `"` as an
+        # open-quote regardless - without quoting=csv.QUOTE_NONE, a
+        # single misread `"` character (its own low-confidence "word")
+        # silently absorbed every row up to the next `"` anywhere later
+        # in the file into one mangled field, dropping real
+        # high-confidence words with no error at all.
+        tsv = (
+            "level\tpage_num\tblock_num\tpar_num\tline_num\tword_num\tleft\ttop\twidth\theight\tconf\ttext\n"
+            "5\t1\t1\t1\t1\t1\t10\t5\t20\t15\t22.0\t\"\n"
+            "5\t1\t2\t1\t1\t1\t50\t5\t60\t15\t96.5\tPeacock\n"
+            "5\t1\t3\t1\t1\t1\t120\t5\t40\t15\t70.1\tage\".\n"
+        )
+        result = parse_tesseract_tsv(tsv)
+        all_words = [w.text for line in result.lines for w in line.words]
+        assert "Peacock" in all_words
+
 
 class TestApplyPadding:
     def test_no_padding_or_offset_is_a_no_op(self):

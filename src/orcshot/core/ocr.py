@@ -91,8 +91,20 @@ def parse_tesseract_tsv(tsv_text: str, min_confidence: float = DEFAULT_MIN_CONFI
     confidence below ``min_confidence`` are skipped - see
     DEFAULT_MIN_CONFIDENCE's own comment for why a quality bar above
     Tesseract's raw -1 "not text at all" sentinel is needed here.
+
+    ``quoting=csv.QUOTE_NONE`` is required, not optional - confirmed
+    live against a real screenshot containing a stray `"` character
+    (an OCR misread of some punctuation, its own low-confidence "word"
+    on one line). Tesseract's TSV output is a naive tab-split dump with
+    no quoting/escaping of any kind, but csv.DictReader's *default*
+    dialect still treats `"` as an open-quote even in tab-delimited
+    mode - without this, that single stray character silently
+    swallowed every row between it and the next `"` anywhere later in
+    the file (170 rows, in the real case that surfaced this) into one
+    mangled field, dropping real high-confidence words
+    (`"years"`/`"Peacock"`, both ~96% confidence) with no error at all.
     """
-    reader = csv.DictReader(io.StringIO(tsv_text), delimiter="\t")
+    reader = csv.DictReader(io.StringIO(tsv_text), delimiter="\t", quoting=csv.QUOTE_NONE)
     words_by_key: dict[tuple, list[Word]] = {}
     order: list[tuple] = []
     for row in reader:
