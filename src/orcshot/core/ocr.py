@@ -70,13 +70,27 @@ class OcrResult:
         return len(self.lines) > 0
 
 
-def parse_tesseract_tsv(tsv_text: str) -> OcrResult:
+# Below this, a "word" is more likely a misread of non-text image
+# content (an icon, an avatar photo, a texture) than real text -
+# confirmed live: a game-screenshot capture with an avatar photo next
+# to a username produced a spurious low-confidence word over the
+# avatar itself, which then polluted that line's CalculatedBounds
+# (task #100 follow-up). Tesseract's own -1 sentinel (filtered
+# unconditionally below) only marks structural placeholder rows, not
+# low-quality guesses, so it doesn't catch this case on its own. 30 is
+# a conventional "trust this" cutoff for Tesseract confidence (0-100)
+# in general OCR usage, not tuned against a specific corpus - err
+# toward missing a rare noisy real match over redacting the wrong
+# region for a security feature.
+DEFAULT_MIN_CONFIDENCE = 30
+
+
+def parse_tesseract_tsv(tsv_text: str, min_confidence: float = DEFAULT_MIN_CONFIDENCE) -> OcrResult:
     """Groups Tesseract's word-level (``level == 5``) TSV rows into
     Line objects, in first-seen order. Rows with blank text or
-    negative confidence (Tesseract's own marker for a non-text
-    detection at a given level, e.g. an empty line placeholder) are
-    skipped, matching what OcrInformation.HasContent/Line.Text expect
-    to see - only rows the engine actually recognized as words.
+    confidence below ``min_confidence`` are skipped - see
+    DEFAULT_MIN_CONFIDENCE's own comment for why a quality bar above
+    Tesseract's raw -1 "not text at all" sentinel is needed here.
     """
     reader = csv.DictReader(io.StringIO(tsv_text), delimiter="\t")
     words_by_key: dict[tuple, list[Word]] = {}
@@ -88,7 +102,7 @@ def parse_tesseract_tsv(tsv_text: str) -> OcrResult:
         if not text:
             continue
         try:
-            if float(row.get("conf", "-1")) < 0:
+            if float(row.get("conf", "-1")) < min_confidence:
                 continue
             left, top = int(row["left"]), int(row["top"])
             width, height = int(row["width"]), int(row["height"])

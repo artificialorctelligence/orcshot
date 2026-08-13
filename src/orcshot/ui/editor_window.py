@@ -1779,7 +1779,11 @@ class EditorWindow(Gtk.Window):
         add_item("Grayscale", self._do_grayscale)
         add_item("Invert", self._do_invert)
         self._remove_transparency_item = add_item("Remove Transparency...", self._do_remove_transparency)
-        add_item("Obfuscate Text...", self._do_obfuscate_text)
+        # "Find & Redact Text...", not Windows' own "Obfuscate Text" -
+        # see ui/text_obfuscation_dialog.py's module docstring for why
+        # (collides with the separate manual Obfuscate tool, and
+        # "Obfuscate" undersells the Highlight-based effect choices).
+        add_item("Find & Redact Text...", self._do_obfuscate_text)
         menu.show_all()
         self._refresh_remove_transparency_visibility()
         return menu

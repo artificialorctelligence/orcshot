@@ -1309,6 +1309,51 @@ obfuscation/highlight effect to every match, with a live preview before committi
   the layer and is undoable, and confirmed `EditorWindow._ocr_result` cached the real OCR run for
   reuse.
 
+#### Follow-up from real-world testing (2026-08-12): confidence filtering, Solid Fill, rename
+direflail tested this against a real captured screenshot (a game-result list mixing avatar photos,
+icons, and text at varying sizes/styles) and found three real gaps, each confirmed via a synthetic
+reproduction of the same layout pattern (never the original screenshot itself, per this project's
+screenshot-privacy rule):
+
+- **`parse_tesseract_tsv` needed a real confidence threshold, not just Tesseract's `-1` sentinel.**
+  Searching a username that appeared twice (once as a bold link, once in smaller gray "personal
+  note" text) only found one occurrence in **Words** scope, and switching to **Lines** scope made
+  things *worse* - it grabbed a whole adjacent avatar photo along with the text. Root-caused with a
+  synthetic reproduction (a noisy random-pixel "avatar" blob next to real rendered text, run through
+  the real `tesseract` binary): Tesseract emitted a genuine word-level TSV row over the noise blob -
+  `text="Ne"`, `conf=7.6` - which the old filter (`conf < 0`, only Tesseract's exact "not text at
+  all" placeholder value) let straight through. That garbage word's bounds then polluted whichever
+  line it got grouped into. Fixed by raising the bar to `DEFAULT_MIN_CONFIDENCE = 30` (`core/ocr.py`)
+  - a conventional "trust this" cutoff for Tesseract's 0-100 confidence scale, not tuned against a
+  specific corpus. Re-verified against the same synthetic reproduction: the `"Ne"` row is gone from
+  the parsed result entirely.
+  - **Lines scope itself is left as a known, real limitation**, not something this fix resolves -
+    Tesseract's own paragraph/line layout analysis is unreliable on dense mixed icon+text UI
+    screenshots (it merged unrelated visual elements into one logical "line" in the failing case).
+    The practical workaround, confirmed live: stay in **Words** scope and use **Regex** mode with an
+    alternation covering every way the identifier might have been tokenized (e.g. `Sensitive|Ad-4-U`)
+    - each fragment matches independently regardless of how Tesseract split the original string, and
+    adjacent fragments read as one continuous redaction since they sit next to each other in the
+    image. Verified live on the same synthetic reproduction: 2 clean matches, no icon exposure, with
+    the confidence fix in place.
+- **Solid Fill added as a 5th effect choice** (`ObfuscateMode.SOLID_FILL`, task #60/#86 - no Windows
+  precedent), alongside Pixelize/Blur/Text Highlight/Magnification. direflail's live testing was a
+  direct demonstration of why: this feature's whole purpose is finding and redacting sensitive text,
+  and Pixelize/Blur are both documented-reversible via public depixelation tools (same caveat as the
+  manual Obfuscate tool, since it's the identical `ObfuscateShape`/`filters.py` rendering path -
+  task #60's anti-depixelation hardening already applies here automatically, no extra work needed).
+  Windows never built a Solid Fill mode at all, so adding it here isn't excluding something Windows
+  deliberately chose not to show (unlike AREA_HIGHLIGHT/GRAYSCALE, which Windows explicitly excludes
+  by name in `TextObfuscationForm.cs:83`) - there was nothing to be unfaithful to. Effect default
+  stays Pixelize (`effect_index: 0`, matching Windows), not silently switched to Solid Fill.
+- **Renamed "Obfuscate Text..." to "Find & Redact Text..."** in this port's Effects dropdown only
+  (Windows' own `obfuscateTextToolStripMenuItem` name is unchanged in every citation). direflail
+  flagged, also from live testing, that the original name collides with the separate manual
+  "Obfuscate" tool (task #54/#59) and that "Obfuscate" specifically undersells the feature now that
+  its effect choices include Highlight-based ones (Text Highlight/Magnification) alongside
+  Obfuscate-based ones - "Redact" describes the outcome rather than one specific shape type, so it
+  stays accurate regardless of which effect is picked.
+
 ### Undo/redo
 **Status: done at the pure-data-model level** (`src/orcshot/core/history.py`) — a generic
 `UndoRedoStack` engine plus mementos over `Layer` (add/delete/change an element, batched as one

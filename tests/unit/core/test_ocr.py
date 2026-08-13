@@ -63,6 +63,27 @@ class TestParseTesseractTsv:
         assert len(result.lines) == 1
         assert result.lines[0].text == "world"
 
+    def test_low_confidence_word_is_dropped_even_though_not_the_negative_sentinel(self):
+        # A likely misread of non-text image content (an icon, a photo)
+        # rather than Tesseract's own "not text" placeholder - see
+        # DEFAULT_MIN_CONFIDENCE's docstring.
+        tsv = (
+            "level\tpage_num\tblock_num\tpar_num\tline_num\tword_num\tleft\ttop\twidth\theight\tconf\ttext\n"
+            "5\t1\t1\t1\t1\t1\t10\t5\t50\t15\t12.0\tblob\n"
+            "5\t1\t1\t1\t1\t2\t70\t5\t60\t15\t93.2\tworld\n"
+        )
+        result = parse_tesseract_tsv(tsv)
+        assert len(result.lines) == 1
+        assert result.lines[0].text == "world"
+
+    def test_min_confidence_is_configurable(self):
+        tsv = (
+            "level\tpage_num\tblock_num\tpar_num\tline_num\tword_num\tleft\ttop\twidth\theight\tconf\ttext\n"
+            "5\t1\t1\t1\t1\t1\t10\t5\t50\t15\t12.0\tblob\n"
+        )
+        assert not parse_tesseract_tsv(tsv).has_content
+        assert parse_tesseract_tsv(tsv, min_confidence=0).has_content
+
 
 class TestApplyPadding:
     def test_no_padding_or_offset_is_a_no_op(self):

@@ -1,4 +1,4 @@
-"""Obfuscate Text (task #100) - faithful port of
+"""Find & Redact Text (task #100) - faithful port of
 ImageEditorForm.ObfuscateTextToolStripMenuItemClick
 (ImageEditorForm.cs:1724-1768) and TextObfuscationForm
 (TextObfuscationForm.cs): runs OCR on the editor's base image, then
@@ -6,29 +6,48 @@ lets the user search the recognized text (by word or by line, plain
 substring or regex) and apply an obfuscation/highlight effect to every
 match, with a live preview before committing.
 
+Displayed as "Find & Redact Text..." in this port's Effects dropdown,
+not Windows' own "Obfuscate Text" - direflail flagged live-testing
+that the original name collides with the separate manual "Obfuscate"
+drawing tool (task #54/#59), and that "Obfuscate" specifically implies
+only ObfuscateShape results when this feature's effect choices also
+include HighlightShape ones (Text Highlight/Magnification). "Redact"
+names the outcome instead of a specific shape type, so it stays
+accurate regardless of which effect is picked.
+
 Deliberately not ported from TextObfuscationForm:
 - The collapsible "Advanced settings" group - everything is shown at
   once here instead. A UX-chrome simplification only; every underlying
   setting (padding, offset, regex, case-sensitivity) is still present.
 - AREA_HIGHLIGHT/GRAYSCALE as effect choices - Windows' own dropdown
   excludes them too ("Exclude AREA_HIGHLIGHT and GRAYSCALE as
-  requested", TextObfuscationForm.cs:83), and this port's own
-  SOLID_FILL/SCRAMBLE obfuscate modes (task #60, no Windows precedent)
-  aren't offered here either, matching Windows' 4-item list exactly:
-  Pixelize, Blur, Text Highlight, Magnification.
+  requested", TextObfuscationForm.cs:83). SCRAMBLE (task #60, no
+  Windows precedent either) is left out for the same reason.
 - Settings persistence across app restarts (EditorConfiguration.
   TextObfuscationSearchPattern/UseRegex/etc.) - session-only here
   (EditorWindow._text_obfuscation_settings), the same deliberate scope
   reduction already made for Drop Shadow/Torn Edge Settings.
 
+Deliberately added beyond TextObfuscationForm's own 4-item effect list
+(Pixelize/Blur/Text Highlight/Magnification): Solid Fill (task #60/#86,
+no Windows precedent). Live-testing this feature against a real
+capture surfaced exactly the scenario Solid Fill exists for - Pixelize
+and Blur are reversible via public depixelation tools (see
+core/filters.py's own docstrings and REQUIREMENTS.md's task #60
+writeup), which matters more here than in the manual Obfuscate tool
+since this feature's entire purpose is finding and redacting sensitive
+text, not general-purpose stylistic obfuscation. Left out of Windows'
+own dropdown only because Windows never built Solid Fill as a mode at
+all - not a deliberate Windows design choice to exclude it, so adding
+it here isn't a faithfulness break.
+
 Not unit tested - GTK dialog glue with live OCR/preview state, same as
 destination_picker.py/first_run_setup.py (see their own docstrings).
 The pure logic it calls into (core/ocr.py's find_matches/apply_padding/
 parse_tesseract_tsv) is fully tested there instead. Verified live:
-ran Obfuscate Text against a real capture containing text, searched a
-known word, confirmed the preview box tracked it exactly, applied it,
-and confirmed the resulting ObfuscateShape is undoable like any other
-add.
+ran this against a real capture containing text, searched a known
+word, confirmed the preview box tracked it exactly, applied it, and
+confirmed the resulting shape is undoable like any other add.
 """
 
 from __future__ import annotations
@@ -46,14 +65,18 @@ from orcshot.core.shapes import HighlightMode, HighlightShape, ObfuscateMode, Ob
 from orcshot.ui.ocr import run_tesseract_ocr, tesseract_available
 
 _DEBOUNCE_MS = 300
+_DIALOG_TITLE = "Find & Redact Text"
 
 # (label, mode-key) - mode-key is either an ObfuscateMode or a
 # HighlightMode; _make_shape below dispatches on which one it is.
-# Order/labels match effectComboBox's own InitializeEffectDropdown
-# (TextObfuscationForm.cs:79-87).
+# Order/labels otherwise match effectComboBox's own
+# InitializeEffectDropdown (TextObfuscationForm.cs:79-87); Solid Fill
+# is this port's own addition (see module docstring), grouped with the
+# other two ObfuscateMode entries.
 _EFFECT_CHOICES = (
     ("Pixelize", ObfuscateMode.PIXELIZE),
     ("Blur", ObfuscateMode.BLUR),
+    ("Solid Fill", ObfuscateMode.SOLID_FILL),
     ("Text Highlight", HighlightMode.TEXT_HIGHLIGHT),
     ("Magnification", HighlightMode.MAGNIFICATION),
 )
@@ -63,16 +86,21 @@ _EFFECT_CHOICES = (
 # paddingHorizontalUpDown=10, paddingVerticalUpDown=20,
 # offsetHorizontalUpDown=0, offsetVerticalUpDown=-5,
 # highlightColorButton=Color.Yellow, effectComboBox index 0 = Pixelize,
-# searchScopeComboBox index 0 = Words). Imported by editor_window.py to
-# seed EditorWindow._text_obfuscation_settings - always copy it
-# (``dict(DEFAULT_TEXT_OBFUSCATION_SETTINGS)``), never assign directly,
-# since every EditorWindow instance would otherwise share one mutable
-# dict.
+# searchScopeComboBox index 0 = Words) - effect_index 0 is still
+# Pixelize (Solid Fill was inserted at index 2, after Blur, not before
+# Pixelize), kept as the default despite Solid Fill being the stronger
+# redaction choice, matching Windows' own default rather than silently
+# opinionating a different one; solid_fill_color defaults to
+# ObfuscateShape's own SOLID_FILL default (opaque black). Imported by
+# editor_window.py to seed EditorWindow._text_obfuscation_settings -
+# always copy it (``dict(DEFAULT_TEXT_OBFUSCATION_SETTINGS)``), never
+# assign directly, since every EditorWindow instance would otherwise
+# share one mutable dict.
 DEFAULT_TEXT_OBFUSCATION_SETTINGS = {
     "search_text": "", "use_regex": False, "case_sensitive": False, "scope": SCOPE_WORDS,
-    "effect_index": 0, "pixel_size": 5, "blur_radius": 5, "highlight_color": (255, 255, 0, 255),
-    "magnification_factor": 2, "padding_horizontal": 10, "padding_vertical": 20,
-    "offset_horizontal": 0, "offset_vertical": -5,
+    "effect_index": 0, "pixel_size": 5, "blur_radius": 5, "solid_fill_color": (0, 0, 0, 255),
+    "highlight_color": (255, 255, 0, 255), "magnification_factor": 2, "padding_horizontal": 10,
+    "padding_vertical": 20, "offset_horizontal": 0, "offset_vertical": -5,
 }
 
 
@@ -87,6 +115,8 @@ def _info_dialog(parent, text: str, secondary: str = None, message_type=Gtk.Mess
 
 
 def _make_shape(bounds: Rect, mode, settings: dict):
+    if mode == ObfuscateMode.SOLID_FILL:
+        return ObfuscateShape(bounds=bounds, mode=mode, fill_color=settings["solid_fill_color"])
     if isinstance(mode, ObfuscateMode):
         amount = settings["pixel_size"] if mode == ObfuscateMode.PIXELIZE else settings["blur_radius"]
         return ObfuscateShape(bounds=bounds, mode=mode, amount=amount)
@@ -96,8 +126,9 @@ def _make_shape(bounds: Rect, mode, settings: dict):
 
 
 def do_obfuscate_text(editor) -> None:
-    """Entry point wired to the Effects dropdown's "Obfuscate Text"
-    item - runs OCR (once per editor, cached on editor._ocr_result;
+    """Entry point wired to the Effects dropdown's "Find & Redact
+    Text..." item (see module docstring for the naming rationale) -
+    runs OCR (once per editor, cached on editor._ocr_result;
     invalidated by base_image's setter, see its own docstring) then
     opens the search dialog. Faithful to
     ObfuscateTextToolStripMenuItemClick's own message-box gates
@@ -106,7 +137,7 @@ def do_obfuscate_text(editor) -> None:
     """
     if not tesseract_available():
         _info_dialog(
-            editor, "Obfuscate Text",
+            editor, _DIALOG_TITLE,
             "Tesseract OCR is not installed. Install the tesseract-ocr package to use this feature.",
             message_type=Gtk.MessageType.WARNING,
         )
@@ -121,14 +152,14 @@ def do_obfuscate_text(editor) -> None:
         try:
             editor._ocr_result = run_tesseract_ocr(editor.base_image)
         except Exception as exc:
-            _info_dialog(editor, "Obfuscate Text", f"OCR failed: {exc}", message_type=Gtk.MessageType.ERROR)
+            _info_dialog(editor, _DIALOG_TITLE, f"OCR failed: {exc}", message_type=Gtk.MessageType.ERROR)
             return
         finally:
             if window is not None:
                 window.set_cursor(None)
 
     if not editor._ocr_result.has_content:
-        _info_dialog(editor, "Obfuscate Text", "No text found in this image.")
+        _info_dialog(editor, _DIALOG_TITLE, "No text found in this image.")
         return
 
     _TextObfuscationDialog(editor, editor._ocr_result).run()
@@ -142,7 +173,7 @@ class _TextObfuscationDialog:
         self._preview_shapes: list = []
         self._debounce_id = None
 
-        dialog = Gtk.Dialog(title="Obfuscate Text", transient_for=editor)
+        dialog = Gtk.Dialog(title=_DIALOG_TITLE, transient_for=editor)
         dialog.add_buttons(Gtk.STOCK_CANCEL, Gtk.ResponseType.CANCEL, "Apply", Gtk.ResponseType.OK)
         dialog.set_default_size(420, -1)
         self._dialog = dialog
@@ -201,6 +232,13 @@ class _TextObfuscationDialog:
         grid.attach(self._blur_radius_spin, 1, row, 1, 1)
         row += 1
 
+        self._solid_fill_color_label = Gtk.Label(label="Fill color:", xalign=0)
+        grid.attach(self._solid_fill_color_label, 0, row, 1, 1)
+        self._solid_fill_color_button = Gtk.ColorButton()
+        self._solid_fill_color_button.set_rgba(_color_to_rgba(self._settings["solid_fill_color"]))
+        grid.attach(self._solid_fill_color_button, 1, row, 1, 1)
+        row += 1
+
         self._highlight_color_label = Gtk.Label(label="Highlight color:", xalign=0)
         grid.attach(self._highlight_color_label, 0, row, 1, 1)
         self._highlight_color_button = Gtk.ColorButton()
@@ -245,7 +283,8 @@ class _TextObfuscationDialog:
         for widget, signal in (
             (self._search_entry, "changed"), (self._regex_check, "toggled"), (self._case_check, "toggled"),
             (self._scope_combo, "changed"), (self._pixel_size_spin, "value-changed"),
-            (self._blur_radius_spin, "value-changed"), (self._highlight_color_button, "color-set"),
+            (self._blur_radius_spin, "value-changed"), (self._solid_fill_color_button, "color-set"),
+            (self._highlight_color_button, "color-set"),
             (self._magnification_spin, "value-changed"), (self._padding_h_spin, "value-changed"),
             (self._padding_v_spin, "value-changed"), (self._offset_h_spin, "value-changed"),
             (self._offset_v_spin, "value-changed"),
@@ -271,6 +310,8 @@ class _TextObfuscationDialog:
         self._pixel_size_spin.set_visible(mode == ObfuscateMode.PIXELIZE)
         self._blur_radius_label.set_visible(mode == ObfuscateMode.BLUR)
         self._blur_radius_spin.set_visible(mode == ObfuscateMode.BLUR)
+        self._solid_fill_color_label.set_visible(mode == ObfuscateMode.SOLID_FILL)
+        self._solid_fill_color_button.set_visible(mode == ObfuscateMode.SOLID_FILL)
         self._highlight_color_label.set_visible(mode == HighlightMode.TEXT_HIGHLIGHT)
         self._highlight_color_button.set_visible(mode == HighlightMode.TEXT_HIGHLIGHT)
         self._magnification_label.set_visible(mode == HighlightMode.MAGNIFICATION)
@@ -293,6 +334,7 @@ class _TextObfuscationDialog:
             "scope": SCOPE_WORDS if self._scope_combo.get_active() == 0 else SCOPE_LINES,
             "effect_index": self._effect_combo.get_active(), "pixel_size": int(self._pixel_size_spin.get_value()),
             "blur_radius": int(self._blur_radius_spin.get_value()),
+            "solid_fill_color": _rgba_to_color(self._solid_fill_color_button.get_rgba()),
             "highlight_color": _rgba_to_color(self._highlight_color_button.get_rgba()),
             "magnification_factor": int(self._magnification_spin.get_value()),
             "padding_horizontal": int(self._padding_h_spin.get_value()),
