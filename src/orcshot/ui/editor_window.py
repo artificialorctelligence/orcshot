@@ -1065,6 +1065,8 @@ class EditorWindow(Gtk.Window):
         add_item(edit_menu, "Redo", self._do_redo)
         edit_menu.append(Gtk.SeparatorMenuItem())
         add_item(edit_menu, "Copy", self._do_copy)
+        edit_menu.append(Gtk.SeparatorMenuItem())
+        add_item(edit_menu, "Insert Window...", self._do_insert_window)
 
         object_menu = add_menu("Object")
         add_item(object_menu, "Delete", self._do_delete)
@@ -2468,6 +2470,38 @@ class EditorWindow(Gtk.Window):
         self.selected_shape = shape
         self.undo_redo.push(AddElementMemento(self.layer, shape))
         self._drawing_area.queue_draw()
+
+    def _do_insert_window(self) -> None:
+        """Windows' Insert_window_toolstripmenuitem
+        (ImageEditorForm.Designer.cs, last item in the Edit menu after
+        a separator) captures another open window and drops it in via
+        Surface.AddImageContainer at a fixed natural size
+        (ImageEditorForm.cs:1717-1802, Surface.cs:843-854) - populated
+        from a hover submenu of window titles built by
+        MainForm.AddCaptureWindowMenuItems. This port reuses its own
+        click-to-select window-picker overlay instead of building that
+        submenu, then places the result the same way _do_insert_image
+        does (default_insert_bounds, not a fixed position) so it's
+        consistent with every other insert path here. force_plain_overlay
+        skips the GNOME-Shell-native fast path since it has no hook to
+        hand an image back without going through the destination
+        picker - see window_picker.start_window_picker's docstring.
+        """
+        self._commit_text_editing_if_active()
+
+        def on_captured(image, cursor_shape) -> None:
+            img_h, img_w = image.shape[:2]
+            base_h, base_w = self._base_image.shape[:2]
+            bounds = default_insert_bounds(img_w, img_h, base_w, base_h)
+            shape = ImageShape(bounds=bounds, image=image)
+            self.layer.add(shape)
+            self.selected_shape = shape
+            self.undo_redo.push(AddElementMemento(self.layer, shape))
+            self._drawing_area.queue_draw()
+
+        from orcshot.ui.window_picker import start_window_picker
+
+        start_window_picker(on_window_captured=on_captured, force_plain_overlay=True, capture_mouse_cursor=False)
 
     def _do_print(self) -> None:
         self._commit_text_editing_if_active()

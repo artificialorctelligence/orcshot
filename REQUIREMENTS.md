@@ -794,6 +794,38 @@ already in `_BOUNDS_RESIZABLE`, so no extra work needed there). Confirmed live: 
   state the way scripted `set_filename()` + immediate `response()` does. Cancel-only dialog tests
   (used everywhere else so far) never exercised this path, which is why it hadn't shown up before.
 
+**Insert Window (task #99) — done.** Windows' `Insert_window_toolstripmenuitem`
+(`ImageEditorForm.Designer.cs`, last item in the Edit menu after a separator) shows a hover submenu
+of every open window's title (built by `MainForm.AddCaptureWindowMenuItems`,
+`ImageEditorForm.cs:1717-1802`); clicking one captures it and drops it in via
+`Surface.AddImageContainer(bitmap, 100, 100)` (`Surface.cs:843-854`) - a fixed position at the
+image's natural size, then re-activates the editor. This port doesn't build that hover submenu -
+it reuses the same click-to-select overlay `ui/window_picker.py` already built for the "Capture
+Window" tray/hotkey action, rather than a second window-enumeration UI. `start_window_picker`
+gained two parameters for this: `on_window_captured(image, cursor_shape)`, which bypasses the
+usual destination-picker popup entirely and hands the captured image straight back to the caller,
+and `force_plain_overlay=True`, which skips the GNOME-Shell-native fast path under Wayland (that
+path's own overlay shows Shell-side destination *choices* itself, with no hook to hand an image
+back to a specific already-open editor - see `GnomeShellWindowPicker`'s docstring) so Insert Window
+behaves the same on every platform, not just wherever the bundled Shell extension happens to be
+missing. `EditorWindow._do_insert_window` wires this to the same `default_insert_bounds` +
+`ImageShape` + `AddElementMemento` pattern as Insert Image, so the inserted window is centered/
+scaled-to-fit and immediately movable/resizable like anything else - a deliberate deviation from
+Windows' fixed-position, natural-size placement, chosen for consistency with every other insert
+path in this port rather than matching the original pixel-for-pixel. `capture_mouse_cursor=False`
+matches the tray's own "Capture Window..." menu item.
+- **Known gap, not silently dropped**: `force_plain_overlay=True` means Insert Window never uses
+  the GNOME-Shell-native picker's nicer overlay under Wayland, even when the bundled extension is
+  present - it always falls back to the plain click-to-select overlay instead. Acceptable since the
+  plain overlay is already Wayland's own fallback path for everything else when the extension isn't
+  available; revisit only if `GnomeShellWindowPicker` grows a hand-back-the-image hook.
+- Verified live (X11/Mint) with `FakeCaptureBackend`/`FakeWindowEnumerator` injected via
+  `backend_select.default_capture_backend`/`default_window_enumerator_and_activator` - never a real
+  desktop grab, per this project's standing screenshot-privacy rule. Triggered
+  `_do_insert_window()`, simulated a click on a fake window through the real
+  `WindowPickerWindow._on_button_press` handler, and confirmed a new `ImageShape` lands in
+  `editor.layer`, is undoable (`undo_redo.can_undo`), and renders selected/centered on the canvas.
+
 #### Text-editing rewrite: Gtk.TextView overlay (task #78, complete 2026-08-08)
 **Status: done, verified live (X11/Mint - Wayland unaffected, this is in-process widget
 composition, not a separate compositor surface).** Root cause of "text tool draws a rectangle

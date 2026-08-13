@@ -213,7 +213,7 @@ class WindowPickerWindow(Gtk.Window):
 def start_window_picker(
     capture_backend: CaptureBackend = None, window_enumerator: WindowEnumerator = None, on_captured=None,
     capture_mouse_cursor: bool = True, cursor_backend: CursorBackend = None,
-    window_activator: WindowActivator = None,
+    window_activator: WindowActivator = None, on_window_captured=None, force_plain_overlay: bool = False,
 ):
     """Show the overlay and show the destination picker on whichever
     window gets clicked. Backends are injectable (for tests/fakes); the
@@ -223,6 +223,20 @@ def start_window_picker(
     with the bundled Shell extension available, right after a capture
     completes - see below) - OrcshotApplication uses this to
     remember the region for "repeat last region".
+
+    ``on_window_captured(image, cursor_shape)``, if given, replaces the
+    usual destination-picker popup entirely - task #99's "Insert
+    Window" uses this to drop the captured window straight into an
+    already-open editor's layer instead of asking where to send it.
+    ``force_plain_overlay`` skips the GNOME-Shell-native fast path even
+    when available: that path's own overlay shows Shell-side
+    destination *choices* itself (see GnomeShellWindowPicker's
+    docstring) with no hook for "hand the image back to this specific
+    editor instead" - Insert Window always uses the plain click-to-
+    capture overlay (the same one Wayland sessions without the bundled
+    extension already fall back to) so the feature works uniformly
+    everywhere, not just where the Shell extension happens to be
+    unavailable.
 
     Under Wayland, prefers GnomeShellWindowPicker (the bundled
     orcshot-clipboard extension's Shell-side hover-select-
@@ -234,7 +248,7 @@ def start_window_picker(
     window, this function's X11 path below, doesn't work there)
     otherwise.
     """
-    if os.environ.get("XDG_SESSION_TYPE") == "wayland":
+    if os.environ.get("XDG_SESSION_TYPE") == "wayland" and not force_plain_overlay:
         from orcshot.capture.gnome_window_picker import is_available as gnome_shell_capture_available
 
         if gnome_shell_capture_available():
@@ -266,6 +280,13 @@ def start_window_picker(
     ):
         if on_captured is not None:
             on_captured(window_info.bounds)
+
+        if on_window_captured is not None:
+            on_window_captured(image, cursor_shape)
+            if anchor_monitor_window is not None:
+                anchor_monitor_window.destroy()
+            return
+
         from orcshot.ui.destination_picker import show_destination_picker
 
         gdk_anchor = anchor_monitor_window.get_window() if anchor_monitor_window is not None else None
