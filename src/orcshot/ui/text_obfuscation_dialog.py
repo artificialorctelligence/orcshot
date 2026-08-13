@@ -84,23 +84,38 @@ _EFFECT_CHOICES = (
 # Matches TextObfuscationForm.Designer.cs's own control defaults
 # (pixelSizeUpDown=5, blurRadiusUpDown=5, magnificationUpDown=2,
 # paddingHorizontalUpDown=10, paddingVerticalUpDown=20,
-# offsetHorizontalUpDown=0, offsetVerticalUpDown=-5,
-# highlightColorButton=Color.Yellow, effectComboBox index 0 = Pixelize,
-# searchScopeComboBox index 0 = Words) - effect_index 0 is still
-# Pixelize (Solid Fill was inserted at index 2, after Blur, not before
-# Pixelize), kept as the default despite Solid Fill being the stronger
-# redaction choice, matching Windows' own default rather than silently
-# opinionating a different one; solid_fill_color defaults to
-# ObfuscateShape's own SOLID_FILL default (opaque black). Imported by
-# editor_window.py to seed EditorWindow._text_obfuscation_settings -
-# always copy it (``dict(DEFAULT_TEXT_OBFUSCATION_SETTINGS)``), never
-# assign directly, since every EditorWindow instance would otherwise
-# share one mutable dict.
+# offsetHorizontalUpDown=0, highlightColorButton=Color.Yellow,
+# effectComboBox index 0 = Pixelize, searchScopeComboBox index 0 =
+# Words) - effect_index 0 is still Pixelize (Solid Fill was inserted at
+# index 2, after Blur, not before Pixelize), kept as the default
+# despite Solid Fill being the stronger redaction choice, matching
+# Windows' own default rather than silently opinionating a different
+# one; solid_fill_color defaults to ObfuscateShape's own SOLID_FILL
+# default (opaque black).
+#
+# offset_vertical is a deliberate deviation from Windows' own default
+# (-5, TextObfuscationForm.Designer.cs) - confirmed live against a real
+# screenshot that apply_padding's offset *shifts* the whole box rather
+# than expanding it, so for a typical short OCR word ("Stewart", raw
+# bounds only 13px tall) a fixed 5px upward shift left ~4px of the
+# actual glyphs exposed below the box while padding a few extra pixels
+# of empty space above instead - visibly incomplete redaction, not a
+# subtle rounding difference. Taller text (e.g. a bold headline) barely
+# notices the same fixed shift, which is why this only showed up on
+# some words and not others. -5 was presumably tuned against Windows'
+# own OCR engine's bounds, which may already be looser than Tesseract's
+# tighter ones - it doesn't generalize here, so the default is 0
+# (still user-adjustable via the spinner, just not clipping by
+# default). Imported by editor_window.py to seed EditorWindow.
+# _text_obfuscation_settings - always copy it
+# (``dict(DEFAULT_TEXT_OBFUSCATION_SETTINGS)``), never assign directly,
+# since every EditorWindow instance would otherwise share one mutable
+# dict.
 DEFAULT_TEXT_OBFUSCATION_SETTINGS = {
     "search_text": "", "use_regex": False, "case_sensitive": False, "scope": SCOPE_WORDS,
     "effect_index": 0, "pixel_size": 5, "blur_radius": 5, "solid_fill_color": (0, 0, 0, 255),
     "highlight_color": (255, 255, 0, 255), "magnification_factor": 2, "padding_horizontal": 10,
-    "padding_vertical": 20, "offset_horizontal": 0, "offset_vertical": -5,
+    "padding_vertical": 20, "offset_horizontal": 0, "offset_vertical": 0,
 }
 
 
@@ -184,7 +199,14 @@ class _TextObfuscationDialog:
 
         search_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
         self._search_entry = Gtk.Entry()
-        self._search_entry.set_text(self._settings["search_text"])
+        # Deliberately never pre-filled from self._settings["search_text"]
+        # (unlike every other field here) - confirmed live this reads as
+        # a real bug, not a convenience: reopening the dialog silently
+        # re-ran the previous search and repainted its preview boxes,
+        # which looked exactly like an undone edit somehow coming back.
+        # A fresh search each time avoids that; every other setting
+        # (regex/case/scope/effect/colors/padding/offset) still persists,
+        # since those read as preferences rather than leftover state.
         self._search_entry.set_placeholder_text("Search text (min. 3 characters)...")
         search_row.pack_start(self._search_entry, True, True, 0)
         content.pack_start(search_row, False, False, 0)

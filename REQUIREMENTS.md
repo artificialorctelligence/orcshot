@@ -1388,6 +1388,24 @@ it was silently truncating OCR results on *any* image where recognized text happ
 unbalanced quote character, which is not a rare occurrence in real screenshots (quoted text, smart
 quotes, apostrophes misread as `"`, stray punctuation).
 
+#### Two more real-world findings (2026-08-12): search box persistence, offset_vertical default
+- **Search text no longer pre-fills on reopen.** direflail reported reopening the dialog looked like
+  a previously-undone redaction was somehow coming back - it was actually the persisted search text
+  (`EditorWindow._text_obfuscation_settings["search_text"]`) silently re-running the last search and
+  repainting its live preview the instant the dialog opened. Every other setting still persists
+  (regex/case/scope/effect/colors/padding/offset - those read as preferences); only the search box
+  itself now always starts empty.
+- **`offset_vertical` default changed from Windows' own `-5` to `0`.** direflail found "Stewart" only
+  half-redacted while "FOOTAGE" (bold, larger) redacted cleanly, on the same image with the same
+  settings. Traced with real bounds from the actual file: `apply_padding`'s offset *shifts* the whole
+  box rather than expanding it, and "Stewart"'s raw OCR bounds are only 13px tall - a fixed 5px
+  upward shift is nearly 40% of that height, so the box's bottom edge ends up 4px above the real
+  glyphs while a few pixels of empty space above get redacted instead of them. Tall text barely
+  notices the same fixed shift, which is exactly why this looked word-dependent rather than
+  systematic. Windows' own `-5` default was presumably tuned against its own OCR engine's bounds,
+  which may already run looser than Tesseract's tighter ones - it doesn't generalize here. `0` never
+  clips by construction; still user-adjustable via the spinner for anyone who wants to nudge it.
+
 ### Undo/redo
 **Status: done at the pure-data-model level** (`src/orcshot/core/history.py`) — a generic
 `UndoRedoStack` engine plus mementos over `Layer` (add/delete/change an element, batched as one
