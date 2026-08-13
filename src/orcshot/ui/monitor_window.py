@@ -86,19 +86,28 @@ class MonitorWindow(Gtk.Window):
 
         self.set_app_paintable(True)
         self.set_decorated(False)
-        # X11's overlays (region_select.py/window_picker.py/
-        # eyedropper.py) never request this explicitly and still get
-        # real per-pixel transparency where they need it (the
-        # eyedropper's fully-see-through backdrop) - X11 compositing
-        # window managers apparently supply an RGBA visual by default.
-        # Confirmed live that Wayland does not: without this, the
-        # eyedropper's overlay rendered as solid black instead of
-        # transparent. Harmless for region-select/window-picker, which
-        # always paint a full opaque-ish backdrop themselves regardless.
-        screen = self.get_screen()
-        rgba_visual = screen.get_rgba_visual() if screen is not None else None
-        if rgba_visual is not None:
-            self.set_visual(rgba_visual)
+        # Deliberately no RGBA-visual request here (task #84 follow-up)
+        # - a previous version of this class requested one specifically
+        # for the eyedropper's originally-attempted real per-pixel
+        # transparency (without it, that overlay rendered solid black
+        # instead of see-through). Since abandoned: eyedropper_wayland.py's
+        # own module docstring documents that genuine transparency never
+        # survives fullscreen_on_monitor() under this GNOME/Mutter
+        # session at all - Mutter's own deliberate policy of forcing
+        # fullscreen surfaces opaque for scanout-performance reasons,
+        # not something fixable from client code - which is exactly why
+        # every Wayland overlay (this one included) paints its own full
+        # opaque backdrop bitmap instead of relying on transparency.
+        # Requesting an RGBA visual anyway was pure unnecessary cost from
+        # that point on: an alpha-channel visual typically forces a
+        # compositor onto its slower alpha-blending-aware compositing
+        # path even when every pixel painted is fully opaque, which
+        # nothing here has needed since the frozen-backdrop redesign -
+        # a real, if unconfirmed-by-measurement, candidate contributor
+        # to task #84's directional tearing on fast drags (worse under
+        # a software-rendered compositor specifically), and pure waste
+        # for region-select/window-picker regardless, which never
+        # requested this in the first place before it was added here.
         # No set_keep_above(True) here, unlike the X11 overlays this
         # mirrors: those are POPUP windows that need the hint to stay
         # on top at all. These are already inherently topmost via

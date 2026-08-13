@@ -61,7 +61,9 @@ on already-destroyed MonitorWindows).
 
 from __future__ import annotations
 
+import cairo
 import gi
+import math
 
 gi.require_version("Gdk", "3.0")
 from gi.repository import Gdk, GLib
@@ -73,6 +75,20 @@ from orcshot.ui.magnifier import draw_magnifier
 from orcshot.ui.monitor_window import MonitorWindow, create_monitor_windows, destroy_all
 
 
+def _union_rect(a, b):
+    """The smallest (x, y, w, h) rect covering both ``a`` and ``b`` -
+    ``a`` may be None (nothing to union with yet). See
+    _redraw_loupe's own docstring for why this exists: one combined
+    invalidated region per window per frame, not two separate ones."""
+    if a is None:
+        return b
+    ax, ay, aw, ah = a
+    bx, by, bw, bh = b
+    x = min(ax, bx)
+    y = min(ay, by)
+    return x, y, max(ax + aw, bx + bw) - x, max(ay + ah, by + bh) - y
+
+
 class _WaylandEyedropperOverlay:
     def __init__(self, capture_backend: CaptureBackend, on_picked, on_cancelled=None):
         self._capture_backend = capture_backend
@@ -81,7 +97,6 @@ class _WaylandEyedropperOverlay:
         self._layout = capture_backend.screen_layout()
         self._bounds = self._layout.virtual_bounds
         self._frozen_image = None
-        self._surfaces = {}
         self._dragging = False
         self._patch = None
         self._patch_cursor = None
@@ -92,6 +107,11 @@ class _WaylandEyedropperOverlay:
         # and isn't scoped to any particular main loop - checked at
         # the top of _load_backdrop before it touches anything.
         self._alive = True
+        # Task #84 - see _redraw_loupe's own docstring: the last
+        # invalidated loupe+swatch rect per window, so the next redraw
+        # only repaints where content actually changed instead of the
+        # whole fullscreen backdrop.
+        self._last_draw_rect: dict = {}
 
         self._monitor_windows = create_monitor_windows(
             self._layout.monitors,
@@ -101,7 +121,6 @@ class _WaylandEyedropperOverlay:
             on_button_release=self._on_button_release,
             on_key_press=self._on_key_press,
         )
-        self._window_index = {window: index for index, window in enumerate(self._monitor_windows)}
 
     def show(self) -> None:
         """Shows every per-monitor window; the frozen backdrop itself
@@ -122,11 +141,6 @@ class _WaylandEyedropperOverlay:
             return False
         try:
             self._frozen_image = self._capture_backend.grab(self._bounds)
-            for index, monitor in enumerate(self._layout.monitors):
-                top = monitor.bounds.top - self._bounds.top
-                left = monitor.bounds.left - self._bounds.left
-                image_slice = self._frozen_image[top:top + monitor.bounds.height, left:left + monitor.bounds.width]
-                self._surfaces[index] = numpy_to_cairo_surface(image_slice)
             for window in self._monitor_windows:
                 window.queue_draw()
         except Exception:
@@ -157,35 +171,104 @@ class _WaylandEyedropperOverlay:
     def _on_button_press(self, global_x: int, global_y: int) -> None:
         self._dragging = True
         self._sample(global_x, global_y)
-        for window in self._monitor_windows:
-            window.queue_draw()
+        self._redraw_loupe()
 
     def _on_motion(self, global_x: int, global_y: int) -> None:
         if not self._dragging:
             return
         self._sample(global_x, global_y)
+        self._redraw_loupe()
+
+    # Loupe+swatch bounding box, relative to dest_pos - generously
+    # padded rather than measured exactly against the real text (which
+    # would need a scratch Cairo context just to call text_extents
+    # before the actual draw), sized to comfortably cover
+    # _LOUPE_OFFSET+_LOUPE_DIAMETER (18+80) plus the color-hex swatch
+    # drawn below it. See _redraw_loupe's docstring for why this exists.
+    _LOUPE_REGION_MARGIN = 2
+    _LOUPE_REGION_SIZE = 124
+
+    def _redraw_loupe(self) -> None:
+        """Task #84 (originally task #71's own follow-up note): every
+        motion event used to call plain queue_draw() on every monitor
+        window, invalidating (and forcing a full backdrop re-blit +
+        loupe redraw for) the *entire* fullscreen surface on every
+        single frame, even though only a small region around the
+        cursor actually changes - the documented leading hypothesis for
+        the directional flicker/shearing reported on fast drags,
+        especially under a software-rendered compositor (this project's
+        only Wayland test hardware). Fixed by invalidating just the
+        loupe+swatch's own region via queue_draw_area instead of the
+        whole window - GTK/Cairo automatically clips _on_draw's
+        painting to whatever region was actually invalidated, so
+        _on_draw itself needed no changes. For the window currently
+        under the cursor, the old (last-drawn) and new rects are
+        unioned into a single queue_draw_area call (_union_rect) rather
+        than two separate ones - under fast movement those two rects
+        often don't overlap, and a single combined region removes
+        "two distinct damage regions composited into the same frame"
+        as a variable while chasing directional tearing that persisted
+        even after this fix (still open, still task #84). Every other
+        window's stale old rect (if any, e.g. right after the cursor
+        crosses from one monitor to another) still gets cleared on its
+        own so a leftover loupe doesn't linger there.
+        """
+        active_window = None
+        if self._cursor_global is not None:
+            for window in self._monitor_windows:
+                if window.monitor_bounds.contains(*self._cursor_global):
+                    active_window = window
+                    break
+
         for window in self._monitor_windows:
-            window.queue_draw()
+            old_rect = self._last_draw_rect.get(window)
+            if window is active_window:
+                local_x, local_y = window.to_local(*self._cursor_global)
+                new_rect = (
+                    local_x - self._LOUPE_REGION_MARGIN, local_y - self._LOUPE_REGION_MARGIN,
+                    self._LOUPE_REGION_SIZE, self._LOUPE_REGION_SIZE,
+                )
+                # One combined queue_draw_area call per window, not two
+                # separate ones (erase-old, draw-new) - under fast
+                # movement those two rects usually don't overlap, so
+                # each frame would be composited from two distinct
+                # damage regions instead of one. Collapsing to a single
+                # bounding rect removes that as a variable while
+                # digging into task #84's directional tearing.
+                window.queue_draw_area(*_union_rect(old_rect, new_rect))
+                self._last_draw_rect[window] = new_rect
+            elif old_rect is not None:
+                window.queue_draw_area(*old_rect)
+                self._last_draw_rect[window] = None
 
-    def _on_draw(self, window: MonitorWindow, ctx) -> None:
-        index = self._window_index[window]
-        surface = self._surfaces.get(index)
-        if surface is not None:
-            ctx.set_source_surface(surface, 0, 0)
-            ctx.paint()
-
-        if self._patch is None or self._cursor_global is None:
-            return
-        if not window.monitor_bounds.contains(*self._cursor_global):
-            return
-        local_x, local_y = window.to_local(*self._cursor_global)
+    def _build_loupe_surface(self) -> cairo.ImageSurface:
+        """Pre-composites the magnified circle, its ring, crosshair,
+        and color swatch onto a small off-screen buffer in one
+        self-contained pass - entirely in memory, no interaction with
+        the real window. Tried while digging into task #84's
+        directional tearing after two other real, measured
+        improvements (region-size reduction, single-damage-region
+        collapsing in _redraw_loupe) still left it only reduced, not
+        eliminated: this reduces _on_draw's own work against the real
+        window to a single small blit for all of this, instead of
+        five-plus separate Cairo operations (arc-clip+paint, ring
+        stroke, two crosshair lines, swatch rectangle+text) each
+        landing directly on the window's own backing surface, any one
+        of which could be the actual boundary where a partial/torn
+        frame gets caught under this compositor.
+        """
+        size = self._LOUPE_REGION_SIZE
+        surface = cairo.ImageSurface(cairo.FORMAT_ARGB32, size, size)
+        ctx = cairo.Context(surface)
+        origin = (self._LOUPE_REGION_MARGIN, self._LOUPE_REGION_MARGIN)
         draw_magnifier(
             ctx, self._patch, self._patch_cursor, _LOUPE_OFFSET, _LOUPE_DIAMETER,
-            source_size=_PATCH_SIZE, dest_pos=(local_x, local_y),
+            source_size=_PATCH_SIZE, dest_pos=origin,
         )
         r, g, b, a = self._current_color
         text = f"#{r:02X}{g:02X}{b:02X}"
-        x, y = local_x + _LOUPE_OFFSET[0], local_y + _LOUPE_OFFSET[1] + _LOUPE_DIAMETER + 4
+        x = origin[0] + _LOUPE_OFFSET[0]
+        y = origin[1] + _LOUPE_OFFSET[1] + _LOUPE_DIAMETER + 4
         ctx.save()
         ctx.select_font_face("sans-serif")
         ctx.set_font_size(13)
@@ -198,6 +281,46 @@ class _WaylandEyedropperOverlay:
         ctx.move_to(x, y)
         ctx.show_text(text)
         ctx.restore()
+        return surface
+
+    def _on_draw(self, window: MonitorWindow, ctx) -> None:
+        # Slices only the actually-invalidated region straight out of
+        # the raw frozen pixels, instead of painting (even if clipped)
+        # from one big cached per-monitor surface covering the whole
+        # window - another lever tried while digging into task #84's
+        # directional tearing, on top of the region-size/single-region/
+        # pre-composited-loupe fixes above: every per-frame operation
+        # now touches genuinely small data end to end, nothing sized to
+        # the full monitor at all. ctx.clip_extents() reads back
+        # exactly the rectangle GTK already invalidated for this draw
+        # (the whole window on the very first paint after
+        # _load_backdrop, a small queue_draw_area rect on every
+        # subsequent one) - no need to track or guess it separately.
+        if self._frozen_image is not None:
+            cx1, cy1, cx2, cy2 = ctx.clip_extents()
+            left = max(0, int(cx1))
+            top = max(0, int(cy1))
+            right = min(window.monitor_bounds.width, int(math.ceil(cx2)))
+            bottom = min(window.monitor_bounds.height, int(math.ceil(cy2)))
+            if right > left and bottom > top:
+                global_left, global_top = window.to_global(left, top)
+                src_left = global_left - self._bounds.left
+                src_top = global_top - self._bounds.top
+                slice_ = self._frozen_image[src_top:src_top + (bottom - top), src_left:src_left + (right - left)]
+                if slice_.shape[0] > 0 and slice_.shape[1] > 0:
+                    ctx.set_source_surface(numpy_to_cairo_surface(slice_), left, top)
+                    ctx.paint()
+
+        if self._patch is None or self._cursor_global is None:
+            return
+        if not window.monitor_bounds.contains(*self._cursor_global):
+            return
+        local_x, local_y = window.to_local(*self._cursor_global)
+        loupe_surface = self._build_loupe_surface()
+        ctx.set_source_surface(
+            loupe_surface, local_x - self._LOUPE_REGION_MARGIN, local_y - self._LOUPE_REGION_MARGIN,
+        )
+        ctx.paint()
 
     def _on_button_release(self, global_x: int, global_y: int) -> None:
         self._alive = False

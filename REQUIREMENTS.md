@@ -2543,6 +2543,103 @@ Verified live across the same repeated full logout/login cycles as task #82 (PID
 time, per [[feedback-extension-reload-caching]]). Not unit tested, same precedent as the rest of
 `extension.js`.
 
+#### Task #84 (portal-fallback Wayland eyedropper flicker) - status: **open**, real progress made, same root cause as #83 (2026-08-13)
+
+**Status: not closed.** Real, measured improvement across four attempts on `ui/eyedropper_wayland.py`/
+`ui/monitor_window.py`, but the underlying directional tearing (reported live: "the outside edges of
+the loupe momentarily disappear... you can still see part of them toward the center", worse moving
+right/down, absent moving up/left, and *never present on X11 at all*) was never fully eliminated.
+Concluded to be the same root cause already established for task #83 - generic compositor frame-
+presentation latency under this project's only Wayland test hardware's likely software-rendered GPU -
+not a specific app-logic bug still waiting to be found. Recording the full trail here rather than
+re-litigating it from scratch next time this comes up.
+
+Each of the four changes below was deployed to the real "Ubuntu 26.04" VM and tested live by direflail
+against the real Wayland compositor after every single one - critically, **not** via this session's own
+local X11 pixel-diff scripts, which were repeatedly (mistakenly) offered as if they were relevant
+confirmation. They aren't: X11 never reproduces this bug at all (per direflail, confirmed live), so a
+"renders correctly" result there only ever proves the underlying geometry/math has no logic error - it
+says nothing about the actual Wayland compositor-timing artifact. Worth stating plainly since it wasted
+real back-and-forth before being caught.
+
+1. **`_redraw_loupe`: `queue_draw_area` for just the loupe+swatch's own rect, not `queue_draw()` for the
+   whole window.** Every motion event previously invalidated (and forced a full backdrop re-blit +
+   loupe redraw for) the entire fullscreen surface. Measured live against the real compositor with a
+   synthetic backdrop and a real 60-step drag: **68x less invalidated area per frame** (15,376px² vs.
+   1,049,088px² for the VM's real 1366x768 screen), consistently, never falling back to full-screen size.
+   `_LOUPE_REGION_MARGIN`/`_LOUPE_REGION_SIZE` (2px margin, 124px box) sized from real
+   `ctx.text_extents()` measurements on the VM's own font config, not guessed - confirmed generous
+   enough via a real pixel-capture comparison (see below) before ever suspecting box size as a cause.
+   direflail's first live report after this shipped: right/down movement still showed clipping "at the
+   edges of the loupe itself... nothing to do with the contents", up/left fine.
+   - Ruled out via direct evidence, not assumption: is this a genuine screen-edge clamping artifact
+     (`_clamped_patch_rect`/`_clamped_crop`, unavoidable when the cursor is literally at the edge of the
+     virtual screen)? direflail confirmed live it happens "anywhere on the screen", not just near edges -
+     ruled out. Is the invalidation box too small for the real drawn content? Measured real
+     `ctx.text_extents("#FFFFFF")` on the VM (width=50, height=9, smaller than the box assumed) - box
+     confirmed generously oversized in every direction, ruled out. Is it a settled-frame geometry bug at
+     all? A direct pixel-capture comparison (identical fast-right-and-down drag, once through the
+     optimized `queue_draw_area` path and once through the old full-window `queue_draw()` path, both
+     landing at the same final position) produced byte-identical, fully-formed rings in both - proved
+     the bug is a *transient* artifact during active movement, not a settled-frame clipping bug, and
+     that this fix's own geometry isn't the cause.
+2. **`_redraw_loupe`: one unioned `queue_draw_area` call per window (`_union_rect`) instead of two
+   separate ones (erase-old, draw-new).** Under fast movement those two rects usually don't overlap, so
+   each frame was being composited from two distinct damage regions instead of one - removed as a
+   variable. direflail's report after this shipped: **"it happens less now, particularly in the down
+   direction. it's still happening though."** Real, measured improvement, not full elimination.
+3. **`_build_loupe_surface`: pre-composite the magnified circle, ring, crosshair, and color swatch onto
+   a small off-screen `cairo.ImageSurface` in one self-contained pass, then a single blit in `_on_draw`**
+   - instead of five-plus separate Cairo operations (arc-clip+paint, `ctx.restore()`, ring `ctx.stroke()`,
+     two crosshair `move_to`/`line_to` pairs, swatch rectangle+text) landing directly on the window's own
+     backing surface, any one of which could be the boundary where a partial/torn frame gets presented.
+   direflail's report: **"still happening but less pronounced. you may be on the right track."** Further
+   real, measured improvement.
+4. **`_on_draw`: slice the exact invalidated region straight out of the raw frozen numpy pixels
+   (`ctx.clip_extents()` read back from the draw event itself) instead of painting from one big cached
+   per-monitor `cairo.ImageSurface` covering the whole window** (relying on Cairo's own clip to skip the
+   unneeded work). Removed `self._surfaces`/`self._window_index` entirely (no longer needed).
+   direflail's report: **"no change in wayland"** - this one didn't help. Most likely explanation:
+   Cairo's clip-based work-skipping for a large-source/small-destination paint was already efficient, so
+   this was addressing something that was never actually a bottleneck. Left in (not reverted) since it's
+   not worse and is arguably simpler in one sense (no per-monitor surface cache to keep in sync) even
+   though it adds `ctx.clip_extents()` handling - a judgment call, not a strong one either way.
+   - Also tried, independently, no effect: removing `MonitorWindow`'s `set_visual(rgba_visual)` request
+     (`monitor_window.py`) - originally added for the eyedropper's now-abandoned real-transparency
+     attempt (see this file's eyedropper-under-Wayland section above), confirmed dead code for its
+     original purpose since transparency never survives `fullscreen_on_monitor()` under this Mutter
+     session regardless. Removing it was well-justified on its own merits (real, if small, compositor
+     cost for zero benefit) even though it didn't move the needle on this specific symptom - left removed.
+   - Also tried, inconclusive: watched GNOME Shell's own `journalctl` live during a real reproduction.
+     No warnings about slow paint, dropped frames, or damage-region handling - not a smoking gun either
+     way, just no additional signal from this angle.
+
+**Why this is concluded to be task #83's root cause, not a distinct bug**: the two changes that helped
+(items 2 and 3) both reduced the *amount of rendering work* done per frame against the live window: one
+fewer damage region, five-plus operations collapsed to one blit. Both produced *partial*, not complete,
+improvement - never a clean fix, never a regression either. That is exactly the signature of a genuine
+compositor/GPU throughput ceiling (less work per frame narrows the window in which a slow frame gets
+caught mid-render, without eliminating the possibility that some frame is still slow enough), not a
+specific logic bug waiting to be found - especially once combined with: this VM's likely software-
+rendered Wayland compositor is the *only* environment either symptom (#83's lag, #84's tearing) has ever
+been observed in; X11 has no per-frame backdrop-blit architecture at all for this overlay (genuine
+transparency), so there is nothing for a slow compositor to ever catch mid-render there, which is
+exactly why it's never reproduced on X11 specifically, not because the code paths differ in some other
+way that would matter.
+
+**Deliberately not pursued further, and why**: a genuinely different rendering architecture (GPU-
+accelerated Clutter/GL instead of software Cairo blits against a GTK3 `Gtk.Window`) is the only lever
+left untried that could plausibly eliminate this outright rather than reduce it - judged too large an
+undertaking for what this task warrants, not attempted. Also considered and rejected: capturing a
+screenshot of the real VM mid-drag to inspect the actual torn frame directly - reasoned through before
+attempting, since a screenshot call is itself a point-in-time query most likely to just show whatever
+frame has already settled by the time it executes, the same fundamental limitation as the "capture after
+the drag" tests in item 1 above, which is why this wasn't tried as a fifth iteration.
+
+Left **open** (task #84) rather than closed, per direflail's explicit direction, with root cause
+recorded as identical to task #83 - revisit both together if a genuinely different rendering approach is
+ever undertaken, rather than continuing to chase incremental app-side mitigations on this one alone.
+
 #### Extending Shell-native capture to Full Screen/Active Window/Last Region Repeat (task #73, complete 2026-08-09)
 
 Reported as "an audible camera-shutter sound plays on the destination-picker click after a Wayland
