@@ -1240,8 +1240,7 @@ anywhere in `ImageEditorForm.cs`, so they're correctly out of scope, not missing
   all with synthetic image data, never real desktop content.
 
 ### Obfuscate Text / OCR (task #100, faithful port of `ObfuscateTextToolStripMenuItemClick`/`TextObfuscationForm`)
-**Status: done, live-verified except the real Tesseract subprocess call itself** (this dev machine
-didn't have `tesseract-ocr` installed at implementation time - see below). Windows' 7th Effects
+**Status: done, fully live-verified including a real Tesseract process.** Windows' 7th Effects
 dropdown item (`ImageEditorForm.cs:1724-1768`): runs OCR on the capture, then opens
 `TextObfuscationForm` (`TextObfuscationForm.cs`) to search the recognized text and apply an
 obfuscation/highlight effect to every match, with a live preview before committing.
@@ -1299,15 +1298,16 @@ obfuscation/highlight effect to every match, with a live preview before committi
   without it, a resize/rotate/crop after the first OCR run would leave every match's bounds silently
   misaligned with the (differently-shaped) current image - a deliberate, documented improvement over
   a narrow reading of the source, not a faithfulness gap.
-- **Not live-verified against a real Tesseract process**: `tesseract-ocr` wasn't installed on this
-  dev machine when this was implemented (no passwordless sudo available to this session; the user was
-  asked to install it via `sudo apt-get install -y tesseract-ocr` themselves). Everything downstream
-  of "having an `OcrResult`" *is* live-verified end-to-end (constructed a real `EditorWindow`, injected
-  a synthetic `OcrResult` with known words/bounds, drove the actual dialog through search → preview →
-  effect-switch → Apply → undo, and separately confirmed the missing-tesseract warning dialog fires
-  correctly) - the only untested seam is `run_tesseract_ocr`'s subprocess call and Tesseract's real
-  TSV output shape against `parse_tesseract_tsv`, which is tested against a synthetic TSV fixture
-  matching the documented format instead. Revisit once Tesseract is actually installed here.
+- **Live-verified against a real Tesseract process** (after the user installed `tesseract-ocr`):
+  rendered a synthetic PNG with real Pango/Cairo text ("Confidential Report" / "SSN 123-45-6789",
+  never real desktop content), ran `run_tesseract_ocr` directly against it - correct word text, exact
+  bounding boxes, and correct 2-line grouping, confirming `parse_tesseract_tsv`'s column/key
+  assumptions match Tesseract's real `--tsv` output, not just the hand-written fixture in
+  `test_ocr.py`. Then ran the full pipeline through a real `EditorWindow` and the actual
+  `do_obfuscate_text` entry point (not a synthetic `OcrResult` injected directly): searched
+  "Confidential", got one real preview match, applied it, confirmed a real `ObfuscateShape` landed in
+  the layer and is undoable, and confirmed `EditorWindow._ocr_result` cached the real OCR run for
+  reuse.
 
 ### Undo/redo
 **Status: done at the pure-data-model level** (`src/orcshot/core/history.py`) — a generic
