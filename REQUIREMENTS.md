@@ -4055,6 +4055,83 @@ session scratch files, not the repo - not reproduced here since they were supers
 that mattered is: **a sparse ring or face outline doesn't carry enough visual information at this
 dot count/spacing to read as representational art** - a dense, filled cluster with 2-3 colors does.
 
+## Menu bar rebuild: File/Edit/Object/Zoom/Help (task #95, part 1 - complete 2026-08-13)
+
+Grounded in the real menu structure (`ImageEditorForm.Designer.cs:589-595`'s `menuStrip1.Items`), not the
+initial assumption the task was filed under. Real Windows has **File/Edit/Object/Plugin[hidden unless
+plugins load]/Zoom/Help** — no top-level "Image" menu exists there at all (this port's own "Image" menu
+was down to one item, "Clear", after tasks #89/#90 already moved effects/rotate/resize to the toolbar),
+and **Zoom genuinely is a top-level menu** — `zoomMainMenuItem` sits directly in `menuStrip1.Items`
+alongside File/Edit/Object/Help (line 594), sharing the exact same `zoomMenuStrip` the status-bar
+`zoomStatusDropDownBtn` also opens (lines 1735, 1891) — two real entry points to one menu, not one. This
+port's own prior comment claiming "Windows has no top-level zoom menu either" (removed) was simply wrong.
+
+**Menu bar icons added throughout**, reusing the toolbar's existing symbolic icon names
+(`document-save-symbolic`, `edit-cut-symbolic`, etc. - `_build_action_toolbar` already established these)
+plus the hand-drawn tool icons (`tool_icon_image`) for Object's shape items - matching real Windows, where
+menu and toolbar share one bitmap per action (e.g. `copyToolStripMenuItem.Image` is literally the same
+resource as its toolbar button's).
+
+**File**: Save (new - see below), Save As... (renamed from the old "Save...", same dialog-driven
+behavior), Copy to Clipboard, Print..., Insert Image/SVG... (this port's own additions, no Windows
+File-menu equivalent - kept anyway, File remains the most sensible home), Screenshot Save Location...
+(also our own addition, kept in File per direflail's call), Close.
+
+**Save vs. Save As... split (new)**: real Windows distinguishes a silent "Save" (writes immediately to a
+preferred location/filename, no dialog) from "Save As..." (always dialog-driven). This port's existing
+"Save..." was actually always dialog-driven - closer to Save As. `_do_quick_save` is the new silent Save,
+reusing the exact mechanism `ui/destination_picker.py`'s own "Save" destination already used
+(`quick_save_filename`/`get_output_directory`/`consume_filename_counter`) rather than a second
+implementation. Still writes a fixed `.png` with the existing hardcoded timestamp pattern - real
+configurable "preferred file settings" (filename pattern, primary format) are Output-tab work, part 2 of
+this task, not done yet.
+
+**Edit**: Undo, Redo, Cut/Copy/Paste (a real fix along the way - this menu's old "Copy" wrongly called the
+whole-image `_do_copy`; real Windows' `cutToolStripMenuItem`/`copyToolStripMenuItem`/`pasteToolStripMenuItem`
+are grouped with Undo/Redo and act on the *selected shape*, matching `_do_cut_shape`/`_do_copy_shape`/
+`_do_paste_shape` instead - the whole-image copy stays in File as "Copy to Clipboard", always-available
+regardless of selection, matching Windows' own split), Duplicate (new - `_do_duplicate`, same offset-copy-
+and-select pattern as Paste, sourced from the current selection instead of the shape clipboard),
+Preferences... (menu-ifies the existing toolbar-only `_do_show_settings`), Set Up Hotkeys & Autostart...
+(temporary placement next to Preferences - belongs inside a rebuilt Preferences>General per real Windows'
+`groupbox_hotkeys`, not done yet, part 2), Insert Window... (ours, kept over Windows' per direflail - "I
+like our insert window better than theirs"), Clear All (moved here from the now-removed Image menu).
+
+**Object**: the 8 add-shape items (Rectangle/Ellipse/Line/Arrow/Freehand/Text/Speech Bubble/Counter)
+mirroring the tool palette - each wired via `self._tool_buttons[tool].set_active(True)` (not
+`self.tool = ...` directly) so the palette's own radio-button pressed state stays in sync, the same
+pattern `_on_key_press`'s letter shortcuts already use. Delete. Arrange submenu (Bring to Top/Up One
+Level/Down One Level/Send to Bottom) - the "one level" pair is new UI (`_do_bring_forward`/
+`_do_send_backward`), but `Layer.bring_forward`/`send_backward` already existed fully unit-tested in
+`core/drawing.py` (`test_drawing.py`), just never wired to anything - real Windows'
+`upOneLevelToolStripMenuItem`/`downOneLevelToolStripMenuItem` confirmed this was a real gap, not a
+deliberate cut.
+
+**Not yet in Object**: Select All (needs real multi-select - this port's selection model is strictly
+single-shape throughout `editor_window.py`, confirmed via grep, no rubber-band/marquee select exists
+despite Tool.SELECT already being real from task #43; split into its own task, #125, rather than treated
+as a menu-wiring afterthought) and Save/Load Objects (needs the `.orcshot` file format, task #123, which
+doesn't exist yet).
+
+**Zoom**: new top-level menu, `_populate_zoom_menu` shared with the status bar's dropdown so the two can't
+drift apart (mirrors real Windows' own `zoomMainMenuItem`/`zoomStatusDropDownBtn` split). Icons only on
+Zoom In/Out, matching Windows - the percentage/Best Fit/Actual Size entries have no `.Image` set there
+either.
+
+**Help**: Online Help (new - opens `github.com/orcshot/orcshot` in a browser for now; real help-page
+content, probably a GitHub wiki page, is content-writing not code, tracked as a follow-up rather than
+blocking this) and About Orcshot.
+
+**Deliberately deferred to task #95 part 2** (Preferences dialog rebuild - 7 tabs matching
+`SettingsForm.Designer.cs`'s General/Capture/Output/Destinations/Printer/Plugins[dropped]/Expert, icon-
+size live resize, hotkey config relocation) and to their own split-off tasks (#123 `.orcshot` format, #124
+`.greenshot` NRBF export - confirmed via reading `GreenshotFileFormatHandler.cs`/`Surface.cs`/
+`BinaryFormatterHelper.cs` that real Windows' `.greenshot` format is PNG + a raw .NET BinaryFormatter/NRBF
+blob gated by an explicit type whitelist, genuinely buildable but scoped separately from `.orcshot` itself;
+#125 real multi-select). Live-verified (structural menu-tree walk + functional checks for tool-button
+sync/Duplicate/Arrange/quick-Save, synthetic solid-color test image, no real desktop content per this
+project's own verification discipline) and full suite green (926 passed, 3 skipped) before committing.
+
 ## Licensing
 
 **Status: decided — GPLv3.** Greenshot (Windows) is GPLv3; this is a derivative work — same feature

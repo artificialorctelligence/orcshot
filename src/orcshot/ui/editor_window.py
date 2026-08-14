@@ -109,7 +109,9 @@ import shutil
 import subprocess
 import tempfile
 import time
+import webbrowser
 from dataclasses import replace as dataclass_replace
+from datetime import datetime
 from fractions import Fraction
 from pathlib import Path
 
@@ -153,6 +155,7 @@ from orcshot.core.shapes import (
 )
 from orcshot.settings import (
     EXTERNAL_EDITOR_AUTO,
+    consume_filename_counter,
     get_capture_mouse_cursor,
     get_check_unstable_updates,
     get_external_editor_preference,
@@ -160,6 +163,7 @@ from orcshot.settings import (
     get_footer_pattern,
     get_output_directory,
     get_suppress_save_dialog_at_close,
+    quick_save_filename,
     set_capture_mouse_cursor,
     set_check_unstable_updates,
     set_external_editor_preference,
@@ -1069,14 +1073,25 @@ class EditorWindow(Gtk.Window):
         self._ocr_result = None
 
     def _build_menu_bar(self) -> Gtk.MenuBar:
-        """File/Edit/Object/Help, matching Windows Greenshot's editor
-        menu structure - only the items applicable to this port's
-        actual feature set (no Office/OneDrive/cloud destinations,
-        already out of scope - see REQUIREMENTS.md's "Explicitly cut"
-        section). Duplicates the toolbar/keyboard-shortcut actions
-        rather than replacing them - matching Windows, which has both.
+        """File/Edit/Object/Zoom/Help, matching real Windows Greenshot's
+        actual editor menu structure (ImageEditorForm.Designer.cs:589-
+        595's menuStrip1.Items - File/Edit/Object/Plugin[hidden]/Zoom/
+        Help; no top-level Image menu exists there at all, and Zoom
+        really is a top-level menu, not just the status-bar dropdown -
+        see _build_zoom_menu). Duplicates the toolbar/keyboard-shortcut
+        actions rather than replacing them - matching Windows, which
+        has both. Icons mirror the toolbar's own (menu and toolbar
+        share one icon set in Windows too - e.g. copyToolStripMenuItem.
+        Image is literally the same bitmap as its toolbar button).
+
+        Items intentionally NOT here yet, each blocked on its own
+        tracked task: Select All (task #125 - needs real multi-select,
+        this port only tracks one selected shape today) and Save/Load
+        Objects + a .orcshot Save As option (task #123 - the file
+        format doesn't exist yet).
         """
         menu_bar = Gtk.MenuBar()
+        icon_color = _rgba_to_color(menu_bar.get_style_context().get_color(Gtk.StateFlags.NORMAL))
 
         def add_menu(label: str) -> Gtk.Menu:
             menu = Gtk.Menu()
@@ -1085,57 +1100,186 @@ class EditorWindow(Gtk.Window):
             menu_bar.append(item)
             return menu
 
-        def add_item(menu: Gtk.Menu, label: str, handler) -> None:
-            item = Gtk.MenuItem(label=label)
+        def menu_item(label: str, handler, *, icon_name: str = None, icon_image: Gtk.Image = None) -> Gtk.MenuItem:
+            item = Gtk.MenuItem()
+            box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+            if icon_image is not None:
+                box.pack_start(icon_image, False, False, 0)
+            elif icon_name is not None:
+                box.pack_start(Gtk.Image.new_from_icon_name(icon_name, Gtk.IconSize.MENU), False, False, 0)
+            box.pack_start(Gtk.Label(label=label), False, False, 0)
+            item.add(box)
+            item.connect("activate", lambda _i: handler())
+            return item
+
+        def add_item(menu: Gtk.Menu, label: str, handler, *, icon_name: str = None, icon_image: Gtk.Image = None) -> None:
+            menu.append(menu_item(label, handler, icon_name=icon_name, icon_image=icon_image))
+
+        def add_submenu(menu: Gtk.Menu, label: str, *, icon_name: str = None) -> Gtk.Menu:
+            submenu = Gtk.Menu()
+            item = Gtk.MenuItem()
+            box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+            if icon_name is not None:
+                box.pack_start(Gtk.Image.new_from_icon_name(icon_name, Gtk.IconSize.MENU), False, False, 0)
+            box.pack_start(Gtk.Label(label=label), False, False, 0)
+            item.add(box)
+            item.set_submenu(submenu)
+            menu.append(item)
+            return submenu
+
+        file_menu = add_menu("File")
+        # Save = silent quick-save (preferred location, auto filename,
+        # no dialog) vs. Save As... = always dialog-driven - real
+        # Windows distinguishes these too (SaveToolStripMenuItem vs.
+        # SaveAsToolStripMenuItem is actually the *destination list*
+        # populated into fileStripMenuItem at runtime, see
+        # FileMenuDropDownOpening in the real source; this port's own
+        # "Save" toolbar button/destination-picker entry was already
+        # this exact quick-save mechanism, task #95 just menu-ifies it
+        # and gives dialog-driven saving its own honestly-named item
+        # rather than overloading "Save...").
+        add_item(file_menu, "Save", self._do_quick_save, icon_name="document-save-symbolic")
+        add_item(file_menu, "Save As...", self._do_save, icon_name="document-save-as-symbolic")
+        add_item(file_menu, "Copy to Clipboard", self._do_copy, icon_name="edit-copy-symbolic")
+        add_item(file_menu, "Print...", self._do_print, icon_name="document-print-symbolic")
+        file_menu.append(Gtk.SeparatorMenuItem())
+        add_item(file_menu, "Insert Image...", self._do_insert_image, icon_name="insert-image-symbolic")
+        add_item(file_menu, "Insert SVG...", self._do_insert_svg, icon_name="insert-image-symbolic")
+        file_menu.append(Gtk.SeparatorMenuItem())
+        add_item(file_menu, "Screenshot Save Location...", self._do_choose_save_location, icon_name="folder-symbolic")
+        file_menu.append(Gtk.SeparatorMenuItem())
+        add_item(file_menu, "Close", self.close, icon_name="window-close-symbolic")
+
+        edit_menu = add_menu("Edit")
+        add_item(edit_menu, "Undo", self._do_undo, icon_name="edit-undo-symbolic")
+        add_item(edit_menu, "Redo", self._do_redo, icon_name="edit-redo-symbolic")
+        edit_menu.append(Gtk.SeparatorMenuItem())
+        # Cut/Copy/Paste here act on the selected *shape*, matching
+        # real Windows' cutToolStripMenuItem/copyToolStripMenuItem/
+        # pasteToolStripMenuItem (grouped with Undo/Redo, all
+        # Enabled=false until something's selected) - the whole-image
+        # "Copy Image to Clipboard" destination lives in File instead,
+        # since that one's always available regardless of selection.
+        # Our previous Edit>Copy wrongly called the whole-image copy
+        # (_do_copy) - fixed here while rebuilding this menu.
+        add_item(edit_menu, "Cut", self._do_cut_shape, icon_name="edit-cut-symbolic")
+        add_item(edit_menu, "Copy", self._do_copy_shape, icon_name="edit-copy-symbolic")
+        add_item(edit_menu, "Paste", self._do_paste_shape, icon_name="edit-paste-symbolic")
+        edit_menu.append(Gtk.SeparatorMenuItem())
+        add_item(edit_menu, "Duplicate", self._do_duplicate, icon_name="edit-copy-symbolic")
+        edit_menu.append(Gtk.SeparatorMenuItem())
+        add_item(edit_menu, "Preferences...", self._do_show_settings, icon_name="preferences-system-symbolic")
+        # Temporary placement - real Windows keeps hotkey config inside
+        # Preferences>General (SettingsForm.Designer.cs's
+        # groupbox_hotkeys), which is where this belongs too once the
+        # Preferences dialog itself is rebuilt (task #95's own second
+        # half, not done yet) - sitting next to Preferences here in the
+        # meantime rather than disappearing.
+        add_item(edit_menu, "Set Up Hotkeys & Autostart...", self._do_show_setup, icon_name="preferences-desktop-keyboard-symbolic")
+        edit_menu.append(Gtk.SeparatorMenuItem())
+        add_item(edit_menu, "Insert Window...", self._do_insert_window, icon_name="list-add-symbolic")
+        edit_menu.append(Gtk.SeparatorMenuItem())
+        add_item(edit_menu, "Clear All", self._do_clear, icon_name="edit-clear-all-symbolic")
+
+        object_menu = add_menu("Object")
+        # Mirrors the tool palette's own shape tools (real Windows does
+        # the same - addRectangleToolStripMenuItem etc. duplicate the
+        # toolStrip1 buttons exactly). Reuses set_active(True) on the
+        # same RadioToolButtons the palette itself owns (not
+        # self.tool = ... directly) so the toolbar's own pressed state
+        # stays in sync - the identical pattern _on_key_press's letter
+        # shortcuts already use.
+        for tool, label in (
+            (Tool.RECTANGLE, "Rectangle"),
+            (Tool.ELLIPSE, "Ellipse"),
+            (Tool.LINE, "Line"),
+            (Tool.ARROW, "Arrow"),
+            (Tool.FREEHAND, "Freehand"),
+            (Tool.TEXT, "Text"),
+            (Tool.SPEECH_BUBBLE, "Speech Bubble"),
+            (Tool.STEP_LABEL, "Counter"),
+        ):
+            add_item(
+                object_menu, label,
+                lambda tool=tool: self._tool_buttons[tool].set_active(True),
+                icon_image=tool_icon_image(tool, icon_color),
+            )
+        object_menu.append(Gtk.SeparatorMenuItem())
+        add_item(object_menu, "Delete", self._do_delete, icon_name="edit-delete-symbolic")
+        object_menu.append(Gtk.SeparatorMenuItem())
+        arrange_menu = add_submenu(object_menu, "Arrange")
+        add_item(arrange_menu, "Bring to Top", self._do_bring_to_front, icon_name="go-top-symbolic")
+        add_item(arrange_menu, "Up One Level", self._do_bring_forward, icon_name="go-up-symbolic")
+        add_item(arrange_menu, "Down One Level", self._do_send_backward, icon_name="go-down-symbolic")
+        add_item(arrange_menu, "Send to Bottom", self._do_send_to_back, icon_name="go-bottom-symbolic")
+
+        zoom_menu = add_menu("Zoom")
+        self._populate_zoom_menu(zoom_menu)
+
+        help_menu = add_menu("Help")
+        add_item(help_menu, "Online Help", self._do_open_online_help, icon_name="help-browser-symbolic")
+        add_item(help_menu, "About Orcshot", self._do_show_about, icon_name="help-about-symbolic")
+
+        return menu_bar
+
+    def _populate_zoom_menu(self, menu: Gtk.Menu) -> None:
+        """Shared by the top-level Zoom menu (above) and the status
+        bar's zoom dropdown (_build_status_bar) - real Windows does the
+        same, zoomMainMenuItem and zoomStatusDropDownBtn both open the
+        exact same zoomMenuStrip (ImageEditorForm.Designer.cs:594,1735,
+        1891) rather than each owning a separate copy. Icons only on
+        Zoom In/Out, matching real Windows - the percentage/Best Fit/
+        Actual Size entries have no .Image set there either.
+        """
+
+        def add(label: str, handler, *, icon_name: str = None) -> None:
+            item = Gtk.MenuItem()
+            box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+            if icon_name is not None:
+                box.pack_start(Gtk.Image.new_from_icon_name(icon_name, Gtk.IconSize.MENU), False, False, 0)
+            box.pack_start(Gtk.Label(label=label), False, False, 0)
+            item.add(box)
             item.connect("activate", lambda _i: handler())
             menu.append(item)
 
-        file_menu = add_menu("File")
-        add_item(file_menu, "Save...", self._do_save)
-        add_item(file_menu, "Print...", self._do_print)
-        file_menu.append(Gtk.SeparatorMenuItem())
-        add_item(file_menu, "Insert Image...", self._do_insert_image)
-        add_item(file_menu, "Insert SVG...", self._do_insert_svg)
-        file_menu.append(Gtk.SeparatorMenuItem())
-        add_item(file_menu, "Screenshot Save Location...", self._do_choose_save_location)
-        file_menu.append(Gtk.SeparatorMenuItem())
-        add_item(file_menu, "Close", self.close)
+        add("Zoom In", self._do_zoom_in, icon_name="zoom-in-symbolic")
+        add("Zoom Out", self._do_zoom_out, icon_name="zoom-out-symbolic")
+        add("Best Fit", self._do_zoom_best_fit)
+        menu.append(Gtk.SeparatorMenuItem())
+        for level in ZOOM_LEVELS:
+            label = zoom_percent_label(level) + (" - Actual Size" if level == ACTUAL_SIZE_ZOOM else "")
+            add(label, lambda level=level: self._set_zoom(level))
+        menu.show_all()
 
-        edit_menu = add_menu("Edit")
-        add_item(edit_menu, "Undo", self._do_undo)
-        add_item(edit_menu, "Redo", self._do_redo)
-        edit_menu.append(Gtk.SeparatorMenuItem())
-        add_item(edit_menu, "Copy", self._do_copy)
-        edit_menu.append(Gtk.SeparatorMenuItem())
-        add_item(edit_menu, "Insert Window...", self._do_insert_window)
+    def _do_open_online_help(self) -> None:
+        """Placeholder target - real help-page content (probably a
+        GitHub wiki page) doesn't exist yet, tracked separately from
+        this menu-wiring task since it's content-writing, not code.
+        Opens the repo root in the meantime rather than a dead link.
+        """
+        webbrowser.open("https://github.com/orcshot/orcshot")
 
-        object_menu = add_menu("Object")
-        add_item(object_menu, "Delete", self._do_delete)
-        object_menu.append(Gtk.SeparatorMenuItem())
-        add_item(object_menu, "Bring to Front", self._do_bring_to_front)
-        add_item(object_menu, "Send to Back", self._do_send_to_back)
+    def _do_quick_save(self) -> None:
+        """Real Windows' silent "Save" - writes immediately to the
+        preferred output location with an auto-generated filename, no
+        dialog - distinct from "Save As..." (_do_save below, always
+        dialog-driven). Reuses the exact mechanism the destination
+        picker's own "Save" already uses (ui/destination_picker.py's
+        _quick_save) rather than a second implementation.
 
-        # Whole-image effects (core/effects.py + ui/effects.py) - the
-        # Border/Drop Shadow/Torn Edge/Grayscale/Invert/Remove
-        # Transparency group moved out of here into the toolbar's
-        # Effects dropdown (task #89, _build_effects_control/
-        # _build_effects_menu), and Rotate CW/CCW/Resize moved out into
-        # their own plain toolbar buttons (task #90,
-        # _build_action_button) - matching Windows' real toolbar
-        # layout for both. "Enlarge Canvas"/"Shrink Canvas" deliberately
-        # have no item here - Windows itself has no menu/toolbar entry
-        # for either, keyboard-only (Ctrl+Shift++ / Ctrl+Shift+-, see
-        # _on_key_press). Only "Clear" is left; a near-empty Image menu
-        # is an expected side effect of tasks #89/#90, not something to
-        # patch here - the menu bar's own structure is task #95's scope.
-        image_menu = add_menu("Image")
-        add_item(image_menu, "Clear", self._do_clear)
-
-        help_menu = add_menu("Help")
-        add_item(help_menu, "Set Up Hotkeys & Autostart...", self._do_show_setup)
-        add_item(help_menu, "About Orcshot", self._do_show_about)
-
-        return menu_bar
+        "Preferred file settings" (a configurable filename pattern +
+        primary format, matching Windows' Output tab) don't exist yet -
+        this always writes .png with the fixed timestamp pattern
+        quick_save_filename already used. Task #95's Preferences work
+        will make both configurable; this stays a thin wrapper so that
+        lands as a settings.py/quick_save_filename change, not a
+        rewrite here.
+        """
+        self._commit_text_editing_if_active()
+        directory = get_output_directory()
+        counter = consume_filename_counter()
+        save_image_to_file(self._composited_image(), directory / quick_save_filename(datetime.now(), counter))
+        self._saved_generation = self.undo_redo.generation
 
     def _do_show_setup(self) -> None:
         """Task #104: re-runs the first-run hotkey/autostart dialog on
@@ -2405,6 +2549,22 @@ class EditorWindow(Gtk.Window):
         self.undo_redo.push(AddElementMemento(self.layer, pasted))
         self._drawing_area.queue_draw()
 
+    def _do_duplicate(self) -> None:
+        """Edit > Duplicate (task #95, matches real Windows'
+        duplicateToolStripMenuItem/Ctrl+D) - same offset-copy-and-
+        select behavior as Paste above, just sourced from the current
+        selection directly instead of the shape clipboard, and without
+        touching it.
+        """
+        self._commit_text_editing_if_active()
+        if self.selected_shape is None:
+            return
+        duplicated = translate_shape(self.selected_shape, 20, 20)
+        self.layer.add(duplicated)
+        self.selected_shape = duplicated
+        self.undo_redo.push(AddElementMemento(self.layer, duplicated))
+        self._drawing_area.queue_draw()
+
     def _do_bring_to_front(self) -> None:
         # Deliberately not undoable yet - Layer has no z-order memento
         # type (only Add/Delete/ElementChange exist); reordering is
@@ -2415,6 +2575,25 @@ class EditorWindow(Gtk.Window):
         if self.selected_shape is None:
             return
         self.layer.bring_to_front([self.selected_shape])
+        self._drawing_area.queue_draw()
+
+    def _do_bring_forward(self) -> None:
+        """Object > Arrange > Up One Level (task #95) - Layer.
+        bring_forward already existed, fully unit tested, just never
+        wired to any UI control until now."""
+        self._commit_text_editing_if_active()
+        if self.selected_shape is None:
+            return
+        self.layer.bring_forward([self.selected_shape])
+        self._drawing_area.queue_draw()
+
+    def _do_send_backward(self) -> None:
+        """Object > Arrange > Down One Level (task #95) - mirrors
+        _do_bring_forward, see its comment."""
+        self._commit_text_editing_if_active()
+        if self.selected_shape is None:
+            return
+        self.layer.send_backward([self.selected_shape])
         self._drawing_area.queue_draw()
 
     def _do_send_to_back(self) -> None:
@@ -3339,10 +3518,11 @@ class EditorWindow(Gtk.Window):
     def _build_status_bar(self) -> Gtk.Box:
         """Bottom status bar - matches Windows' statusStrip1's
         dimensionsLabel + zoomStatusDropDownBtn (ImageEditorForm.
-        Designer.cs:59,224,271-277). The zoom control lives here, not
-        in the menu bar - Windows has no top-level zoom menu either,
-        only this dropdown (opening the same zoomMenuStrip) plus
-        keyboard shortcuts and Ctrl+wheel.
+        Designer.cs:59,224,271-277). Task #95 added a real top-level
+        Zoom menu too (_build_menu_bar) - confirmed via source that
+        Windows genuinely has both entry points sharing one
+        zoomMenuStrip, not just this dropdown; _populate_zoom_menu is
+        the shared builder so the two never drift apart.
         """
         bar = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
         bar.set_border_width(2)
@@ -3352,20 +3532,7 @@ class EditorWindow(Gtk.Window):
         bar.pack_start(self._dimensions_label, False, False, 4)
 
         zoom_menu = Gtk.Menu()
-
-        def add_zoom_item(label: str, handler) -> None:
-            item = Gtk.MenuItem(label=label)
-            item.connect("activate", lambda _i: handler())
-            zoom_menu.append(item)
-
-        add_zoom_item("Zoom In", self._do_zoom_in)
-        add_zoom_item("Zoom Out", self._do_zoom_out)
-        add_zoom_item("Best Fit", self._do_zoom_best_fit)
-        zoom_menu.append(Gtk.SeparatorMenuItem())
-        for level in ZOOM_LEVELS:
-            label = zoom_percent_label(level) + (" - Actual Size" if level == ACTUAL_SIZE_ZOOM else "")
-            add_zoom_item(label, lambda level=level: self._set_zoom(level))
-        zoom_menu.show_all()
+        self._populate_zoom_menu(zoom_menu)
 
         zoom_button = Gtk.MenuButton()
         self._zoom_label = Gtk.Label(label=zoom_percent_label(self._zoom))
@@ -3379,11 +3546,11 @@ class EditorWindow(Gtk.Window):
     # None of these are drawn annotation shapes - they transform the
     # entire captured image, faithfully porting Greenshot.Base/Effects/*
     # (see REQUIREMENTS.md's "Whole-image effects" section for the
-    # full per-effect citation trail). Grouped in a dedicated "Image"
-    # menu below (_build_menu_bar) rather than Windows' toolbar split-
-    # button - this port already uses a menu bar where Windows uses
-    # toolbar buttons for several other things (Insert Image, Print),
-    # so that's the established, consistent choice here, not a new one.
+    # full per-effect citation trail). Live in the toolbar's Effects
+    # dropdown (_build_effects_control, task #89) matching Windows'
+    # own toolStripSplitButton1 - there is and never was a menu-bar
+    # path for these (task #95 removed the "Image" menu, which by then
+    # only still held "Clear", not effects - see _do_clear's own note).
 
     def _apply_background_effect(self, new_image: np.ndarray, transform=None) -> None:
         """Applies any whole-image effect as one undoable step -
@@ -3450,6 +3617,9 @@ class EditorWindow(Gtk.Window):
         self._apply_background_effect(new_image, transform=lambda s: translate_shape(s, -rect.left, -rect.top))
 
     def _do_clear(self) -> None:
+        """Edit > Clear All (task #95 - moved here from a now-removed
+        "Image" menu that Windows never actually had; see
+        _build_menu_bar's own docstring)."""
         h, w = self._base_image.shape[:2]
         self._apply_background_effect(clear_image(w, h))
 
