@@ -4425,6 +4425,77 @@ strftime mode produces a correctly-formatted filename end-to-end (`20260814_0722
 tab gone) was walked structurally against the live dialog. Full suite green (966 passed, 3 skipped) before
 committing.
 
+## .orcshot file format + Object > Save/Load Objects (task #123, complete 2026-08-14)
+
+Real Windows Greenshot has two distinct ways to persist a shape layer, both grounded in
+`Greenshot.Editor/Drawing/Surface.cs` and `Greenshot.Editor/Forms/ImageEditorForm.cs`:
+
+- **A full `.greenshot` file** (`GreenshotFileFormatHandler.cs:49-133`): the captured image as PNG bytes,
+  followed by the shape layer serialized with .NET's `BinaryFormatter` (NRBF), followed by a length and an
+  ASCII version marker - PNG readers ignore the trailing bytes after `IEND`, so the file opens fine as a
+  plain screenshot anywhere that doesn't know about the trailer.
+- **Object > "Save objects to file" / "Load objects from file"** (`editor_save_objects`/`editor_load_objects`,
+  `language-en-US.xml:170,131`) - a *separate*, image-less feature: `Surface.SaveElementsToStream`/
+  `LoadElementsFromStream` (`Surface.cs:729-764`) serialize only the shape list (again via `BinaryFormatter`)
+  to a "Greenshot templates (`*.gst`)" file, wired to the Object menu directly after the Arrange submenu
+  (`ImageEditorForm.Designer.cs:734-736`, no separator between them) via `SaveFileDialog`/`OpenFileDialog`
+  (`ImageEditorForm.cs:1598-1628`). `LoadElementsFromStream` *adds* the loaded elements onto whatever's
+  already on the surface (`DeselectAllElements()` then `AddElements(loadedElements)`), it doesn't replace it.
+
+This port builds both shapes, **not byte-compatible with either** - `BinaryFormatter`/NRBF is impractical to
+hand-encode from Python (confirmed during task #124's own prior research, which is why #124 - a real NRBF
+writer for actual `.greenshot`/`.gst` interop - is tracked as a separate, harder, still-blocked task). Instead:
+
+- `core/orcshot_format.py` (pure Python + numpy, no GTK import at all - deliberately kept headless, mirroring
+  how `core/` stays GTK-free everywhere else): `serialize_shape`/`deserialize_shape` dispatch on `type(shape)`
+  exactly rather than `isinstance`, so `ArrowShape` (a `LineShape` subclass with no new fields, just a
+  different hit-test margin) round-trips as an Arrow, not a Line. Per-shape embedded images (Icon/Cursor/
+  Image shapes) are base64-encoded raw numpy bytes, not PNG - keeps this module free of any image-codec
+  dependency. `ObfuscateShape.seed` (`compare=False` on the dataclass, so it doesn't affect `==`) is still
+  explicitly serialized and restored, since it drives deterministic per-shape noise rendering - a lost/
+  regenerated seed wouldn't be caught by an equality check alone, only by comparing `.seed` directly.
+- `ui/orcshot_file.py` (GdkPixbuf-based, headless-testable like `ui/file_export.py`'s own precedent - no X11
+  connection needed despite living in `ui/`): `save_orcshot_file`/`load_orcshot_file` write the full
+  PNG-bytes + JSON-blob + 8-byte little-endian length + `b"ORCSHOT1"` marker container (same "PNG readers
+  ignore the trailer" trick as real `.greenshot`, confirmed live - a saved `.orcshot` file opens fine via
+  plain `GdkPixbuf.Pixbuf.new_from_file`). `save_objects_file`/`load_objects_file` are the separate,
+  image-less pair mirroring `SaveElementsToStream`/`LoadElementsFromStream` - plain JSON, no PNG/trailer
+  framing at all (there's no image portion for a PNG reader to fall back to, so pretending otherwise would be
+  misleading). `load_objects_file` transparently accepts *either* a Save-Objects file or a full `.orcshot`
+  file (image discarded) by checking for the trailer marker - reasonable either way, since pulling a shape
+  layer back out of a full file is a sensible thing to want.
+
+**UI wiring** in `ui/editor_window.py`: Save As... gained `"orcshot"` as a format choice
+(`"Orcshot (with shapes, task #123)"`), appended directly to the Save-As dialog's own format combo rather
+than to the shared `_SAVE_AS_FORMATS` list (which also backs the Output tab's "Primary format" dropdown) -
+real Windows' own `OutputFileFormat` setting explicitly excludes "greenshot" as a valid default/quick-save
+format too (`ICoreConfiguration.cs:130-132` lists only "bmp, gif, jpg, png, tiff"), so `.orcshot`/`.greenshot`
+is Save-As-only on both platforms, never a primary format. Choosing it saves `self._base_image` (the raw
+capture) + `self.layer` directly rather than the flattened `_composited_image()` - the whole point is keeping
+shapes separately editable. The Object menu gained "Save Objects..."/"Load Objects..." directly after Arrange
+(matching real Windows' own placement, no separator, per the Designer.cs citation above), using a plain
+`*.json` extension rather than claiming to write a real `.gst` file. Load Objects pushes one
+`AddElementMemento` per loaded shape (the only add-memento this port has - no bulk-load memento type exists,
+so undoing a multi-shape load takes multiple undos) and selects the last-loaded shape, standing in for real
+Windows' multi-element `SelectElements(loadedElements)` (this port only tracks one selected shape today -
+task #125). An invalid/corrupt file shows a `Gtk.MessageDialog` (`InvalidOrcshotFileError`'s message) rather
+than crashing.
+
+Deliberately out of scope for this pass: a general File > Open / MIME-type / double-click-to-open flow for
+`.orcshot` files - the task's own literal scope is "wire into Save As... and Object menu's Save/Load
+Objects," and `load_objects_file`'s own "accepts a full `.orcshot` file too" behavior already covers pulling
+shapes back out of a saved file without a dedicated Open flow. Flagged here as a real, known gap rather than
+silently built or silently dropped - not yet tracked as its own task.
+
+30 new unit tests (`test_orcshot_format.py`: one round-trip per shape type + the Arrow/Line and Obfuscate-seed
+cases above, 18 tests; `test_orcshot_file.py`: round-trip, PNG-backward-compat, invalid-file, and
+Save/Load-Objects cases, 12 tests). Live-verified end-to-end with a synthetic (non-desktop) test image and
+two synthetic shapes: Save As → `.orcshot` (image and shapes both round-trip, file still opens as a plain
+PNG), Object > Save Objects (writes a file), Object > Load Objects into a fresh window (populates the layer,
+sets a selection, is undoable - undoing both loads empties the layer again), and Object > Load Objects on a
+corrupt file (shows the error dialog, leaves the layer untouched, no crash). Full suite green (996 passed, 3
+skipped) before committing.
+
 ## Licensing
 
 **Status: decided — GPLv3.** Greenshot (Windows) is GPLv3; this is a derivative work — same feature

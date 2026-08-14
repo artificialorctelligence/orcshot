@@ -232,6 +232,7 @@ from orcshot.ui.composite import composite_to_numpy
 from orcshot.ui.effects import resize_image, torn_edge_image
 from orcshot.ui.gdk_convert import pixbuf_to_numpy
 from orcshot.ui.file_export import orcshot_cache_dir, save_image_to_file
+from orcshot.ui.orcshot_file import InvalidOrcshotFileError, load_objects_file, save_objects_file, save_orcshot_file
 from orcshot.ui.icons import (
     crop_icon_image, effects_icon_image, highlight_icon_image, obfuscate_icon_image, resize_icon_image,
     rotate_ccw_icon_image, rotate_cw_icon_image, tool_icon_image,
@@ -1098,11 +1099,9 @@ class EditorWindow(Gtk.Window):
         share one icon set in Windows too - e.g. copyToolStripMenuItem.
         Image is literally the same bitmap as its toolbar button).
 
-        Items intentionally NOT here yet, each blocked on its own
-        tracked task: Select All (task #125 - needs real multi-select,
-        this port only tracks one selected shape today) and Save/Load
-        Objects + a .orcshot Save As option (task #123 - the file
-        format doesn't exist yet).
+        Items intentionally NOT here yet, blocked on its own tracked
+        task: Select All (task #125 - needs real multi-select, this
+        port only tracks one selected shape today).
         """
         menu_bar = Gtk.MenuBar()
         icon_color = _rgba_to_color(menu_bar.get_style_context().get_color(Gtk.StateFlags.NORMAL))
@@ -1224,6 +1223,12 @@ class EditorWindow(Gtk.Window):
         add_item(arrange_menu, "Up One Level", self._do_bring_forward, icon_name="go-up-symbolic")
         add_item(arrange_menu, "Down One Level", self._do_send_backward, icon_name="go-down-symbolic")
         add_item(arrange_menu, "Send to Bottom", self._do_send_to_back, icon_name="go-bottom-symbolic")
+        # No separator here - real Windows' own objectToolStripMenuItem
+        # DropDownItems.AddRange puts saveElementsToolStripMenuItem/
+        # loadElementsToolStripMenuItem directly after arrangeToolStripMenuItem
+        # too (ImageEditorForm.Designer.cs:734-736).
+        add_item(object_menu, "Save Objects...", self._do_save_objects, icon_name="document-save-symbolic")
+        add_item(object_menu, "Load Objects...", self._do_load_objects, icon_name="document-open-symbolic")
 
         zoom_menu = add_menu("Zoom")
         self._populate_zoom_menu(zoom_menu)
@@ -2663,6 +2668,85 @@ class EditorWindow(Gtk.Window):
         self.layer.send_to_back([self.selected_shape])
         self._drawing_area.queue_draw()
 
+    def _do_save_objects(self) -> None:
+        """Object > "Save objects to file" (editor_save_objects,
+        language-en-US.xml:170) - real Windows' own
+        SaveElementsToStream (Surface.cs:729-745), saved via
+        SaveFileDialog to a "Greenshot templates (*.gst)" file
+        (ImageEditorForm.cs:1598-1611). Not byte-compatible with real
+        .gst (JSON via orcshot_format.py, not NRBF - task #123's own
+        scope; task #124 is the separate NRBF writer for real
+        .greenshot/.gst compatibility), so this uses its own "*.json"
+        extension rather than claiming to write a real .gst file.
+        """
+        self._commit_text_editing_if_active()
+        dialog = Gtk.FileChooserDialog(title="Save Objects", transient_for=self, action=Gtk.FileChooserAction.SAVE)
+        dialog.add_buttons(Gtk.STOCK_CANCEL, Gtk.ResponseType.CANCEL, Gtk.STOCK_SAVE, Gtk.ResponseType.OK)
+        dialog.set_current_folder(str(get_output_directory()))
+        dialog.set_current_name("objects.json")
+        dialog.set_do_overwrite_confirmation(True)
+        object_filter = Gtk.FileFilter()
+        object_filter.set_name("Orcshot objects")
+        object_filter.add_pattern("*.json")
+        dialog.add_filter(object_filter)
+        try:
+            if dialog.run() == Gtk.ResponseType.OK:
+                path = Path(dialog.get_filename())
+                if path.suffix.lower() != ".json":
+                    path = path.with_suffix(".json")
+                save_objects_file(self.layer, path)
+        finally:
+            dialog.destroy()
+
+    def _do_load_objects(self) -> None:
+        """Object > "Load objects from file" (editor_load_objects,
+        language-en-US.xml:131) - mirrors _do_save_objects above. Real
+        Windows' LoadElementsFromStream (Surface.cs:751-764) *adds* the
+        loaded elements onto the existing surface rather than replacing
+        it (DeselectAllElements then AddElements), which this matches -
+        each loaded shape becomes its own AddElementMemento (the only
+        add-memento this port has; no bulk-load memento type exists,
+        so undoing a multi-shape load takes multiple undos) and the
+        last one loaded becomes the selection, standing in for real
+        Windows' SelectElements(loadedElements) multi-select (this
+        port only tracks one selected shape today - task #125).
+        Accepts either a Save Objects file or a full .orcshot file
+        (image discarded) - load_objects_file's own documented
+        behavior.
+        """
+        self._commit_text_editing_if_active()
+        dialog = Gtk.FileChooserDialog(title="Load Objects", transient_for=self, action=Gtk.FileChooserAction.OPEN)
+        dialog.add_buttons(Gtk.STOCK_CANCEL, Gtk.ResponseType.CANCEL, Gtk.STOCK_OPEN, Gtk.ResponseType.OK)
+        object_filter = Gtk.FileFilter()
+        object_filter.set_name("Orcshot objects")
+        for pattern in ("*.json", "*.orcshot"):
+            object_filter.add_pattern(pattern)
+        dialog.add_filter(object_filter)
+        try:
+            if dialog.run() != Gtk.ResponseType.OK:
+                return
+            path = dialog.get_filename()
+        finally:
+            dialog.destroy()
+
+        try:
+            loaded_layer = load_objects_file(path)
+        except InvalidOrcshotFileError as exc:
+            error_dialog = Gtk.MessageDialog(
+                transient_for=self, message_type=Gtk.MessageType.ERROR, buttons=Gtk.ButtonsType.OK,
+                text="Couldn't load objects",
+            )
+            error_dialog.format_secondary_text(str(exc))
+            error_dialog.run()
+            error_dialog.destroy()
+            return
+
+        for shape in loaded_layer:
+            self.layer.add(shape)
+            self.selected_shape = shape
+            self.undo_redo.push(AddElementMemento(self.layer, shape))
+        self._drawing_area.queue_draw()
+
     def _composited_image(self) -> np.ndarray:
         return composite_to_numpy(self._base_image, self.layer)
 
@@ -2674,12 +2758,14 @@ class EditorWindow(Gtk.Window):
         self._clipboard.set_image(self._composited_image())
 
     # Real Windows' SaveImageFileDialog "Save as type" options
-    # (SaveImageFileDialog.cs) - jxr (WMPhoto) and the not-yet-built
-    # .orcshot (task #123) are deliberately excluded; ico is a
-    # legitimate GdkPixbuf save type this port's own file_export.py
-    # already supports but is a poor fit for a screenshot tool's Save
-    # As list (no real use case), so left off rather than added just
-    # because it's technically possible.
+    # (SaveImageFileDialog.cs) - jxr (WMPhoto) is deliberately
+    # excluded; ico is a legitimate GdkPixbuf save type this port's
+    # own file_export.py already supports but is a poor fit for a
+    # screenshot tool's Save As list (no real use case), so left off
+    # rather than added just because it's technically possible.
+    # "orcshot" (task #123) is a real option in the Save As dialog
+    # below, just appended separately rather than added to this list -
+    # see _do_save's own comment for why.
     _SAVE_AS_FORMATS = [("png", "PNG"), ("jpg", "JPEG"), ("bmp", "BMP"), ("tiff", "TIFF"), ("gif", "GIF")]
 
     def _do_save(self) -> bool:
@@ -2706,6 +2792,15 @@ class EditorWindow(Gtk.Window):
         format_combo = Gtk.ComboBoxText()
         for value, label in self._SAVE_AS_FORMATS:
             format_combo.append(value, label)
+        # "orcshot" only here, not in _SAVE_AS_FORMATS - that list is
+        # shared with the Output tab's "Primary format" dropdown
+        # (quick-save's default raster format), and this isn't a valid
+        # choice there. Matches real Windows exactly: its own
+        # OutputFileFormat setting's docstring explicitly lists only
+        # "bmp, gif, jpg, png, tiff" - "greenshot" is a Save-As-only
+        # format on Windows too, never a quick-save default there
+        # either (ICoreConfiguration.cs:130-132).
+        format_combo.append("orcshot", "Orcshot (with shapes, task #123)")
         format_combo.set_active_id(output_settings.primary_format)
         if format_combo.get_active_id() is None:
             format_combo.set_active_id("png")
@@ -2729,9 +2824,16 @@ class EditorWindow(Gtk.Window):
                 path = Path(dialog.get_filename())
                 if path.suffix.lower().lstrip(".") != output_format:
                     path = path.with_suffix(f".{output_format}")
-                self._maybe_show_quality_dialog(output_format)
-                jpeg_quality = get_output_settings().jpeg_quality
-                save_image_to_file(self._composited_image(), path, jpeg_quality=jpeg_quality)
+                if output_format == "orcshot":
+                    # The whole point is preserving shapes separately,
+                    # re-editable - the flattened _composited_image()
+                    # would defeat that, so this uses _base_image (the
+                    # raw capture) + self.layer directly, task #123.
+                    save_orcshot_file(self._base_image, self.layer, path)
+                else:
+                    self._maybe_show_quality_dialog(output_format)
+                    jpeg_quality = get_output_settings().jpeg_quality
+                    save_image_to_file(self._composited_image(), path, jpeg_quality=jpeg_quality)
                 self._saved_generation = self.undo_redo.generation
                 if output_settings.copy_path_to_clipboard:
                     Gtk.Clipboard.get_default(self.get_display()).set_text(str(path), -1)
