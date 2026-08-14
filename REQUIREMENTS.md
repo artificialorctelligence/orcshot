@@ -4259,6 +4259,52 @@ directory, using the `GLib.timeout_add`-driven dialog-interaction pattern for th
 calls involved (Save As's FileChooserDialog, and the General tab's Preferences dialog). Full suite green
 (956 passed, 3 skipped) before committing.
 
+## Preferences dialog rebuild, part 3 - Destinations tab (task #95 part 2, complete 2026-08-14)
+
+Real Windows' Destinations tab is `groupbox_destination`: `checkbox_picker` + `listview_destinations` (a
+checked list of every available destination, plugin-provided ones included). `listview_destinations` is
+real now: `ui/destination_picker.py`'s `_all_destinations()` (the exact list `show_destination_picker`
+already builds its menu from) drives a real `Gtk.TreeView` checklist, toggled against a new
+`settings.get_excluded_destinations()`/`set_excluded_destinations()` pair. Faithful to the real field this
+ports, `ExcludeDestinations` (`ICoreConfiguration.cs:230-231`, "Comma separated list of destinations which
+should be disabled") - an *exclude* list, not an include list, so a destination added later (a future
+built-in, or a freshly-created ExternalCommand) is enabled by default rather than silently hidden until
+opted in. `checkbox_picker` itself ("always show the picker rather than jumping straight to one preferred
+destination") has no equivalent here - every hotkey/tray action already opens the picker unconditionally,
+there's no "skip it" mode to toggle in the first place.
+
+**Real bug caught while building this, fixed before it shipped**: `_all_destinations()` already filters out
+excluded ids for its normal callers (the actual picker menu, correctly). Populating the checklist itself
+from that same filtered call would have made an unchecked/excluded destination vanish from its own settings
+UI entirely - no row to re-check, no way back in. Fixed with an `include_excluded=True` parameter on
+`_all_destinations()` for exactly this one caller, rather than a second, drifting copy of the destination-
+enumeration logic.
+
+**Office destination, added** (direflail's own request - "adding openoffice/libreoffice... would be good").
+Real Windows' actual Office destination inserts the image straight into a document via COM automation, a
+Windows-only mechanism with no Linux equivalent, so this isn't a port - it's a new addition scoped to the
+closest faithful-in-spirit outcome: detect `soffice`/`ooffice`/`openoffice.org` on `PATH` (`shutil.which`,
+same detection idiom `_find_external_editor_command` already established) and, if found, offer "LibreOffice
+Draw"/"OpenOffice Draw" as a destination that exports to a temp file (`orcshot_cache_dir()`) and launches
+`<binary> --draw <path>`. Live-verified against this actual dev machine, which really does have LibreOffice
+installed - "LibreOffice Draw" showed up in the real destination list, not just a mocked/assumed path.
+
+**Also fixed, found while reviewing the two save destinations for this pass**: `ui/destination_picker.py`'s
+own `_quick_save`/`_save_as` (the hotkey/tray-menu entry points to Save/Save As, as opposed to
+`EditorWindow`'s menu-bar versions) had drifted out of sync with part 2's Output-tab work - still hardcoding
+`.png` and the old fixed timestamp pattern, since only the editor's own copies were updated at the time.
+Both are the same conceptual Windows destination (`FileDestination.cs`) reached from a second entry point,
+so this was a real, if narrow, regression risk left dangling rather than new scope - fixed here to use
+`settings.OutputSettings` identically to the editor's versions (filename pattern, primary format, JPEG
+quality, copy-path-to-clipboard).
+
+5 new unit tests (`test_settings.py`'s `TestExcludedDestinations`). `destination_picker.py` stays
+untested at the unit level per its own established convention (live GTK popup-menu glue, no meaningful
+headless test) - live-verified instead: the checklist reflects real `_all_destinations()` content including
+the live-detected Office entry, unchecking a row immediately removes it from the real picker's own list
+while it remains visible (unchecked) in the checklist itself, and the excluded set round-trips through
+`settings.json` correctly. Full suite green (959 passed, 3 skipped) before committing.
+
 ## Licensing
 
 **Status: decided — GPLv3.** Greenshot (Windows) is GPLv3; this is a derivative work — same feature

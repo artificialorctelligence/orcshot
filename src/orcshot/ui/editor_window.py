@@ -161,6 +161,7 @@ from orcshot.settings import (
     consume_filename_counter,
     get_capture_mouse_cursor,
     get_check_unstable_updates,
+    get_excluded_destinations,
     get_external_editor_preference,
     get_filename_counter,
     get_footer_pattern,
@@ -172,6 +173,7 @@ from orcshot.settings import (
     get_use_default_proxy,
     set_capture_mouse_cursor,
     set_check_unstable_updates,
+    set_excluded_destinations,
     set_external_editor_preference,
     set_filename_counter,
     set_footer_pattern,
@@ -3169,12 +3171,18 @@ class EditorWindow(Gtk.Window):
         return box
 
     def _build_destinations_settings_tab(self, dialog: Gtk.Dialog) -> Gtk.Box:
-        """Matches real Windows' Destinations tab (groupbox_destination)
-        - only the ExternalCommand "Manage..." button so far (moved
-        here unchanged from the old flat dialog, task #110's own
-        faithful-in-spirit stand-in for that tab's own Configure
-        button). The full destination checklist (matching
-        listview_destinations) isn't built yet.
+        """Matches real Windows' Destinations tab (groupbox_destination:
+        checkbox_picker + listview_destinations). The checked listview
+        is real now - every destination show_destination_picker would
+        offer (ui/destination_picker.py's _all_destinations, including
+        the Office destination if LibreOffice/OpenOffice is detected
+        and any configured ExternalCommands), toggled against
+        settings.get_excluded_destinations()/set_excluded_destinations().
+        checkbox_picker itself (Windows' "always show the picker,
+        rather than going straight to a single preferred destination")
+        has no equivalent here - this port's hotkeys/tray always open
+        the picker already, there's no "skip the picker" mode to
+        toggle in the first place.
         """
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
         box.set_border_width(12)
@@ -3183,6 +3191,33 @@ class EditorWindow(Gtk.Window):
         inner = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
         inner.set_border_width(8)
         frame.add(inner)
+
+        from orcshot.ui.destination_picker import _all_destinations
+
+        store = Gtk.ListStore(bool, str, str)  # enabled, label, id
+        excluded = get_excluded_destinations()
+        # include_excluded=True - otherwise an unchecked/excluded
+        # destination would disappear from its own checklist (the
+        # normal, filtered _all_destinations() already hides it).
+        for destination_id, label, _handler in _all_destinations(include_excluded=True):
+            store.append([destination_id not in excluded, label, destination_id])
+
+        tree_view = Gtk.TreeView(model=store)
+        toggle_renderer = Gtk.CellRendererToggle()
+
+        def on_toggled(_renderer, path) -> None:
+            store[path][0] = not store[path][0]
+            currently_excluded = {row[2] for row in store if not row[0]}
+            set_excluded_destinations(currently_excluded)
+
+        toggle_renderer.connect("toggled", on_toggled)
+        tree_view.append_column(Gtk.TreeViewColumn("Enabled", toggle_renderer, active=0))
+        tree_view.append_column(Gtk.TreeViewColumn("Destination", Gtk.CellRendererText(), text=1))
+        scroller = Gtk.ScrolledWindow()
+        scroller.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+        scroller.set_min_content_height(140)
+        scroller.add(tree_view)
+        inner.pack_start(scroller, True, True, 0)
 
         external_commands_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
         external_commands_row.pack_start(Gtk.Label(label="External Commands:"), False, False, 0)

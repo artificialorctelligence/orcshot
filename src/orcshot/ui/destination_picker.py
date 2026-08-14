@@ -71,13 +71,15 @@ from gi.repository import Gdk, Gtk
 
 from orcshot.capture.clipboard import ClipboardBackend
 from orcshot.core.drawing import Layer
+from orcshot.core.filename_pattern import resolve_filename_pattern
 from orcshot.core.shapes import CursorShape
 from orcshot.settings import (
     consume_filename_counter,
+    get_excluded_destinations,
     get_external_commands,
     get_filename_counter,
     get_output_directory,
-    quick_save_filename,
+    get_output_settings,
 )
 from orcshot.ui.composite import composite_to_numpy
 from orcshot.ui.external_commands import run_external_command
@@ -111,13 +113,30 @@ def _open_editor(image: np.ndarray, cursor_shape: CursorShape = None) -> None:
 
 
 def _quick_save(image: np.ndarray, cursor_shape: CursorShape = None) -> None:
+    """Task #95's Output tab - now uses the same settings.OutputSettings
+    (filename pattern/primary format/JPEG quality/copy-path-to-
+    clipboard) as EditorWindow._do_quick_save, not the older fixed
+    ``.png``/timestamp-only pattern - this destination and that one are
+    the same conceptual action (Windows' own FileDestination), just
+    reached from a different entry point (picker menu vs. menu bar),
+    and had drifted out of sync while that menu-bar path was built.
+    """
+    output_settings = get_output_settings()
     directory = get_output_directory()
     directory.mkdir(parents=True, exist_ok=True)
     counter = consume_filename_counter()
-    save_image_to_file(_flattened(image, cursor_shape), directory / quick_save_filename(datetime.now(), counter))
+    filename = resolve_filename_pattern(output_settings.filename_pattern, datetime.now(), counter) + "." + output_settings.primary_format
+    path = directory / filename
+    save_image_to_file(_flattened(image, cursor_shape), path, jpeg_quality=output_settings.jpeg_quality)
+    if output_settings.copy_path_to_clipboard:
+        Gtk.Clipboard.get_default(Gdk.Display.get_default()).set_text(str(path), -1)
 
 
 def _save_as(image: np.ndarray, cursor_shape: CursorShape = None) -> None:
+    """See _quick_save's own note - same drift, same fix (primary
+    format now drives the suggested extension, JPEG quality is
+    applied, path-to-clipboard is honored)."""
+    output_settings = get_output_settings()
     dialog = Gtk.FileChooserDialog(title="Save Screenshot As", action=Gtk.FileChooserAction.SAVE)
     dialog.add_buttons(
         Gtk.STOCK_CANCEL, Gtk.ResponseType.CANCEL,
@@ -127,12 +146,16 @@ def _save_as(image: np.ndarray, cursor_shape: CursorShape = None) -> None:
     # Peek, don't consume - the counter should only advance once a save
     # actually happens (below), not just because a dialog with a
     # suggested name was shown and possibly cancelled.
-    dialog.set_current_name(quick_save_filename(datetime.now(), get_filename_counter()))
+    suggested = resolve_filename_pattern(output_settings.filename_pattern, datetime.now(), get_filename_counter())
+    dialog.set_current_name(f"{suggested}.{output_settings.primary_format}")
     dialog.set_do_overwrite_confirmation(True)
     try:
         if dialog.run() == Gtk.ResponseType.OK:
-            save_image_to_file(_flattened(image, cursor_shape), dialog.get_filename())
+            path = dialog.get_filename()
+            save_image_to_file(_flattened(image, cursor_shape), path, jpeg_quality=output_settings.jpeg_quality)
             consume_filename_counter()
+            if output_settings.copy_path_to_clipboard:
+                Gtk.Clipboard.get_default(Gdk.Display.get_default()).set_text(str(path), -1)
     finally:
         dialog.destroy()
 
@@ -159,19 +182,82 @@ def _external_command_entry(command):
     return (f"external:{command.name}", command.name, handler)
 
 
-def _all_destinations() -> list:
-    """_DESTINATION_TABLE plus one entry per configured external
+# Real Windows' actual Office destination inserts the image straight
+# into a document via COM automation - a Windows-only mechanism with
+# no Linux equivalent. This is a new addition, not a port (task #95's
+# Destinations tab, direflail's own request), scoped to the nearest
+# faithful-in-spirit equivalent available here: open the image in
+# LibreOffice/OpenOffice Draw, the same "hand it to the office suite
+# and let the user work with it" outcome. soffice checked first -
+# virtually every modern install (including ones still branded
+# "OpenOffice" via a LibreOffice-based fork) uses that binary name;
+# ooffice/openoffice.org are the legacy Apache OpenOffice ones, kept
+# as a fallback for the rare install that still has one.
+_OFFICE_CANDIDATES = (("LibreOffice Draw", "soffice"), ("OpenOffice Draw", "ooffice"), ("OpenOffice Draw", "openoffice.org"))
+
+
+def _find_office_command():
+    import shutil
+
+    for name, path_command in _OFFICE_CANDIDATES:
+        if shutil.which(path_command):
+            return name, path_command
+    return None
+
+
+def _office_entry():
+    found = _find_office_command()
+    if found is None:
+        return None
+    name, path_command = found
+
+    def handler(img, cs, _clipboard_backend, path_command=path_command):
+        import os
+        import subprocess
+        import tempfile
+        from pathlib import Path
+
+        from orcshot.ui.file_export import orcshot_cache_dir
+
+        fd, path_str = tempfile.mkstemp(suffix=".png", prefix="orcshot-office-", dir=str(orcshot_cache_dir()))
+        os.close(fd)
+        path = Path(path_str)
+        save_image_to_file(_flattened(img, cs), path)
+        subprocess.Popen([path_command, "--draw", str(path)])
+
+    return ("office", name, handler)
+
+
+def _all_destinations(include_excluded: bool = False) -> list:
+    """_DESTINATION_TABLE plus the Office destination (if LibreOffice/
+    OpenOffice is installed) plus one entry per configured external
     command (task #110, ui/external_commands.py) - computed fresh on
     every call (not cached at import time) so a command added/removed/
-    renamed via Preferences shows up immediately without an app
-    restart, the same way Windows' own Destinations() re-enumerates
-    ExternalCommandConfig.Commands each time the picker is built
-    (ExternalCommandPlugin.cs:69-75). Appended after the five built-in
-    destinations rather than interleaved by Windows' own priority
-    ordering - these are user-added, so they read naturally as "extra
-    stuff you configured" tacked onto the end.
+    renamed via Preferences (or LibreOffice getting installed/removed)
+    shows up immediately without an app restart, the same way Windows'
+    own Destinations() re-enumerates ExternalCommandConfig.Commands
+    each time the picker is built (ExternalCommandPlugin.cs:69-75).
+    User-added/detected entries appended after the five built-ins
+    rather than interleaved by Windows' own priority ordering - they
+    read naturally as "extra stuff" tacked onto the end.
+
+    Filtered by settings.get_excluded_destinations() (task #95's
+    Destinations tab checklist) unless ``include_excluded`` is set - an
+    *exclude* list, so anything new here is enabled by default. The
+    real picker menu (show_destination_picker/dispatch_destination)
+    always wants the filtered view; the Preferences checklist itself
+    needs the unfiltered one, or an unchecked/excluded destination
+    would vanish from its own settings UI with no way to re-enable it.
     """
-    return _DESTINATION_TABLE + [_external_command_entry(command) for command in get_external_commands()]
+    entries = list(_DESTINATION_TABLE)
+    office = _office_entry()
+    if office is not None:
+        entries.append(office)
+    entries += [_external_command_entry(command) for command in get_external_commands()]
+    if include_excluded:
+        return entries
+    excluded = get_excluded_destinations()
+    return [entry for entry in entries if entry[0] not in excluded]
 
 
 def dispatch_destination(

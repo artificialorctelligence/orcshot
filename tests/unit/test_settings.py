@@ -20,6 +20,7 @@ from orcshot.settings import (
     default_output_directory,
     get_capture_mouse_cursor,
     get_check_unstable_updates,
+    get_excluded_destinations,
     get_external_commands,
     get_external_editor_preference,
     get_filename_counter,
@@ -37,6 +38,7 @@ from orcshot.settings import (
     quick_save_filename,
     set_capture_mouse_cursor,
     set_check_unstable_updates,
+    set_excluded_destinations,
     set_external_commands,
     set_external_editor_preference,
     set_filename_counter,
@@ -424,6 +426,29 @@ class TestExternalCommands:
         set_capture_mouse_cursor(False, path=path)
 
         set_external_commands([ExternalCommand(name="X", commandline="/bin/true")], path=path)
+
+        assert get_capture_mouse_cursor(path=path) is False
+
+
+class TestExcludedDestinations:
+    def test_defaults_to_empty(self, tmp_path):
+        # matches Windows' ExcludeDestinations - nothing excluded by
+        # default, every destination (including future ones) enabled.
+        path = tmp_path / "config.json"
+        assert get_excluded_destinations(path=path) == set()
+
+    def test_set_then_get_round_trips(self, tmp_path):
+        path = tmp_path / "config.json"
+
+        set_excluded_destinations({"print", "external:Optimize"}, path=path)
+
+        assert get_excluded_destinations(path=path) == {"print", "external:Optimize"}
+
+    def test_set_preserves_other_settings_already_present(self, tmp_path):
+        path = tmp_path / "config.json"
+        set_capture_mouse_cursor(False, path=path)
+
+        set_excluded_destinations({"print"}, path=path)
 
         assert get_capture_mouse_cursor(path=path) is False
 

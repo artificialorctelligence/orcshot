@@ -39,6 +39,7 @@ _ICON_SIZE_KEY = "icon_size"
 _USE_DEFAULT_PROXY_KEY = "use_default_proxy"
 _UPDATE_CHECK_INTERVAL_DAYS_KEY = "update_check_interval_days"
 _OUTPUT_SETTINGS_KEY = "output_settings"
+_EXCLUDED_DESTINATIONS_KEY = "excluded_destinations"
 _DEFAULT_OUTPUT_DIRNAME = "Screenshots"
 _DEFAULT_FOOTER_PATTERN = "%B %d, %Y %I:%M %p"
 _DEFAULT_ICON_SIZE = 24
@@ -473,6 +474,28 @@ def set_external_commands(commands: list[ExternalCommand], path: Path = None) ->
         path = config_file_path()
     settings = _load(path)
     settings[_EXTERNAL_COMMANDS_KEY] = [asdict(command) for command in commands]
+    _save(settings, path)
+
+
+def get_excluded_destinations(path: Path = None) -> set[str]:
+    """Faithful port of Windows' "Comma separated list of destinations
+    which should be disabled" (ExcludeDestinations, ICoreConfiguration.
+    cs:230-231) - task #95's Destinations tab. An *exclude* list, not
+    an include list, matching Windows exactly and deliberately: a
+    newly-added destination (a future built-in, or a freshly-created
+    ExternalCommand) is enabled by default without this needing an
+    update, rather than silently invisible until the user opts it in.
+    """
+    if path is None:
+        path = config_file_path()
+    return set(_load(path).get(_EXCLUDED_DESTINATIONS_KEY, []))
+
+
+def set_excluded_destinations(destination_ids: set[str], path: Path = None) -> None:
+    if path is None:
+        path = config_file_path()
+    settings = _load(path)
+    settings[_EXCLUDED_DESTINATIONS_KEY] = sorted(destination_ids)
     _save(settings, path)
 
 
