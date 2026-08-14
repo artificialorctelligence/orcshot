@@ -4305,6 +4305,27 @@ the live-detected Office entry, unchecking a row immediately removes it from the
 while it remains visible (unchecked) in the checklist itself, and the excluded set round-trips through
 `settings.json` correctly. Full suite green (959 passed, 3 skipped) before committing.
 
+## Preferences dialog rebuild, part 4 - Printer tab (task #95 part 2, complete 2026-08-14)
+
+Real Windows' Printer tab (`groupBoxColors` + `groupBoxPrintLayout` + `checkbox_alwaysshowprintoptionsdialog`,
+`SettingsForm.Designer.cs:815-978`) maps directly onto a dataclass this port already had -
+`settings.PrintOptions`, previously only ever read/written by `ui/printing.py`'s per-print-job dialog. This
+tab is genuinely the smallest of the four built so far: no new settings, no new core logic, just a second
+UI surface over the same persisted state, mirroring the per-job dialog's own field layout
+(`_show_print_options_dialog`) but persisting each control immediately on change (matching Output tab's own
+live-persist pattern) rather than through an OK/Cancel round trip - these are *defaults*, not a one-shot
+decision the way the per-job dialog's fields are.
+
+Confirmed via reading `ui/printing.py`'s own `print_image` that this genuinely takes effect on the next
+real print with zero changes needed there: it already seeds from `get_print_options()` and already gates
+the per-job dialog on `options.prompt_options` - exactly the field this tab's own "Show print options
+dialog every time an image is printed" checkbox controls. No wiring gap to close.
+
+No new tests (reuses `PrintOptions`' existing settings.py round-trip coverage; this tab is pure UI over
+already-tested state). Live-verified: toggling Enlarge/grayscale-radio/prompt_options in the tab really
+updates `settings.get_print_options()`, radio mutual-exclusivity confirmed (choosing grayscale correctly
+clears monochrome). Full suite green (959 passed, 3 skipped, unchanged count as expected) before committing.
+
 ## Licensing
 
 **Status: decided — GPLv3.** Greenshot (Windows) is GPLv3; this is a derivative work — same feature

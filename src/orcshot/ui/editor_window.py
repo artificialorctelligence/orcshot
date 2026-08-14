@@ -168,6 +168,7 @@ from orcshot.settings import (
     get_icon_size,
     get_output_directory,
     get_output_settings,
+    get_print_options,
     get_suppress_save_dialog_at_close,
     get_update_check_interval_days,
     get_use_default_proxy,
@@ -180,6 +181,7 @@ from orcshot.settings import (
     set_icon_size,
     set_output_directory,
     set_output_settings,
+    set_print_options,
     set_suppress_save_dialog_at_close,
     set_update_check_interval_days,
     set_use_default_proxy,
@@ -3236,18 +3238,90 @@ class EditorWindow(Gtk.Window):
         return box
 
     def _build_printer_settings_tab(self) -> Gtk.Box:
-        """Placeholder - real Windows' Printer tab (groupBoxColors/
-        groupBoxPrintLayout) sets *default* print options; this port
-        only has per-print-job options today (ui/printing.py's dialog,
-        backed by the same settings.PrintOptions this tab would
-        eventually default from). Not built yet - a later pass of task
-        #95, not silently skipped.
+        """Matches real Windows' Printer tab (groupBoxColors +
+        groupBoxPrintLayout + checkbox_alwaysshowprintoptionsdialog,
+        SettingsForm.Designer.cs:815-978) - sets real *default*
+        settings.PrintOptions, the same dataclass ui/printing.py's own
+        per-print-job dialog already reads/writes. Each control here
+        persists on change directly (matching Output tab's own
+        pattern), not through an OK/Cancel flow - these are defaults,
+        not a one-shot decision the way the per-job dialog's fields
+        are.
         """
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
         box.set_border_width(12)
-        label = Gtk.Label(label="Printer defaults aren't configurable here yet - use Print... to set options per job.")
-        label.set_line_wrap(True)
-        box.pack_start(label, False, False, 0)
+
+        def update_print_options(**changes) -> None:
+            set_print_options(dataclass_replace(get_print_options(), **changes))
+
+        options = get_print_options()
+
+        layout_frame = Gtk.Frame(label="Page Layout Settings")
+        layout_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
+        layout_box.set_border_width(8)
+
+        shrink_check = Gtk.CheckButton(label="Shrink printout to fit paper size")
+        shrink_check.set_active(options.allow_shrink)
+        shrink_check.connect("toggled", lambda btn: update_print_options(allow_shrink=btn.get_active()))
+        layout_box.pack_start(shrink_check, False, False, 0)
+
+        enlarge_check = Gtk.CheckButton(label="Enlarge printout to fit paper size")
+        enlarge_check.set_active(options.allow_enlarge)
+        enlarge_check.connect("toggled", lambda btn: update_print_options(allow_enlarge=btn.get_active()))
+        layout_box.pack_start(enlarge_check, False, False, 0)
+
+        rotate_check = Gtk.CheckButton(label="Rotate printout to page orientation")
+        rotate_check.set_active(options.allow_rotate)
+        rotate_check.connect("toggled", lambda btn: update_print_options(allow_rotate=btn.get_active()))
+        layout_box.pack_start(rotate_check, False, False, 0)
+
+        center_check = Gtk.CheckButton(label="Center printout on page")
+        center_check.set_active(options.center)
+        center_check.connect("toggled", lambda btn: update_print_options(center=btn.get_active()))
+        layout_box.pack_start(center_check, False, False, 0)
+
+        footer_check = Gtk.CheckButton(label="Print date / time at bottom of page")
+        footer_check.set_active(options.footer)
+        footer_check.connect("toggled", lambda btn: update_print_options(footer=btn.get_active()))
+        layout_box.pack_start(footer_check, False, False, 0)
+
+        layout_frame.add(layout_box)
+        box.pack_start(layout_frame, False, False, 0)
+
+        color_frame = Gtk.Frame(label="Color Settings")
+        color_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
+        color_box.set_border_width(8)
+
+        color_radio = Gtk.RadioButton.new_with_label(None, "Full color print")
+        grayscale_radio = Gtk.RadioButton.new_with_label_from_widget(color_radio, "Force grayscale printing")
+        monochrome_radio = Gtk.RadioButton.new_with_label_from_widget(color_radio, "Force black/white printing")
+        if options.monochrome:
+            monochrome_radio.set_active(True)
+        elif options.grayscale:
+            grayscale_radio.set_active(True)
+        else:
+            color_radio.set_active(True)
+
+        def on_color_mode_toggled(_btn) -> None:
+            update_print_options(grayscale=grayscale_radio.get_active(), monochrome=monochrome_radio.get_active())
+
+        for radio in (color_radio, grayscale_radio, monochrome_radio):
+            radio.connect("toggled", on_color_mode_toggled)
+            color_box.pack_start(radio, False, False, 0)
+
+        invert_check = Gtk.CheckButton(label="Print with inverted colors")
+        invert_check.set_active(options.inverted)
+        invert_check.connect("toggled", lambda btn: update_print_options(inverted=btn.get_active()))
+        color_box.pack_start(invert_check, False, False, 0)
+
+        color_frame.add(color_box)
+        box.pack_start(color_frame, False, False, 0)
+
+        prompt_check = Gtk.CheckButton(label="Show print options dialog every time an image is printed")
+        prompt_check.set_active(options.prompt_options)
+        prompt_check.connect("toggled", lambda btn: update_print_options(prompt_options=btn.get_active()))
+        box.pack_start(prompt_check, False, False, 0)
+
         return box
 
     def _build_expert_settings_frame(self) -> Gtk.Frame:
