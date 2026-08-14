@@ -59,3 +59,25 @@ def install_autostart_entry(exec_command: str, autostart_dir: Path = None) -> Pa
     path = autostart_dir / DESKTOP_ENTRY_FILENAME
     path.write_text(autostart_desktop_entry(exec_command))
     return path
+
+
+def is_autostart_enabled(config_home: Path = None) -> bool:
+    """Whether the autostart entry currently exists - added for task
+    #95's Preferences>General tab (real Windows' own "Launch Greenshot
+    on startup" checkbox needs a way to reflect and toggle current
+    state, not just a one-shot write). Existence alone is the signal,
+    matching how install_autostart_entry itself has no separate
+    enabled/disabled flag within the file - this port's autostart
+    entries are only ever fully present or fully absent.
+    """
+    return autostart_file_path(config_home).exists()
+
+
+def remove_autostart_entry(config_home: Path = None) -> None:
+    """Deletes the autostart entry if present - the "deactivate"
+    counterpart to install_autostart_entry, needed for the same
+    Preferences checkbox as is_autostart_enabled above. A no-op if it
+    was never installed, matching this module's own file-based, no-op-
+    safe conventions elsewhere.
+    """
+    autostart_file_path(config_home).unlink(missing_ok=True)

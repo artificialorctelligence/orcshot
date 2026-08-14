@@ -4132,6 +4132,76 @@ blob gated by an explicit type whitelist, genuinely buildable but scoped separat
 sync/Duplicate/Arrange/quick-Save, synthetic solid-color test image, no real desktop content per this
 project's own verification discipline) and full suite green (926 passed, 3 skipped) before committing.
 
+## Preferences dialog rebuild, part 1 - General tab (task #95 part 2, complete 2026-08-13)
+
+Real Windows' Preferences dialog is **General/Capture/Output/Destinations/Printer/Plugins/Expert** - 7
+tabs, confirmed via the exact `tabcontrol.Controls.Add`/`tab_x.Controls.Add` calls in
+`SettingsForm.Designer.cs` (not guessed from control declaration order, which doesn't match tab
+membership). Plugins is dropped by direflail's own call - real Windows' tab lists loaded plugin DLLs with
+Configure buttons; this port has exactly one "plugin"-shaped thing (ExternalCommand, task #110), better
+served by Destinations tab's own Configure-button equivalent than a whole tab for one item. Rebuilt as a
+`Gtk.Notebook` (was a single flat `Gtk.Dialog` with stacked rows), one tab per real Windows group, built
+incrementally with a check-in after each rather than all at once.
+
+**General tab (fully new/real this pass)**: Network and Updates (Use system default proxy - see
+`get_use_default_proxy`'s docstring for what "default proxy" means on Linux vs. Windows' WinINet; Check
+for updates every N days - inert, task #103 doesn't exist yet, same documented-placeholder treatment as
+`get_check_unstable_updates` already established), Hotkeys (a "Configure Hotkeys..." button reusing the
+existing `ui/first_run_setup.py` dialog rather than rebuilding Windows' own live-capture `HotkeyControl`
+widgets inline - real Windows embeds them directly in `groupbox_hotkeys`, this is a faithful-in-spirit
+stand-in), Application Settings (Language - disabled placeholder, only "English" exists until task #109;
+Icon size - real, a 16-256-step-16 spinner matching `numericUpdownIconSize`, see below; Launch Orcshot on
+startup - real, a direct toggle distinct from the Hotkeys button's wizard-style flow, needed two new
+`autostart.py` functions since that module was previously write-only; External Image Editor - kept here,
+not a Windows setting at all so no real tab to match against).
+
+**Icon size, made real** (`settings.get_icon_size`/`set_icon_size`, default 24 not Windows' 16 - matches
+`ui/icons.py`'s own pre-existing `ICON_SIZE` constant, an unrelated prior sizing choice this setting makes
+configurable rather than changes for a fresh install). Applied by bitmap-scaling the rendered pixbuf
+(`tool_icon_image`'s new `size` param, `GdkPixbuf.Pixbuf.scale_simple` with `BILINEAR` - smooth vector line
+art, unlike `orcshot.png`'s deliberately blocky dot-matrix logo which needed `NEAREST`) rather than
+threading a size parameter through every one of `icons.py`'s dozens of hardcoded-coordinate drawing
+functions - also how Windows' own `IconSize` actually works (it scales bitmap resources, doesn't redraw
+vector art at a new resolution). Applied everywhere `tool_icon_image` is called: the tool palette and the
+Object menu's shape items - the latter matches real Windows exactly, whose `menuStrip1.ImageScalingSize`
+is literally set to the same `coreConfiguration.IconSize` its toolbar uses
+(`ImageEditorForm.Designer.cs:586`), not a separate menu-specific size. The generic theme-icon buttons
+(toolbar action buttons, effects/crop/highlight dropdowns) don't respect this setting yet - `icons.py`'s
+own module docstring already documents those as a deliberately separate code path from the hand-drawn
+icons this setting touches; left as a known, honest gap rather than claimed as done.
+
+**Autostart made read/write** (`autostart.py` gained `is_autostart_enabled`/`remove_autostart_entry` -
+previously write-only, only ever called once from the first-run wizard with no way to check current state
+or turn it back off). Real file-based, same pattern as `install_autostart_entry` - existence of the
+`.desktop` file is the only signal, no separate enabled/disabled flag within it.
+
+**Existing controls moved to their real Windows-matching tabs, unchanged otherwise** (pure reorganization,
+confirmed nothing was dropped via a structural live-verify walk of every tab's contents): Capture mouse
+cursor → Capture tab (matches `groupbox_capture`'s own `checkbox_capture_mousepointer`). Screenshot Save
+Location → Output tab (matches `groupbox_preferredfilesettings`'s storage-location field). External
+Commands "Manage..." → Destinations tab (task #110's own faithful-in-spirit stand-in for that tab's
+Configure button). The Expert settings frame (`_build_expert_settings_frame`, unchanged) → Expert tab.
+
+**Not yet real, explicit placeholders, not silent gaps**: Printer tab (a labeled placeholder - real printer
+*defaults* don't exist, only the existing per-print-job dialog, `ui/printing.py`, backed by the same
+`settings.PrintOptions` this tab would eventually default from). Capture tab's Notifications/Play Sound
+checkboxes (split into task #126 - no underlying notify/sound feature exists in this port at all to attach
+them to; confirmed via grep, and task #73 already established the one sound anyone noticed during Wayland
+capture was `xdg-desktop-portal-gnome`'s own incidental feedback, not this app). Output tab's filename
+pattern/primary format/quality settings, Destinations tab's full checklist, real printer defaults - all
+later passes of this same task.
+
+Edit menu's "Set Up Hotkeys & Autostart..." (added in part 1 as an explicitly-temporary placement) removed
+now that General tab's "Configure Hotkeys..." button is its real, permanent home - avoids two menu paths
+to the same dialog.
+
+10 new unit tests (`test_settings.py`'s `TestIconSize`/`TestUseDefaultProxy`/
+`TestUpdateCheckIntervalDays`, `test_autostart.py`'s `TestIsAutostartEnabled`/`TestRemoveAutostartEntry`).
+Live-verified: structural tab-order/content walk (all 6 tabs, confirmed every migrated control still
+present) plus functional checks (autostart checkbox really installs/removes the `.desktop` entry, icon
+size spinner really persists) against a synthetic solid-color test image and a scratch `XDG_CONFIG_HOME`,
+never the real one. Full suite green (936 passed, 3 skipped) before committing.
+
 ## Licensing
 
 **Status: decided — GPLv3.** Greenshot (Windows) is GPLv3; this is a derivative work — same feature

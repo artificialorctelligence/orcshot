@@ -126,6 +126,7 @@ gi.require_version("Rsvg", "2.0")
 import numpy as np
 from gi.repository import Gdk, GdkPixbuf, Gio, GLib, Gtk, Pango, Rsvg
 
+from orcshot.autostart import install_autostart_entry, is_autostart_enabled, remove_autostart_entry
 from orcshot.capture.clipboard import ClipboardBackend
 from orcshot.core.crop import (
     autocrop_rect, crop_out_horizontal_strip, crop_out_vertical_strip, crop_to_rect,
@@ -161,16 +162,22 @@ from orcshot.settings import (
     get_external_editor_preference,
     get_filename_counter,
     get_footer_pattern,
+    get_icon_size,
     get_output_directory,
     get_suppress_save_dialog_at_close,
+    get_update_check_interval_days,
+    get_use_default_proxy,
     quick_save_filename,
     set_capture_mouse_cursor,
     set_check_unstable_updates,
     set_external_editor_preference,
     set_filename_counter,
     set_footer_pattern,
+    set_icon_size,
     set_output_directory,
     set_suppress_save_dialog_at_close,
+    set_update_check_interval_days,
+    set_use_default_proxy,
 )
 from orcshot.resources import LOGO_PATH
 from orcshot.core.tools import (
@@ -1169,13 +1176,6 @@ class EditorWindow(Gtk.Window):
         add_item(edit_menu, "Duplicate", self._do_duplicate, icon_name="edit-copy-symbolic")
         edit_menu.append(Gtk.SeparatorMenuItem())
         add_item(edit_menu, "Preferences...", self._do_show_settings, icon_name="preferences-system-symbolic")
-        # Temporary placement - real Windows keeps hotkey config inside
-        # Preferences>General (SettingsForm.Designer.cs's
-        # groupbox_hotkeys), which is where this belongs too once the
-        # Preferences dialog itself is rebuilt (task #95's own second
-        # half, not done yet) - sitting next to Preferences here in the
-        # meantime rather than disappearing.
-        add_item(edit_menu, "Set Up Hotkeys & Autostart...", self._do_show_setup, icon_name="preferences-desktop-keyboard-symbolic")
         edit_menu.append(Gtk.SeparatorMenuItem())
         add_item(edit_menu, "Insert Window...", self._do_insert_window, icon_name="list-add-symbolic")
         edit_menu.append(Gtk.SeparatorMenuItem())
@@ -1188,7 +1188,12 @@ class EditorWindow(Gtk.Window):
         # same RadioToolButtons the palette itself owns (not
         # self.tool = ... directly) so the toolbar's own pressed state
         # stays in sync - the identical pattern _on_key_press's letter
-        # shortcuts already use.
+        # shortcuts already use. Icons scale with the same "Icon size"
+        # Preferences setting as the toolbar (settings.get_icon_size) -
+        # matches real Windows, whose menuStrip1.ImageScalingSize is
+        # literally set to the same coreConfiguration.IconSize its
+        # toolbar uses (ImageEditorForm.Designer.cs:586), not a
+        # separate menu-specific size.
         for tool, label in (
             (Tool.RECTANGLE, "Rectangle"),
             (Tool.ELLIPSE, "Ellipse"),
@@ -1202,7 +1207,7 @@ class EditorWindow(Gtk.Window):
             add_item(
                 object_menu, label,
                 lambda tool=tool: self._tool_buttons[tool].set_active(True),
-                icon_image=tool_icon_image(tool, icon_color),
+                icon_image=tool_icon_image(tool, icon_color, size=get_icon_size()),
             )
         object_menu.append(Gtk.SeparatorMenuItem())
         add_item(object_menu, "Delete", self._do_delete, icon_name="edit-delete-symbolic")
@@ -1371,7 +1376,7 @@ class EditorWindow(Gtk.Window):
                 group_leader = button
             button.set_mode(False)  # flat icon toggle, not a radio-circle-plus-label
             button.set_relief(Gtk.ReliefStyle.NONE)
-            button.set_image(tool_icon_image(tool, color=icon_color))
+            button.set_image(tool_icon_image(tool, color=icon_color, size=get_icon_size()))
             button.set_tooltip_text(_with_shortcut(label, _TOOL_TOOLTIP_SHORTCUTS.get(label)))
             button.set_active(tool is self.tool)
             button.connect("toggled", self._on_tool_button_toggled, tool)
@@ -2771,47 +2776,152 @@ class EditorWindow(Gtk.Window):
         print_image(self._composited_image(), parent=self)
 
     def _do_show_settings(self) -> None:
-        """A minimal Preferences dialog - matches Windows' real
-        Settings button (btnSettings, ImageEditorForm.Designer.cs),
-        but there isn't much to configure here yet, so it's a small
-        home for the existing save-location control rather than a
-        Windows-parity settings surface. Grows as more settings show
-        up (see task list).
+        """Preferences dialog - task #95 part 2 rebuilds this as a
+        tabbed Gtk.Notebook matching real Windows' actual SettingsForm
+        structure (SettingsForm.Designer.cs's tabcontrol.Controls:
+        General/Capture/Output/Destinations/Printer/Plugins/Expert),
+        replacing the old single flat list of rows. Plugins is dropped
+        (real Windows' tab lists loaded plugin DLLs with Configure
+        buttons; this port has exactly one "plugin"-shaped thing,
+        ExternalCommand, better served by Destinations tab's own
+        Configure button than a whole tab for one item).
+
+        Built incrementally, one tab at a time, each checked in on
+        before the next: General is fully real as of this pass.
+        Capture/Output/Destinations/Expert move this dialog's
+        previously-existing controls into their real Windows-matching
+        tabs (pure reorganization, nothing new). Printer is still an
+        explicit placeholder - real printer *defaults* (as opposed to
+        the existing per-print-job dialog, ui/printing.py) aren't
+        built yet.
         """
         self._commit_text_editing_if_active()
         dialog = Gtk.Dialog(title="Preferences", transient_for=self)
+        dialog.set_default_size(480, 420)
         dialog.add_buttons(Gtk.STOCK_CLOSE, Gtk.ResponseType.CLOSE)
         content = dialog.get_content_area()
-        content.set_border_width(12)
-        content.set_spacing(6)
 
-        row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
-        row.pack_start(Gtk.Label(label="Screenshot Save Location:"), False, False, 0)
-        location_label = Gtk.Label(label=str(get_output_directory()))
-        row.pack_start(location_label, True, True, 0)
-        change_button = Gtk.Button(label="Change...")
+        notebook = Gtk.Notebook()
+        notebook.append_page(self._build_general_settings_tab(), Gtk.Label(label="General"))
+        notebook.append_page(self._build_capture_settings_tab(), Gtk.Label(label="Capture"))
+        notebook.append_page(self._build_output_settings_tab(), Gtk.Label(label="Output"))
+        notebook.append_page(self._build_destinations_settings_tab(dialog), Gtk.Label(label="Destinations"))
+        notebook.append_page(self._build_printer_settings_tab(), Gtk.Label(label="Printer"))
+        notebook.append_page(self._build_expert_settings_frame(), Gtk.Label(label="Expert"))
+        content.pack_start(notebook, True, True, 0)
 
-        def on_change(_button):
-            self._do_choose_save_location()
-            location_label.set_text(str(get_output_directory()))
+        dialog.show_all()
+        dialog.run()
+        dialog.destroy()
 
-        change_button.connect("clicked", on_change)
-        row.pack_start(change_button, False, False, 0)
-        content.pack_start(row, False, False, 0)
+    def _build_general_settings_tab(self) -> Gtk.Box:
+        """Matches real Windows' General tab (SettingsForm.Designer.cs:
+        480-482's tab_general.Controls: groupbox_network,
+        groupbox_hotkeys, groupbox_applicationsettings).
+        """
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
+        box.set_border_width(12)
 
-        # Faithful port of Windows' "Capture mousepointer" checkbox
-        # (ICoreConfiguration.cs:79-81, default True) - see
-        # ui/capture_modes.py's module docstring for how this
-        # interacts with the tray-menu-vs-hotkey asymmetry.
-        cursor_check = Gtk.CheckButton(label="Capture mouse cursor")
-        cursor_check.set_active(get_capture_mouse_cursor())
-        cursor_check.connect("toggled", lambda btn: set_capture_mouse_cursor(btn.get_active()))
-        content.pack_start(cursor_check, False, False, 0)
+        network_frame = Gtk.Frame(label="Network and Updates")
+        network_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        network_box.set_border_width(8)
+        network_frame.add(network_box)
+
+        # Faithful port of "Use your global proxy?" (UseProxy,
+        # ICoreConfiguration.cs:215-217) - see get_use_default_proxy's
+        # own docstring for what "default proxy" means on Linux vs.
+        # Windows' WinINet.
+        proxy_check = Gtk.CheckButton(label="Use system default proxy")
+        proxy_check.set_active(get_use_default_proxy())
+        proxy_check.connect("toggled", lambda btn: set_use_default_proxy(btn.get_active()))
+        network_box.pack_start(proxy_check, False, False, 0)
+
+        interval_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        interval_row.pack_start(Gtk.Label(label="Check for updates every"), False, False, 0)
+        interval_spin = Gtk.SpinButton.new_with_range(0, 365, 1)
+        interval_spin.set_value(get_update_check_interval_days())
+        interval_spin.set_tooltip_text(
+            "Has no effect yet - this port doesn't check for updates at all (see task #103). "
+            "0 = never check, matching Windows' own UpdateCheckInterval semantics."
+        )
+        interval_spin.connect("value-changed", lambda spin: set_update_check_interval_days(spin.get_value_as_int()))
+        interval_row.pack_start(interval_spin, False, False, 0)
+        interval_row.pack_start(Gtk.Label(label="days"), False, False, 0)
+        network_box.pack_start(interval_row, False, False, 0)
+        box.pack_start(network_frame, False, False, 0)
+
+        hotkeys_frame = Gtk.Frame(label="Hotkeys")
+        hotkeys_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        hotkeys_box.set_border_width(8)
+        hotkeys_frame.add(hotkeys_box)
+        hotkeys_button = Gtk.Button(label="Configure Hotkeys...")
+        # Reuses the existing conflict-detecting setup dialog
+        # (ui/first_run_setup.py) rather than rebuilding Windows' own
+        # live-capture HotkeyControl widgets inline here - that dialog
+        # already covers all 4 bindings plus autostart in one place.
+        hotkeys_button.connect("clicked", lambda _b: self._do_show_setup())
+        hotkeys_box.pack_start(hotkeys_button, False, False, 0)
+        box.pack_start(hotkeys_frame, False, False, 0)
+
+        app_frame = Gtk.Frame(label="Application Settings")
+        app_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        app_box.set_border_width(8)
+        app_frame.add(app_box)
+
+        # Placeholder - task #109 (i18n infrastructure) doesn't exist
+        # yet, so there's only ever one real choice. Shown disabled
+        # rather than omitted so the real Windows field this
+        # corresponds to (combobox_language, groupbox_applicationsettings)
+        # has a visible, honest placement already.
+        language_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        language_row.pack_start(Gtk.Label(label="Language:"), False, False, 0)
+        language_combo = Gtk.ComboBoxText()
+        language_combo.append("en", "English")
+        language_combo.set_active_id("en")
+        language_combo.set_sensitive(False)
+        language_combo.set_tooltip_text("Only English is available - see task #109 (i18n infrastructure).")
+        language_row.pack_start(language_combo, False, False, 0)
+        app_box.pack_start(language_row, False, False, 0)
+
+        # Faithful port of "Icon size" (numericUpdownIconSize,
+        # SettingsForm.Designer.cs:330-336, 16-256 step 16) - see
+        # settings.get_icon_size's own docstring for the default and
+        # ui/icons.py's tool_icon_image for how it's actually applied
+        # (bitmap-scaled, not redrawn).
+        icon_size_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        icon_size_row.pack_start(Gtk.Label(label="Icon size:"), False, False, 0)
+        icon_size_spin = Gtk.SpinButton.new_with_range(16, 256, 16)
+        icon_size_spin.set_value(get_icon_size())
+        icon_size_spin.set_tooltip_text("Takes effect the next time you open a screenshot.")
+        icon_size_spin.connect("value-changed", lambda spin: set_icon_size(spin.get_value_as_int()))
+        icon_size_row.pack_start(icon_size_spin, False, False, 0)
+        app_box.pack_start(icon_size_row, False, False, 0)
+
+        # Faithful port of "Launch Greenshot on startup"
+        # (checkbox_autostartshortcut, SettingsForm.Designer.cs:348) -
+        # a direct, immediate toggle, distinct from the Configure
+        # Hotkeys button above's first-run-style wizard (which also
+        # offers to enable autostart, but only as part of a full
+        # reconfigure pass, not a live on/off switch on its own).
+        autostart_check = Gtk.CheckButton(label="Launch Orcshot on startup")
+        autostart_check.set_active(is_autostart_enabled())
+
+        def on_autostart_toggled(btn) -> None:
+            from orcshot.ui.first_run_setup import _default_executable
+
+            if btn.get_active():
+                install_autostart_entry(_default_executable())
+            else:
+                remove_autostart_entry()
+
+        autostart_check.connect("toggled", on_autostart_toggled)
+        app_box.pack_start(autostart_check, False, False, 0)
 
         # Not a Windows setting - "Open in External Editor" itself
         # isn't a Windows feature (see _EXTERNAL_EDITOR_CANDIDATES).
-        # IDs match settings.get/set_external_editor_preference's
-        # values directly (EXTERNAL_EDITOR_AUTO, or a candidate name).
+        # No clear Windows tab to match against, kept here as a
+        # general app-behavior preference rather than invented a
+        # dedicated tab for one control.
         editor_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
         editor_row.pack_start(Gtk.Label(label="External Image Editor:"), False, False, 0)
         editor_combo = Gtk.ComboBoxText()
@@ -2828,14 +2938,87 @@ class EditorWindow(Gtk.Window):
             editor_combo.set_active_id(EXTERNAL_EDITOR_AUTO)
         editor_combo.connect("changed", lambda combo: set_external_editor_preference(combo.get_active_id()))
         editor_row.pack_start(editor_combo, False, False, 0)
-        content.pack_start(editor_row, False, False, 0)
+        app_box.pack_start(editor_row, False, False, 0)
 
-        # Task #110 - faithful-in-spirit port of the ExternalCommand
-        # plugin's own Plugins-tab "Configure" button
-        # (ExternalCommandPlugin.cs:225-229), which opened its list
-        # dialog directly - this port has no separate Plugins tab for
-        # that button to live in, so it's a row here instead. See
-        # ui/external_commands.py for the actual feature.
+        box.pack_start(app_frame, False, False, 0)
+        return box
+
+    def _build_capture_settings_tab(self) -> Gtk.Box:
+        """Matches real Windows' Capture tab (groupbox_capture) - only
+        "Capture mouse cursor" so far (moved here unchanged from the
+        old flat dialog). Notifications/Play Sound are deliberately
+        not here yet - this port has no capture-complete notification
+        or sound feature at all to attach them to (split into task
+        #126 rather than adding dead checkboxes).
+        """
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
+        box.set_border_width(12)
+
+        frame = Gtk.Frame(label="Capture")
+        inner = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        inner.set_border_width(8)
+        frame.add(inner)
+
+        # Faithful port of Windows' "Capture mousepointer" checkbox
+        # (ICoreConfiguration.cs:79-81, default True) - see
+        # ui/capture_modes.py's module docstring for how this
+        # interacts with the tray-menu-vs-hotkey asymmetry.
+        cursor_check = Gtk.CheckButton(label="Capture mouse cursor")
+        cursor_check.set_active(get_capture_mouse_cursor())
+        cursor_check.connect("toggled", lambda btn: set_capture_mouse_cursor(btn.get_active()))
+        inner.pack_start(cursor_check, False, False, 0)
+
+        box.pack_start(frame, False, False, 0)
+        return box
+
+    def _build_output_settings_tab(self) -> Gtk.Box:
+        """Matches real Windows' Output tab (groupbox_preferredfilesettings)
+        - only Screenshot Save Location so far (moved here unchanged
+        from the old flat dialog). The rest of "preferred file
+        settings" (filename pattern, primary format, quality settings)
+        isn't built yet - this tab grows in a later pass of task #95.
+        """
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
+        box.set_border_width(12)
+
+        frame = Gtk.Frame(label="Preferred File Settings")
+        inner = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        inner.set_border_width(8)
+        frame.add(inner)
+
+        row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        row.pack_start(Gtk.Label(label="Screenshot Save Location:"), False, False, 0)
+        location_label = Gtk.Label(label=str(get_output_directory()))
+        row.pack_start(location_label, True, True, 0)
+        change_button = Gtk.Button(label="Change...")
+
+        def on_change(_button):
+            self._do_choose_save_location()
+            location_label.set_text(str(get_output_directory()))
+
+        change_button.connect("clicked", on_change)
+        row.pack_start(change_button, False, False, 0)
+        inner.pack_start(row, False, False, 0)
+
+        box.pack_start(frame, False, False, 0)
+        return box
+
+    def _build_destinations_settings_tab(self, dialog: Gtk.Dialog) -> Gtk.Box:
+        """Matches real Windows' Destinations tab (groupbox_destination)
+        - only the ExternalCommand "Manage..." button so far (moved
+        here unchanged from the old flat dialog, task #110's own
+        faithful-in-spirit stand-in for that tab's own Configure
+        button). The full destination checklist (matching
+        listview_destinations) isn't built yet.
+        """
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
+        box.set_border_width(12)
+
+        frame = Gtk.Frame(label="Destinations")
+        inner = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        inner.set_border_width(8)
+        frame.add(inner)
+
         external_commands_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
         external_commands_row.pack_start(Gtk.Label(label="External Commands:"), False, False, 0)
         manage_commands_button = Gtk.Button(label="Manage...")
@@ -2847,13 +3030,25 @@ class EditorWindow(Gtk.Window):
 
         manage_commands_button.connect("clicked", on_manage_external_commands)
         external_commands_row.pack_start(manage_commands_button, False, False, 0)
-        content.pack_start(external_commands_row, False, False, 0)
+        inner.pack_start(external_commands_row, False, False, 0)
 
-        content.pack_start(self._build_expert_settings_frame(), False, False, 0)
+        box.pack_start(frame, False, False, 0)
+        return box
 
-        dialog.show_all()
-        dialog.run()
-        dialog.destroy()
+    def _build_printer_settings_tab(self) -> Gtk.Box:
+        """Placeholder - real Windows' Printer tab (groupBoxColors/
+        groupBoxPrintLayout) sets *default* print options; this port
+        only has per-print-job options today (ui/printing.py's dialog,
+        backed by the same settings.PrintOptions this tab would
+        eventually default from). Not built yet - a later pass of task
+        #95, not silently skipped.
+        """
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
+        box.set_border_width(12)
+        label = Gtk.Label(label="Printer defaults aren't configurable here yet - use Print... to set options per job.")
+        label.set_line_wrap(True)
+        box.pack_start(label, False, False, 0)
+        return box
 
     def _build_expert_settings_frame(self) -> Gtk.Frame:
         """Faithful port of groupbox_expert (SettingsForm.Designer.cs:

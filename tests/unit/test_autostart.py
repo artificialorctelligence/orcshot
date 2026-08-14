@@ -15,6 +15,8 @@ from orcshot.autostart import (
     autostart_desktop_entry,
     autostart_file_path,
     install_autostart_entry,
+    is_autostart_enabled,
+    remove_autostart_entry,
 )
 
 
@@ -67,3 +69,22 @@ class TestInstallAutostartEntry:
         result = install_autostart_entry("new-command", autostart_dir=autostart_dir)
         assert "Exec=new-command" in result.read_text()
         assert "old-command" not in result.read_text()
+
+
+class TestIsAutostartEnabled:
+    def test_false_when_never_installed(self, tmp_path):
+        assert is_autostart_enabled(config_home=tmp_path) is False
+
+    def test_true_once_installed(self, tmp_path):
+        install_autostart_entry("orcshot", autostart_dir=tmp_path / "autostart")
+        assert is_autostart_enabled(config_home=tmp_path) is True
+
+
+class TestRemoveAutostartEntry:
+    def test_no_op_when_never_installed(self, tmp_path):
+        remove_autostart_entry(config_home=tmp_path)  # must not raise
+
+    def test_removes_an_installed_entry(self, tmp_path):
+        install_autostart_entry("orcshot", autostart_dir=tmp_path / "autostart")
+        remove_autostart_entry(config_home=tmp_path)
+        assert is_autostart_enabled(config_home=tmp_path) is False

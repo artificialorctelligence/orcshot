@@ -33,8 +33,12 @@ _SUPPRESS_SAVE_DIALOG_AT_CLOSE_KEY = "suppress_save_dialog_at_close"
 _FILENAME_COUNTER_KEY = "filename_counter"
 _FOOTER_PATTERN_KEY = "footer_pattern"
 _EXTERNAL_COMMANDS_KEY = "external_commands"
+_ICON_SIZE_KEY = "icon_size"
+_USE_DEFAULT_PROXY_KEY = "use_default_proxy"
+_UPDATE_CHECK_INTERVAL_DAYS_KEY = "update_check_interval_days"
 _DEFAULT_OUTPUT_DIRNAME = "Screenshots"
 _DEFAULT_FOOTER_PATTERN = "%B %d, %Y %I:%M %p"
+_DEFAULT_ICON_SIZE = 24
 EXTERNAL_EDITOR_AUTO = "auto"
 
 
@@ -306,6 +310,81 @@ def set_footer_pattern(pattern: str, path: Path = None) -> None:
         path = config_file_path()
     settings = _load(path)
     settings[_FOOTER_PATTERN_KEY] = pattern
+    _save(settings, path)
+
+
+def get_icon_size(path: Path = None) -> int:
+    """Faithful-in-spirit port of Windows' "Icon size" Application
+    setting (ICoreConfiguration.cs:365-368, IconSize, a 16x16 NativeSize
+    scaled to DPI) - a single square px value here (this port renders
+    its own icons rather than loading DPI-scaled bitmap resources, so
+    there's no separate width/height to track). Default is 24, not
+    Windows' 16 - matches ui/icons.py's own long-standing ICON_SIZE
+    constant, which was already a deliberate, unrelated sizing choice
+    for legibility on typical Linux displays; this setting makes that
+    value configurable rather than changing what a fresh install looks
+    like. Range (16-256 step 16) is Windows' own spinner's, enforced by
+    the Preferences UI, not here.
+    """
+    if path is None:
+        path = config_file_path()
+    return _load(path).get(_ICON_SIZE_KEY, _DEFAULT_ICON_SIZE)
+
+
+def set_icon_size(size: int, path: Path = None) -> None:
+    if path is None:
+        path = config_file_path()
+    settings = _load(path)
+    settings[_ICON_SIZE_KEY] = size
+    _save(settings, path)
+
+
+def get_use_default_proxy(path: Path = None) -> bool:
+    """Faithful port of Windows' "Use your global proxy?" Network
+    setting (ICoreConfiguration.cs:215-217, UseProxy, default True).
+    Windows reads its "global proxy" from WinINet/IE's system proxy
+    settings; the Linux equivalent this port actually honors when this
+    is enabled is the standard `http_proxy`/`https_proxy`/`no_proxy`
+    environment variables (what every well-behaved Linux HTTP client,
+    including Python's own urllib/requests, already checks by default)
+    - there is no single OS-wide GNOME/system proxy API as
+    universally honored as Windows' WinINet is. Currently has nowhere
+    to plug in (this port makes no network requests at all yet - see
+    task #103's eventual update checker), ported now as a persisted,
+    documented placeholder for the same reason
+    get_check_unstable_updates is.
+    """
+    if path is None:
+        path = config_file_path()
+    return _load(path).get(_USE_DEFAULT_PROXY_KEY, True)
+
+
+def set_use_default_proxy(enabled: bool, path: Path = None) -> None:
+    if path is None:
+        path = config_file_path()
+    settings = _load(path)
+    settings[_USE_DEFAULT_PROXY_KEY] = enabled
+    _save(settings, path)
+
+
+def get_update_check_interval_days(path: Path = None) -> int:
+    """Faithful port of Windows' "How many days between every update
+    check?" Network setting (ICoreConfiguration.cs:233-236,
+    UpdateCheckInterval, default 14, 0=no checks). Stub - this port has
+    no update-checking system at all yet (task #103); persisted now so
+    #103's eventual checker reads an existing value rather than also
+    inventing where it lives, matching get_check_unstable_updates.
+    """
+    if path is None:
+        path = config_file_path()
+    return _load(path).get(_UPDATE_CHECK_INTERVAL_DAYS_KEY, 14)
+
+
+def set_update_check_interval_days(days: int, path: Path = None) -> None:
+    if path is None:
+        path = config_file_path()
+    settings = _load(path)
+    settings[_UPDATE_CHECK_INTERVAL_DAYS_KEY] = days
     _save(settings, path)
 
 

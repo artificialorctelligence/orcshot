@@ -23,10 +23,13 @@ from orcshot.settings import (
     get_external_editor_preference,
     get_filename_counter,
     get_footer_pattern,
+    get_icon_size,
     get_output_directory,
     get_print_options,
     get_recent_colors,
     get_suppress_save_dialog_at_close,
+    get_update_check_interval_days,
+    get_use_default_proxy,
     is_first_run_setup_done,
     mark_first_run_setup_done,
     quick_save_filename,
@@ -36,10 +39,13 @@ from orcshot.settings import (
     set_external_editor_preference,
     set_filename_counter,
     set_footer_pattern,
+    set_icon_size,
     set_output_directory,
     set_print_options,
     set_recent_colors,
     set_suppress_save_dialog_at_close,
+    set_update_check_interval_days,
+    set_use_default_proxy,
 )
 
 
@@ -247,6 +253,49 @@ class TestSuppressSaveDialogAtClose:
         set_suppress_save_dialog_at_close(True, path=path)
 
         assert get_suppress_save_dialog_at_close(path=path) is True
+
+
+class TestIconSize:
+    def test_defaults_to_24(self, tmp_path):
+        # ui/icons.py's own long-standing ICON_SIZE constant, not
+        # Windows' 16 (see get_icon_size's own docstring for why).
+        path = tmp_path / "config.json"
+        assert get_icon_size(path=path) == 24
+
+    def test_set_then_get_round_trips(self, tmp_path):
+        path = tmp_path / "config.json"
+
+        set_icon_size(48, path=path)
+
+        assert get_icon_size(path=path) == 48
+
+
+class TestUseDefaultProxy:
+    def test_defaults_to_true(self, tmp_path):
+        # matches Windows' UseProxy default (ICoreConfiguration.cs:215-217)
+        path = tmp_path / "config.json"
+        assert get_use_default_proxy(path=path) is True
+
+    def test_set_then_get_round_trips(self, tmp_path):
+        path = tmp_path / "config.json"
+
+        set_use_default_proxy(False, path=path)
+
+        assert get_use_default_proxy(path=path) is False
+
+
+class TestUpdateCheckIntervalDays:
+    def test_defaults_to_14(self, tmp_path):
+        # matches Windows' UpdateCheckInterval default (ICoreConfiguration.cs:233-236)
+        path = tmp_path / "config.json"
+        assert get_update_check_interval_days(path=path) == 14
+
+    def test_set_then_get_round_trips(self, tmp_path):
+        path = tmp_path / "config.json"
+
+        set_update_check_interval_days(7, path=path)
+
+        assert get_update_check_interval_days(path=path) == 7
 
 
 class TestFilenameCounter:

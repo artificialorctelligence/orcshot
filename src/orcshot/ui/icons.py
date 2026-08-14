@@ -717,9 +717,23 @@ def tool_icon_surface(tool: Tool, color: Color = _DEFAULT_COLOR) -> cairo.ImageS
     return _TOOL_ICON_BUILDERS[tool](color)
 
 
-def tool_icon_image(tool: Tool, color: Color = _DEFAULT_COLOR) -> Gtk.Image:
+def tool_icon_image(tool: Tool, color: Color = _DEFAULT_COLOR, size: int = ICON_SIZE) -> Gtk.Image:
+    """``size`` (task #95's Preferences>General "Icon size" setting,
+    settings.get_icon_size) rescales the rendered pixbuf rather than
+    redrawing at a different resolution - every _TOOL_ICON_BUILDERS
+    function is written against the fixed ICON_SIZE module constant
+    (dozens of hardcoded coordinates), and bitmap-scaling a vector-
+    drawn icon after the fact is both far less code and how Windows'
+    own IconSize setting works too (it scales bitmap resources, not
+    a redraw). BILINEAR, not NEAREST - unlike orcshot.png's deliberately
+    blocky dot-matrix logo, these are smooth vector line-art icons,
+    where nearest-neighbor scaling would look chunky/aliased instead
+    of crisp.
+    """
     surface = tool_icon_surface(tool, color)
     pixbuf = Gdk.pixbuf_get_from_surface(surface, 0, 0, surface.get_width(), surface.get_height())
+    if size != ICON_SIZE:
+        pixbuf = pixbuf.scale_simple(size, size, GdkPixbuf.InterpType.BILINEAR)
     return Gtk.Image.new_from_pixbuf(pixbuf)
 
 
