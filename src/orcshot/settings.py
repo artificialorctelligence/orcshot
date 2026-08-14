@@ -21,7 +21,7 @@ from dataclasses import asdict, dataclass
 from datetime import datetime
 from pathlib import Path
 
-from orcshot.core.filename_pattern import DEFAULT_FILENAME_PATTERN
+from orcshot.core.filename_pattern import DEFAULT_FILENAME_PATTERN, MODE_GREENSHOT
 
 CONFIG_FILENAME = "config.json"
 _OUTPUT_DIRECTORY_KEY = "output_directory"
@@ -30,7 +30,6 @@ _CAPTURE_MOUSE_CURSOR_KEY = "capture_mouse_cursor"
 _PRINT_OPTIONS_KEY = "print_options"
 _RECENT_COLORS_KEY = "recent_colors"
 _EXTERNAL_EDITOR_KEY = "external_editor"
-_CHECK_UNSTABLE_UPDATES_KEY = "check_unstable_updates"
 _SUPPRESS_SAVE_DIALOG_AT_CLOSE_KEY = "suppress_save_dialog_at_close"
 _FILENAME_COUNTER_KEY = "filename_counter"
 _FOOTER_PATTERN_KEY = "footer_pattern"
@@ -203,15 +202,23 @@ class OutputSettings:
     separate get_x/set_x pairs, matching PrintOptions' own rationale:
     always edited together in one Preferences tab.
 
-    ``filename_pattern`` uses core/filename_pattern.py's token
-    subset, not Windows' full one (see that module's own docstring).
+    ``filename_pattern`` uses core/filename_pattern.py's token subset
+    (Windows-style, not the full thing) or standard strftime codes,
+    depending on ``filename_pattern_mode`` - the two are mutually
+    exclusive by explicit choice, not composed in one pattern (see
+    core/filename_pattern.py's own module docstring for why - a bare
+    "%" prefix next to ordinary text is inherently self-ambiguous,
+    confirmed live). Not a Windows setting at all - Windows' own
+    OutputFileFilenamePattern has no such mode concept, this port's
+    own addition.
+
     ``reduce_colors`` is persisted but not yet applied to a save - see
     _do_quick_save/_do_save's own notes; a real, documented gap rather
-    than a fake control, matching how get_check_unstable_updates was
-    already handled the same way.
+    than a fake control.
     """
 
     filename_pattern: str = DEFAULT_FILENAME_PATTERN  # OutputFileFilenamePattern (this port's own default, see the module docstring)
+    filename_pattern_mode: str = MODE_GREENSHOT  # this port's own addition, see the docstring above
     primary_format: str = "png"  # OutputFileFormat
     copy_path_to_clipboard: bool = True  # OutputFileCopyPathToClipboard
     reduce_colors: bool = False  # OutputFileReduceColors
@@ -255,28 +262,6 @@ def set_external_editor_preference(name: str, path: Path = None) -> None:
         path = config_file_path()
     settings = _load(path)
     settings[_EXTERNAL_EDITOR_KEY] = name
-    _save(settings, path)
-
-
-def get_check_unstable_updates(path: Path = None) -> bool:
-    """Faithful port of Windows' "Check for unstable updates" Expert
-    setting (ICoreConfiguration.cs:287-289, CheckForUnstable, default
-    False) - a stub. This port has no update-checking system at all
-    yet (see task #103), so this flag currently has nowhere to plug
-    in; it's ported now as a persisted, documented placeholder rather
-    than skipped, so #103's eventual update checker just needs to read
-    it rather than also inventing where it lives.
-    """
-    if path is None:
-        path = config_file_path()
-    return _load(path).get(_CHECK_UNSTABLE_UPDATES_KEY, False)
-
-
-def set_check_unstable_updates(enabled: bool, path: Path = None) -> None:
-    if path is None:
-        path = config_file_path()
-    settings = _load(path)
-    settings[_CHECK_UNSTABLE_UPDATES_KEY] = enabled
     _save(settings, path)
 
 
@@ -398,8 +383,8 @@ def get_use_default_proxy(path: Path = None) -> bool:
     universally honored as Windows' WinINet is. Currently has nowhere
     to plug in (this port makes no network requests at all yet - see
     task #103's eventual update checker), ported now as a persisted,
-    documented placeholder for the same reason
-    get_check_unstable_updates is.
+    documented placeholder so #103's own eventual checker just reads
+    an existing value rather than also inventing where it lives.
     """
     if path is None:
         path = config_file_path()

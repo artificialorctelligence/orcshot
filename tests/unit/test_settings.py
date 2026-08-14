@@ -19,7 +19,6 @@ from orcshot.settings import (
     consume_filename_counter,
     default_output_directory,
     get_capture_mouse_cursor,
-    get_check_unstable_updates,
     get_excluded_destinations,
     get_external_commands,
     get_external_editor_preference,
@@ -38,7 +37,6 @@ from orcshot.settings import (
     mark_first_run_setup_done,
     quick_save_filename,
     set_capture_mouse_cursor,
-    set_check_unstable_updates,
     set_excluded_destinations,
     set_external_commands,
     set_external_editor_preference,
@@ -242,7 +240,7 @@ class TestOutputSettings:
         path = tmp_path / "config.json"
         settings = get_output_settings(path=path)
         assert settings == OutputSettings(
-            filename_pattern="${YYYY}-${MM}-${DD} ${hh}_${mm}_${ss}",
+            filename_pattern="${YYYY}-${MM}-${DD} ${hh}_${mm}_${ss}", filename_pattern_mode="greenshot",
             primary_format="png", copy_path_to_clipboard=True, reduce_colors=False,
             always_show_quality_dialog=False, jpeg_quality=80,
         )
@@ -250,8 +248,8 @@ class TestOutputSettings:
     def test_set_then_get_round_trips(self, tmp_path):
         path = tmp_path / "config.json"
         settings = OutputSettings(
-            filename_pattern="${title}", primary_format="jpg", copy_path_to_clipboard=False,
-            reduce_colors=True, always_show_quality_dialog=True, jpeg_quality=50,
+            filename_pattern="${title}", filename_pattern_mode="strftime", primary_format="jpg",
+            copy_path_to_clipboard=False, reduce_colors=True, always_show_quality_dialog=True, jpeg_quality=50,
         )
 
         set_output_settings(settings, path=path)
@@ -276,19 +274,6 @@ class TestOutputSettings:
 
         assert settings.primary_format == "jpg"
         assert settings.jpeg_quality == 80
-
-
-class TestCheckUnstableUpdates:
-    def test_defaults_to_false(self, tmp_path):
-        path = tmp_path / "config.json"
-        assert get_check_unstable_updates(path=path) is False
-
-    def test_set_then_get_round_trips(self, tmp_path):
-        path = tmp_path / "config.json"
-
-        set_check_unstable_updates(True, path=path)
-
-        assert get_check_unstable_updates(path=path) is True
 
 
 class TestSuppressSaveDialogAtClose:

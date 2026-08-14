@@ -4374,6 +4374,57 @@ into their own tracked tasks rather than bundled in: #123 (`.orcshot` file forma
 export, blocked on #123), #125 (real multi-select + Object menu's Select All), #126 (capture-complete
 notifications + sound).
 
+## Preferences dialog follow-up: Expert tab removed, filename-pattern modes, layout fixes (2026-08-14)
+
+Direct follow-up requests from direflail after the tab-by-tab rebuild above landed, all same day.
+
+**General tab reordered**: Application Settings, Hotkeys, Network and Updates (was Network and Updates,
+Hotkeys, Application Settings, matching Windows' own `tab_general.Controls` declaration order) - direflail's
+own call, no functional change.
+
+**Expert tab removed entirely.** Every field it held moved to its real home: Suppress-save-dialog →
+General > Application Settings; Counter (`${NUM}`) → Output > Preferred File Settings, directly under the
+filename pattern field it feeds; Printer footer pattern → Printer tab, under the "Print date/time" checkbox
+it belongs to. The "I know what I am doing!" gate that used to lock all of these went with it, by explicit
+request - they're normal, always-editable settings now, matching every other tab. "Check for unstable
+updates" (`get_check_unstable_updates`/`set_check_unstable_updates`, its settings key, and its tests) was
+deleted outright rather than relocated - direflail's own call, since this port has no update-checking system
+at all to attach it to (task #103).
+
+**Filename pattern: two mutually exclusive modes, not composed.** direflail's own request - "in addition to
+keeping the way greenshot does it" - to also support standard Linux/strftime-style codes (`%Y`, `%m`, ...)
+alongside Greenshot's own `${YYYY}`/`${MM}` tokens. The first implementation attempt tried composing both in
+one pattern (strftime pass, then `${...}` pass) and was caught live, by direflail, as a real bug before it
+shipped: Python's `strftime()` delegates straight to the platform's C library, which recognizes a much
+larger, platform-dependent code set than anyone expects - confirmed live that
+`when.strftime("a%screenshot.png")` returns `"a1772723222creenshot.png"` (glibc's `%s` = Unix epoch seconds,
+silently eating the "s"), and `%USERPROFILE%` (an ordinary pasted Windows envvar string) becomes
+`"09SERPROFILE%"` (`%U` = ISO week number). A follow-up attempt narrowed this to a curated "safe" whitelist
+of standard C89 codes only - also caught live as still broken: `%d` (day-of-month, a perfectly standard,
+whitelisted code) ate the "d" out of the ordinary word "done" in `"100%done"`. The root cause isn't fixable
+by curating the letter set smaller - a bare `%` immediately followed by a single ordinary letter is
+*inherently* ambiguous in free text, since nearly every common code letter also starts ordinary English
+words.
+
+**Real fix, direflail's own call**: a real dropdown (`OutputSettings.filename_pattern_mode`,
+`core.filename_pattern.MODE_GREENSHOT`/`MODE_STRFTIME`) - the two syntaxes are never both active on the same
+pattern. In Greenshot mode, `%` is never parsed at all (pure literal text, matching real Windows' own
+behavior exactly - it only ever understands `${...}`). In strftime mode, `${...}` is never parsed at all,
+and this mode now uses the *real, full* `datetime.strftime()` (not a whitelist) - safe to do since it's an
+explicit opt-in and the standard `%%`-escapes-a-literal-percent convention is expected, documented behavior
+for anyone who deliberately chose this mode, not a silent footgun sitting in front of anyone who happens to
+have used `%` in a pattern for an unrelated reason. `_build_output_settings_tab` gained a "Pattern style:"
+combo box above the filename pattern field; the `?` help button's content is mode-aware, showing only the
+relevant token/code list for whichever mode is currently selected.
+
+11 new/rewritten unit tests in `test_filename_pattern.py` (`TestGreenshotMode`/`TestStrftimeMode`, replacing
+the old single mixed-mode test class), including regression tests reproducing the exact `%s`/`%d` corruption
+cases above to lock the fix in. Live-verified: the mode dropdown persists correctly, a quick-save in
+strftime mode produces a correctly-formatted filename end-to-end (`20260814_072209.png` from
+`%Y%m%d_%H%M%S`), and the General/Output/Printer tab restructuring (frame order, relocated fields, Expert
+tab gone) was walked structurally against the live dialog. Full suite green (966 passed, 3 skipped) before
+committing.
+
 ## Licensing
 
 **Status: decided — GPLv3.** Greenshot (Windows) is GPLv3; this is a derivative work — same feature

@@ -125,7 +125,10 @@ def _quick_save(image: np.ndarray, cursor_shape: CursorShape = None) -> None:
     directory = get_output_directory()
     directory.mkdir(parents=True, exist_ok=True)
     counter = consume_filename_counter()
-    filename = resolve_filename_pattern(output_settings.filename_pattern, datetime.now(), counter) + "." + output_settings.primary_format
+    filename = (
+        resolve_filename_pattern(output_settings.filename_pattern, datetime.now(), counter, mode=output_settings.filename_pattern_mode)
+        + "." + output_settings.primary_format
+    )
     path = directory / filename
     save_image_to_file(_flattened(image, cursor_shape), path, jpeg_quality=output_settings.jpeg_quality)
     if output_settings.copy_path_to_clipboard:
@@ -146,7 +149,9 @@ def _save_as(image: np.ndarray, cursor_shape: CursorShape = None) -> None:
     # Peek, don't consume - the counter should only advance once a save
     # actually happens (below), not just because a dialog with a
     # suggested name was shown and possibly cancelled.
-    suggested = resolve_filename_pattern(output_settings.filename_pattern, datetime.now(), get_filename_counter())
+    suggested = resolve_filename_pattern(
+        output_settings.filename_pattern, datetime.now(), get_filename_counter(), mode=output_settings.filename_pattern_mode,
+    )
     dialog.set_current_name(f"{suggested}.{output_settings.primary_format}")
     dialog.set_do_overwrite_confirmation(True)
     try:

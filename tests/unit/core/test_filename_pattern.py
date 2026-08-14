@@ -1,22 +1,25 @@
-"""Faithful-in-spirit port of FilenameHelper.cs's ${TOKEN} substitution
-(FillPattern, FilenameHelper.cs:344-441) - a subset of Windows' real
-token set (date/time components, ${NUM}, ${title}), not the full thing
-(no ${domain}/${user}/${hostname}/environment-folder tokens - low
-value here, storage location is already its own separate setting; no
-${now}/${capturetime} - redundant with the individual date tokens for
-this port's simpler no-culture-mode design).
+"""Two mutually exclusive filename-pattern modes - see
+core/filename_pattern.py's own module docstring for why they're
+never mixed (a bare "%" prefix next to ordinary text is inherently
+self-ambiguous, confirmed live: even a curated "safe" strftime
+whitelist still let %d eat the "d" out of an otherwise ordinary word
+"done"). One delimiter convention active at a time removes the
+ambiguity entirely.
 """
 
+import random
 from datetime import datetime
 
 from orcshot.core.filename_pattern import (
     DEFAULT_FILENAME_PATTERN,
+    MODE_GREENSHOT,
+    MODE_STRFTIME,
     make_filename_safe,
     resolve_filename_pattern,
 )
 
 
-class TestResolveFilenamePattern:
+class TestGreenshotMode:
     def test_substitutes_date_and_time_tokens_zero_padded(self):
         when = datetime(2026, 3, 5, 9, 7, 2)
         result = resolve_filename_pattern("${YYYY}-${MM}-${DD} ${hh}_${mm}_${ss}", when, counter=1)
@@ -62,6 +65,51 @@ class TestResolveFilenamePattern:
         # as a pattern instead of a hardcoded strftime call.
         when = datetime(2026, 7, 26, 14, 23, 5)
         assert resolve_filename_pattern(DEFAULT_FILENAME_PATTERN, when, counter=1) == "2026-07-26 14_23_05"
+
+    def test_rrr_token_produces_random_alphanumerics_of_matching_length(self):
+        when = datetime(2026, 1, 1, 0, 0, 0)
+        result = resolve_filename_pattern("${RRRR}", when, counter=1, rng=random.Random(0))
+        assert len(result) == 4
+        assert result.isalnum()
+
+    def test_rrr_token_length_matches_the_number_of_rs(self):
+        when = datetime(2026, 1, 1, 0, 0, 0)
+        result = resolve_filename_pattern("${RRRRRRRR}", when, counter=1, rng=random.Random(0))
+        assert len(result) == 8
+
+    def test_rrr_token_is_deterministic_given_the_same_rng_seed(self):
+        when = datetime(2026, 1, 1, 0, 0, 0)
+        a = resolve_filename_pattern("${RRRR}", when, counter=1, rng=random.Random(42))
+        b = resolve_filename_pattern("${RRRR}", when, counter=1, rng=random.Random(42))
+        assert a == b
+
+    def test_a_percent_character_is_left_completely_literal(self):
+        # % is never parsed in Greenshot mode at all - matches real
+        # Windows' own behavior exactly (it only ever understands
+        # ${...}).
+        when = datetime(2026, 1, 1, 0, 0, 0)
+        assert resolve_filename_pattern("100%done", when, counter=1) == "100%done"
+
+
+class TestStrftimeMode:
+    def test_strftime_codes_are_substituted(self):
+        when = datetime(2026, 3, 5, 9, 7, 2)
+        result = resolve_filename_pattern("%Y-%m-%d", when, counter=1, mode=MODE_STRFTIME)
+        assert result == "2026-03-05"
+
+    def test_dollar_tokens_are_left_completely_literal(self):
+        # ${...} is never parsed in strftime mode at all - modes are
+        # mutually exclusive, not composed.
+        when = datetime(2026, 3, 5, 9, 7, 2)
+        result = resolve_filename_pattern("%Y-${NUM}", when, counter=7, mode=MODE_STRFTIME)
+        assert result == "2026-${NUM}"
+
+    def test_double_percent_is_the_standard_escape_for_a_literal_percent(self):
+        # Real, full strftime() - this mode is an explicit opt-in, so
+        # the standard "%%" escape convention is expected/documented
+        # behavior for anyone choosing it, not a silent footgun.
+        when = datetime(2026, 3, 5, 9, 7, 2)
+        assert resolve_filename_pattern("100%%done", when, counter=1, mode=MODE_STRFTIME) == "100%done"
 
 
 class TestMakeFilenameSafe:

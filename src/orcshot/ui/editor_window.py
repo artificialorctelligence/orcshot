@@ -132,7 +132,7 @@ from orcshot.core.crop import (
     autocrop_rect, crop_out_horizontal_strip, crop_out_vertical_strip, crop_to_rect,
 )
 from orcshot.core.drawing import Layer
-from orcshot.core.filename_pattern import resolve_filename_pattern
+from orcshot.core.filename_pattern import MODE_GREENSHOT, MODE_STRFTIME, resolve_filename_pattern
 from orcshot.core.geometry import Rect
 from orcshot.core.effects import (
     add_border_image,
@@ -160,7 +160,6 @@ from orcshot.settings import (
     OutputSettings,
     consume_filename_counter,
     get_capture_mouse_cursor,
-    get_check_unstable_updates,
     get_excluded_destinations,
     get_external_editor_preference,
     get_filename_counter,
@@ -174,7 +173,6 @@ from orcshot.settings import (
     get_update_check_interval_days,
     get_use_default_proxy,
     set_capture_mouse_cursor,
-    set_check_unstable_updates,
     set_excluded_destinations,
     set_external_editor_preference,
     set_filename_counter,
@@ -1300,7 +1298,10 @@ class EditorWindow(Gtk.Window):
         settings = get_output_settings()  # re-read - the dialog may have changed jpeg_quality
         directory = get_output_directory()
         counter = consume_filename_counter()
-        filename = resolve_filename_pattern(settings.filename_pattern, datetime.now(), counter) + "." + settings.primary_format
+        filename = (
+            resolve_filename_pattern(settings.filename_pattern, datetime.now(), counter, mode=settings.filename_pattern_mode)
+            + "." + settings.primary_format
+        )
         path = directory / filename
         save_image_to_file(self._composited_image(), path, jpeg_quality=settings.jpeg_quality)
         self._saved_generation = self.undo_redo.generation
@@ -2870,24 +2871,24 @@ class EditorWindow(Gtk.Window):
         print_image(self._composited_image(), parent=self)
 
     def _do_show_settings(self) -> None:
-        """Preferences dialog - task #95 part 2 rebuilds this as a
+        """Preferences dialog - task #95 part 2 rebuilt this as a
         tabbed Gtk.Notebook matching real Windows' actual SettingsForm
         structure (SettingsForm.Designer.cs's tabcontrol.Controls:
-        General/Capture/Output/Destinations/Printer/Plugins/Expert),
-        replacing the old single flat list of rows. Plugins is dropped
-        (real Windows' tab lists loaded plugin DLLs with Configure
-        buttons; this port has exactly one "plugin"-shaped thing,
-        ExternalCommand, better served by Destinations tab's own
-        Configure button than a whole tab for one item).
-
-        Built incrementally, one tab at a time, each checked in on
-        before the next: General is fully real as of this pass.
-        Capture/Output/Destinations/Expert move this dialog's
-        previously-existing controls into their real Windows-matching
-        tabs (pure reorganization, nothing new). Printer is still an
-        explicit placeholder - real printer *defaults* (as opposed to
-        the existing per-print-job dialog, ui/printing.py) aren't
-        built yet.
+        General/Capture/Output/Destinations/Printer/Plugins/Expert).
+        Plugins is dropped (real Windows' tab lists loaded plugin DLLs
+        with Configure buttons; this port has exactly one "plugin"-
+        shaped thing, ExternalCommand, better served by Destinations
+        tab's own Configure button than a whole tab for one item).
+        Expert is dropped too, by direflail's own later call - every
+        field it held had a real home in one of the other tabs
+        (Suppress save dialog -> General>Application Settings, Counter
+        -> Output>Preferred File Settings, Printer footer pattern ->
+        Printer), and the "I know what I am doing!" gate that used to
+        lock them all went with it - they're normal, always-editable
+        settings now like everything else. Check for unstable updates
+        was removed outright rather than relocated - direflail's own
+        call, since this port has no update-checking system at all to
+        attach it to (task #103).
         """
         self._commit_text_editing_if_active()
         dialog = Gtk.Dialog(title="Preferences", transient_for=self)
@@ -2901,7 +2902,6 @@ class EditorWindow(Gtk.Window):
         notebook.append_page(self._build_output_settings_tab(), Gtk.Label(label="Output"))
         notebook.append_page(self._build_destinations_settings_tab(dialog), Gtk.Label(label="Destinations"))
         notebook.append_page(self._build_printer_settings_tab(), Gtk.Label(label="Printer"))
-        notebook.append_page(self._build_expert_settings_frame(), Gtk.Label(label="Expert"))
         content.pack_start(notebook, True, True, 0)
 
         dialog.show_all()
@@ -2911,51 +2911,13 @@ class EditorWindow(Gtk.Window):
     def _build_general_settings_tab(self) -> Gtk.Box:
         """Matches real Windows' General tab (SettingsForm.Designer.cs:
         480-482's tab_general.Controls: groupbox_network,
-        groupbox_hotkeys, groupbox_applicationsettings).
+        groupbox_hotkeys, groupbox_applicationsettings) - reordered
+        (Application Settings, Hotkeys, Network and Updates) per
+        direflail's own call, not Windows' own control-declaration
+        order.
         """
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
         box.set_border_width(12)
-
-        network_frame = Gtk.Frame(label="Network and Updates")
-        network_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
-        network_box.set_border_width(8)
-        network_frame.add(network_box)
-
-        # Faithful port of "Use your global proxy?" (UseProxy,
-        # ICoreConfiguration.cs:215-217) - see get_use_default_proxy's
-        # own docstring for what "default proxy" means on Linux vs.
-        # Windows' WinINet.
-        proxy_check = Gtk.CheckButton(label="Use system default proxy")
-        proxy_check.set_active(get_use_default_proxy())
-        proxy_check.connect("toggled", lambda btn: set_use_default_proxy(btn.get_active()))
-        network_box.pack_start(proxy_check, False, False, 0)
-
-        interval_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
-        interval_row.pack_start(Gtk.Label(label="Check for updates every"), False, False, 0)
-        interval_spin = Gtk.SpinButton.new_with_range(0, 365, 1)
-        interval_spin.set_value(get_update_check_interval_days())
-        interval_spin.set_tooltip_text(
-            "Has no effect yet - this port doesn't check for updates at all (see task #103). "
-            "0 = never check, matching Windows' own UpdateCheckInterval semantics."
-        )
-        interval_spin.connect("value-changed", lambda spin: set_update_check_interval_days(spin.get_value_as_int()))
-        interval_row.pack_start(interval_spin, False, False, 0)
-        interval_row.pack_start(Gtk.Label(label="days"), False, False, 0)
-        network_box.pack_start(interval_row, False, False, 0)
-        box.pack_start(network_frame, False, False, 0)
-
-        hotkeys_frame = Gtk.Frame(label="Hotkeys")
-        hotkeys_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
-        hotkeys_box.set_border_width(8)
-        hotkeys_frame.add(hotkeys_box)
-        hotkeys_button = Gtk.Button(label="Configure Hotkeys...")
-        # Reuses the existing conflict-detecting setup dialog
-        # (ui/first_run_setup.py) rather than rebuilding Windows' own
-        # live-capture HotkeyControl widgets inline here - that dialog
-        # already covers all 4 bindings plus autostart in one place.
-        hotkeys_button.connect("clicked", lambda _b: self._do_show_setup())
-        hotkeys_box.pack_start(hotkeys_button, False, False, 0)
-        box.pack_start(hotkeys_frame, False, False, 0)
 
         app_frame = Gtk.Frame(label="Application Settings")
         app_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
@@ -2994,7 +2956,7 @@ class EditorWindow(Gtk.Window):
         # Faithful port of "Launch Greenshot on startup"
         # (checkbox_autostartshortcut, SettingsForm.Designer.cs:348) -
         # a direct, immediate toggle, distinct from the Configure
-        # Hotkeys button above's first-run-style wizard (which also
+        # Hotkeys button below's first-run-style wizard (which also
         # offers to enable autostart, but only as part of a full
         # reconfigure pass, not a live on/off switch on its own).
         autostart_check = Gtk.CheckButton(label="Launch Orcshot on startup")
@@ -3034,7 +2996,61 @@ class EditorWindow(Gtk.Window):
         editor_row.pack_start(editor_combo, False, False, 0)
         app_box.pack_start(editor_row, False, False, 0)
 
+        # Moved here from the now-removed Expert tab (SettingsForm.
+        # Designer.cs's groupbox_expert originally, task #93) - no
+        # longer gated behind an "I know what I am doing!" checkbox,
+        # per direflail's own call to drop that gate entirely once
+        # everything moved to its real home.
+        suppress_save_check = Gtk.CheckButton(label="Suppress the save dialog when closing the editor")
+        suppress_save_check.set_active(get_suppress_save_dialog_at_close())
+        suppress_save_check.connect(
+            "toggled", lambda btn: set_suppress_save_dialog_at_close(btn.get_active())
+        )
+        app_box.pack_start(suppress_save_check, False, False, 0)
+
         box.pack_start(app_frame, False, False, 0)
+
+        hotkeys_frame = Gtk.Frame(label="Hotkeys")
+        hotkeys_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        hotkeys_box.set_border_width(8)
+        hotkeys_frame.add(hotkeys_box)
+        hotkeys_button = Gtk.Button(label="Configure Hotkeys...")
+        # Reuses the existing conflict-detecting setup dialog
+        # (ui/first_run_setup.py) rather than rebuilding Windows' own
+        # live-capture HotkeyControl widgets inline here - that dialog
+        # already covers all 4 bindings plus autostart in one place.
+        hotkeys_button.connect("clicked", lambda _b: self._do_show_setup())
+        hotkeys_box.pack_start(hotkeys_button, False, False, 0)
+        box.pack_start(hotkeys_frame, False, False, 0)
+
+        network_frame = Gtk.Frame(label="Network and Updates")
+        network_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        network_box.set_border_width(8)
+        network_frame.add(network_box)
+
+        # Faithful port of "Use your global proxy?" (UseProxy,
+        # ICoreConfiguration.cs:215-217) - see get_use_default_proxy's
+        # own docstring for what "default proxy" means on Linux vs.
+        # Windows' WinINet.
+        proxy_check = Gtk.CheckButton(label="Use system default proxy")
+        proxy_check.set_active(get_use_default_proxy())
+        proxy_check.connect("toggled", lambda btn: set_use_default_proxy(btn.get_active()))
+        network_box.pack_start(proxy_check, False, False, 0)
+
+        interval_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        interval_row.pack_start(Gtk.Label(label="Check for updates every"), False, False, 0)
+        interval_spin = Gtk.SpinButton.new_with_range(0, 365, 1)
+        interval_spin.set_value(get_update_check_interval_days())
+        interval_spin.set_tooltip_text(
+            "Has no effect yet - this port doesn't check for updates at all (see task #103). "
+            "0 = never check, matching Windows' own UpdateCheckInterval semantics."
+        )
+        interval_spin.connect("value-changed", lambda spin: set_update_check_interval_days(spin.get_value_as_int()))
+        interval_row.pack_start(interval_spin, False, False, 0)
+        interval_row.pack_start(Gtk.Label(label="days"), False, False, 0)
+        network_box.pack_start(interval_row, False, False, 0)
+        box.pack_start(network_frame, False, False, 0)
+
         return box
 
     def _build_capture_settings_tab(self) -> Gtk.Box:
@@ -3120,23 +3136,77 @@ class EditorWindow(Gtk.Window):
         file_box.set_border_width(8)
         file_frame.add(file_box)
 
+        # Pattern style is a real dropdown, not composed with the other
+        # - direflail's own call, after live testing showed why a bare
+        # "%" prefix next to ordinary text is inherently self-
+        # ambiguous with itself (confirmed live: even a curated "safe"
+        # strftime whitelist still let %d eat the "d" out of an
+        # ordinary word "done"). One delimiter convention active at a
+        # time removes the ambiguity entirely - see
+        # core/filename_pattern.py's own module docstring.
+        mode_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        mode_row.pack_start(Gtk.Label(label="Pattern style:"), False, False, 0)
+        mode_combo = Gtk.ComboBoxText()
+        mode_combo.append(MODE_GREENSHOT, "Greenshot-style (${YYYY})")
+        mode_combo.append(MODE_STRFTIME, "strftime (%Y)")
+        mode_combo.set_active_id(get_output_settings().filename_pattern_mode)
+        mode_combo.connect("changed", lambda combo: update_output_settings(filename_pattern_mode=combo.get_active_id()))
+        mode_row.pack_start(mode_combo, False, False, 0)
+        file_box.pack_start(mode_row, False, False, 0)
+
         pattern_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
         pattern_row.pack_start(Gtk.Label(label="Filename pattern:"), False, False, 0)
         pattern_entry = Gtk.Entry()
         pattern_entry.set_text(get_output_settings().filename_pattern)
+        pattern_entry.set_tooltip_text(
+            "Uses whichever style is selected above - the other style's own special characters "
+            "are left as plain literal text. Click ? for the token/code list."
+        )
         pattern_entry.connect("changed", lambda entry: update_output_settings(filename_pattern=entry.get_text()))
         pattern_row.pack_start(pattern_entry, True, True, 0)
         pattern_help_button = Gtk.Button(label="?")
 
         def on_pattern_help(_button) -> None:
+            if get_output_settings().filename_pattern_mode == MODE_STRFTIME:
+                # Standard library strftime - no Windows/Greenshot
+                # equivalent to cite, this mode is this port's own
+                # addition for Linux/Python users who'd rather use the
+                # convention they already know.
+                text, secondary = "strftime codes", (
+                    "Standard Python/C strftime codes, e.g.:\n"
+                    "%Y year, %y year (2 digits)\n"
+                    "%m month, %d day\n"
+                    "%H hour (24h), %I hour (12h), %p AM/PM\n"
+                    "%M minute, %S second\n"
+                    "%A/%a weekday name, %B/%b month name\n"
+                    "%% a literal percent sign\n"
+                    "\n"
+                    "No ${...} placeholders in this mode - switch \"Pattern style\" above to use those instead."
+                )
+            else:
+                # Verbatim text real Windows' own "?" button shows
+                # (Greenshot/Languages/language-en-US.xml:252-269,
+                # settings_message_filenamepattern), adapted for what
+                # this port actually supports: ${domain}/${user}/
+                # ${hostname} dropped (see this module's own docstring
+                # for why).
+                text, secondary = "Filename pattern tokens", (
+                    "The following placeholders are replaced automatically:\n"
+                    "${YYYY} year, 4 digits\n"
+                    "${MM} month, 2 digits\n"
+                    "${DD} day, 2 digits\n"
+                    "${hh} hour, 2 digits\n"
+                    "${mm} minute, 2 digits\n"
+                    "${ss} second, 2 digits\n"
+                    "${NUM} incrementing number, 6 digits (see Counter below)\n"
+                    "${RRR...} random alphanumerics, same length as the number of R's\n"
+                    "${title} capture title, when available\n"
+                    "\n"
+                    "No %-codes in this mode - switch \"Pattern style\" above to use those instead."
+                )
             info = Gtk.MessageDialog(
                 transient_for=self, message_type=Gtk.MessageType.INFO, buttons=Gtk.ButtonsType.OK,
-                text="Filename pattern tokens",
-                secondary_text=(
-                    "${YYYY} ${MM} ${DD} ${hh} ${mm} ${ss}  -  date/time, zero-padded\n"
-                    "${NUM}  -  the save counter (Expert tab)\n"
-                    "${title}  -  capture title, when available"
-                ),
+                text=text, secondary_text=secondary,
             )
             info.run()
             info.destroy()
@@ -3144,6 +3214,18 @@ class EditorWindow(Gtk.Window):
         pattern_help_button.connect("clicked", on_pattern_help)
         pattern_row.pack_start(pattern_help_button, False, False, 0)
         file_box.pack_start(pattern_row, False, False, 0)
+
+        # Moved here from the now-removed Expert tab (SettingsForm.
+        # Designer.cs's groupbox_expert originally, task #93) - lives
+        # right under the filename pattern since ${NUM} is this value,
+        # not a separate concept.
+        counter_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        counter_row.pack_start(Gtk.Label(label="Counter (${NUM} in filename):"), False, False, 0)
+        counter_spin = Gtk.SpinButton.new_with_range(1, 999999, 1)
+        counter_spin.set_value(get_filename_counter())
+        counter_spin.connect("value-changed", lambda spin: set_filename_counter(spin.get_value_as_int()))
+        counter_row.pack_start(counter_spin, False, False, 0)
+        file_box.pack_start(counter_row, False, False, 0)
 
         format_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
         format_row.pack_start(Gtk.Label(label="Primary format:"), False, False, 0)
@@ -3321,6 +3403,20 @@ class EditorWindow(Gtk.Window):
         footer_check.connect("toggled", lambda btn: update_print_options(footer=btn.get_active()))
         layout_box.pack_start(footer_check, False, False, 0)
 
+        # Moved here from the now-removed Expert tab (SettingsForm.
+        # Designer.cs's groupbox_expert originally, task #93) - the
+        # pattern for the checkbox above, not a separate concept.
+        footer_pattern_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        footer_pattern_row.pack_start(Gtk.Label(label="Footer pattern:"), False, False, 0)
+        footer_pattern_entry = Gtk.Entry()
+        footer_pattern_entry.set_text(get_footer_pattern())
+        footer_pattern_entry.set_tooltip_text(
+            "A Python strftime format, e.g. %B %d, %Y %I:%M %p - printed at the bottom of the page."
+        )
+        footer_pattern_entry.connect("changed", lambda entry: set_footer_pattern(entry.get_text()))
+        footer_pattern_row.pack_start(footer_pattern_entry, True, True, 0)
+        layout_box.pack_start(footer_pattern_row, False, False, 0)
+
         layout_frame.add(layout_box)
         box.pack_start(layout_frame, False, False, 0)
 
@@ -3359,86 +3455,6 @@ class EditorWindow(Gtk.Window):
         box.pack_start(prompt_check, False, False, 0)
 
         return box
-
-    def _build_expert_settings_frame(self) -> Gtk.Frame:
-        """Faithful port of groupbox_expert (SettingsForm.Designer.cs:
-        1049-1188) - every field below is locked (set_sensitive(False))
-        until "I know what I am doing!" is checked, exactly matching
-        Windows' own ExpertSettingsEnableState/Checkbox_enableexpert_
-        CheckedChanged (SettingsForm.cs:844-869). That checkbox is
-        itself session-only UI state on the real form too - it has no
-        PropertyName binding in SettingsForm.Designer.cs at all, so it
-        isn't persisted here either; it just re-locks every time this
-        dialog reopens, a deliberate "read this before you touch it"
-        speed bump rather than a real setting.
-
-        Not every Expert-tab field from Windows' groupbox_expert is
-        here - clipboard formats, reuse editor, minimize memory
-        footprint, thumbnail preview, auto reduce colors, and optimize
-        for RDP were explicitly scoped out (see REQUIREMENTS.md's
-        "Preferences dialog audit" section for the reasoning on each).
-        """
-        frame = Gtk.Frame(label="Expert Settings")
-        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
-        box.set_border_width(8)
-        frame.add(box)
-
-        enable_expert_check = Gtk.CheckButton(label="I know what I am doing!")
-        box.pack_start(enable_expert_check, False, False, 0)
-
-        gated_widgets = []
-
-        def add_gated(widget) -> None:
-            widget.set_sensitive(False)
-            gated_widgets.append(widget)
-            box.pack_start(widget, False, False, 0)
-
-        # Stub - documented no-op until #103 builds an update checker
-        # for it to actually gate (see settings.get_check_unstable_updates).
-        unstable_updates_check = Gtk.CheckButton(label="Check for unstable updates")
-        unstable_updates_check.set_active(get_check_unstable_updates())
-        unstable_updates_check.set_tooltip_text(
-            "Has no effect yet - this port doesn't check for updates at all (see task #103)."
-        )
-        unstable_updates_check.connect("toggled", lambda btn: set_check_unstable_updates(btn.get_active()))
-        add_gated(unstable_updates_check)
-
-        suppress_save_dialog_check = Gtk.CheckButton(
-            label="Suppress the save dialog when closing the editor"
-        )
-        suppress_save_dialog_check.set_active(get_suppress_save_dialog_at_close())
-        suppress_save_dialog_check.connect(
-            "toggled", lambda btn: set_suppress_save_dialog_at_close(btn.get_active())
-        )
-        add_gated(suppress_save_dialog_check)
-
-        counter_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
-        counter_row.pack_start(Gtk.Label(label="Counter (${NUM} in filename):"), False, False, 0)
-        counter_spin = Gtk.SpinButton.new_with_range(1, 999999, 1)
-        counter_spin.set_value(get_filename_counter())
-        counter_spin.connect("value-changed", lambda spin: set_filename_counter(spin.get_value_as_int()))
-        counter_row.pack_start(counter_spin, False, False, 0)
-        add_gated(counter_row)
-
-        footer_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
-        footer_row.pack_start(Gtk.Label(label="Printer footer pattern:"), False, False, 0)
-        footer_entry = Gtk.Entry()
-        footer_entry.set_text(get_footer_pattern())
-        footer_entry.set_tooltip_text(
-            "A Python strftime format, e.g. %B %d, %Y %I:%M %p - printed at the bottom of the page (Print > "
-            "“Print date / time at bottom of page”)."
-        )
-        footer_entry.connect("changed", lambda entry: set_footer_pattern(entry.get_text()))
-        footer_row.pack_start(footer_entry, True, True, 0)
-        add_gated(footer_row)
-
-        def on_enable_expert_toggled(btn) -> None:
-            for widget in gated_widgets:
-                widget.set_sensitive(btn.get_active())
-
-        enable_expert_check.connect("toggled", on_enable_expert_toggled)
-
-        return frame
 
     # Not a Windows feature - Windows has no "open in an external
     # editor" destination. A new addition, not a port, per explicit
