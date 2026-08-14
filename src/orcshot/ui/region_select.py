@@ -62,6 +62,7 @@ from orcshot.capture.cursor import CursorBackend
 from orcshot.core.cursor_capture import cursor_shape_for_capture
 from orcshot.core.geometry import Rect
 from orcshot.core.magnifier import magnifier_diameter, magnifier_offset
+from orcshot.settings import get_show_magnifier_while_selecting
 from orcshot.ui.cairo_convert import numpy_to_cairo_surface
 from orcshot.ui.capture_modes import should_capture_cursor
 from orcshot.ui.magnifier import draw_magnifier
@@ -101,6 +102,16 @@ class RegionSelectWindow(Gtk.Window):
         self._bounds = self._screen_layout.virtual_bounds
         self._frozen_image = capture_backend.grab(self._bounds)
         self._surface = numpy_to_cairo_surface(self._frozen_image)
+
+        # Faithful port of Windows' "zoomer" setting (task #95's
+        # Capture tab, settings.get_show_magnifier_while_selecting) -
+        # read once here rather than per-frame in _on_draw, matching
+        # how capture_mouse_cursor is resolved once at construction
+        # too. No per-invocation asymmetry the way cursor capture has
+        # (hotkey vs. tray), so no threading through start_region_
+        # capture's own signature is needed - just the one global
+        # setting.
+        self._show_magnifier = get_show_magnifier_while_selecting()
 
         # Sampled once, right here - matching Windows' own timing
         # (CaptureHelper.cs samples the cursor before the interactive
@@ -185,7 +196,7 @@ class RegionSelectWindow(Gtk.Window):
         if self._cursor_pos is not None and self._drag_origin is None:
             self._draw_aiming_crosshair(ctx)
 
-        if self._cursor_pos is not None:
+        if self._cursor_pos is not None and self._show_magnifier:
             # Sized from the monitor under the cursor, not the whole
             # virtual desktop - matches both the Wayland path
             # (region_select_wayland.py, naturally per-monitor since it
@@ -203,6 +214,7 @@ class RegionSelectWindow(Gtk.Window):
             screen_rect = Rect(0, 0, self._bounds.width, self._bounds.height)
             offset = magnifier_offset(self._cursor_pos, screen_rect, self._selection, diameter)
             draw_magnifier(ctx, self._frozen_image, self._cursor_pos, offset, diameter)
+        if self._cursor_pos is not None:
             if self._selection is not None:
                 self._draw_size_label(ctx, self._selection)
         return False

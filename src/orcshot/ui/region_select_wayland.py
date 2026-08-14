@@ -41,6 +41,7 @@ from orcshot.capture.cursor import CursorBackend
 from orcshot.core.cursor_capture import cursor_shape_for_capture
 from orcshot.core.geometry import Rect
 from orcshot.core.magnifier import magnifier_diameter, magnifier_offset
+from orcshot.settings import get_show_magnifier_while_selecting
 from orcshot.ui.cairo_convert import numpy_to_cairo_surface
 from orcshot.ui.capture_modes import should_capture_cursor
 from orcshot.ui.magnifier import draw_magnifier
@@ -84,6 +85,11 @@ class WaylandRegionSelect:
         layout = capture_backend.screen_layout()
         self._bounds = layout.virtual_bounds
         self._frozen_image = capture_backend.grab(self._bounds)
+
+        # See RegionSelectWindow.__init__'s identical note (task #95's
+        # Capture tab magnifier toggle) - same one global setting, read
+        # once here too.
+        self._show_magnifier = get_show_magnifier_while_selecting()
 
         # Same sampling as RegionSelectWindow - see its __init__
         # docstring for the Windows-parity timing rationale.
@@ -187,10 +193,11 @@ class WaylandRegionSelect:
             if self._drag_origin is None:
                 self._draw_aiming_crosshair(ctx, window, local_x, local_y)
 
-            diameter = magnifier_diameter(window.monitor_bounds.width, window.monitor_bounds.height)
-            screen_rect = Rect(0, 0, window.monitor_bounds.width, window.monitor_bounds.height)
-            offset = magnifier_offset((local_x, local_y), screen_rect, local_selection, diameter)
-            draw_magnifier(ctx, self._monitor_images[index], (local_x, local_y), offset, diameter)
+            if self._show_magnifier:
+                diameter = magnifier_diameter(window.monitor_bounds.width, window.monitor_bounds.height)
+                screen_rect = Rect(0, 0, window.monitor_bounds.width, window.monitor_bounds.height)
+                offset = magnifier_offset((local_x, local_y), screen_rect, local_selection, diameter)
+                draw_magnifier(ctx, self._monitor_images[index], (local_x, local_y), offset, diameter)
             if local_selection is not None:
                 self._draw_size_label(ctx, local_x, local_y, self._selection)
 

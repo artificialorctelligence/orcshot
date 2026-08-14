@@ -169,6 +169,7 @@ from orcshot.settings import (
     get_output_directory,
     get_output_settings,
     get_print_options,
+    get_show_magnifier_while_selecting,
     get_suppress_save_dialog_at_close,
     get_update_check_interval_days,
     get_use_default_proxy,
@@ -182,6 +183,7 @@ from orcshot.settings import (
     set_output_directory,
     set_output_settings,
     set_print_options,
+    set_show_magnifier_while_selecting,
     set_suppress_save_dialog_at_close,
     set_update_check_interval_days,
     set_use_default_proxy,
@@ -3036,12 +3038,30 @@ class EditorWindow(Gtk.Window):
         return box
 
     def _build_capture_settings_tab(self) -> Gtk.Box:
-        """Matches real Windows' Capture tab (groupbox_capture) - only
-        "Capture mouse cursor" so far (moved here unchanged from the
-        old flat dialog). Notifications/Play Sound are deliberately
-        not here yet - this port has no capture-complete notification
-        or sound feature at all to attach them to (split into task
-        #126 rather than adding dead checkboxes).
+        """Matches real Windows' Capture tab (groupbox_capture) as far
+        as this port can - "Capture mouse cursor" (moved here
+        unchanged from the old flat dialog) plus the "zoomer" (region-
+        select magnifier) toggle, new this pass.
+
+        Deliberately NOT here, each for its own real reason rather than
+        an oversight: Notifications/Play Sound (task #126 - no capture-
+        complete notify/sound feature exists in this port at all to
+        attach them to). The Window Capture group (groupbox_
+        windowscapture's Screen/GDI/Aero/AeroTransparent/Auto capture-
+        technique selector, interactive-capture radio, background
+        color) - entirely about which Windows graphics API grabs a
+        window's pixels, with no Linux equivalent; this port's X11/
+        Wayland backends already pick the right mechanism automatically
+        per platform, there's no user-facing choice to expose. "Match
+        capture size" (groupbox_editor's own checkbox) - this port's
+        editor always resizes to match the capture (task #97, a
+        deliberate, already-verified, unconditional choice, not
+        independently toggleable - "off" would need a real remembered/
+        default-size fallback this port doesn't have). Wait time before
+        capture (numericUpDownWaitTime) - a real capture-delay timer
+        feature that doesn't exist here at all yet, genuinely new scope
+        beyond a settings checkbox, not filed as its own task since
+        nobody's asked for it.
         """
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
         box.set_border_width(12)
@@ -3059,6 +3079,22 @@ class EditorWindow(Gtk.Window):
         cursor_check.set_active(get_capture_mouse_cursor())
         cursor_check.connect("toggled", lambda btn: set_capture_mouse_cursor(btn.get_active()))
         inner.pack_start(cursor_check, False, False, 0)
+
+        # Faithful port of the "zoomer" (ZoomerEnabled,
+        # ICoreConfiguration.cs:318-320, default True) - wired into
+        # ui/region_select.py (X11) and ui/region_select_wayland.py
+        # (Wayland portal fallback); the Wayland Shell-native path
+        # (task #82's GJS magnifier) doesn't read this yet, a real
+        # documented gap - see get_show_magnifier_while_selecting's
+        # own docstring.
+        magnifier_check = Gtk.CheckButton(label="Show magnifier while selecting a region")
+        magnifier_check.set_active(get_show_magnifier_while_selecting())
+        magnifier_check.set_tooltip_text(
+            "Applies to X11 and the Wayland portal-fallback path. The Wayland Shell-native picker's own "
+            "magnifier doesn't read this setting yet."
+        )
+        magnifier_check.connect("toggled", lambda btn: set_show_magnifier_while_selecting(btn.get_active()))
+        inner.pack_start(magnifier_check, False, False, 0)
 
         box.pack_start(frame, False, False, 0)
         return box

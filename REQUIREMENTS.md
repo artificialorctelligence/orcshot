@@ -4326,6 +4326,54 @@ already-tested state). Live-verified: toggling Enlarge/grayscale-radio/prompt_op
 updates `settings.get_print_options()`, radio mutual-exclusivity confirmed (choosing grayscale correctly
 clears monochrome). Full suite green (959 passed, 3 skipped, unchanged count as expected) before committing.
 
+## Preferences dialog rebuild, part 5 - Capture tab (task #95 part 2 COMPLETE, 2026-08-14)
+
+Final tab of the rebuild. Real Windows' Capture tab is three groupboxes: `groupbox_editor` (match-capture-
+size), `groupbox_windowscapture` (capture-technique selector), `groupbox_capture` (zoomer/notifications/
+sound/mouse-cursor/wait-time). Each got a real, deliberate decision rather than uniform treatment:
+
+- **Capture mouse cursor** - already real (moved here in part 1).
+- **Show magnifier while selecting a region, new this pass** - faithful port of the "zoomer" setting
+  (`ZoomerEnabled`, `ICoreConfiguration.cs:318-320`, default `true`). Wired into both `ui/region_select.py`
+  (X11) and `ui/region_select_wayland.py` (the Wayland portal-fallback path) - each reads
+  `settings.get_show_magnifier_while_selecting()` once at construction (matching how `capture_mouse_cursor`
+  is already resolved once, not per-frame) and gates only the magnifier-drawing lines, leaving the aiming
+  crosshair and the selection-size label unconditional. Live-verified with a spy on `draw_magnifier` against
+  a real `RegionSelectWindow` (synthetic `FakeCaptureBackend` content, never real desktop pixels) - confirmed
+  it's actually called when the setting is on and genuinely skipped when off, not just that the flag gets
+  set. **Real, documented platform gap**: the Wayland Shell-native path (task #82's own GJS port of this
+  same magnifier, `RegionSelectOverlay` in the bundled extension) doesn't read this setting at all - it's
+  separate JS code with no channel to `settings.json` short of adding one to the D-Bus call that starts it,
+  out of scope for this pass. The Capture tab's own checkbox tooltip says so directly.
+- **Window Capture group, deliberately excluded** - Windows' Screen/GDI/Aero/AeroTransparent/Auto capture-
+  technique selector is entirely about which Windows graphics API grabs a window's pixels (GDI vs. DWM/Aero
+  compositing bypass tricks) - no Linux equivalent exists or would mean anything; this port's X11/Wayland
+  backends already pick the correct mechanism automatically per platform, there's no user-facing choice to
+  surface. Same treatment interactive-capture-mode and the capture background color got, both parts of the
+  same Windows-graphics-API-specific group.
+- **Match capture size, deliberately not independently toggleable** - this port's editor always resizes to
+  match the capture (task #97, `_resize_canvas_and_window`, a deliberate, already-verified, unconditional
+  design choice folded into the same code path that also handles ongoing zoom-driven resizing). Making it a
+  real off/on toggle would need a genuine "remembered/default editor size" fallback this port doesn't have
+  at all - not a checkbox-wiring task, a real new feature nobody's asked for.
+- **Wait time before capture, deliberately not built** - `numericUpDownWaitTime` implies a real capture-delay
+  timer (useful for grabbing hover states/tooltips/context menus that vanish the instant a hotkey fires) -
+  this port has no such timer anywhere in its capture pipeline. New functionality, not settings-wiring;
+  not filed as its own task since nobody's requested it, unlike the notifications/sound gap.
+- **Notifications/Play Sound, excluded per task #126** (already split off during the Output-tab pass - no
+  capture-complete notify/sound feature exists in this port to attach them to).
+
+2 new unit tests (`test_settings.py`'s `TestShowMagnifierWhileSelecting`). Live-verified: the checkbox
+reflects/persists the real setting, and (separately, more importantly) the setting genuinely changes
+`RegionSelectWindow`'s actual draw behavior, not just a stored flag nothing reads. Full suite green (961
+passed, 3 skipped) before committing.
+
+**Task #95 is now fully complete**: both halves (menu bar rebuild, part 1; the full 6-tab Preferences
+rebuild, part 2's five sub-passes above) are done, live-verified, and documented. Split off along the way
+into their own tracked tasks rather than bundled in: #123 (`.orcshot` file format), #124 (`.greenshot` NRBF
+export, blocked on #123), #125 (real multi-select + Object menu's Select All), #126 (capture-complete
+notifications + sound).
+
 ## Licensing
 
 **Status: decided — GPLv3.** Greenshot (Windows) is GPLv3; this is a derivative work — same feature

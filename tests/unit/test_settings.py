@@ -23,6 +23,7 @@ from orcshot.settings import (
     get_excluded_destinations,
     get_external_commands,
     get_external_editor_preference,
+    get_show_magnifier_while_selecting,
     get_filename_counter,
     get_footer_pattern,
     get_icon_size,
@@ -41,6 +42,7 @@ from orcshot.settings import (
     set_excluded_destinations,
     set_external_commands,
     set_external_editor_preference,
+    set_show_magnifier_while_selecting,
     set_filename_counter,
     set_footer_pattern,
     set_icon_size,
@@ -451,6 +453,20 @@ class TestExcludedDestinations:
         set_excluded_destinations({"print"}, path=path)
 
         assert get_capture_mouse_cursor(path=path) is False
+
+
+class TestShowMagnifierWhileSelecting:
+    def test_defaults_to_true(self, tmp_path):
+        # matches Windows' ZoomerEnabled default (ICoreConfiguration.cs:318-320)
+        path = tmp_path / "config.json"
+        assert get_show_magnifier_while_selecting(path=path) is True
+
+    def test_set_then_get_round_trips(self, tmp_path):
+        path = tmp_path / "config.json"
+
+        set_show_magnifier_while_selecting(False, path=path)
+
+        assert get_show_magnifier_while_selecting(path=path) is False
 
 
 class TestFirstRunSetupFlag:

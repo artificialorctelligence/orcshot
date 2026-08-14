@@ -40,6 +40,7 @@ _USE_DEFAULT_PROXY_KEY = "use_default_proxy"
 _UPDATE_CHECK_INTERVAL_DAYS_KEY = "update_check_interval_days"
 _OUTPUT_SETTINGS_KEY = "output_settings"
 _EXCLUDED_DESTINATIONS_KEY = "excluded_destinations"
+_SHOW_MAGNIFIER_WHILE_SELECTING_KEY = "show_magnifier_while_selecting"
 _DEFAULT_OUTPUT_DIRNAME = "Screenshots"
 _DEFAULT_FOOTER_PATTERN = "%B %d, %Y %I:%M %p"
 _DEFAULT_ICON_SIZE = 24
@@ -496,6 +497,31 @@ def set_excluded_destinations(destination_ids: set[str], path: Path = None) -> N
         path = config_file_path()
     settings = _load(path)
     settings[_EXCLUDED_DESTINATIONS_KEY] = sorted(destination_ids)
+    _save(settings, path)
+
+
+def get_show_magnifier_while_selecting(path: Path = None) -> bool:
+    """Faithful port of Windows' "zoomer" setting (ZoomerEnabled,
+    ICoreConfiguration.cs:318-320, default True) - task #95's Capture
+    tab. Wired into ui/region_select.py's X11 path
+    (RegionSelectWindow._on_draw's magnifier call); the Wayland Shell-
+    native path (task #82's own GJS port of the same magnifier,
+    RegionSelectOverlay in the bundled extension) does NOT read this
+    yet - it's separate JS code with no channel to this JSON file
+    without adding one to the D-Bus call that starts it, out of scope
+    for this pass. A real, documented platform gap, not a silent one -
+    the magnifier still always shows there regardless of this setting.
+    """
+    if path is None:
+        path = config_file_path()
+    return _load(path).get(_SHOW_MAGNIFIER_WHILE_SELECTING_KEY, True)
+
+
+def set_show_magnifier_while_selecting(enabled: bool, path: Path = None) -> None:
+    if path is None:
+        path = config_file_path()
+    settings = _load(path)
+    settings[_SHOW_MAGNIFIER_WHILE_SELECTING_KEY] = enabled
     _save(settings, path)
 
 
