@@ -21,6 +21,8 @@ from dataclasses import asdict, dataclass
 from datetime import datetime
 from pathlib import Path
 
+from orcshot.core.filename_pattern import DEFAULT_FILENAME_PATTERN
+
 CONFIG_FILENAME = "config.json"
 _OUTPUT_DIRECTORY_KEY = "output_directory"
 _FIRST_RUN_SETUP_DONE_KEY = "first_run_setup_done"
@@ -36,6 +38,7 @@ _EXTERNAL_COMMANDS_KEY = "external_commands"
 _ICON_SIZE_KEY = "icon_size"
 _USE_DEFAULT_PROXY_KEY = "use_default_proxy"
 _UPDATE_CHECK_INTERVAL_DAYS_KEY = "update_check_interval_days"
+_OUTPUT_SETTINGS_KEY = "output_settings"
 _DEFAULT_OUTPUT_DIRNAME = "Screenshots"
 _DEFAULT_FOOTER_PATTERN = "%B %d, %Y %I:%M %p"
 _DEFAULT_ICON_SIZE = 24
@@ -186,6 +189,48 @@ def set_print_options(options: PrintOptions, path: Path = None) -> None:
         path = config_file_path()
     settings = _load(path)
     settings[_PRINT_OPTIONS_KEY] = asdict(options)
+    _save(settings, path)
+
+
+@dataclass(frozen=True)
+class OutputSettings:
+    """Faithful port of the Output tab's two groupboxes
+    (SettingsForm.Designer.cs's groupbox_preferredfilesettings +
+    groupbox_qualitysettings, backed by ICoreConfiguration.cs:126-160)
+    - defaults match Windows' own. Bundled as one dataclass rather than
+    separate get_x/set_x pairs, matching PrintOptions' own rationale:
+    always edited together in one Preferences tab.
+
+    ``filename_pattern`` uses core/filename_pattern.py's token
+    subset, not Windows' full one (see that module's own docstring).
+    ``reduce_colors`` is persisted but not yet applied to a save - see
+    _do_quick_save/_do_save's own notes; a real, documented gap rather
+    than a fake control, matching how get_check_unstable_updates was
+    already handled the same way.
+    """
+
+    filename_pattern: str = DEFAULT_FILENAME_PATTERN  # OutputFileFilenamePattern (this port's own default, see the module docstring)
+    primary_format: str = "png"  # OutputFileFormat
+    copy_path_to_clipboard: bool = True  # OutputFileCopyPathToClipboard
+    reduce_colors: bool = False  # OutputFileReduceColors
+    always_show_quality_dialog: bool = False  # OutputFilePromptQuality
+    jpeg_quality: int = 80  # OutputFileJpegQuality
+
+
+def get_output_settings(path: Path = None) -> OutputSettings:
+    if path is None:
+        path = config_file_path()
+    saved = _load(path).get(_OUTPUT_SETTINGS_KEY, {})
+    defaults = asdict(OutputSettings())
+    defaults.update({k: v for k, v in saved.items() if k in defaults})
+    return OutputSettings(**defaults)
+
+
+def set_output_settings(settings_: OutputSettings, path: Path = None) -> None:
+    if path is None:
+        path = config_file_path()
+    settings = _load(path)
+    settings[_OUTPUT_SETTINGS_KEY] = asdict(settings_)
     _save(settings, path)
 
 

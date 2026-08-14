@@ -132,6 +132,7 @@ from orcshot.core.crop import (
     autocrop_rect, crop_out_horizontal_strip, crop_out_vertical_strip, crop_to_rect,
 )
 from orcshot.core.drawing import Layer
+from orcshot.core.filename_pattern import resolve_filename_pattern
 from orcshot.core.geometry import Rect
 from orcshot.core.effects import (
     add_border_image,
@@ -156,6 +157,7 @@ from orcshot.core.shapes import (
 )
 from orcshot.settings import (
     EXTERNAL_EDITOR_AUTO,
+    OutputSettings,
     consume_filename_counter,
     get_capture_mouse_cursor,
     get_check_unstable_updates,
@@ -164,10 +166,10 @@ from orcshot.settings import (
     get_footer_pattern,
     get_icon_size,
     get_output_directory,
+    get_output_settings,
     get_suppress_save_dialog_at_close,
     get_update_check_interval_days,
     get_use_default_proxy,
-    quick_save_filename,
     set_capture_mouse_cursor,
     set_check_unstable_updates,
     set_external_editor_preference,
@@ -175,6 +177,7 @@ from orcshot.settings import (
     set_footer_pattern,
     set_icon_size,
     set_output_directory,
+    set_output_settings,
     set_suppress_save_dialog_at_close,
     set_update_check_interval_days,
     set_use_default_proxy,
@@ -1267,24 +1270,69 @@ class EditorWindow(Gtk.Window):
     def _do_quick_save(self) -> None:
         """Real Windows' silent "Save" - writes immediately to the
         preferred output location with an auto-generated filename, no
-        dialog - distinct from "Save As..." (_do_save below, always
-        dialog-driven). Reuses the exact mechanism the destination
-        picker's own "Save" already uses (ui/destination_picker.py's
-        _quick_save) rather than a second implementation.
+        dialog for the filename/location itself - distinct from
+        "Save As..." (_do_save below, always dialog-driven).
 
-        "Preferred file settings" (a configurable filename pattern +
-        primary format, matching Windows' Output tab) don't exist yet -
-        this always writes .png with the fixed timestamp pattern
-        quick_save_filename already used. Task #95's Preferences work
-        will make both configurable; this stays a thin wrapper so that
-        lands as a settings.py/quick_save_filename change, not a
-        rewrite here.
+        Now genuinely uses "preferred file settings" (task #95's
+        Output tab, settings.OutputSettings) instead of the fixed
+        pattern/`.png` this used before that tab existed - filename
+        pattern (core/filename_pattern.py), primary format, JPEG
+        quality, and copy-path-to-clipboard are all real now.
+
+        The quality dialog below can still interrupt this "quick"
+        save - confirmed faithful, not a bug: real Windows'
+        FileDestination.cs (its own quick-save-to-file destination)
+        shows QualityDialog under the identical
+        CoreConfig.OutputFilePromptQuality gate this port's own
+        _maybe_show_quality_dialog uses, format-independent, exactly
+        like the Save As path does. Off by default, so most users
+        never see it either way.
         """
         self._commit_text_editing_if_active()
+        settings = get_output_settings()
+        self._maybe_show_quality_dialog(settings.primary_format)
+        settings = get_output_settings()  # re-read - the dialog may have changed jpeg_quality
         directory = get_output_directory()
         counter = consume_filename_counter()
-        save_image_to_file(self._composited_image(), directory / quick_save_filename(datetime.now(), counter))
+        filename = resolve_filename_pattern(settings.filename_pattern, datetime.now(), counter) + "." + settings.primary_format
+        path = directory / filename
+        save_image_to_file(self._composited_image(), path, jpeg_quality=settings.jpeg_quality)
         self._saved_generation = self.undo_redo.generation
+        if settings.copy_path_to_clipboard:
+            Gtk.Clipboard.get_default(self.get_display()).set_text(str(path), -1)
+
+    def _maybe_show_quality_dialog(self, output_format: str) -> None:
+        """Faithful port of QualityDialog (Greenshot.Base/Controls/
+        QualityDialog.cs) - a JPEG quality slider, shown before a save
+        completes when "Always show quality dialog" (settings.
+        OutputSettings.always_show_quality_dialog) is on. Format-
+        independent gate matching Windows exactly (the slider is only
+        *interactive* for jpg, but the dialog itself shows regardless -
+        ImageIO.cs:422/FileDestination.cs:80 gate purely on the
+        setting, not on format). A no-op when the setting is off,
+        which is the default - most users never see this.
+        """
+        settings = get_output_settings()
+        if not settings.always_show_quality_dialog:
+            return
+        self._commit_text_editing_if_active()
+        dialog = Gtk.Dialog(title="JPEG Quality", transient_for=self)
+        dialog.add_buttons("Continue", Gtk.ResponseType.OK)
+        content = dialog.get_content_area()
+        content.set_border_width(12)
+        content.set_spacing(6)
+
+        scale = Gtk.Scale.new_with_range(Gtk.Orientation.HORIZONTAL, 0, 100, 1)
+        scale.set_value(settings.jpeg_quality)
+        scale.set_digits(0)
+        scale.set_sensitive(output_format == "jpg")
+        content.pack_start(Gtk.Label(label="JPEG quality:"), False, False, 0)
+        content.pack_start(scale, True, True, 0)
+
+        dialog.show_all()
+        dialog.run()
+        set_output_settings(dataclass_replace(settings, jpeg_quality=int(scale.get_value())))
+        dialog.destroy()
 
     def _do_show_setup(self) -> None:
         """Task #104: re-runs the first-run hotkey/autostart dialog on
@@ -2618,13 +2666,27 @@ class EditorWindow(Gtk.Window):
         self._commit_text_editing_if_active()
         self._clipboard.set_image(self._composited_image())
 
+    # Real Windows' SaveImageFileDialog "Save as type" options
+    # (SaveImageFileDialog.cs) - jxr (WMPhoto) and the not-yet-built
+    # .orcshot (task #123) are deliberately excluded; ico is a
+    # legitimate GdkPixbuf save type this port's own file_export.py
+    # already supports but is a poor fit for a screenshot tool's Save
+    # As list (no real use case), so left off rather than added just
+    # because it's technically possible.
+    _SAVE_AS_FORMATS = [("png", "PNG"), ("jpg", "JPEG"), ("bmp", "BMP"), ("tiff", "TIFF"), ("gif", "GIF")]
+
     def _do_save(self) -> bool:
-        """Returns whether a save actually happened - lets
-        _on_delete_event tell a completed save apart from a cancelled
-        one, matching ImageEditorFormFormClosing's own post-BtnSaveClick
-        `if (_surface.Modified)` check (ImageEditorForm.cs:1024-1028).
+        """Save As... - always dialog-driven, with an explicit "Save as
+        type" selector (task #95's Output tab work) rather than relying
+        on whatever extension the user happens to type, matching real
+        Windows' own SaveImageFileDialog. Returns whether a save
+        actually happened - lets _on_delete_event tell a completed save
+        apart from a cancelled one, matching ImageEditorFormFormClosing's
+        own post-BtnSaveClick `if (_surface.Modified)` check
+        (ImageEditorForm.cs:1024-1028).
         """
         self._commit_text_editing_if_active()
+        output_settings = get_output_settings()
         dialog = Gtk.FileChooserDialog(
             title="Save Screenshot", transient_for=self, action=Gtk.FileChooserAction.SAVE
         )
@@ -2633,13 +2695,39 @@ class EditorWindow(Gtk.Window):
             Gtk.STOCK_SAVE, Gtk.ResponseType.OK,
         )
         dialog.set_current_folder(str(get_output_directory()))
-        dialog.set_current_name("screenshot.png")
+
+        format_combo = Gtk.ComboBoxText()
+        for value, label in self._SAVE_AS_FORMATS:
+            format_combo.append(value, label)
+        format_combo.set_active_id(output_settings.primary_format)
+        if format_combo.get_active_id() is None:
+            format_combo.set_active_id("png")
+
+        def on_format_changed(combo: Gtk.ComboBoxText) -> None:
+            dialog.set_current_name(f"screenshot.{combo.get_active_id()}")
+
+        format_combo.connect("changed", on_format_changed)
+        extra = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        extra.pack_start(Gtk.Label(label="Save as type:"), False, False, 0)
+        extra.pack_start(format_combo, False, False, 0)
+        extra.show_all()
+        dialog.set_extra_widget(extra)
+        dialog.set_current_name(f"screenshot.{format_combo.get_active_id()}")
         dialog.set_do_overwrite_confirmation(True)
+
         saved = False
         try:
             if dialog.run() == Gtk.ResponseType.OK:
-                save_image_to_file(self._composited_image(), dialog.get_filename())
+                output_format = format_combo.get_active_id()
+                path = Path(dialog.get_filename())
+                if path.suffix.lower().lstrip(".") != output_format:
+                    path = path.with_suffix(f".{output_format}")
+                self._maybe_show_quality_dialog(output_format)
+                jpeg_quality = get_output_settings().jpeg_quality
+                save_image_to_file(self._composited_image(), path, jpeg_quality=jpeg_quality)
                 self._saved_generation = self.undo_redo.generation
+                if output_settings.copy_path_to_clipboard:
+                    Gtk.Clipboard.get_default(self.get_display()).set_text(str(path), -1)
                 saved = True
         finally:
             dialog.destroy()
@@ -2972,24 +3060,70 @@ class EditorWindow(Gtk.Window):
         return box
 
     def _build_output_settings_tab(self) -> Gtk.Box:
-        """Matches real Windows' Output tab (groupbox_preferredfilesettings)
-        - only Screenshot Save Location so far (moved here unchanged
-        from the old flat dialog). The rest of "preferred file
-        settings" (filename pattern, primary format, quality settings)
-        isn't built yet - this tab grows in a later pass of task #95.
+        """Matches real Windows' Output tab - groupbox_preferredfilesettings
+        (filename pattern, primary format, copy-path-to-clipboard,
+        Screenshot Save Location) and groupbox_qualitysettings (reduce
+        colors, always show quality dialog, JPEG quality), backed by
+        settings.OutputSettings. Every control here reads/writes the
+        same OutputSettings instance as a whole (dataclass_replace per
+        field) rather than separate get_x/set_x calls, matching how
+        the dataclass itself is documented as "always edited together".
         """
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
         box.set_border_width(12)
 
-        frame = Gtk.Frame(label="Preferred File Settings")
-        inner = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
-        inner.set_border_width(8)
-        frame.add(inner)
+        def update_output_settings(**changes) -> None:
+            set_output_settings(dataclass_replace(get_output_settings(), **changes))
 
-        row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
-        row.pack_start(Gtk.Label(label="Screenshot Save Location:"), False, False, 0)
+        file_frame = Gtk.Frame(label="Preferred File Settings")
+        file_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        file_box.set_border_width(8)
+        file_frame.add(file_box)
+
+        pattern_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        pattern_row.pack_start(Gtk.Label(label="Filename pattern:"), False, False, 0)
+        pattern_entry = Gtk.Entry()
+        pattern_entry.set_text(get_output_settings().filename_pattern)
+        pattern_entry.connect("changed", lambda entry: update_output_settings(filename_pattern=entry.get_text()))
+        pattern_row.pack_start(pattern_entry, True, True, 0)
+        pattern_help_button = Gtk.Button(label="?")
+
+        def on_pattern_help(_button) -> None:
+            info = Gtk.MessageDialog(
+                transient_for=self, message_type=Gtk.MessageType.INFO, buttons=Gtk.ButtonsType.OK,
+                text="Filename pattern tokens",
+                secondary_text=(
+                    "${YYYY} ${MM} ${DD} ${hh} ${mm} ${ss}  -  date/time, zero-padded\n"
+                    "${NUM}  -  the save counter (Expert tab)\n"
+                    "${title}  -  capture title, when available"
+                ),
+            )
+            info.run()
+            info.destroy()
+
+        pattern_help_button.connect("clicked", on_pattern_help)
+        pattern_row.pack_start(pattern_help_button, False, False, 0)
+        file_box.pack_start(pattern_row, False, False, 0)
+
+        format_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        format_row.pack_start(Gtk.Label(label="Primary format:"), False, False, 0)
+        format_combo = Gtk.ComboBoxText()
+        for value, label in self._SAVE_AS_FORMATS:
+            format_combo.append(value, label)
+        format_combo.set_active_id(get_output_settings().primary_format)
+        format_combo.connect("changed", lambda combo: update_output_settings(primary_format=combo.get_active_id()))
+        format_row.pack_start(format_combo, False, False, 0)
+        file_box.pack_start(format_row, False, False, 0)
+
+        copy_path_check = Gtk.CheckButton(label="Copy file path to clipboard after saving")
+        copy_path_check.set_active(get_output_settings().copy_path_to_clipboard)
+        copy_path_check.connect("toggled", lambda btn: update_output_settings(copy_path_to_clipboard=btn.get_active()))
+        file_box.pack_start(copy_path_check, False, False, 0)
+
+        location_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        location_row.pack_start(Gtk.Label(label="Screenshot Save Location:"), False, False, 0)
         location_label = Gtk.Label(label=str(get_output_directory()))
-        row.pack_start(location_label, True, True, 0)
+        location_row.pack_start(location_label, True, True, 0)
         change_button = Gtk.Button(label="Change...")
 
         def on_change(_button):
@@ -2997,10 +3131,41 @@ class EditorWindow(Gtk.Window):
             location_label.set_text(str(get_output_directory()))
 
         change_button.connect("clicked", on_change)
-        row.pack_start(change_button, False, False, 0)
-        inner.pack_start(row, False, False, 0)
+        location_row.pack_start(change_button, False, False, 0)
+        file_box.pack_start(location_row, False, False, 0)
 
-        box.pack_start(frame, False, False, 0)
+        box.pack_start(file_frame, False, False, 0)
+
+        quality_frame = Gtk.Frame(label="Quality Settings")
+        quality_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        quality_box.set_border_width(8)
+        quality_frame.add(quality_box)
+
+        # Persisted but not yet applied to a save - see OutputSettings'
+        # own docstring for why (no palette-quantization step exists
+        # in this port yet, a real, documented gap).
+        reduce_colors_check = Gtk.CheckButton(label="Reduce colors to 256 (8-bit)")
+        reduce_colors_check.set_active(get_output_settings().reduce_colors)
+        reduce_colors_check.set_tooltip_text("Not applied to saves yet - this port has no color-quantization step built.")
+        reduce_colors_check.connect("toggled", lambda btn: update_output_settings(reduce_colors=btn.get_active()))
+        quality_box.pack_start(reduce_colors_check, False, False, 0)
+
+        prompt_quality_check = Gtk.CheckButton(label="Always show quality dialog before saving")
+        prompt_quality_check.set_active(get_output_settings().always_show_quality_dialog)
+        prompt_quality_check.connect(
+            "toggled", lambda btn: update_output_settings(always_show_quality_dialog=btn.get_active())
+        )
+        quality_box.pack_start(prompt_quality_check, False, False, 0)
+
+        jpeg_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        jpeg_row.pack_start(Gtk.Label(label="JPEG quality:"), False, False, 0)
+        jpeg_spin = Gtk.SpinButton.new_with_range(0, 100, 1)
+        jpeg_spin.set_value(get_output_settings().jpeg_quality)
+        jpeg_spin.connect("value-changed", lambda spin: update_output_settings(jpeg_quality=spin.get_value_as_int()))
+        jpeg_row.pack_start(jpeg_spin, False, False, 0)
+        quality_box.pack_start(jpeg_row, False, False, 0)
+
+        box.pack_start(quality_frame, False, False, 0)
         return box
 
     def _build_destinations_settings_tab(self, dialog: Gtk.Dialog) -> Gtk.Box:

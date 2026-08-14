@@ -25,10 +25,20 @@ _EXTENSION_TO_TYPE = {
 }
 
 
-def save_image_to_file(image: np.ndarray, path) -> None:
+def save_image_to_file(image: np.ndarray, path, jpeg_quality: int = None) -> None:
+    """``jpeg_quality`` (0-100, faithful port of Windows' own
+    OutputFileJpegQuality - task #95's Output tab, settings.
+    OutputSettings) is only meaningful for JPEG output and ignored
+    otherwise, matching GdkPixbuf's own savev - passing a "quality"
+    option to a format that doesn't recognize it is silently a no-op,
+    not an error.
+    """
     path = Path(path)
     file_type = _EXTENSION_TO_TYPE.get(path.suffix.lower(), "png")
-    numpy_to_pixbuf(image).savev(str(path), file_type, [], [])
+    option_keys, option_values = [], []
+    if jpeg_quality is not None and file_type == "jpeg":
+        option_keys, option_values = ["quality"], [str(jpeg_quality)]
+    numpy_to_pixbuf(image).savev(str(path), file_type, option_keys, option_values)
 
 
 def orcshot_cache_dir() -> Path:

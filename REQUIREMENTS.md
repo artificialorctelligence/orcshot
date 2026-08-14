@@ -4202,6 +4202,63 @@ present) plus functional checks (autostart checkbox really installs/removes the 
 size spinner really persists) against a synthetic solid-color test image and a scratch `XDG_CONFIG_HOME`,
 never the real one. Full suite green (936 passed, 3 skipped) before committing.
 
+## Preferences dialog rebuild, part 2 - Output tab (task #95 part 2, complete 2026-08-14)
+
+Real Windows' Output tab is two groupboxes (`groupbox_preferredfilesettings` + `groupbox_qualitysettings`,
+`ICoreConfiguration.cs:126-160`) - filename pattern, primary format, copy-path-to-clipboard, storage
+location, reduce colors, always-show-quality-dialog, JPEG quality. All real now, backed by one new
+`settings.OutputSettings` dataclass (defaults confirmed against the real source: `OutputFileCopyPathToClipboard`
+is `true` by default, not the `false` I'd assumed before actually checking; `OutputFileJpegQuality` `80`;
+everything else `false`).
+
+**New `core/filename_pattern.py`** - a faithful-in-spirit subset of `FilenameHelper.cs`'s `${TOKEN}`
+substitution (`FillPattern`, lines 344-441): `${YYYY}` (4-digit-padded), `${MM}`/`${DD}`/`${hh}`/`${mm}`/`${ss}`
+(2-digit-padded), `${NUM}` (6-digit-padded, the existing save counter), `${title}` (filename-safety-
+sanitized, defaults to empty - matches `quick_save_filename`'s own long-standing rationale for dropping
+`-${title}` from the default pattern: not every capture mode has one). Deliberately excludes Windows'
+`${domain}`/`${user}`/`${hostname}`/environment-folder tokens (low value, storage location is already its
+own setting) and `${now}`/`${capturetime}` (redundant with the individual date tokens here). 14 unit
+tests, pure function, no I/O.
+
+**Save vs. Save As, now both genuinely respect these settings** (part 1 left `_do_quick_save` still
+hardcoding `.png`/a fixed pattern - a documented, not-yet-fixed gap at the time):
+- `_do_quick_save` (silent Save) now resolves the real filename pattern + primary format, applies
+  `jpeg_quality` on save, and copies the saved path to the clipboard when `copy_path_to_clipboard` is on
+  (direct `Gtk.Clipboard.set_text`, not routed through `ClipboardBackend` - that Protocol only has
+  `set_image`, and plain text doesn't need the X11/Wayland-specific handling image clipboard support
+  required, confirmed via `ui/capture/clipboard.py` - no backend change needed).
+- `_do_save` (Save As...) gained a real "Save as type" selector (`Gtk.ComboBoxText` as the
+  `FileChooserDialog`'s `set_extra_widget`, matching `SaveImageFileDialog.cs`) - png/jpg/bmp/tiff/gif,
+  deliberately excluding jxr (WMPhoto, Windows-only), ico (technically save-able via `file_export.py` but a
+  poor fit for a screenshot tool's Save As list), and `.orcshot`/`.greenshot` (task #123, doesn't exist
+  yet). Picking a format live-updates the suggested filename's extension; the combo's choice wins over
+  whatever extension ends up typed, matching how Windows' own type dropdown overrides the visible name.
+
+**Quality dialog added** (`_maybe_show_quality_dialog`, faithful port of `QualityDialog.cs`) - a JPEG
+quality slider, shown before *either* save path completes when `always_show_quality_dialog` is on. Off by
+default, so most users never see it. Confirmed via source this is genuinely how real Windows behaves too,
+even on its own quick-save-style destination (`FileDestination.cs:80-84` gates on the identical
+`CoreConfig.OutputFilePromptQuality` flag, format-independent, same as the Save-As path in `ImageIO.cs:422-426`)
+- not a design shortcut invented for this port. Adjusting the slider persists the new default `jpeg_quality`
+too, matching Windows having exactly one persisted value for it, not a separate "this dialog" vs. "default" pair.
+
+**`file_export.save_image_to_file` gained an optional `jpeg_quality` param** - passed through to
+GdkPixbuf's own `savev` quality option, silently ignored for non-JPEG formats (matching GdkPixbuf's own
+behavior for an option a format doesn't recognize, not a special case this port added).
+
+**`reduce_colors` is persisted but explicitly not applied to a save** - no palette-quantization step
+exists in this port at all; documented the same way `get_check_unstable_updates` already was (real
+setting, real gap, not a fake control) rather than either skip the field or fake an implementation.
+
+19 new tests (`test_filename_pattern.py`'s 14, `test_settings.py`'s `TestOutputSettings` (4),
+`test_file_export.py`'s JPEG-quality pair). Live-verified: quick-save actually respects a changed
+`primary_format` and writes a correctly-patterned filename, clipboard actually receives the saved path as
+text, Save As's format combo actually overrides a mismatched typed extension and live-updates the
+suggested filename - all against a synthetic solid-color image and a scratch `XDG_CONFIG_HOME`/output
+directory, using the `GLib.timeout_add`-driven dialog-interaction pattern for the two nested `dialog.run()`
+calls involved (Save As's FileChooserDialog, and the General tab's Preferences dialog). Full suite green
+(956 passed, 3 skipped) before committing.
+
 ## Licensing
 
 **Status: decided — GPLv3.** Greenshot (Windows) is GPLv3; this is a derivative work — same feature

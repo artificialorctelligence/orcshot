@@ -13,6 +13,7 @@ from orcshot.settings import (
     CONFIG_FILENAME,
     EXTERNAL_EDITOR_AUTO,
     ExternalCommand,
+    OutputSettings,
     PrintOptions,
     config_file_path,
     consume_filename_counter,
@@ -25,6 +26,7 @@ from orcshot.settings import (
     get_footer_pattern,
     get_icon_size,
     get_output_directory,
+    get_output_settings,
     get_print_options,
     get_recent_colors,
     get_suppress_save_dialog_at_close,
@@ -41,6 +43,7 @@ from orcshot.settings import (
     set_footer_pattern,
     set_icon_size,
     set_output_directory,
+    set_output_settings,
     set_print_options,
     set_recent_colors,
     set_suppress_save_dialog_at_close,
@@ -227,6 +230,48 @@ class TestPrintOptions:
 
         assert options.allow_shrink is False
         assert options.center is True  # falls back to the default
+
+
+class TestOutputSettings:
+    def test_defaults_match_windows(self, tmp_path):
+        # ICoreConfiguration.cs:126-160
+        path = tmp_path / "config.json"
+        settings = get_output_settings(path=path)
+        assert settings == OutputSettings(
+            filename_pattern="${YYYY}-${MM}-${DD} ${hh}_${mm}_${ss}",
+            primary_format="png", copy_path_to_clipboard=True, reduce_colors=False,
+            always_show_quality_dialog=False, jpeg_quality=80,
+        )
+
+    def test_set_then_get_round_trips(self, tmp_path):
+        path = tmp_path / "config.json"
+        settings = OutputSettings(
+            filename_pattern="${title}", primary_format="jpg", copy_path_to_clipboard=False,
+            reduce_colors=True, always_show_quality_dialog=True, jpeg_quality=50,
+        )
+
+        set_output_settings(settings, path=path)
+
+        assert get_output_settings(path=path) == settings
+
+    def test_set_preserves_other_settings_already_present(self, tmp_path):
+        path = tmp_path / "config.json"
+        set_capture_mouse_cursor(False, path=path)
+
+        set_output_settings(OutputSettings(primary_format="jpg"), path=path)
+
+        assert get_capture_mouse_cursor(path=path) is False
+
+    def test_loading_an_older_config_missing_newer_fields_still_works(self, tmp_path):
+        import json
+
+        path = tmp_path / "config.json"
+        path.write_text(json.dumps({"output_settings": {"primary_format": "jpg"}}))
+
+        settings = get_output_settings(path=path)
+
+        assert settings.primary_format == "jpg"
+        assert settings.jpeg_quality == 80
 
 
 class TestCheckUnstableUpdates:

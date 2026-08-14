@@ -67,6 +67,33 @@ def test_accepts_a_string_path_as_well_as_a_path_object(tmp_path):
     assert np.array_equal(loaded, image)
 
 
+def noisy_image(width=64, height=64):
+    # A flat solid color compresses too well under JPEG's DCT regardless
+    # of quality to show a size difference - random noise doesn't.
+    rng = np.random.default_rng(0)
+    image = rng.integers(0, 256, size=(height, width, 4), dtype=np.uint8)
+    image[:, :, 3] = 255
+    return image
+
+
+def test_jpeg_quality_affects_output_file_size(tmp_path):
+    image = noisy_image()
+
+    save_image_to_file(image, tmp_path / "low.jpg", jpeg_quality=10)
+    save_image_to_file(image, tmp_path / "high.jpg", jpeg_quality=95)
+
+    assert (tmp_path / "low.jpg").stat().st_size < (tmp_path / "high.jpg").stat().st_size
+
+
+def test_jpeg_quality_is_ignored_for_non_jpeg_formats(tmp_path):
+    image = solid_image()
+    path = tmp_path / "shot.png"
+
+    save_image_to_file(image, path, jpeg_quality=1)  # must not raise
+
+    assert path.exists()
+
+
 def test_cache_dir_is_under_xdg_cache_home(tmp_path, monkeypatch):
     monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path))
 
