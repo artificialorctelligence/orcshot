@@ -21,3 +21,22 @@
   disk; enabling it happens exclusively through the user's own confirmation in the
   first-run setup dialog, the same way this project already handles hotkey and
   autostart configuration.
+
+## MS-NRBF binary writer (core/nrbf.py)
+
+- **Location in this repo:** `src/orcshot/core/nrbf.py`
+- **Upstream:** https://github.com/agix/NetBinaryFormatterParser
+  (`JSON2dotnetBinaryFormatter.py`)
+- **License:** MIT (Copyright (c) 2016 NetBinaryFormatterParser)
+- **Why it's here:** task #124 (exporting Orcshot shapes to real Windows
+  Greenshot's own `.greenshot`/`.gst` file format) needs to write .NET's
+  `BinaryFormatter`/MS-NRBF wire format from Python - this is the record-writing
+  logic that format needs, adapted rather than written from scratch.
+- **Modifications from upstream:** ported from Python 2's dict/JSON-driven design
+  to a small typed `Writer` class (Python 3), and two real bugs fixed: `Single`/
+  `Double` were packed with `'<I'`/`'<Q'` (reinterpreting the raw bits as an
+  unsigned integer) instead of `'<f'`/`'<d'` (actual IEEE 754 encoding). The
+  resulting record layout was independently verified byte-for-byte against a
+  real `Greenshot.Editor.dll` object serialized with the actual `BinaryFormatter`
+  on a real Windows 11 VM - see `REQUIREMENTS.md`'s task #124 section for the
+  full trace and citations.

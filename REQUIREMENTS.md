@@ -4496,6 +4496,93 @@ sets a selection, is undoable - undoing both loads empties the layer again), and
 corrupt file (shows the error dialog, leaves the layer untouched, no crash). Full suite green (996 passed, 3
 skipped) before committing.
 
+## .greenshot NRBF export proof-of-concept: RectangleContainer (task #124, in progress, 2026-08-14)
+
+Real Windows `.greenshot`/`.gst` files embed the shape layer via raw .NET `BinaryFormatter` (MS-NRBF wire
+format) - `GreenshotFileFormatHandler.cs:49-133`, `Surface.cs:729-764`. Earlier research (recorded in the
+task #95 writeup) assumed this was "genuinely buildable but scoped separately"; a closer look this session
+(direflail: "dig deeper before concluding infeasible" applies here too) confirmed it's not just buildable
+but was mostly *already built*, elsewhere.
+
+**Approach, narrowed twice by direflail's own direct pushback**, each time landing on a smaller, more
+tractable design than the one before:
+
+1. First framing (rejected): a generic Python object-graph serializer covering all ~14 shape types plus
+   arbitrary System.Drawing/Field types - estimated 15-25 hours.
+2. direflail: *"is this still a serializer for EVERYTHING? why are we not just making a serializer that
+   does only what the .orcshot format will give it?"* - correct: real `RectangleContainer`'s 9 serialized
+   members are either a direct 1:1 mapping from this port's own `Rect`/`ShapeStyle` data, or fixed constants
+   for every freshly-placed shape (undrawn-state enum, empty `Children`, `accountForShadowChange=False`) -
+   nothing needs a general graph walker.
+3. direflail: *"can't you just translate the serializer they already have into python"* - led to finding
+   `agix/NetBinaryFormatterParser` (MIT, github.com/agix/NetBinaryFormatterParser), an existing Python 2
+   NRBF reader **and writer** (`JSON2dotnetBinaryFormatter.py`) implementing exactly the record types real
+   Greenshot's own output uses. Ported to Python 3 (`core/nrbf.py`), fixing two real bugs found while
+   porting: `Single`/`Double` were packed with `'<I'`/`'<Q'` (raw-bit reinterpretation) instead of `'<f'`/
+   `'<d'` (real IEEE 754). See `THIRD_PARTY_NOTICES.md` and `debian/copyright` for the MIT attribution.
+
+**Ground truth came from the real object, not guesswork.** Using the windows11 VM (`VBoxManage
+guestcontrol`, full-email-no-domain credential per its own reference doc), `Assembly.LoadFrom` on the real
+installed `Greenshot.Editor.dll`/`Greenshot.Base.dll`, `FormatterServices.GetUninitializedObject` to build a
+bare `RectangleContainer` without needing a real `Surface`, then the real `BinaryFormatter.Serialize` -
+captured actual bytes real Greenshot itself produced (`tests/fixtures/rectangle_container.nrbf`). Hand-
+decoding those bytes against the MS-NRBF spec caught a real bug in the *first* hand-rolled reader: member
+type info is written as *all* `BinaryTypeEnumeration` bytes first, then *all* `AdditionalInfo` values -
+not interleaved per-member as first assumed. Fixed, then verified: a from-scratch Python encoder
+constructed to match reproduced the real bytes **exactly**, byte-for-byte, for a bare (empty
+`Children`/`fields`) `RectangleContainer`.
+
+Also explained, via `dotnet/runtime`'s own open-source `FormatterServices.cs`
+(`InternalGetSerializableMembers`), a real .NET quirk this session's decode surfaced: `_defaultEditMode`
+(a `protected` field) is serialized *twice* - once unqualified (picked up by a plain `GetFields()` call on
+the concrete type, which returns non-private inherited fields) and once as `"DrawableContainer+..."`
+(picked up again by a separate per-ancestor-level walk for private fields, which doesn't check for fields
+the first pass already found). Not a bug in this port's reading of the format - genuine real Windows
+behavior, reproduced deliberately rather than "fixed away."
+
+**Populating real style data (`fields`)**: reading `RectangleContainer.cs`'s own `InitializeFields()`
+(`LINE_THICKNESS`/`LINE_COLOR`/`FILL_COLOR`/`SHADOW`) confirmed a clean 1:1 match with this port's own
+`ShapeStyle` dataclass. VM-reflected the real `Field`/`FieldType`/`System.Drawing.Color` classes'
+serializable layout (`Field`: `_myValue`/`<FieldType>k__BackingField`/`<Scope>k__BackingField`; `FieldType`:
+`<Name>k__BackingField`; `Color`: `name`/`value`/`knownColor`/`state`, confirmed live that an ARGB-explicit
+color - `Color.FromArgb(...)`, what this port's own RGBA-tuple `ShapeStyle` will always produce - encodes
+as `state=2` with `value` holding the packed ARGB as an *unsigned* 32-bit pattern zero-extended into the
+Int64 field, not sign-extended; real Greenshot's own "known color" shortcuts like `Color.Red` use a
+different, irrelevant encoding this port doesn't need). Constructed a full `RectangleContainer` with 4 real
+`Field` entries via the VM and round-tripped it through real Greenshot's own
+`BinaryFormatterHelper` (its actual security whitelist binder, the same code path `Object > Load Objects`/
+opening a real `.greenshot` file uses) - deserialized successfully back into a genuine `RectangleContainer`
+with every field intact.
+
+**`core/greenshot_export.py`** (`rectangle_shape_to_greenshot_nrbf`) uses this port's own simple, sequential
+object-id scheme rather than replicating real `BinaryFormatter`'s breadth-first discovery-order ids (an
+implementation optimization detail, not an MS-NRBF requirement) - proven by sending *this port's own*
+independently-encoded bytes (different id numbers than the VM capture, never seen by real Greenshot before)
+back to the VM and round-tripping them through the same real `BinaryFormatterHelper` binder. Caught one real
+bug this way: `System.Drawing.Color`'s library id was referenced without ever emitting the `BinaryLibrary`
+record declaring it - real Greenshot's own deserializer rejected it with `"No assembly ID for object type
+'4 System.Drawing.Color'"`. Fixed; re-verified live: `SUCCESS: deserialized as
+Greenshot.Editor.Drawing.RectangleContainer`, `left=10 top=20 width=100 height=50`,
+`LINE_THICKNESS=3, LINE_COLOR=(255,200,30,30), FILL_COLOR=(0,0,0,0), SHADOW=True` - exactly the shape passed
+in.
+
+**Scope, explicitly confirmed with direflail**: this is the `RectangleContainer` proof-of-concept only, not
+the other ~13 shape types (a separate, much larger follow-up - revised estimate ~4-6 hours using this same
+now-proven template-per-type approach, down from an initial ~15-25 hour generic-serializer estimate). Also
+not yet done: wiring `rectangle_shape_to_greenshot_nrbf`'s output into an actual `.greenshot`/`.gst` file
+container (PNG + NRBF blob + trailer, matching `GreenshotFileFormatHandler.cs`) or any editor UI - this
+section covers the object-graph bytes only. **Flagged, not yet solved**: Orcshot has (or will have) data
+with no real-Greenshot equivalent to translate to (task #123's `.orcshot`-only features, e.g. its two
+filename-pattern modes, OCR-based auto-obfuscate, or future Orcshot-only shape types) - the strategy for
+what happens when a `.greenshot` export hits data the real format can't represent (drop, approximate, warn,
+refuse) is an open design question for whoever picks up full 14-shape coverage.
+
+12 new unit tests (`test_nrbf.py`: low-level record-writing correctness, including a regression test for
+the Single/Double packing bug; `test_greenshot_export.py`: a regression test for the missing-BinaryLibrary
+bug, header/MessageEnd framing, and exact bounds/style byte-pattern checks using the same values verified
+live against the VM). `tests/fixtures/rectangle_container.nrbf` is the real VM-captured reference file.
+Full suite green (1008 passed, 3 skipped).
+
 ## Licensing
 
 **Status: decided — GPLv3.** Greenshot (Windows) is GPLv3; this is a derivative work — same feature
