@@ -18,7 +18,7 @@ match, or the built `.deb`'s own version won't line up with the source tree that
 
     * <one-line summary of what's new since the last release>
 
-   -- Orcshot <314918217+greenshotlinux@users.noreply.github.com>  <RFC 2822 date>
+   -- Orcshot <314918217+artificialorctelligence@users.noreply.github.com>  <RFC 2822 date>
   ```
 
   (`date -R` prints the date in the right format.)
