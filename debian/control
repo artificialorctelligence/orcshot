@@ -1,7 +1,7 @@
 Source: orcshot
 Section: graphics
 Priority: optional
-Maintainer: Orcshot <314918217+greenshotlinux@users.noreply.github.com>
+Maintainer: Orcshot <314918217+artificialorctelligence@users.noreply.github.com>
 Build-Depends: debhelper-compat (= 13),
                dh-python,
                pybuild-plugin-pyproject,
