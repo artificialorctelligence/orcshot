@@ -154,6 +154,20 @@ class OrcshotApplication(Gtk.Application):
         if self._repeat_item is not None:
             self._repeat_item.set_sensitive(True)
 
+    def show_preferences(self) -> None:
+        """Task #119: the tray icon's own "Preferences..." item. Uses
+        the topmost open editor as the dialog's transient parent when
+        one exists (nicer window stacking, same as opening it from
+        that editor's own Edit menu would), falling back to no parent
+        at all when none are open - the whole point of this task,
+        since Preferences was previously only reachable from inside an
+        already-open editor.
+        """
+        from orcshot.ui.editor_window import show_preferences_dialog
+
+        parent = self._open_editors[-1] if self._open_editors else None
+        show_preferences_dialog(parent)
+
     def register_editor_window(self, editor) -> None:
         self._open_editors.append(editor)
 
@@ -316,6 +330,20 @@ class OrcshotApplication(Gtk.Application):
         )
         self._repeat_item.set_sensitive(False)  # no region captured yet
         menu.append(self._repeat_item)
+
+        menu.append(Gtk.SeparatorMenuItem())
+
+        # Task #119: real Windows' own tray context menu has this too
+        # (contextmenu_settings, MainForm.Designer.cs - labeled
+        # "Preferences..." there, language-en-US.xml:62, matching
+        # this port's own Edit menu wording already), sitting after
+        # the capture items and before Exit, same relative position
+        # used here. Before this task, Preferences was only reachable
+        # from inside an already-open editor - this is the only way to
+        # reach it with none open at all.
+        preferences_item = Gtk.MenuItem(label="Preferences...")
+        preferences_item.connect("activate", lambda _item: self.show_preferences())
+        menu.append(preferences_item)
 
         menu.append(Gtk.SeparatorMenuItem())
 

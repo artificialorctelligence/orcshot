@@ -4715,6 +4715,47 @@ plain path and a `file://` URI to the same path. A real bug was caught this way 
 `NameError` on its very first real use. Fixed by adding it to the existing import. Full suite green
 (1011 passed, 3 skipped).
 
+## Preferences reachable from the tray icon (task #119, complete 2026-08-14)
+
+Real Windows has this too - `contextmenu_settings` on the tray's own context menu
+(`MainForm.Designer.cs`), labeled "Preferences..." (`language-en-US.xml:62`, matching this port's own
+Edit menu wording already), positioned after the capture items and before Exit. Before this task,
+Orcshot's Preferences dialog (`_do_show_settings`) only existed as an `EditorWindow` method, reachable
+from the editor's own Edit menu or toolbar button - there was no way to reach it at all with no editor
+open, which is exactly what the tray menu needs to cover (the tray icon and its capture items are
+usable with zero editors open).
+
+**Refactor, not just a new menu item.** `_do_show_settings` and its five tab-builder methods
+(`_build_general_settings_tab`, `_build_capture_settings_tab`, `_build_output_settings_tab`,
+`_build_destinations_settings_tab`, `_build_printer_settings_tab`) turned out to use `self` for nothing
+but (a) `transient_for` on the dialogs they open and (b) two plain constant tuples
+(`_SAVE_AS_FORMATS`, `_EXTERNAL_EDITOR_CANDIDATES`) - no editor state (image, layer, selection) at all.
+So rather than duplicating ~580 lines of dialog-building code for a parent-less tray variant, all six
+were converted to module-level functions in `ui/editor_window.py` taking an explicit
+`parent: Gtk.Window = None`, with the two constants promoted to module level alongside them.
+`EditorWindow._do_show_settings` is now a two-line wrapper calling the new
+`show_preferences_dialog(self)`. `_do_choose_save_location` (used by both the Output tab and the File
+menu's own "Screenshot Save Location..." item) got the same treatment, extracted to a module-level
+`_choose_save_location(parent)`. `OrcshotApplication.show_preferences` (`app.py`) is the tray menu's own
+callback - it passes the topmost open editor as `parent` when one exists (nicer window stacking,
+matching what opening it from that editor's own menu would do) and `None` otherwise, which is the
+actual fix: `show_preferences_dialog(None)` now works, where calling an `EditorWindow` method never
+could.
+
+One small, deliberate behavior change from this refactor: sub-dialogs opened from within a settings tab
+(the hotkeys configure dialog, the filename-pattern help popup) are now `transient_for` the Preferences
+dialog itself rather than the original `EditorWindow` - a more correct GTK window-stacking parent (the
+Preferences dialog is the actual on-screen ancestor at that point), not a regression.
+
+**Verified live**: `show_preferences_dialog(None)` (the tray's own no-editor-open path) opens and closes
+without raising, exercising construction of all five tabs in one call; `EditorWindow._do_show_settings()`
+still works unchanged after the refactor (regression check); `OrcshotApplication.show_preferences()`
+verified both with no open editor and with one open, driven live via this project's own established
+`GLib.timeout_add` + `Gtk.Window.list_toplevels()` + `.response()` pattern for a nested `dialog.run()`
+loop. Tray menu item order also verified directly (`Preferences...` sits between a separator after the
+capture items and the separator before Quit, matching real Windows' own relative position). Full suite
+green (1011 passed, 3 skipped).
+
 ## Licensing
 
 **Status: decided — GPLv3.** Greenshot (Windows) is GPLv3; this is a derivative work — same feature

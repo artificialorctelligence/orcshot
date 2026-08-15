@@ -586,6 +586,35 @@ def _css_rgba(color) -> str:
     return f"rgba({r}, {g}, {b}, {a / 255})"
 
 
+# Real Windows' SaveImageFileDialog "Save as type" options
+# (SaveImageFileDialog.cs) - jxr (WMPhoto) is deliberately excluded;
+# ico is a legitimate GdkPixbuf save type this port's own
+# file_export.py already supports but is a poor fit for a screenshot
+# tool's Save As list (no real use case), so left off rather than
+# added just because it's technically possible. "orcshot" (task #123)
+# is a real option in EditorWindow._do_save's own Save As dialog, just
+# appended there separately rather than added to this list - see that
+# method's own comment for why. Module-level (not an EditorWindow
+# class attribute) since it's also shared by _build_output_settings_tab
+# below, which task #119 made reachable without a live editor.
+_SAVE_AS_FORMATS = [("png", "PNG"), ("jpg", "JPEG"), ("bmp", "BMP"), ("tiff", "TIFF"), ("gif", "GIF")]
+
+# Not a Windows feature - Windows has no "open in an external editor"
+# destination. A new addition, not a port, per explicit request.
+# Krita is tried first since it was specifically requested, with GIMP
+# as a fallback (overridable - see settings.get_external_editor_preference
+# and _build_general_settings_tab below). (name, PATH command, Flatpak
+# app ID) - checks both, since Flatpak is how at least one of these is
+# commonly installed on Mint (confirmed live: this dev machine has
+# Krita only via Flatpak, not on PATH - a plain shutil.which("krita")
+# check alone would have missed it). Module-level for the same reason
+# as _SAVE_AS_FORMATS above - shared with the settings-tab builder.
+_EXTERNAL_EDITOR_CANDIDATES = (
+    ("Krita", "krita", "org.kde.krita"),
+    ("GIMP", "gimp", "org.gimp.GIMP"),
+)
+
+
 class EditorWindow(Gtk.Window):
     def __init__(self, image: np.ndarray, clipboard_backend: ClipboardBackend = None):
         super().__init__(title="Orcshot image editor")
@@ -2912,17 +2941,6 @@ class EditorWindow(Gtk.Window):
         self._commit_text_editing_if_active()
         self._clipboard.set_image(self._composited_image())
 
-    # Real Windows' SaveImageFileDialog "Save as type" options
-    # (SaveImageFileDialog.cs) - jxr (WMPhoto) is deliberately
-    # excluded; ico is a legitimate GdkPixbuf save type this port's
-    # own file_export.py already supports but is a poor fit for a
-    # screenshot tool's Save As list (no real use case), so left off
-    # rather than added just because it's technically possible.
-    # "orcshot" (task #123) is a real option in the Save As dialog
-    # below, just appended separately rather than added to this list -
-    # see _do_save's own comment for why.
-    _SAVE_AS_FORMATS = [("png", "PNG"), ("jpg", "JPEG"), ("bmp", "BMP"), ("tiff", "TIFF"), ("gif", "GIF")]
-
     def _do_save(self) -> bool:
         """Save As... - always dialog-driven, with an explicit "Save as
         type" selector (task #95's Output tab work) rather than relying
@@ -2945,7 +2963,7 @@ class EditorWindow(Gtk.Window):
         dialog.set_current_folder(str(get_output_directory()))
 
         format_combo = Gtk.ComboBoxText()
-        for value, label in self._SAVE_AS_FORMATS:
+        for value, label in _SAVE_AS_FORMATS:
             format_combo.append(value, label)
         # "orcshot" only here, not in _SAVE_AS_FORMATS - that list is
         # shared with the Output tab's "Primary format" dropdown
@@ -2998,26 +3016,7 @@ class EditorWindow(Gtk.Window):
         return saved
 
     def _do_choose_save_location(self) -> None:
-        """Lets the user view/change the folder the destination
-        picker's silent "Save" (ui/destination_picker.py) and this
-        window's own Save dialog both start from - persisted via
-        settings.py, so it's remembered across captures and restarts.
-        """
-        dialog = Gtk.FileChooserDialog(
-            title="Screenshot Save Location", transient_for=self, action=Gtk.FileChooserAction.SELECT_FOLDER
-        )
-        dialog.add_buttons(
-            Gtk.STOCK_CANCEL, Gtk.ResponseType.CANCEL,
-            "Select", Gtk.ResponseType.OK,
-        )
-        current = get_output_directory()
-        current.mkdir(parents=True, exist_ok=True)
-        dialog.set_current_folder(str(current))
-        try:
-            if dialog.run() == Gtk.ResponseType.OK:
-                set_output_directory(Path(dialog.get_filename()))
-        finally:
-            dialog.destroy()
+        _choose_save_location(self)
 
     def _do_insert_image(self) -> None:
         """Embeds an image file as a new ImageShape - Windows has no
@@ -3128,605 +3127,8 @@ class EditorWindow(Gtk.Window):
         print_image(self._composited_image(), parent=self)
 
     def _do_show_settings(self) -> None:
-        """Preferences dialog - task #95 part 2 rebuilt this as a
-        tabbed Gtk.Notebook matching real Windows' actual SettingsForm
-        structure (SettingsForm.Designer.cs's tabcontrol.Controls:
-        General/Capture/Output/Destinations/Printer/Plugins/Expert).
-        Plugins is dropped (real Windows' tab lists loaded plugin DLLs
-        with Configure buttons; this port has exactly one "plugin"-
-        shaped thing, ExternalCommand, better served by Destinations
-        tab's own Configure button than a whole tab for one item).
-        Expert is dropped too, by direflail's own later call - every
-        field it held had a real home in one of the other tabs
-        (Suppress save dialog -> General>Application Settings, Counter
-        -> Output>Preferred File Settings, Printer footer pattern ->
-        Printer), and the "I know what I am doing!" gate that used to
-        lock them all went with it - they're normal, always-editable
-        settings now like everything else. Check for unstable updates
-        was removed outright rather than relocated - direflail's own
-        call, since this port has no update-checking system at all to
-        attach it to (task #103).
-        """
         self._commit_text_editing_if_active()
-        dialog = Gtk.Dialog(title="Preferences", transient_for=self)
-        dialog.set_default_size(480, 420)
-        dialog.add_buttons(Gtk.STOCK_CLOSE, Gtk.ResponseType.CLOSE)
-        content = dialog.get_content_area()
-
-        notebook = Gtk.Notebook()
-        notebook.append_page(self._build_general_settings_tab(), Gtk.Label(label="General"))
-        notebook.append_page(self._build_capture_settings_tab(), Gtk.Label(label="Capture"))
-        notebook.append_page(self._build_output_settings_tab(), Gtk.Label(label="Output"))
-        notebook.append_page(self._build_destinations_settings_tab(dialog), Gtk.Label(label="Destinations"))
-        notebook.append_page(self._build_printer_settings_tab(), Gtk.Label(label="Printer"))
-        content.pack_start(notebook, True, True, 0)
-
-        dialog.show_all()
-        dialog.run()
-        dialog.destroy()
-
-    def _build_general_settings_tab(self) -> Gtk.Box:
-        """Matches real Windows' General tab (SettingsForm.Designer.cs:
-        480-482's tab_general.Controls: groupbox_network,
-        groupbox_hotkeys, groupbox_applicationsettings) - reordered
-        (Application Settings, Hotkeys, Network and Updates) per
-        direflail's own call, not Windows' own control-declaration
-        order.
-        """
-        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
-        box.set_border_width(12)
-
-        app_frame = Gtk.Frame(label="Application Settings")
-        app_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
-        app_box.set_border_width(8)
-        app_frame.add(app_box)
-
-        # Placeholder - task #109 (i18n infrastructure) doesn't exist
-        # yet, so there's only ever one real choice. Shown disabled
-        # rather than omitted so the real Windows field this
-        # corresponds to (combobox_language, groupbox_applicationsettings)
-        # has a visible, honest placement already.
-        language_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
-        language_row.pack_start(Gtk.Label(label="Language:"), False, False, 0)
-        language_combo = Gtk.ComboBoxText()
-        language_combo.append("en", "English")
-        language_combo.set_active_id("en")
-        language_combo.set_sensitive(False)
-        language_combo.set_tooltip_text("Only English is available - see task #109 (i18n infrastructure).")
-        language_row.pack_start(language_combo, False, False, 0)
-        app_box.pack_start(language_row, False, False, 0)
-
-        # Faithful port of "Icon size" (numericUpdownIconSize,
-        # SettingsForm.Designer.cs:330-336, 16-256 step 16) - see
-        # settings.get_icon_size's own docstring for the default and
-        # ui/icons.py's tool_icon_image for how it's actually applied
-        # (bitmap-scaled, not redrawn).
-        icon_size_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
-        icon_size_row.pack_start(Gtk.Label(label="Icon size:"), False, False, 0)
-        icon_size_spin = Gtk.SpinButton.new_with_range(16, 256, 16)
-        icon_size_spin.set_value(get_icon_size())
-        icon_size_spin.set_tooltip_text("Takes effect the next time you open a screenshot.")
-        icon_size_spin.connect("value-changed", lambda spin: set_icon_size(spin.get_value_as_int()))
-        icon_size_row.pack_start(icon_size_spin, False, False, 0)
-        app_box.pack_start(icon_size_row, False, False, 0)
-
-        # Faithful port of "Launch Greenshot on startup"
-        # (checkbox_autostartshortcut, SettingsForm.Designer.cs:348) -
-        # a direct, immediate toggle, distinct from the Configure
-        # Hotkeys button below's first-run-style wizard (which also
-        # offers to enable autostart, but only as part of a full
-        # reconfigure pass, not a live on/off switch on its own).
-        autostart_check = Gtk.CheckButton(label="Launch Orcshot on startup")
-        autostart_check.set_active(is_autostart_enabled())
-
-        def on_autostart_toggled(btn) -> None:
-            from orcshot.ui.first_run_setup import _default_executable
-
-            if btn.get_active():
-                install_autostart_entry(_default_executable())
-            else:
-                remove_autostart_entry()
-
-        autostart_check.connect("toggled", on_autostart_toggled)
-        app_box.pack_start(autostart_check, False, False, 0)
-
-        # Not a Windows setting - "Open in External Editor" itself
-        # isn't a Windows feature (see _EXTERNAL_EDITOR_CANDIDATES).
-        # No clear Windows tab to match against, kept here as a
-        # general app-behavior preference rather than invented a
-        # dedicated tab for one control.
-        editor_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
-        editor_row.pack_start(Gtk.Label(label="External Image Editor:"), False, False, 0)
-        editor_combo = Gtk.ComboBoxText()
-        editor_combo.append(EXTERNAL_EDITOR_AUTO, "Auto (Krita, then GIMP)")
-        for name, _path_command, _flatpak_id in self._EXTERNAL_EDITOR_CANDIDATES:
-            editor_combo.append(name, name)
-        current_preference = get_external_editor_preference()
-        if editor_combo.set_active_id(current_preference) is False:
-            # A stale preference naming a candidate that no longer
-            # exists in _EXTERNAL_EDITOR_CANDIDATES - falls back to
-            # Auto in the UI (matches _find_external_editor_command's
-            # own fallback behavior for the same case) rather than
-            # showing nothing selected.
-            editor_combo.set_active_id(EXTERNAL_EDITOR_AUTO)
-        editor_combo.connect("changed", lambda combo: set_external_editor_preference(combo.get_active_id()))
-        editor_row.pack_start(editor_combo, False, False, 0)
-        app_box.pack_start(editor_row, False, False, 0)
-
-        # Moved here from the now-removed Expert tab (SettingsForm.
-        # Designer.cs's groupbox_expert originally, task #93) - no
-        # longer gated behind an "I know what I am doing!" checkbox,
-        # per direflail's own call to drop that gate entirely once
-        # everything moved to its real home.
-        suppress_save_check = Gtk.CheckButton(label="Suppress the save dialog when closing the editor")
-        suppress_save_check.set_active(get_suppress_save_dialog_at_close())
-        suppress_save_check.connect(
-            "toggled", lambda btn: set_suppress_save_dialog_at_close(btn.get_active())
-        )
-        app_box.pack_start(suppress_save_check, False, False, 0)
-
-        box.pack_start(app_frame, False, False, 0)
-
-        hotkeys_frame = Gtk.Frame(label="Hotkeys")
-        hotkeys_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
-        hotkeys_box.set_border_width(8)
-        hotkeys_frame.add(hotkeys_box)
-        hotkeys_button = Gtk.Button(label="Configure Hotkeys...")
-        # Reuses the existing conflict-detecting setup dialog
-        # (ui/first_run_setup.py) rather than rebuilding Windows' own
-        # live-capture HotkeyControl widgets inline here - that dialog
-        # already covers all 4 bindings plus autostart in one place.
-        hotkeys_button.connect("clicked", lambda _b: self._do_show_setup())
-        hotkeys_box.pack_start(hotkeys_button, False, False, 0)
-        box.pack_start(hotkeys_frame, False, False, 0)
-
-        network_frame = Gtk.Frame(label="Network and Updates")
-        network_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
-        network_box.set_border_width(8)
-        network_frame.add(network_box)
-
-        # Faithful port of "Use your global proxy?" (UseProxy,
-        # ICoreConfiguration.cs:215-217) - see get_use_default_proxy's
-        # own docstring for what "default proxy" means on Linux vs.
-        # Windows' WinINet.
-        proxy_check = Gtk.CheckButton(label="Use system default proxy")
-        proxy_check.set_active(get_use_default_proxy())
-        proxy_check.connect("toggled", lambda btn: set_use_default_proxy(btn.get_active()))
-        network_box.pack_start(proxy_check, False, False, 0)
-
-        interval_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
-        interval_row.pack_start(Gtk.Label(label="Check for updates every"), False, False, 0)
-        interval_spin = Gtk.SpinButton.new_with_range(0, 365, 1)
-        interval_spin.set_value(get_update_check_interval_days())
-        interval_spin.set_tooltip_text(
-            "Has no effect yet - this port doesn't check for updates at all (see task #103). "
-            "0 = never check, matching Windows' own UpdateCheckInterval semantics."
-        )
-        interval_spin.connect("value-changed", lambda spin: set_update_check_interval_days(spin.get_value_as_int()))
-        interval_row.pack_start(interval_spin, False, False, 0)
-        interval_row.pack_start(Gtk.Label(label="days"), False, False, 0)
-        network_box.pack_start(interval_row, False, False, 0)
-        box.pack_start(network_frame, False, False, 0)
-
-        return box
-
-    def _build_capture_settings_tab(self) -> Gtk.Box:
-        """Matches real Windows' Capture tab (groupbox_capture) as far
-        as this port can - "Capture mouse cursor" (moved here
-        unchanged from the old flat dialog) plus the "zoomer" (region-
-        select magnifier) toggle, new this pass.
-
-        Deliberately NOT here, each for its own real reason rather than
-        an oversight: Notifications/Play Sound (task #126 - no capture-
-        complete notify/sound feature exists in this port at all to
-        attach them to). The Window Capture group (groupbox_
-        windowscapture's Screen/GDI/Aero/AeroTransparent/Auto capture-
-        technique selector, interactive-capture radio, background
-        color) - entirely about which Windows graphics API grabs a
-        window's pixels, with no Linux equivalent; this port's X11/
-        Wayland backends already pick the right mechanism automatically
-        per platform, there's no user-facing choice to expose. "Match
-        capture size" (groupbox_editor's own checkbox) - this port's
-        editor always resizes to match the capture (task #97, a
-        deliberate, already-verified, unconditional choice, not
-        independently toggleable - "off" would need a real remembered/
-        default-size fallback this port doesn't have). Wait time before
-        capture (numericUpDownWaitTime) - a real capture-delay timer
-        feature that doesn't exist here at all yet, genuinely new scope
-        beyond a settings checkbox, not filed as its own task since
-        nobody's asked for it.
-        """
-        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
-        box.set_border_width(12)
-
-        frame = Gtk.Frame(label="Capture")
-        inner = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
-        inner.set_border_width(8)
-        frame.add(inner)
-
-        # Faithful port of Windows' "Capture mousepointer" checkbox
-        # (ICoreConfiguration.cs:79-81, default True) - see
-        # ui/capture_modes.py's module docstring for how this
-        # interacts with the tray-menu-vs-hotkey asymmetry.
-        cursor_check = Gtk.CheckButton(label="Capture mouse cursor")
-        cursor_check.set_active(get_capture_mouse_cursor())
-        cursor_check.connect("toggled", lambda btn: set_capture_mouse_cursor(btn.get_active()))
-        inner.pack_start(cursor_check, False, False, 0)
-
-        # Faithful port of the "zoomer" (ZoomerEnabled,
-        # ICoreConfiguration.cs:318-320, default True) - wired into
-        # ui/region_select.py (X11) and ui/region_select_wayland.py
-        # (Wayland portal fallback); the Wayland Shell-native path
-        # (task #82's GJS magnifier) doesn't read this yet, a real
-        # documented gap - see get_show_magnifier_while_selecting's
-        # own docstring.
-        magnifier_check = Gtk.CheckButton(label="Show magnifier while selecting a region")
-        magnifier_check.set_active(get_show_magnifier_while_selecting())
-        magnifier_check.set_tooltip_text(
-            "Applies to X11 and the Wayland portal-fallback path. The Wayland Shell-native picker's own "
-            "magnifier doesn't read this setting yet."
-        )
-        magnifier_check.connect("toggled", lambda btn: set_show_magnifier_while_selecting(btn.get_active()))
-        inner.pack_start(magnifier_check, False, False, 0)
-
-        box.pack_start(frame, False, False, 0)
-        return box
-
-    def _build_output_settings_tab(self) -> Gtk.Box:
-        """Matches real Windows' Output tab - groupbox_preferredfilesettings
-        (filename pattern, primary format, copy-path-to-clipboard,
-        Screenshot Save Location) and groupbox_qualitysettings (reduce
-        colors, always show quality dialog, JPEG quality), backed by
-        settings.OutputSettings. Every control here reads/writes the
-        same OutputSettings instance as a whole (dataclass_replace per
-        field) rather than separate get_x/set_x calls, matching how
-        the dataclass itself is documented as "always edited together".
-        """
-        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
-        box.set_border_width(12)
-
-        def update_output_settings(**changes) -> None:
-            set_output_settings(dataclass_replace(get_output_settings(), **changes))
-
-        file_frame = Gtk.Frame(label="Preferred File Settings")
-        file_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
-        file_box.set_border_width(8)
-        file_frame.add(file_box)
-
-        # Pattern style is a real dropdown, not composed with the other
-        # - direflail's own call, after live testing showed why a bare
-        # "%" prefix next to ordinary text is inherently self-
-        # ambiguous with itself (confirmed live: even a curated "safe"
-        # strftime whitelist still let %d eat the "d" out of an
-        # ordinary word "done"). One delimiter convention active at a
-        # time removes the ambiguity entirely - see
-        # core/filename_pattern.py's own module docstring.
-        mode_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
-        mode_row.pack_start(Gtk.Label(label="Pattern style:"), False, False, 0)
-        mode_combo = Gtk.ComboBoxText()
-        mode_combo.append(MODE_GREENSHOT, "Greenshot-style (${YYYY})")
-        mode_combo.append(MODE_STRFTIME, "strftime (%Y)")
-        mode_combo.set_active_id(get_output_settings().filename_pattern_mode)
-        mode_combo.connect("changed", lambda combo: update_output_settings(filename_pattern_mode=combo.get_active_id()))
-        mode_row.pack_start(mode_combo, False, False, 0)
-        file_box.pack_start(mode_row, False, False, 0)
-
-        pattern_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
-        pattern_row.pack_start(Gtk.Label(label="Filename pattern:"), False, False, 0)
-        pattern_entry = Gtk.Entry()
-        pattern_entry.set_text(get_output_settings().filename_pattern)
-        pattern_entry.set_tooltip_text(
-            "Uses whichever style is selected above - the other style's own special characters "
-            "are left as plain literal text. Click ? for the token/code list."
-        )
-        pattern_entry.connect("changed", lambda entry: update_output_settings(filename_pattern=entry.get_text()))
-        pattern_row.pack_start(pattern_entry, True, True, 0)
-        pattern_help_button = Gtk.Button(label="?")
-
-        def on_pattern_help(_button) -> None:
-            if get_output_settings().filename_pattern_mode == MODE_STRFTIME:
-                # Standard library strftime - no Windows/Greenshot
-                # equivalent to cite, this mode is this port's own
-                # addition for Linux/Python users who'd rather use the
-                # convention they already know.
-                text, secondary = "strftime codes", (
-                    "Standard Python/C strftime codes, e.g.:\n"
-                    "%Y year, %y year (2 digits)\n"
-                    "%m month, %d day\n"
-                    "%H hour (24h), %I hour (12h), %p AM/PM\n"
-                    "%M minute, %S second\n"
-                    "%A/%a weekday name, %B/%b month name\n"
-                    "%% a literal percent sign\n"
-                    "\n"
-                    "No ${...} placeholders in this mode - switch \"Pattern style\" above to use those instead."
-                )
-            else:
-                # Verbatim text real Windows' own "?" button shows
-                # (Greenshot/Languages/language-en-US.xml:252-269,
-                # settings_message_filenamepattern), adapted for what
-                # this port actually supports: ${domain}/${user}/
-                # ${hostname} dropped (see this module's own docstring
-                # for why).
-                text, secondary = "Filename pattern tokens", (
-                    "The following placeholders are replaced automatically:\n"
-                    "${YYYY} year, 4 digits\n"
-                    "${MM} month, 2 digits\n"
-                    "${DD} day, 2 digits\n"
-                    "${hh} hour, 2 digits\n"
-                    "${mm} minute, 2 digits\n"
-                    "${ss} second, 2 digits\n"
-                    "${NUM} incrementing number, 6 digits (see Counter below)\n"
-                    "${RRR...} random alphanumerics, same length as the number of R's\n"
-                    "${title} capture title, when available\n"
-                    "\n"
-                    "No %-codes in this mode - switch \"Pattern style\" above to use those instead."
-                )
-            info = Gtk.MessageDialog(
-                transient_for=self, message_type=Gtk.MessageType.INFO, buttons=Gtk.ButtonsType.OK,
-                text=text, secondary_text=secondary,
-            )
-            info.run()
-            info.destroy()
-
-        pattern_help_button.connect("clicked", on_pattern_help)
-        pattern_row.pack_start(pattern_help_button, False, False, 0)
-        file_box.pack_start(pattern_row, False, False, 0)
-
-        # Moved here from the now-removed Expert tab (SettingsForm.
-        # Designer.cs's groupbox_expert originally, task #93) - lives
-        # right under the filename pattern since ${NUM} is this value,
-        # not a separate concept.
-        counter_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
-        counter_row.pack_start(Gtk.Label(label="Counter (${NUM} in filename):"), False, False, 0)
-        counter_spin = Gtk.SpinButton.new_with_range(1, 999999, 1)
-        counter_spin.set_value(get_filename_counter())
-        counter_spin.connect("value-changed", lambda spin: set_filename_counter(spin.get_value_as_int()))
-        counter_row.pack_start(counter_spin, False, False, 0)
-        file_box.pack_start(counter_row, False, False, 0)
-
-        format_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
-        format_row.pack_start(Gtk.Label(label="Primary format:"), False, False, 0)
-        format_combo = Gtk.ComboBoxText()
-        for value, label in self._SAVE_AS_FORMATS:
-            format_combo.append(value, label)
-        format_combo.set_active_id(get_output_settings().primary_format)
-        format_combo.connect("changed", lambda combo: update_output_settings(primary_format=combo.get_active_id()))
-        format_row.pack_start(format_combo, False, False, 0)
-        file_box.pack_start(format_row, False, False, 0)
-
-        copy_path_check = Gtk.CheckButton(label="Copy file path to clipboard after saving")
-        copy_path_check.set_active(get_output_settings().copy_path_to_clipboard)
-        copy_path_check.connect("toggled", lambda btn: update_output_settings(copy_path_to_clipboard=btn.get_active()))
-        file_box.pack_start(copy_path_check, False, False, 0)
-
-        location_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
-        location_row.pack_start(Gtk.Label(label="Screenshot Save Location:"), False, False, 0)
-        location_label = Gtk.Label(label=str(get_output_directory()))
-        location_row.pack_start(location_label, True, True, 0)
-        change_button = Gtk.Button(label="Change...")
-
-        def on_change(_button):
-            self._do_choose_save_location()
-            location_label.set_text(str(get_output_directory()))
-
-        change_button.connect("clicked", on_change)
-        location_row.pack_start(change_button, False, False, 0)
-        file_box.pack_start(location_row, False, False, 0)
-
-        box.pack_start(file_frame, False, False, 0)
-
-        quality_frame = Gtk.Frame(label="Quality Settings")
-        quality_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
-        quality_box.set_border_width(8)
-        quality_frame.add(quality_box)
-
-        # Persisted but not yet applied to a save - see OutputSettings'
-        # own docstring for why (no palette-quantization step exists
-        # in this port yet, a real, documented gap).
-        reduce_colors_check = Gtk.CheckButton(label="Reduce colors to 256 (8-bit)")
-        reduce_colors_check.set_active(get_output_settings().reduce_colors)
-        reduce_colors_check.set_tooltip_text("Not applied to saves yet - this port has no color-quantization step built.")
-        reduce_colors_check.connect("toggled", lambda btn: update_output_settings(reduce_colors=btn.get_active()))
-        quality_box.pack_start(reduce_colors_check, False, False, 0)
-
-        prompt_quality_check = Gtk.CheckButton(label="Always show quality dialog before saving")
-        prompt_quality_check.set_active(get_output_settings().always_show_quality_dialog)
-        prompt_quality_check.connect(
-            "toggled", lambda btn: update_output_settings(always_show_quality_dialog=btn.get_active())
-        )
-        quality_box.pack_start(prompt_quality_check, False, False, 0)
-
-        jpeg_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
-        jpeg_row.pack_start(Gtk.Label(label="JPEG quality:"), False, False, 0)
-        jpeg_spin = Gtk.SpinButton.new_with_range(0, 100, 1)
-        jpeg_spin.set_value(get_output_settings().jpeg_quality)
-        jpeg_spin.connect("value-changed", lambda spin: update_output_settings(jpeg_quality=spin.get_value_as_int()))
-        jpeg_row.pack_start(jpeg_spin, False, False, 0)
-        quality_box.pack_start(jpeg_row, False, False, 0)
-
-        box.pack_start(quality_frame, False, False, 0)
-        return box
-
-    def _build_destinations_settings_tab(self, dialog: Gtk.Dialog) -> Gtk.Box:
-        """Matches real Windows' Destinations tab (groupbox_destination:
-        checkbox_picker + listview_destinations). The checked listview
-        is real now - every destination show_destination_picker would
-        offer (ui/destination_picker.py's _all_destinations, including
-        the Office destination if LibreOffice/OpenOffice is detected
-        and any configured ExternalCommands), toggled against
-        settings.get_excluded_destinations()/set_excluded_destinations().
-        checkbox_picker itself (Windows' "always show the picker,
-        rather than going straight to a single preferred destination")
-        has no equivalent here - this port's hotkeys/tray always open
-        the picker already, there's no "skip the picker" mode to
-        toggle in the first place.
-        """
-        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
-        box.set_border_width(12)
-
-        frame = Gtk.Frame(label="Destinations")
-        inner = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
-        inner.set_border_width(8)
-        frame.add(inner)
-
-        from orcshot.ui.destination_picker import _all_destinations
-
-        store = Gtk.ListStore(bool, str, str)  # enabled, label, id
-        excluded = get_excluded_destinations()
-        # include_excluded=True - otherwise an unchecked/excluded
-        # destination would disappear from its own checklist (the
-        # normal, filtered _all_destinations() already hides it).
-        for destination_id, label, _handler in _all_destinations(include_excluded=True):
-            store.append([destination_id not in excluded, label, destination_id])
-
-        tree_view = Gtk.TreeView(model=store)
-        toggle_renderer = Gtk.CellRendererToggle()
-
-        def on_toggled(_renderer, path) -> None:
-            store[path][0] = not store[path][0]
-            currently_excluded = {row[2] for row in store if not row[0]}
-            set_excluded_destinations(currently_excluded)
-
-        toggle_renderer.connect("toggled", on_toggled)
-        tree_view.append_column(Gtk.TreeViewColumn("Enabled", toggle_renderer, active=0))
-        tree_view.append_column(Gtk.TreeViewColumn("Destination", Gtk.CellRendererText(), text=1))
-        scroller = Gtk.ScrolledWindow()
-        scroller.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
-        scroller.set_min_content_height(140)
-        scroller.add(tree_view)
-        inner.pack_start(scroller, True, True, 0)
-
-        external_commands_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
-        external_commands_row.pack_start(Gtk.Label(label="External Commands:"), False, False, 0)
-        manage_commands_button = Gtk.Button(label="Manage...")
-
-        def on_manage_external_commands(_button) -> None:
-            from orcshot.ui.external_commands import show_manage_external_commands_dialog
-
-            show_manage_external_commands_dialog(dialog)
-
-        manage_commands_button.connect("clicked", on_manage_external_commands)
-        external_commands_row.pack_start(manage_commands_button, False, False, 0)
-        inner.pack_start(external_commands_row, False, False, 0)
-
-        box.pack_start(frame, False, False, 0)
-        return box
-
-    def _build_printer_settings_tab(self) -> Gtk.Box:
-        """Matches real Windows' Printer tab (groupBoxColors +
-        groupBoxPrintLayout + checkbox_alwaysshowprintoptionsdialog,
-        SettingsForm.Designer.cs:815-978) - sets real *default*
-        settings.PrintOptions, the same dataclass ui/printing.py's own
-        per-print-job dialog already reads/writes. Each control here
-        persists on change directly (matching Output tab's own
-        pattern), not through an OK/Cancel flow - these are defaults,
-        not a one-shot decision the way the per-job dialog's fields
-        are.
-        """
-        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
-        box.set_border_width(12)
-
-        def update_print_options(**changes) -> None:
-            set_print_options(dataclass_replace(get_print_options(), **changes))
-
-        options = get_print_options()
-
-        layout_frame = Gtk.Frame(label="Page Layout Settings")
-        layout_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
-        layout_box.set_border_width(8)
-
-        shrink_check = Gtk.CheckButton(label="Shrink printout to fit paper size")
-        shrink_check.set_active(options.allow_shrink)
-        shrink_check.connect("toggled", lambda btn: update_print_options(allow_shrink=btn.get_active()))
-        layout_box.pack_start(shrink_check, False, False, 0)
-
-        enlarge_check = Gtk.CheckButton(label="Enlarge printout to fit paper size")
-        enlarge_check.set_active(options.allow_enlarge)
-        enlarge_check.connect("toggled", lambda btn: update_print_options(allow_enlarge=btn.get_active()))
-        layout_box.pack_start(enlarge_check, False, False, 0)
-
-        rotate_check = Gtk.CheckButton(label="Rotate printout to page orientation")
-        rotate_check.set_active(options.allow_rotate)
-        rotate_check.connect("toggled", lambda btn: update_print_options(allow_rotate=btn.get_active()))
-        layout_box.pack_start(rotate_check, False, False, 0)
-
-        center_check = Gtk.CheckButton(label="Center printout on page")
-        center_check.set_active(options.center)
-        center_check.connect("toggled", lambda btn: update_print_options(center=btn.get_active()))
-        layout_box.pack_start(center_check, False, False, 0)
-
-        footer_check = Gtk.CheckButton(label="Print date / time at bottom of page")
-        footer_check.set_active(options.footer)
-        footer_check.connect("toggled", lambda btn: update_print_options(footer=btn.get_active()))
-        layout_box.pack_start(footer_check, False, False, 0)
-
-        # Moved here from the now-removed Expert tab (SettingsForm.
-        # Designer.cs's groupbox_expert originally, task #93) - the
-        # pattern for the checkbox above, not a separate concept.
-        footer_pattern_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
-        footer_pattern_row.pack_start(Gtk.Label(label="Footer pattern:"), False, False, 0)
-        footer_pattern_entry = Gtk.Entry()
-        footer_pattern_entry.set_text(get_footer_pattern())
-        footer_pattern_entry.set_tooltip_text(
-            "A Python strftime format, e.g. %B %d, %Y %I:%M %p - printed at the bottom of the page."
-        )
-        footer_pattern_entry.connect("changed", lambda entry: set_footer_pattern(entry.get_text()))
-        footer_pattern_row.pack_start(footer_pattern_entry, True, True, 0)
-        layout_box.pack_start(footer_pattern_row, False, False, 0)
-
-        layout_frame.add(layout_box)
-        box.pack_start(layout_frame, False, False, 0)
-
-        color_frame = Gtk.Frame(label="Color Settings")
-        color_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
-        color_box.set_border_width(8)
-
-        color_radio = Gtk.RadioButton.new_with_label(None, "Full color print")
-        grayscale_radio = Gtk.RadioButton.new_with_label_from_widget(color_radio, "Force grayscale printing")
-        monochrome_radio = Gtk.RadioButton.new_with_label_from_widget(color_radio, "Force black/white printing")
-        if options.monochrome:
-            monochrome_radio.set_active(True)
-        elif options.grayscale:
-            grayscale_radio.set_active(True)
-        else:
-            color_radio.set_active(True)
-
-        def on_color_mode_toggled(_btn) -> None:
-            update_print_options(grayscale=grayscale_radio.get_active(), monochrome=monochrome_radio.get_active())
-
-        for radio in (color_radio, grayscale_radio, monochrome_radio):
-            radio.connect("toggled", on_color_mode_toggled)
-            color_box.pack_start(radio, False, False, 0)
-
-        invert_check = Gtk.CheckButton(label="Print with inverted colors")
-        invert_check.set_active(options.inverted)
-        invert_check.connect("toggled", lambda btn: update_print_options(inverted=btn.get_active()))
-        color_box.pack_start(invert_check, False, False, 0)
-
-        color_frame.add(color_box)
-        box.pack_start(color_frame, False, False, 0)
-
-        prompt_check = Gtk.CheckButton(label="Show print options dialog every time an image is printed")
-        prompt_check.set_active(options.prompt_options)
-        prompt_check.connect("toggled", lambda btn: update_print_options(prompt_options=btn.get_active()))
-        box.pack_start(prompt_check, False, False, 0)
-
-        return box
-
-    # Not a Windows feature - Windows has no "open in an external
-    # editor" destination. A new addition, not a port, per explicit
-    # request. Krita is tried first since it was specifically
-    # requested, with GIMP as a fallback (overridable - see
-    # settings.get_external_editor_preference and _do_show_settings).
-    # (name, PATH command, Flatpak app ID) - checks both, since Flatpak
-    # is how at least one of these is commonly installed on Mint
-    # (confirmed live: this dev machine has Krita only via Flatpak, not
-    # on PATH - a plain shutil.which("krita") check alone would have
-    # missed it).
-    _EXTERNAL_EDITOR_CANDIDATES = (
-        ("Krita", "krita", "org.kde.krita"),
-        ("GIMP", "gimp", "org.gimp.GIMP"),
-    )
+        show_preferences_dialog(self)
 
     @staticmethod
     def _installed_flatpak_apps() -> set:
@@ -3768,13 +3170,13 @@ class EditorWindow(Gtk.Window):
         """
         flatpak_apps = self._installed_flatpak_apps()
         preferred = get_external_editor_preference()
-        for name, path_command, flatpak_id in self._EXTERNAL_EDITOR_CANDIDATES:
+        for name, path_command, flatpak_id in _EXTERNAL_EDITOR_CANDIDATES:
             if name != preferred:
                 continue
             command = self._command_for_candidate(path_command, flatpak_id, flatpak_apps)
             if command is not None:
                 return command
-        for _name, path_command, flatpak_id in self._EXTERNAL_EDITOR_CANDIDATES:
+        for _name, path_command, flatpak_id in _EXTERNAL_EDITOR_CANDIDATES:
             command = self._command_for_candidate(path_command, flatpak_id, flatpak_apps)
             if command is not None:
                 return command
@@ -3812,7 +3214,7 @@ class EditorWindow(Gtk.Window):
                 transient_for=self, message_type=Gtk.MessageType.INFO, buttons=Gtk.ButtonsType.OK,
                 text="No external image editor found",
             )
-            names = ", ".join(name for name, _, _ in self._EXTERNAL_EDITOR_CANDIDATES)
+            names = ", ".join(name for name, _, _ in _EXTERNAL_EDITOR_CANDIDATES)
             dialog.format_secondary_text(f"Tried: {names} (checked both PATH and Flatpak). Install one of these to use this button.")
             dialog.run()
             dialog.destroy()
@@ -5189,3 +4591,618 @@ def open_orcshot_file_in_new_window(path, transient_for: Gtk.Window = None) -> "
         editor.layer.add(shape)
     editor.show_all()
     return editor
+
+
+def _choose_save_location(parent: Gtk.Window = None) -> None:
+    """Lets the user view/change the folder the destination
+    picker's silent "Save" (ui/destination_picker.py) and
+    EditorWindow's own Save dialog both start from - persisted
+    via settings.py, so it's remembered across captures and
+    restarts. Module-level (not an EditorWindow method) since
+    task #119 made this reachable from the tray icon's own
+    Preferences dialog too, with no editor open at all.
+    """
+    dialog = Gtk.FileChooserDialog(
+        title="Screenshot Save Location", transient_for=parent, action=Gtk.FileChooserAction.SELECT_FOLDER
+    )
+    dialog.add_buttons(
+        Gtk.STOCK_CANCEL, Gtk.ResponseType.CANCEL,
+        "Select", Gtk.ResponseType.OK,
+    )
+    current = get_output_directory()
+    current.mkdir(parents=True, exist_ok=True)
+    dialog.set_current_folder(str(current))
+    try:
+        if dialog.run() == Gtk.ResponseType.OK:
+            set_output_directory(Path(dialog.get_filename()))
+    finally:
+        dialog.destroy()
+
+
+def show_preferences_dialog(parent: Gtk.Window = None) -> None:
+    """Preferences dialog - task #95 part 2 rebuilt this as a
+    tabbed Gtk.Notebook matching real Windows' actual SettingsForm
+    structure (SettingsForm.Designer.cs's tabcontrol.Controls:
+    General/Capture/Output/Destinations/Printer/Plugins/Expert).
+    Plugins is dropped (real Windows' tab lists loaded plugin DLLs
+    with Configure buttons; this port has exactly one "plugin"-
+    shaped thing, ExternalCommand, better served by Destinations
+    tab's own Configure button than a whole tab for one item).
+    Expert is dropped too, by direflail's own later call - every
+    field it held had a real home in one of the other tabs
+    (Suppress save dialog -> General>Application Settings, Counter
+    -> Output>Preferred File Settings, Printer footer pattern ->
+    Printer), and the "I know what I am doing!" gate that used to
+    lock them all went with it - they're normal, always-editable
+    settings now like everything else. Check for unstable updates
+    was removed outright rather than relocated - direflail's own
+    call, since this port has no update-checking system at all to
+    attach it to (task #103).
+    """
+    dialog = Gtk.Dialog(title="Preferences", transient_for=parent)
+    dialog.set_default_size(480, 420)
+    dialog.add_buttons(Gtk.STOCK_CLOSE, Gtk.ResponseType.CLOSE)
+    content = dialog.get_content_area()
+
+    notebook = Gtk.Notebook()
+    notebook.append_page(_build_general_settings_tab(dialog), Gtk.Label(label="General"))
+    notebook.append_page(_build_capture_settings_tab(), Gtk.Label(label="Capture"))
+    notebook.append_page(_build_output_settings_tab(dialog), Gtk.Label(label="Output"))
+    notebook.append_page(_build_destinations_settings_tab(dialog), Gtk.Label(label="Destinations"))
+    notebook.append_page(_build_printer_settings_tab(), Gtk.Label(label="Printer"))
+    content.pack_start(notebook, True, True, 0)
+
+    dialog.show_all()
+    dialog.run()
+    dialog.destroy()
+
+def _build_general_settings_tab(parent: Gtk.Window) -> Gtk.Box:
+    """Matches real Windows' General tab (SettingsForm.Designer.cs:
+    480-482's tab_general.Controls: groupbox_network,
+    groupbox_hotkeys, groupbox_applicationsettings) - reordered
+    (Application Settings, Hotkeys, Network and Updates) per
+    direflail's own call, not Windows' own control-declaration
+    order.
+    """
+    box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
+    box.set_border_width(12)
+
+    app_frame = Gtk.Frame(label="Application Settings")
+    app_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+    app_box.set_border_width(8)
+    app_frame.add(app_box)
+
+    # Placeholder - task #109 (i18n infrastructure) doesn't exist
+    # yet, so there's only ever one real choice. Shown disabled
+    # rather than omitted so the real Windows field this
+    # corresponds to (combobox_language, groupbox_applicationsettings)
+    # has a visible, honest placement already.
+    language_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+    language_row.pack_start(Gtk.Label(label="Language:"), False, False, 0)
+    language_combo = Gtk.ComboBoxText()
+    language_combo.append("en", "English")
+    language_combo.set_active_id("en")
+    language_combo.set_sensitive(False)
+    language_combo.set_tooltip_text("Only English is available - see task #109 (i18n infrastructure).")
+    language_row.pack_start(language_combo, False, False, 0)
+    app_box.pack_start(language_row, False, False, 0)
+
+    # Faithful port of "Icon size" (numericUpdownIconSize,
+    # SettingsForm.Designer.cs:330-336, 16-256 step 16) - see
+    # settings.get_icon_size's own docstring for the default and
+    # ui/icons.py's tool_icon_image for how it's actually applied
+    # (bitmap-scaled, not redrawn).
+    icon_size_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+    icon_size_row.pack_start(Gtk.Label(label="Icon size:"), False, False, 0)
+    icon_size_spin = Gtk.SpinButton.new_with_range(16, 256, 16)
+    icon_size_spin.set_value(get_icon_size())
+    icon_size_spin.set_tooltip_text("Takes effect the next time you open a screenshot.")
+    icon_size_spin.connect("value-changed", lambda spin: set_icon_size(spin.get_value_as_int()))
+    icon_size_row.pack_start(icon_size_spin, False, False, 0)
+    app_box.pack_start(icon_size_row, False, False, 0)
+
+    # Faithful port of "Launch Greenshot on startup"
+    # (checkbox_autostartshortcut, SettingsForm.Designer.cs:348) -
+    # a direct, immediate toggle, distinct from the Configure
+    # Hotkeys button below's first-run-style wizard (which also
+    # offers to enable autostart, but only as part of a full
+    # reconfigure pass, not a live on/off switch on its own).
+    autostart_check = Gtk.CheckButton(label="Launch Orcshot on startup")
+    autostart_check.set_active(is_autostart_enabled())
+
+    def on_autostart_toggled(btn) -> None:
+        from orcshot.ui.first_run_setup import _default_executable
+
+        if btn.get_active():
+            install_autostart_entry(_default_executable())
+        else:
+            remove_autostart_entry()
+
+    autostart_check.connect("toggled", on_autostart_toggled)
+    app_box.pack_start(autostart_check, False, False, 0)
+
+    # Not a Windows setting - "Open in External Editor" itself
+    # isn't a Windows feature (see _EXTERNAL_EDITOR_CANDIDATES).
+    # No clear Windows tab to match against, kept here as a
+    # general app-behavior preference rather than invented a
+    # dedicated tab for one control.
+    editor_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+    editor_row.pack_start(Gtk.Label(label="External Image Editor:"), False, False, 0)
+    editor_combo = Gtk.ComboBoxText()
+    editor_combo.append(EXTERNAL_EDITOR_AUTO, "Auto (Krita, then GIMP)")
+    for name, _path_command, _flatpak_id in _EXTERNAL_EDITOR_CANDIDATES:
+        editor_combo.append(name, name)
+    current_preference = get_external_editor_preference()
+    if editor_combo.set_active_id(current_preference) is False:
+        # A stale preference naming a candidate that no longer
+        # exists in _EXTERNAL_EDITOR_CANDIDATES - falls back to
+        # Auto in the UI (matches _find_external_editor_command's
+        # own fallback behavior for the same case) rather than
+        # showing nothing selected.
+        editor_combo.set_active_id(EXTERNAL_EDITOR_AUTO)
+    editor_combo.connect("changed", lambda combo: set_external_editor_preference(combo.get_active_id()))
+    editor_row.pack_start(editor_combo, False, False, 0)
+    app_box.pack_start(editor_row, False, False, 0)
+
+    # Moved here from the now-removed Expert tab (SettingsForm.
+    # Designer.cs's groupbox_expert originally, task #93) - no
+    # longer gated behind an "I know what I am doing!" checkbox,
+    # per direflail's own call to drop that gate entirely once
+    # everything moved to its real home.
+    suppress_save_check = Gtk.CheckButton(label="Suppress the save dialog when closing the editor")
+    suppress_save_check.set_active(get_suppress_save_dialog_at_close())
+    suppress_save_check.connect(
+        "toggled", lambda btn: set_suppress_save_dialog_at_close(btn.get_active())
+    )
+    app_box.pack_start(suppress_save_check, False, False, 0)
+
+    box.pack_start(app_frame, False, False, 0)
+
+    hotkeys_frame = Gtk.Frame(label="Hotkeys")
+    hotkeys_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+    hotkeys_box.set_border_width(8)
+    hotkeys_frame.add(hotkeys_box)
+    hotkeys_button = Gtk.Button(label="Configure Hotkeys...")
+    # Reuses the existing conflict-detecting setup dialog
+    # (ui/first_run_setup.py) rather than rebuilding Windows' own
+    # live-capture HotkeyControl widgets inline here - that dialog
+    # already covers all 4 bindings plus autostart in one place.
+    hotkeys_button.connect(
+            "clicked",
+            lambda _b: __import__("orcshot.ui.first_run_setup", fromlist=["run_setup_dialog"]).run_setup_dialog(parent),
+        )
+    hotkeys_box.pack_start(hotkeys_button, False, False, 0)
+    box.pack_start(hotkeys_frame, False, False, 0)
+
+    network_frame = Gtk.Frame(label="Network and Updates")
+    network_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+    network_box.set_border_width(8)
+    network_frame.add(network_box)
+
+    # Faithful port of "Use your global proxy?" (UseProxy,
+    # ICoreConfiguration.cs:215-217) - see get_use_default_proxy's
+    # own docstring for what "default proxy" means on Linux vs.
+    # Windows' WinINet.
+    proxy_check = Gtk.CheckButton(label="Use system default proxy")
+    proxy_check.set_active(get_use_default_proxy())
+    proxy_check.connect("toggled", lambda btn: set_use_default_proxy(btn.get_active()))
+    network_box.pack_start(proxy_check, False, False, 0)
+
+    interval_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+    interval_row.pack_start(Gtk.Label(label="Check for updates every"), False, False, 0)
+    interval_spin = Gtk.SpinButton.new_with_range(0, 365, 1)
+    interval_spin.set_value(get_update_check_interval_days())
+    interval_spin.set_tooltip_text(
+        "Has no effect yet - this port doesn't check for updates at all (see task #103). "
+        "0 = never check, matching Windows' own UpdateCheckInterval semantics."
+    )
+    interval_spin.connect("value-changed", lambda spin: set_update_check_interval_days(spin.get_value_as_int()))
+    interval_row.pack_start(interval_spin, False, False, 0)
+    interval_row.pack_start(Gtk.Label(label="days"), False, False, 0)
+    network_box.pack_start(interval_row, False, False, 0)
+    box.pack_start(network_frame, False, False, 0)
+
+    return box
+
+def _build_capture_settings_tab() -> Gtk.Box:
+    """Matches real Windows' Capture tab (groupbox_capture) as far
+    as this port can - "Capture mouse cursor" (moved here
+    unchanged from the old flat dialog) plus the "zoomer" (region-
+    select magnifier) toggle, new this pass.
+
+    Deliberately NOT here, each for its own real reason rather than
+    an oversight: Notifications/Play Sound (task #126 - no capture-
+    complete notify/sound feature exists in this port at all to
+    attach them to). The Window Capture group (groupbox_
+    windowscapture's Screen/GDI/Aero/AeroTransparent/Auto capture-
+    technique selector, interactive-capture radio, background
+    color) - entirely about which Windows graphics API grabs a
+    window's pixels, with no Linux equivalent; this port's X11/
+    Wayland backends already pick the right mechanism automatically
+    per platform, there's no user-facing choice to expose. "Match
+    capture size" (groupbox_editor's own checkbox) - this port's
+    editor always resizes to match the capture (task #97, a
+    deliberate, already-verified, unconditional choice, not
+    independently toggleable - "off" would need a real remembered/
+    default-size fallback this port doesn't have). Wait time before
+    capture (numericUpDownWaitTime) - a real capture-delay timer
+    feature that doesn't exist here at all yet, genuinely new scope
+    beyond a settings checkbox, not filed as its own task since
+    nobody's asked for it.
+    """
+    box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
+    box.set_border_width(12)
+
+    frame = Gtk.Frame(label="Capture")
+    inner = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+    inner.set_border_width(8)
+    frame.add(inner)
+
+    # Faithful port of Windows' "Capture mousepointer" checkbox
+    # (ICoreConfiguration.cs:79-81, default True) - see
+    # ui/capture_modes.py's module docstring for how this
+    # interacts with the tray-menu-vs-hotkey asymmetry.
+    cursor_check = Gtk.CheckButton(label="Capture mouse cursor")
+    cursor_check.set_active(get_capture_mouse_cursor())
+    cursor_check.connect("toggled", lambda btn: set_capture_mouse_cursor(btn.get_active()))
+    inner.pack_start(cursor_check, False, False, 0)
+
+    # Faithful port of the "zoomer" (ZoomerEnabled,
+    # ICoreConfiguration.cs:318-320, default True) - wired into
+    # ui/region_select.py (X11) and ui/region_select_wayland.py
+    # (Wayland portal fallback); the Wayland Shell-native path
+    # (task #82's GJS magnifier) doesn't read this yet, a real
+    # documented gap - see get_show_magnifier_while_selecting's
+    # own docstring.
+    magnifier_check = Gtk.CheckButton(label="Show magnifier while selecting a region")
+    magnifier_check.set_active(get_show_magnifier_while_selecting())
+    magnifier_check.set_tooltip_text(
+        "Applies to X11 and the Wayland portal-fallback path. The Wayland Shell-native picker's own "
+        "magnifier doesn't read this setting yet."
+    )
+    magnifier_check.connect("toggled", lambda btn: set_show_magnifier_while_selecting(btn.get_active()))
+    inner.pack_start(magnifier_check, False, False, 0)
+
+    box.pack_start(frame, False, False, 0)
+    return box
+
+def _build_output_settings_tab(parent: Gtk.Window) -> Gtk.Box:
+    """Matches real Windows' Output tab - groupbox_preferredfilesettings
+    (filename pattern, primary format, copy-path-to-clipboard,
+    Screenshot Save Location) and groupbox_qualitysettings (reduce
+    colors, always show quality dialog, JPEG quality), backed by
+    settings.OutputSettings. Every control here reads/writes the
+    same OutputSettings instance as a whole (dataclass_replace per
+    field) rather than separate get_x/set_x calls, matching how
+    the dataclass itself is documented as "always edited together".
+    """
+    box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
+    box.set_border_width(12)
+
+    def update_output_settings(**changes) -> None:
+        set_output_settings(dataclass_replace(get_output_settings(), **changes))
+
+    file_frame = Gtk.Frame(label="Preferred File Settings")
+    file_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+    file_box.set_border_width(8)
+    file_frame.add(file_box)
+
+    # Pattern style is a real dropdown, not composed with the other
+    # - direflail's own call, after live testing showed why a bare
+    # "%" prefix next to ordinary text is inherently self-
+    # ambiguous with itself (confirmed live: even a curated "safe"
+    # strftime whitelist still let %d eat the "d" out of an
+    # ordinary word "done"). One delimiter convention active at a
+    # time removes the ambiguity entirely - see
+    # core/filename_pattern.py's own module docstring.
+    mode_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+    mode_row.pack_start(Gtk.Label(label="Pattern style:"), False, False, 0)
+    mode_combo = Gtk.ComboBoxText()
+    mode_combo.append(MODE_GREENSHOT, "Greenshot-style (${YYYY})")
+    mode_combo.append(MODE_STRFTIME, "strftime (%Y)")
+    mode_combo.set_active_id(get_output_settings().filename_pattern_mode)
+    mode_combo.connect("changed", lambda combo: update_output_settings(filename_pattern_mode=combo.get_active_id()))
+    mode_row.pack_start(mode_combo, False, False, 0)
+    file_box.pack_start(mode_row, False, False, 0)
+
+    pattern_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+    pattern_row.pack_start(Gtk.Label(label="Filename pattern:"), False, False, 0)
+    pattern_entry = Gtk.Entry()
+    pattern_entry.set_text(get_output_settings().filename_pattern)
+    pattern_entry.set_tooltip_text(
+        "Uses whichever style is selected above - the other style's own special characters "
+        "are left as plain literal text. Click ? for the token/code list."
+    )
+    pattern_entry.connect("changed", lambda entry: update_output_settings(filename_pattern=entry.get_text()))
+    pattern_row.pack_start(pattern_entry, True, True, 0)
+    pattern_help_button = Gtk.Button(label="?")
+
+    def on_pattern_help(_button) -> None:
+        if get_output_settings().filename_pattern_mode == MODE_STRFTIME:
+            # Standard library strftime - no Windows/Greenshot
+            # equivalent to cite, this mode is this port's own
+            # addition for Linux/Python users who'd rather use the
+            # convention they already know.
+            text, secondary = "strftime codes", (
+                "Standard Python/C strftime codes, e.g.:\n"
+                "%Y year, %y year (2 digits)\n"
+                "%m month, %d day\n"
+                "%H hour (24h), %I hour (12h), %p AM/PM\n"
+                "%M minute, %S second\n"
+                "%A/%a weekday name, %B/%b month name\n"
+                "%% a literal percent sign\n"
+                "\n"
+                "No ${...} placeholders in this mode - switch \"Pattern style\" above to use those instead."
+            )
+        else:
+            # Verbatim text real Windows' own "?" button shows
+            # (Greenshot/Languages/language-en-US.xml:252-269,
+            # settings_message_filenamepattern), adapted for what
+            # this port actually supports: ${domain}/${user}/
+            # ${hostname} dropped (see this module's own docstring
+            # for why).
+            text, secondary = "Filename pattern tokens", (
+                "The following placeholders are replaced automatically:\n"
+                "${YYYY} year, 4 digits\n"
+                "${MM} month, 2 digits\n"
+                "${DD} day, 2 digits\n"
+                "${hh} hour, 2 digits\n"
+                "${mm} minute, 2 digits\n"
+                "${ss} second, 2 digits\n"
+                "${NUM} incrementing number, 6 digits (see Counter below)\n"
+                "${RRR...} random alphanumerics, same length as the number of R's\n"
+                "${title} capture title, when available\n"
+                "\n"
+                "No %-codes in this mode - switch \"Pattern style\" above to use those instead."
+            )
+        info = Gtk.MessageDialog(
+            transient_for=parent, message_type=Gtk.MessageType.INFO, buttons=Gtk.ButtonsType.OK,
+            text=text, secondary_text=secondary,
+        )
+        info.run()
+        info.destroy()
+
+    pattern_help_button.connect("clicked", on_pattern_help)
+    pattern_row.pack_start(pattern_help_button, False, False, 0)
+    file_box.pack_start(pattern_row, False, False, 0)
+
+    # Moved here from the now-removed Expert tab (SettingsForm.
+    # Designer.cs's groupbox_expert originally, task #93) - lives
+    # right under the filename pattern since ${NUM} is this value,
+    # not a separate concept.
+    counter_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+    counter_row.pack_start(Gtk.Label(label="Counter (${NUM} in filename):"), False, False, 0)
+    counter_spin = Gtk.SpinButton.new_with_range(1, 999999, 1)
+    counter_spin.set_value(get_filename_counter())
+    counter_spin.connect("value-changed", lambda spin: set_filename_counter(spin.get_value_as_int()))
+    counter_row.pack_start(counter_spin, False, False, 0)
+    file_box.pack_start(counter_row, False, False, 0)
+
+    format_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+    format_row.pack_start(Gtk.Label(label="Primary format:"), False, False, 0)
+    format_combo = Gtk.ComboBoxText()
+    for value, label in _SAVE_AS_FORMATS:
+        format_combo.append(value, label)
+    format_combo.set_active_id(get_output_settings().primary_format)
+    format_combo.connect("changed", lambda combo: update_output_settings(primary_format=combo.get_active_id()))
+    format_row.pack_start(format_combo, False, False, 0)
+    file_box.pack_start(format_row, False, False, 0)
+
+    copy_path_check = Gtk.CheckButton(label="Copy file path to clipboard after saving")
+    copy_path_check.set_active(get_output_settings().copy_path_to_clipboard)
+    copy_path_check.connect("toggled", lambda btn: update_output_settings(copy_path_to_clipboard=btn.get_active()))
+    file_box.pack_start(copy_path_check, False, False, 0)
+
+    location_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+    location_row.pack_start(Gtk.Label(label="Screenshot Save Location:"), False, False, 0)
+    location_label = Gtk.Label(label=str(get_output_directory()))
+    location_row.pack_start(location_label, True, True, 0)
+    change_button = Gtk.Button(label="Change...")
+
+    def on_change(_button):
+        _choose_save_location(parent)
+        location_label.set_text(str(get_output_directory()))
+
+    change_button.connect("clicked", on_change)
+    location_row.pack_start(change_button, False, False, 0)
+    file_box.pack_start(location_row, False, False, 0)
+
+    box.pack_start(file_frame, False, False, 0)
+
+    quality_frame = Gtk.Frame(label="Quality Settings")
+    quality_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+    quality_box.set_border_width(8)
+    quality_frame.add(quality_box)
+
+    # Persisted but not yet applied to a save - see OutputSettings'
+    # own docstring for why (no palette-quantization step exists
+    # in this port yet, a real, documented gap).
+    reduce_colors_check = Gtk.CheckButton(label="Reduce colors to 256 (8-bit)")
+    reduce_colors_check.set_active(get_output_settings().reduce_colors)
+    reduce_colors_check.set_tooltip_text("Not applied to saves yet - this port has no color-quantization step built.")
+    reduce_colors_check.connect("toggled", lambda btn: update_output_settings(reduce_colors=btn.get_active()))
+    quality_box.pack_start(reduce_colors_check, False, False, 0)
+
+    prompt_quality_check = Gtk.CheckButton(label="Always show quality dialog before saving")
+    prompt_quality_check.set_active(get_output_settings().always_show_quality_dialog)
+    prompt_quality_check.connect(
+        "toggled", lambda btn: update_output_settings(always_show_quality_dialog=btn.get_active())
+    )
+    quality_box.pack_start(prompt_quality_check, False, False, 0)
+
+    jpeg_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+    jpeg_row.pack_start(Gtk.Label(label="JPEG quality:"), False, False, 0)
+    jpeg_spin = Gtk.SpinButton.new_with_range(0, 100, 1)
+    jpeg_spin.set_value(get_output_settings().jpeg_quality)
+    jpeg_spin.connect("value-changed", lambda spin: update_output_settings(jpeg_quality=spin.get_value_as_int()))
+    jpeg_row.pack_start(jpeg_spin, False, False, 0)
+    quality_box.pack_start(jpeg_row, False, False, 0)
+
+    box.pack_start(quality_frame, False, False, 0)
+    return box
+
+def _build_destinations_settings_tab(dialog: Gtk.Dialog) -> Gtk.Box:
+    """Matches real Windows' Destinations tab (groupbox_destination:
+    checkbox_picker + listview_destinations). The checked listview
+    is real now - every destination show_destination_picker would
+    offer (ui/destination_picker.py's _all_destinations, including
+    the Office destination if LibreOffice/OpenOffice is detected
+    and any configured ExternalCommands), toggled against
+    settings.get_excluded_destinations()/set_excluded_destinations().
+    checkbox_picker itself (Windows' "always show the picker,
+    rather than going straight to a single preferred destination")
+    has no equivalent here - this port's hotkeys/tray always open
+    the picker already, there's no "skip the picker" mode to
+    toggle in the first place.
+    """
+    box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
+    box.set_border_width(12)
+
+    frame = Gtk.Frame(label="Destinations")
+    inner = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+    inner.set_border_width(8)
+    frame.add(inner)
+
+    from orcshot.ui.destination_picker import _all_destinations
+
+    store = Gtk.ListStore(bool, str, str)  # enabled, label, id
+    excluded = get_excluded_destinations()
+    # include_excluded=True - otherwise an unchecked/excluded
+    # destination would disappear from its own checklist (the
+    # normal, filtered _all_destinations() already hides it).
+    for destination_id, label, _handler in _all_destinations(include_excluded=True):
+        store.append([destination_id not in excluded, label, destination_id])
+
+    tree_view = Gtk.TreeView(model=store)
+    toggle_renderer = Gtk.CellRendererToggle()
+
+    def on_toggled(_renderer, path) -> None:
+        store[path][0] = not store[path][0]
+        currently_excluded = {row[2] for row in store if not row[0]}
+        set_excluded_destinations(currently_excluded)
+
+    toggle_renderer.connect("toggled", on_toggled)
+    tree_view.append_column(Gtk.TreeViewColumn("Enabled", toggle_renderer, active=0))
+    tree_view.append_column(Gtk.TreeViewColumn("Destination", Gtk.CellRendererText(), text=1))
+    scroller = Gtk.ScrolledWindow()
+    scroller.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+    scroller.set_min_content_height(140)
+    scroller.add(tree_view)
+    inner.pack_start(scroller, True, True, 0)
+
+    external_commands_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+    external_commands_row.pack_start(Gtk.Label(label="External Commands:"), False, False, 0)
+    manage_commands_button = Gtk.Button(label="Manage...")
+
+    def on_manage_external_commands(_button) -> None:
+        from orcshot.ui.external_commands import show_manage_external_commands_dialog
+
+        show_manage_external_commands_dialog(dialog)
+
+    manage_commands_button.connect("clicked", on_manage_external_commands)
+    external_commands_row.pack_start(manage_commands_button, False, False, 0)
+    inner.pack_start(external_commands_row, False, False, 0)
+
+    box.pack_start(frame, False, False, 0)
+    return box
+
+def _build_printer_settings_tab() -> Gtk.Box:
+    """Matches real Windows' Printer tab (groupBoxColors +
+    groupBoxPrintLayout + checkbox_alwaysshowprintoptionsdialog,
+    SettingsForm.Designer.cs:815-978) - sets real *default*
+    settings.PrintOptions, the same dataclass ui/printing.py's own
+    per-print-job dialog already reads/writes. Each control here
+    persists on change directly (matching Output tab's own
+    pattern), not through an OK/Cancel flow - these are defaults,
+    not a one-shot decision the way the per-job dialog's fields
+    are.
+    """
+    box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
+    box.set_border_width(12)
+
+    def update_print_options(**changes) -> None:
+        set_print_options(dataclass_replace(get_print_options(), **changes))
+
+    options = get_print_options()
+
+    layout_frame = Gtk.Frame(label="Page Layout Settings")
+    layout_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
+    layout_box.set_border_width(8)
+
+    shrink_check = Gtk.CheckButton(label="Shrink printout to fit paper size")
+    shrink_check.set_active(options.allow_shrink)
+    shrink_check.connect("toggled", lambda btn: update_print_options(allow_shrink=btn.get_active()))
+    layout_box.pack_start(shrink_check, False, False, 0)
+
+    enlarge_check = Gtk.CheckButton(label="Enlarge printout to fit paper size")
+    enlarge_check.set_active(options.allow_enlarge)
+    enlarge_check.connect("toggled", lambda btn: update_print_options(allow_enlarge=btn.get_active()))
+    layout_box.pack_start(enlarge_check, False, False, 0)
+
+    rotate_check = Gtk.CheckButton(label="Rotate printout to page orientation")
+    rotate_check.set_active(options.allow_rotate)
+    rotate_check.connect("toggled", lambda btn: update_print_options(allow_rotate=btn.get_active()))
+    layout_box.pack_start(rotate_check, False, False, 0)
+
+    center_check = Gtk.CheckButton(label="Center printout on page")
+    center_check.set_active(options.center)
+    center_check.connect("toggled", lambda btn: update_print_options(center=btn.get_active()))
+    layout_box.pack_start(center_check, False, False, 0)
+
+    footer_check = Gtk.CheckButton(label="Print date / time at bottom of page")
+    footer_check.set_active(options.footer)
+    footer_check.connect("toggled", lambda btn: update_print_options(footer=btn.get_active()))
+    layout_box.pack_start(footer_check, False, False, 0)
+
+    # Moved here from the now-removed Expert tab (SettingsForm.
+    # Designer.cs's groupbox_expert originally, task #93) - the
+    # pattern for the checkbox above, not a separate concept.
+    footer_pattern_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+    footer_pattern_row.pack_start(Gtk.Label(label="Footer pattern:"), False, False, 0)
+    footer_pattern_entry = Gtk.Entry()
+    footer_pattern_entry.set_text(get_footer_pattern())
+    footer_pattern_entry.set_tooltip_text(
+        "A Python strftime format, e.g. %B %d, %Y %I:%M %p - printed at the bottom of the page."
+    )
+    footer_pattern_entry.connect("changed", lambda entry: set_footer_pattern(entry.get_text()))
+    footer_pattern_row.pack_start(footer_pattern_entry, True, True, 0)
+    layout_box.pack_start(footer_pattern_row, False, False, 0)
+
+    layout_frame.add(layout_box)
+    box.pack_start(layout_frame, False, False, 0)
+
+    color_frame = Gtk.Frame(label="Color Settings")
+    color_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
+    color_box.set_border_width(8)
+
+    color_radio = Gtk.RadioButton.new_with_label(None, "Full color print")
+    grayscale_radio = Gtk.RadioButton.new_with_label_from_widget(color_radio, "Force grayscale printing")
+    monochrome_radio = Gtk.RadioButton.new_with_label_from_widget(color_radio, "Force black/white printing")
+    if options.monochrome:
+        monochrome_radio.set_active(True)
+    elif options.grayscale:
+        grayscale_radio.set_active(True)
+    else:
+        color_radio.set_active(True)
+
+    def on_color_mode_toggled(_btn) -> None:
+        update_print_options(grayscale=grayscale_radio.get_active(), monochrome=monochrome_radio.get_active())
+
+    for radio in (color_radio, grayscale_radio, monochrome_radio):
+        radio.connect("toggled", on_color_mode_toggled)
+        color_box.pack_start(radio, False, False, 0)
+
+    invert_check = Gtk.CheckButton(label="Print with inverted colors")
+    invert_check.set_active(options.inverted)
+    invert_check.connect("toggled", lambda btn: update_print_options(inverted=btn.get_active()))
+    color_box.pack_start(invert_check, False, False, 0)
+
+    color_frame.add(color_box)
+    box.pack_start(color_frame, False, False, 0)
+
+    prompt_check = Gtk.CheckButton(label="Show print options dialog every time an image is printed")
+    prompt_check.set_active(options.prompt_options)
+    prompt_check.connect("toggled", lambda btn: update_print_options(prompt_options=btn.get_active()))
+    box.pack_start(prompt_check, False, False, 0)
+
+    return box
