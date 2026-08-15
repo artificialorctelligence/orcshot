@@ -56,6 +56,7 @@ import Clutter from 'gi://Clutter';
 import Gio from 'gi://Gio';
 import GLib from 'gi://GLib';
 import GObject from 'gi://GObject';
+import Meta from 'gi://Meta';
 import Shell from 'gi://Shell';
 import St from 'gi://St';
 
@@ -419,6 +420,98 @@ function _drawMagnifierLoupe(cr, pixbuf, cursorX, cursorY, patchOriginX, patchOr
   cr.restore();
 }
 
+// Clutter.PanGesture (the new unified Gesture framework) replaced
+// Clutter.PanAction/GestureAction (the older Action-based one)
+// somewhere between GNOME Shell 46 and 50 - confirmed live neither
+// release has both, not assumed from a version-number cutoff: GNOME
+// Shell 46 (Ubuntu 24.04, mutter-14) has PanAction but PanGesture is
+// undefined; GNOME Shell 50 (Ubuntu 26.04, mutter-18) has PanGesture
+// but PanAction is gone entirely. A hard requirement on PanGesture
+// crashed RegionSelectOverlay's/EyedropperOverlay's constructor
+// outright on 24.04 - "new Clutter.PanGesture is not a constructor"
+// surfaces as an unhandled StartRegionSelect promise rejection with
+// no visible error at all client-side (task #38's own live
+// verification: PrtScrn and the tray's Capture Region both did
+// nothing). Feature-detected here rather than sniffed from
+// GNOME_SHELL_VERSION, since that's what actually varies.
+const _HAS_PAN_GESTURE = typeof Clutter.PanGesture === 'function';
+
+// Attaches a pan/drag recognizer to `actor` through whichever of
+// Clutter's two gesture-API generations this Shell actually has,
+// calling onBegin(x, y)/onUpdate(x, y) with the drag's current
+// absolute (stage) coordinates and onEnd() with no arguments -
+// shared by RegionSelectOverlay and EyedropperOverlay, which both
+// used to talk to Clutter.PanGesture identically. Signal names differ
+// between the two APIs (recognize/pan-update/end/cancel vs.
+// gesture-begin/gesture-progress/gesture-end/gesture-cancel,
+// confirmed live via GObject.signal_query() against the real
+// typelib, not assumed) but the four-phase shape is the same.
+function _attachPanGesture(actor, { onBegin, onUpdate, onEnd }) {
+  if (_HAS_PAN_GESTURE) {
+    const gesture = new Clutter.PanGesture();
+    gesture.set_begin_threshold(0);
+    gesture.connect('recognize', () => {
+      const c = gesture.get_centroid_abs();
+      onBegin(c.x, c.y);
+    });
+    gesture.connect('pan-update', () => {
+      const c = gesture.get_centroid_abs();
+      onUpdate(c.x, c.y);
+    });
+    gesture.connect('end', () => onEnd());
+    gesture.connect('cancel', () => onEnd());
+    actor.add_action(gesture);
+    return gesture;
+  }
+
+  // Clutter.PanAction/GestureAction (GNOME <= 46) has no
+  // set_begin_threshold equivalent to force zero-distance
+  // recognition - accepts Clutter's own small default drag threshold
+  // here rather than chasing an exact equivalent, which doesn't
+  // meaningfully hurt a screenshot region-select tool's usability.
+  const action = new Clutter.PanAction();
+  action.connect('gesture-begin', () => {
+    const [x, y] = action.get_motion_coords(0);
+    onBegin(x, y);
+  });
+  action.connect('gesture-progress', () => {
+    const [x, y] = action.get_motion_coords(0);
+    onUpdate(x, y);
+  });
+  action.connect('gesture-end', () => onEnd());
+  action.connect('gesture-cancel', () => onEnd());
+  actor.add_action(action);
+  return action;
+}
+
+// Another GNOME-46-vs-50 API gap, same shape as _attachPanGesture's
+// own but going the *other* direction: `actor.set_cursor_type(Clutter.
+// CursorType.CROSSHAIR)` (the per-widget Clutter.Actor API this port
+// was originally built against, confirmed live still the one that
+// actually works on GNOME Shell 50/Ubuntu 26.04) is entirely absent
+// on GNOME Shell 46/Ubuntu 24.04 - neither Clutter.CursorType nor any
+// *_cursor_type method exists anywhere in St.Widget's or Clutter.
+// Actor's own prototype there. Meta.Display.set_cursor(Meta.Cursor)
+// is that version's real replacement - but it's *not* a safe
+// universal choice either, since it doesn't exist on Shell 50 in
+// turn (confirmed live both ways, not assumed symmetric). Neither API
+// is a superset of the other, so both are feature-detected and used
+// exactly where each already works.
+const _HAS_ACTOR_CURSOR_TYPE = typeof Clutter.CursorType === 'object' && Clutter.CursorType.CROSSHAIR !== undefined;
+
+function _setCrosshairCursor(actor) {
+  if (_HAS_ACTOR_CURSOR_TYPE) {
+    actor.set_cursor_type(Clutter.CursorType.CROSSHAIR);
+    return;
+  }
+  global.display.set_cursor(Meta.Cursor.CROSSHAIR);
+  // Unlike the actor-level API above, global.display's own cursor
+  // override doesn't revert itself just because some unrelated actor
+  // later gets destroyed - needs resetting explicitly once this
+  // overlay's own interaction ends.
+  actor.connect('destroy', () => global.display.set_cursor(Meta.Cursor.DEFAULT));
+}
+
 class RegionSelectOverlay extends St.Widget {
   static {
     GObject.registerClass(this);
@@ -495,23 +588,21 @@ class RegionSelectOverlay extends St.Widget {
     this._destroyed = false;
     this.connect('destroy', () => { this._destroyed = true; });
 
-    this._panGesture = new Clutter.PanGesture();
-    this._panGesture.set_begin_threshold(0);
-    this._panGesture.connect('recognize', this._onPanBegin.bind(this));
-    this._panGesture.connect('pan-update', this._onPanUpdate.bind(this));
-    this._panGesture.connect('end', this._onPanEnd.bind(this));
-    // Clutter.Gesture (PanGesture's base class) also has a 'cancel'
-    // signal, confirmed live via GObject.signal_list_ids() - fires if
-    // something else preempts the gesture mid-drag. Without handling
-    // it, this._result stays null forever and the grab is never
-    // released (only _onPanEnd calls ungrab()) - defense in depth
-    // alongside the system-modal-opened fix above, matching how real
-    // ScreenshotUI's grab always calls onUngrab/close() regardless of
-    // *how* the grab ends, not only through its own success path.
-    this._panGesture.connect('cancel', this._onPanEnd.bind(this));
-    this.add_action(this._panGesture);
+    // Clutter.Gesture/GestureAction's own cancel signal (whichever
+    // generation _attachPanGesture picks) - fires if something else
+    // preempts the gesture mid-drag. Without handling it, this._result
+    // stays null forever and the grab is never released (only
+    // _onPanEnd calls ungrab()) - defense in depth alongside the
+    // system-modal-opened fix above, matching how real ScreenshotUI's
+    // grab always calls onUngrab/close() regardless of *how* the grab
+    // ends, not only through its own success path.
+    this._panGesture = _attachPanGesture(this, {
+      onBegin: (x, y) => this._onPanBegin(x, y),
+      onUpdate: (x, y) => this._onPanUpdate(x, y),
+      onEnd: () => this._onPanEnd(),
+    });
 
-    this.set_cursor_type(Clutter.CursorType.CROSSHAIR);
+    _setCrosshairCursor(this);
   }
 
   async selectAsync() {
@@ -608,10 +699,11 @@ class RegionSelectOverlay extends St.Widget {
   // in-drag path (_onPanBegin/_onPanUpdate, below) - both need the
   // exact same "remember where the cursor is, re-sample the loupe's
   // source patch there, repaint" sequence. Whether 'motion-event'
-  // itself still fires on this actor once a Clutter.PanGesture action
-  // has recognized a drag was not assumed - _onPanBegin/_onPanUpdate
-  // call this too regardless, so the crosshair/loupe/size label stay
-  // live during a drag even if it doesn't.
+  // itself still fires on this actor once _attachPanGesture's own
+  // gesture recognizer (either Clutter API generation) has recognized
+  // a drag was not assumed - _onPanBegin/_onPanUpdate call this too
+  // regardless, so the crosshair/loupe/size label stay live during a
+  // drag even if it doesn't.
   _updateCursor(x, y) {
     this._cursorX = x;
     this._cursorY = y;
@@ -672,24 +764,22 @@ class RegionSelectOverlay extends St.Widget {
     this._drawing.queue_repaint();
   }
 
-  _onPanBegin() {
+  _onPanBegin(x, y) {
     if (this._result)
       return;
-    const coords = this._panGesture.get_centroid_abs();
-    this._startX = Math.floor(coords.x);
-    this._startY = Math.floor(coords.y);
+    this._startX = Math.floor(x);
+    this._startY = Math.floor(y);
     this._lastX = this._startX;
     this._lastY = this._startY;
-    this._updateCursor(coords.x, coords.y);
+    this._updateCursor(x, y);
   }
 
-  _onPanUpdate() {
+  _onPanUpdate(x, y) {
     if (this._result)
       return;
-    const coords = this._panGesture.get_centroid_abs();
-    this._lastX = Math.floor(coords.x);
-    this._lastY = Math.floor(coords.y);
-    this._updateCursor(coords.x, coords.y);
+    this._lastX = Math.floor(x);
+    this._lastY = Math.floor(y);
+    this._updateCursor(x, y);
   }
 
   _onPanEnd() {
@@ -1130,21 +1220,19 @@ class EyedropperOverlay extends St.Widget {
     this._destroyed = false;
     this.connect('destroy', () => { this._destroyed = true; });
 
-    // Same signals as RegionSelectOverlay's PanGesture, for the same
-    // reasons (recognize/pan-update/end/cancel) - here every pan-
+    // Same gesture recognizer as RegionSelectOverlay's (see
+    // _attachPanGesture), for the same reasons - here every pan-
     // update matters (a continuous sample-as-you-drag gesture), not
     // just the start/end points, matching ui/eyedropper.py's own
     // press-drag-release contract exactly (a single click with no
     // drag at all still counts as a valid pick, sampled at press).
-    this._panGesture = new Clutter.PanGesture();
-    this._panGesture.set_begin_threshold(0);
-    this._panGesture.connect('recognize', this._onPanBegin.bind(this));
-    this._panGesture.connect('pan-update', this._onPanUpdate.bind(this));
-    this._panGesture.connect('end', this._onPanEnd.bind(this));
-    this._panGesture.connect('cancel', this._onPanEnd.bind(this));
-    this.add_action(this._panGesture);
+    this._panGesture = _attachPanGesture(this, {
+      onBegin: (x, y) => this._onPanBegin(x, y),
+      onUpdate: (x, y) => this._onPanUpdate(x, y),
+      onEnd: () => this._onPanEnd(),
+    });
 
-    this.set_cursor_type(Clutter.CursorType.CROSSHAIR);
+    _setCrosshairCursor(this);
   }
 
   async selectAsync() {
@@ -1283,21 +1371,19 @@ class EyedropperOverlay extends St.Widget {
     this._drawing.queue_repaint();
   }
 
-  _onPanBegin() {
+  _onPanBegin(x, y) {
     if (this._result !== null)
       return;
     this._dragging = true;
-    const coords = this._panGesture.get_centroid_abs();
-    this._requestSample(coords.x, coords.y);
-    this._requestColorPick(coords.x, coords.y);
+    this._requestSample(x, y);
+    this._requestColorPick(x, y);
   }
 
-  _onPanUpdate() {
+  _onPanUpdate(x, y) {
     if (this._result !== null || !this._dragging)
       return;
-    const coords = this._panGesture.get_centroid_abs();
-    this._requestSample(coords.x, coords.y);
-    this._requestColorPick(coords.x, coords.y);
+    this._requestSample(x, y);
+    this._requestColorPick(x, y);
   }
 
   _onPanEnd() {
@@ -1412,28 +1498,50 @@ export default class Extension {
   // (_handleMethodCall's retval?.then?.(...) branch), rather than
   // assumed from documentation, which doesn't cover this.
   async StartRegionSelect() {
-    const overlay = new RegionSelectOverlay();
-    const result = await overlay.selectAsync();
-    if (result === null)
+    // try/catch + logError matches CaptureRect's own existing
+    // pattern below - without it, a thrown/rejected error here was
+    // only ever visible as a bare "Unhandled promise rejection" with
+    // a stack trace but no message at all (GJS's own D-Bus dispatch,
+    // modules/core/overrides/Gio.js, doesn't log the actual error),
+    // which cost real diagnostic time chasing task #38's GNOME-46
+    // Clutter.PanGesture incompatibility blind.
+    try {
+      const overlay = new RegionSelectOverlay();
+      const result = await overlay.selectAsync();
+      if (result === null)
+        return [false, '', [], 0, 0, 0, 0];
+      return [true, result.destination, result.pngBytes, result.x, result.y, result.width, result.height];
+    } catch (e) {
+      logError(e, 'Error in StartRegionSelect');
       return [false, '', [], 0, 0, 0, 0];
-    return [true, result.destination, result.pngBytes, result.x, result.y, result.width, result.height];
+    }
   }
 
   async StartWindowPicker() {
-    const overlay = new WindowPickerOverlay();
-    const result = await overlay.selectAsync();
-    if (result === null)
+    try {
+      const overlay = new WindowPickerOverlay();
+      const result = await overlay.selectAsync();
+      if (result === null)
+        return [false, '', [], 0, 0, 0, 0];
+      return [true, result.destination, result.pngBytes, result.x, result.y, result.width, result.height];
+    } catch (e) {
+      logError(e, 'Error in StartWindowPicker');
       return [false, '', [], 0, 0, 0, 0];
-    return [true, result.destination, result.pngBytes, result.x, result.y, result.width, result.height];
+    }
   }
 
   async StartEyedropper() {
-    const overlay = new EyedropperOverlay();
-    const result = await overlay.selectAsync();
-    if (result === null)
+    try {
+      const overlay = new EyedropperOverlay();
+      const result = await overlay.selectAsync();
+      if (result === null)
+        return [false, 0, 0, 0, 0];
+      const [r, g, b, a] = result;
+      return [true, r, g, b, a];
+    } catch (e) {
+      logError(e, 'Error in StartEyedropper');
       return [false, 0, 0, 0, 0];
-    const [r, g, b, a] = result;
-    return [true, r, g, b, a];
+    }
   }
 
   // No overlay actor/grab/gesture of its own, unlike the interactive
