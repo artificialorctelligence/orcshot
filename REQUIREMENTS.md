@@ -3043,7 +3043,84 @@ specifically in how that pixbuf composites inside a live `menu.popup_at_rect()` 
 task #133 rather than chased further here, since diagnosing on-screen compositing issues has no good
 tooling through `guestcontrol` round-trips - needs direct visual access.
 
-## Open questions (not yet decided)
+### Ubuntu 24.04 LTS (task #38, in progress - two real fixes landed, one open issue, 2026-08-15)
+
+GNOME Shell 46 (mutter-14) is not just an older version of the GNOME Shell 50 (mutter-18) this port's
+bundled `orcshot-clipboard` extension was originally built and verified against (task #77/#82) - several
+Clutter APIs the extension relies on differ in ways that are not simple "old vs new" substitutions.
+Confirmed live on the Ubuntu 24.04 VM, not assumed from a version number, using the same
+`GI_TYPELIB_PATH`/`GObject.signal_query()` introspection technique this project already established for
+St vs. Clutter/Meta's differing typelib paths (see the Wayland section above).
+
+**Fixed - `Clutter.PanGesture` absence** (`extension.js`'s `_attachPanGesture`, shared by
+`RegionSelectOverlay` and `EyedropperOverlay`): GNOME 50 has the new unified `Clutter.PanGesture`
+API; GNOME 46 only has the older `Clutter.PanAction`/`GestureAction`, and neither Shell version has
+both. A hard requirement on `PanGesture` crashed both overlays' constructors outright on 24.04
+("`Clutter.PanGesture` is not a constructor"), surfacing only as a silent `StartRegionSelect` promise
+rejection with no client-visible error at all (PrtScrn and the tray's Capture Region did nothing).
+Fixed with a feature-detected `_attachPanGesture` helper that normalizes both APIs' differing signal
+names (`recognize`/`pan-update`/`end`/`cancel` vs. `gesture-begin`/`gesture-progress`/`gesture-end`/
+`gesture-cancel`) to the same `onBegin(x,y)`/`onUpdate(x,y)`/`onEnd()` shape.
+
+**Fixed - `Clutter.CursorType` absence** (`extension.js`'s `_setCrosshairCursor`): the same
+two-way-incompatible pattern going the other direction - `actor.set_cursor_type(Clutter.CursorType.
+CROSSHAIR)` works on GNOME 50 but doesn't exist at all on GNOME 46; `Meta.Display.prototype.
+set_cursor(Meta.Cursor.CROSSHAIR)` is that version's real replacement, but doesn't exist on GNOME 50
+in turn. This error (`TypeError: (intermediate value).CursorType is undefined`) was only discoverable
+after wrapping `StartRegionSelect`/`StartWindowPicker`/`StartEyedropper` in try/catch + `logError`
+(matching `CaptureRect`'s existing pattern) - GJS's own D-Bus dispatch (`modules/core/overrides/
+Gio.js`) silently drops the real exception message from "Unhandled promise rejection" log entries
+otherwise. Fixed with a feature-detected `_setCrosshairCursor` helper, with an explicit cursor reset
+on the actor's `destroy` signal for the `Meta.Display` path (that API's own override doesn't revert
+itself automatically the way the per-actor one does).
+
+**Fixed - drag always anchored at the stage origin instead of the real press point**
+(`_attachPanGesture`'s `PanAction` branch): once the two crashes above were fixed, the overlay
+appeared correctly but every drag started from `(0, 0)` regardless of where the mouse was actually
+pressed, with the far corner tracking the real drag correctly - "set select area to top left by
+default and let me move where the rest of the box would drag" was the live report. Confirmed via a
+temporary diagnostic that `action.get_motion_coords(0)` returns `(0, 0)` inside the `gesture-begin`
+handler specifically (motion tracking for the point hasn't been populated yet at that exact instant),
+while `action.get_press_coords(0)` correctly holds the real press position from the moment of press.
+`get_motion_coords` is correct from `gesture-progress` onward, once real motion has occurred. Fixed by
+switching `gesture-begin`'s handler to `get_press_coords(0)`.
+
+A closely related bug fixed alongside the above, same root cause class: `GestureAction::gesture-begin`
+and `::gesture-progress` are `gboolean`-returning signals (confirmed live via `GObject.signal_query()`
+against the real mutter-14 typelib) - the handler's return value is GestureAction's own vote on
+whether to accept the gesture. The original handlers had no explicit `return`, so GJS marshaled the
+implicit `undefined` to `false` ("reject"), which made GestureAction cancel its own gesture ~7ms after
+every `gesture-begin`, before any drag could happen at all - confirmed live via a temporary diagnostic
+logging each signal: `gesture-begin` immediately followed by `gesture-cancel`, no `gesture-progress` in
+between, every single time. This was the actual cause of the overlay disappearing the instant the
+mouse button was pressed (reported as "it dies when i try to click and drag"). Fixed by adding
+`return true;` to both handlers.
+
+**Open - "Edit" destination never opens the editor window (status: unresolved, real lead identified)**
+Selecting Edit from the destination picker after a capture closes the picker normally but the editor
+window never appears - no crash, no exception anywhere (journal, crash files, and the running
+process's own state were all checked and clean), the `orcshot` process stays alive and idle
+afterward. Diagnosed via a temporary parallel instance run from source (`PYTHONPATH` override, since
+`/usr/lib/python3/dist-packages` isn't writable without `sudo`, which `guestcontrol` cannot obtain -
+see the project's own VM-testing notes) with print diagnostics added at every hop of the capture
+pipeline (`gnome_region_select.py`'s `on_reply`, `region_select.py`'s `start_region_capture`,
+`destination_picker.py`'s `dispatch_destination`/`_open_editor`). Confirmed live: `start_region_capture`
+runs and correctly selects the Shell-native (`GnomeShellRegionSelect`) branch, but **nothing after
+that ever executes** - not even `on_reply`'s first line, which runs immediately once the
+`StartRegionSelect` D-Bus reply arrives. Since `gnome_region_select.py`'s `bus.call(...)` is issued
+with an explicit `GLib.MAXINT` (infinite) timeout specifically so a legitimately long user interaction
+never times out, this points to the D-Bus reply itself never arriving - i.e. `extension.js`'s own
+`StartRegionSelect` async method (specifically `RegionSelectOverlay.selectAsync()`'s final `await
+pickDestinationAsync(...)` call) never resolving for the "Edit" item, rather than anything on the
+Python side. Not yet confirmed which part of `pickDestinationAsync`'s `open-state-changed`/`resolve`
+chain is stalling specifically for "Edit" (vs. the other destinations, not yet tested individually on
+24.04) - next step is the same kind of live diagnostic already used for the two fixes above, added to
+`pickDestinationAsync`/the menu item's own `activate` handler in `extension.js` this time, not the
+Python side.
+
+All temporary diagnostics (Python print statements, the `extension.js` `captured-event`/gesture-signal
+loggers, the `GrabHelper`/`grabHelper.js` source dump) were removed once each fix was confirmed - only
+the three real fixes above remain in the committed code.
 
 - Exact CI setup — to be established once there's a build worth gating.
 

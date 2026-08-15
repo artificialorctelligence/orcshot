@@ -469,14 +469,38 @@ function _attachPanGesture(actor, { onBegin, onUpdate, onEnd }) {
   // recognition - accepts Clutter's own small default drag threshold
   // here rather than chasing an exact equivalent, which doesn't
   // meaningfully hurt a screenshot region-select tool's usability.
+  //
+  // gesture-begin/gesture-progress are gboolean-returning signals
+  // (confirmed live via GObject.signal_query() against the real
+  // mutter-14 typelib, not assumed) - GestureAction treats the
+  // handler's return value as a vote on whether to accept the
+  // gesture. Without an explicit `return true`, GJS marshals the
+  // implicit `undefined` to false, which reads as "reject" - the
+  // real, confirmed cause of task #38's click-immediately-dismisses-
+  // the-overlay bug: gesture-begin fired, then gesture-cancel fired
+  // ~7ms later with no drag in between, every single time, before
+  // this fix. gesture-end/gesture-cancel are plain void signals, so
+  // they don't need a return value.
+  // gesture-begin fires right as the drag threshold is crossed, before
+  // GestureAction has recorded any actual "motion" for the point past
+  // the initial press - get_motion_coords(0) returns (0, 0) at this
+  // exact moment (confirmed live: printed "motion=0,0 press=<real
+  // coords>" from the same call site), which anchored every drag's
+  // start corner at the stage origin instead of the real press
+  // location. get_press_coords(0) is that point's down-position and is
+  // populated immediately on press, so it's the correct source for the
+  // begin callback; get_motion_coords(0) is correct from
+  // gesture-progress onward, once real motion has actually occurred.
   const action = new Clutter.PanAction();
   action.connect('gesture-begin', () => {
-    const [x, y] = action.get_motion_coords(0);
+    const [x, y] = action.get_press_coords(0);
     onBegin(x, y);
+    return true;
   });
   action.connect('gesture-progress', () => {
     const [x, y] = action.get_motion_coords(0);
     onUpdate(x, y);
+    return true;
   });
   action.connect('gesture-end', () => onEnd());
   action.connect('gesture-cancel', () => onEnd());
