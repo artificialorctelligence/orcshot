@@ -1515,13 +1515,32 @@ export default class Extension {
     return true;
   }
 
-  // async method name (matching the D-Bus method name exactly, no
-  // "Async" suffix needed) - GJS's Gio.DBusExportedObject dispatch
-  // auto-detects a returned Promise and defers the reply until it
-  // resolves, confirmed by reading GJS's own overrides/Gio.js
-  // (_handleMethodCall's retval?.then?.(...) branch), rather than
-  // assumed from documentation, which doesn't cover this.
-  async StartRegionSelect() {
+  // Named with the "Async" suffix and taking (parameters, invocation)
+  // rather than a plain `async StartRegionSelect()` - GJS's own
+  // Gio.DBusExportedObject dispatch (modules/core/overrides/Gio.js,
+  // _handleMethodCall) only recognizes this as the async calling
+  // convention via `this[`${methodName}Async`]`; a bare `async
+  // <MethodName>()` is invoked *synchronously*, so `retval` is just
+  // the returned Promise object itself, which then fails to pack into
+  // a GLib.Variant and gets silently turned into a DBus error reply
+  // with no local logging at all (that catch block has no logError
+  // call) - confirmed live, not assumed: GJS 1.80.2 (bundled with
+  // Ubuntu 24.04/GNOME Shell 46/mutter-14) has no Promise-detection
+  // branch in _handleMethodCall whatsoever, unlike whatever newer GJS
+  // ships with GNOME Shell 50/Ubuntu 26.04/mutter-18 (where a bare
+  // async method name was already confirmed working - this file's own
+  // prior citation of _handleMethodCall's retval?.then?.() branch was
+  // real for that GJS version, just not this one). This was task #38's
+  // actual root cause for "Edit never opens the editor" - and, since
+  // the D-Bus reply is the only thing every destination depends on
+  // (not just Edit - the drag/select UI itself needs no D-Bus round
+  // trip at all, which is why capture *looked* fully working up to the
+  // destination-picker click), this silently broke every destination
+  // on GNOME 46, not only the one that happened to get tested first.
+  // Each method below now marshals its own out-Variant and calls
+  // invocation.return_value() directly rather than returning a value,
+  // matching CAPTURE_IFACE's declared out-arg types exactly.
+  async StartRegionSelectAsync(_parameters, invocation) {
     // try/catch + logError matches CaptureRect's own existing
     // pattern below - without it, a thrown/rejected error here was
     // only ever visible as a bare "Unhandled promise rejection" with
@@ -1529,43 +1548,46 @@ export default class Extension {
     // modules/core/overrides/Gio.js, doesn't log the actual error),
     // which cost real diagnostic time chasing task #38's GNOME-46
     // Clutter.PanGesture incompatibility blind.
+    let reply;
     try {
       const overlay = new RegionSelectOverlay();
       const result = await overlay.selectAsync();
-      if (result === null)
-        return [false, '', [], 0, 0, 0, 0];
-      return [true, result.destination, result.pngBytes, result.x, result.y, result.width, result.height];
+      reply = result === null
+        ? [false, '', [], 0, 0, 0, 0]
+        : [true, result.destination, result.pngBytes, result.x, result.y, result.width, result.height];
     } catch (e) {
       logError(e, 'Error in StartRegionSelect');
-      return [false, '', [], 0, 0, 0, 0];
+      reply = [false, '', [], 0, 0, 0, 0];
     }
+    invocation.return_value(new GLib.Variant('(bsayiiii)', reply));
   }
 
-  async StartWindowPicker() {
+  async StartWindowPickerAsync(_parameters, invocation) {
+    let reply;
     try {
       const overlay = new WindowPickerOverlay();
       const result = await overlay.selectAsync();
-      if (result === null)
-        return [false, '', [], 0, 0, 0, 0];
-      return [true, result.destination, result.pngBytes, result.x, result.y, result.width, result.height];
+      reply = result === null
+        ? [false, '', [], 0, 0, 0, 0]
+        : [true, result.destination, result.pngBytes, result.x, result.y, result.width, result.height];
     } catch (e) {
       logError(e, 'Error in StartWindowPicker');
-      return [false, '', [], 0, 0, 0, 0];
+      reply = [false, '', [], 0, 0, 0, 0];
     }
+    invocation.return_value(new GLib.Variant('(bsayiiii)', reply));
   }
 
-  async StartEyedropper() {
+  async StartEyedropperAsync(_parameters, invocation) {
+    let reply;
     try {
       const overlay = new EyedropperOverlay();
       const result = await overlay.selectAsync();
-      if (result === null)
-        return [false, 0, 0, 0, 0];
-      const [r, g, b, a] = result;
-      return [true, r, g, b, a];
+      reply = result === null ? [false, 0, 0, 0, 0] : [true, ...result];
     } catch (e) {
       logError(e, 'Error in StartEyedropper');
-      return [false, 0, 0, 0, 0];
+      reply = [false, 0, 0, 0, 0];
     }
+    invocation.return_value(new GLib.Variant('(byyyy)', reply));
   }
 
   // No overlay actor/grab/gesture of its own, unlike the interactive
@@ -1576,7 +1598,9 @@ export default class Extension {
   // CAPTURE_IFACE's own comment for why. Genuinely async from the
   // D-Bus caller's own point of view now that a destination choice is
   // part of the round trip (see gnome_capture_rect.py's docstring).
-  async CaptureRect(x, y, width, height) {
+  async CaptureRectAsync(parameters, invocation) {
+    const [x, y, width, height] = parameters.deepUnpack();
+    let reply;
     try {
       const [content, scale] = await new Shell.Screenshot().screenshot_stage_to_content();
       const texture = content.get_texture();
@@ -1590,12 +1614,11 @@ export default class Extension {
 
       const [pointerX, pointerY] = global.get_pointer();
       const destination = await pickDestinationAsync(pointerX, pointerY);
-      if (destination === null)
-        return [false, '', []];
-      return [true, destination, pngBytes];
+      reply = destination === null ? [false, '', []] : [true, destination, pngBytes];
     } catch (e) {
       logError(e, 'Error in CaptureRect');
-      return [false, '', []];
+      reply = [false, '', []];
     }
+    invocation.return_value(new GLib.Variant('(bsay)', reply));
   }
 }

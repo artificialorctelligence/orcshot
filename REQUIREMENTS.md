@@ -3096,31 +3096,58 @@ between, every single time. This was the actual cause of the overlay disappearin
 mouse button was pressed (reported as "it dies when i try to click and drag"). Fixed by adding
 `return true;` to both handlers.
 
-**Open - "Edit" destination never opens the editor window (status: unresolved, real lead identified)**
-Selecting Edit from the destination picker after a capture closes the picker normally but the editor
-window never appears - no crash, no exception anywhere (journal, crash files, and the running
-process's own state were all checked and clean), the `orcshot` process stays alive and idle
-afterward. Diagnosed via a temporary parallel instance run from source (`PYTHONPATH` override, since
-`/usr/lib/python3/dist-packages` isn't writable without `sudo`, which `guestcontrol` cannot obtain -
-see the project's own VM-testing notes) with print diagnostics added at every hop of the capture
-pipeline (`gnome_region_select.py`'s `on_reply`, `region_select.py`'s `start_region_capture`,
-`destination_picker.py`'s `dispatch_destination`/`_open_editor`). Confirmed live: `start_region_capture`
-runs and correctly selects the Shell-native (`GnomeShellRegionSelect`) branch, but **nothing after
-that ever executes** - not even `on_reply`'s first line, which runs immediately once the
-`StartRegionSelect` D-Bus reply arrives. Since `gnome_region_select.py`'s `bus.call(...)` is issued
-with an explicit `GLib.MAXINT` (infinite) timeout specifically so a legitimately long user interaction
-never times out, this points to the D-Bus reply itself never arriving - i.e. `extension.js`'s own
-`StartRegionSelect` async method (specifically `RegionSelectOverlay.selectAsync()`'s final `await
-pickDestinationAsync(...)` call) never resolving for the "Edit" item, rather than anything on the
-Python side. Not yet confirmed which part of `pickDestinationAsync`'s `open-state-changed`/`resolve`
-chain is stalling specifically for "Edit" (vs. the other destinations, not yet tested individually on
-24.04) - next step is the same kind of live diagnostic already used for the two fixes above, added to
-`pickDestinationAsync`/the menu item's own `activate` handler in `extension.js` this time, not the
-Python side.
+**Fixed - "Edit" (and every other) destination never opening/completing after the picker closes**
+Root cause was not in the drag/select logic or `pickDestinationAsync` at all (both traced and
+confirmed working correctly via live diagnostics logging each step of `pickDestinationAsync`'s
+`activate`/`open-state-changed`/`resolve` chain and `RegionSelectOverlay.selectAsync()`'s own
+post-picker steps - every one fired exactly as expected, ending in `StartRegionSelect` genuinely
+returning a valid `[true, 'edit', pngBytes, x, y, width, height]` array). The real defect was one
+level up, in GJS's own D-Bus dispatch: `Gio.DBusExportedObject`'s `_handleMethodCall`
+(`modules/core/overrides/Gio.js`) only recognizes a method as async via the `MethodNameAsync`
+naming convention (`this[`${methodName}Async`]`, taking `(parameters, invocation, fdList)` and
+calling `invocation.return_value(...)` itself) - a bare `async StartRegionSelect()` is invoked
+*synchronously*, so `retval` ends up being the returned Promise object itself, which then fails to
+pack into a `GLib.Variant` and gets silently converted into a DBus error reply, with **no local
+logging at all** (that specific catch block has no `logError` call - confirmed by pulling GJS's own
+`overrides/Gio.js` straight off the running Shell via `Gio.resources_lookup_data()` and reading
+`_handleMethodCall` directly, not assumed). This exactly explains the original symptom set: no
+exception anywhere, `on_reply`'s own try/except never even reached its first line (since
+`connection.call_finish()` raises `GLib.Error` for the DBus error reply, caught by the existing
+`except GLib.Error:` branch, which is a silent no-op since `on_cancelled` is never supplied for this
+call site), and the D-Bus reply genuinely never containing a value Python could use.
+
+GJS 1.80.2 (bundled with Ubuntu 24.04/GNOME Shell 46/mutter-14) has no Promise-detection branch in
+`_handleMethodCall` at all - confirmed live via the same source pull. This file's own prior comment
+citing that branch's existence was accurate for whatever newer GJS ships with GNOME Shell 50/Ubuntu
+26.04/mutter-18 (where `StartRegionSelect` was already confirmed working as a bare async method) -
+just not this one, the same "neither version is a superset of the other" pattern as every other
+GNOME-46-vs-50 gap found this session. Since the D-Bus reply is the *only* thing every destination
+depends on (drag/select itself needs no D-Bus round trip - pure Shell-side Clutter signals, which is
+why capture looked fully functional right up to the destination-picker click), this silently broke
+**every** destination on GNOME 46, not just the one that happened to get tested first.
+
+Fixed by renaming `StartRegionSelect`/`StartWindowPicker`/`StartEyedropper`/`CaptureRect` to
+`StartRegionSelectAsync`/etc. with the `(parameters, invocation)` signature GJS's dispatch actually
+supports, each now marshaling its own `GLib.Variant` (matching `CAPTURE_IFACE`'s declared out-arg
+types exactly) and calling `invocation.return_value(...)` directly instead of `return`ing a value.
 
 All temporary diagnostics (Python print statements, the `extension.js` `captured-event`/gesture-signal
-loggers, the `GrabHelper`/`grabHelper.js` source dump) were removed once each fix was confirmed - only
-the three real fixes above remain in the committed code.
+loggers, the `pickDestinationAsync`/`selectAsync` step loggers, the `GrabHelper`/`grabHelper.js` and
+`overrides/Gio.js` source dumps) were removed once each fix was confirmed - only the real fixes above
+remain in the committed code.
+
+**Open - crosshair cursor doesn't reset after a capture completes (status: unresolved, minor)**
+Live-verified once the fix above unblocked the full pipeline: the editor opens correctly with the
+captured image, but the mouse pointer stays a crosshair afterward instead of resetting to the normal
+arrow. `_setCrosshairCursor`'s `Meta.Display` fallback path (used on GNOME 46 - see that function's
+own docstring) already resets via `actor.connect('destroy', () => global.display.set_cursor(Meta.
+Cursor.DEFAULT))`, and `Meta.Cursor.DEFAULT` is a real, distinct enum value (confirmed live via
+`GObject`/typelib introspection: `NONE=0`, `DEFAULT=1`, not a wrong-value bug) - not yet confirmed
+whether that `destroy`-triggered callback is actually firing. A one-line diagnostic was added and
+verified syntactically but never actually tested live - the Ubuntu 24.04 VM crashed and had to be
+rebuilt from scratch (fresh OS install, no `orcshot` installed, no bundled extension present) before
+the reproduction could run. Next step once the VM is reprovisioned: re-add that diagnostic (log a
+line inside the `destroy` callback), confirm whether it fires, and go from there.
 
 - Exact CI setup — to be established once there's a build worth gating.
 
