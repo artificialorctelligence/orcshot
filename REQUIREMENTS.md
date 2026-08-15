@@ -3245,6 +3245,27 @@ and the first-run-setup-done marker both survived the reinstall untouched, since
 touch a package's own files under `/usr/` - user-level `dconf`/`gsettings` state and Orcshot's own
 settings live entirely in the user's home directory, independent of any specific package install.
 
+## Launchpad PPA test-environment fragility (task #102, fixed 2026-08-15)
+
+First real PPA upload (`ppa:artificialorctelligence/orcshot`, `0.1.0-1`) failed to build -
+`TestRenderStepLabel::test_draws_the_circle_like_an_ellipse` failed on Launchpad's build farm chroot
+even though the full suite was green locally immediately beforehand. The assertion sampled a single
+pixel expected to be pure DarkRed fill `(139, 0, 0)` and got `(139, 3, 38)` instead - the red channel
+matched exactly, but green/blue picked up a small amount of colored fringing. That specific pattern
+(one channel exact, the other two off by different amounts) is the signature of subpixel-antialiased
+glyph-edge rendering, not a uniform alpha blend - the StepLabelShape's white "1" digit glyph rendered
+with different Cairo/fontconfig antialiasing defaults in Launchpad's minimal build chroot than on this
+dev machine, and its anti-aliased edge reached this "away from dead center" sample pixel differently.
+Not a real rendering bug in the app - `test_draws_the_number_in_a_contrasting_color`, right below the
+fixed test, already handles this same class of environment sensitivity via `_colored_pixel_bounds`'s
+own `tolerance` parameter. Fixed by making the failing test tolerant the same way (max per-channel
+diff ≤ 40, comfortably covering the observed diff of 38 while still catching a genuinely wrong fill).
+
+Practical consequence for future PPA uploads: **once a source version is accepted by Launchpad, it
+can't be re-uploaded even if the build itself failed** - a failed build still consumes that version
+number. Re-uploads need a bumped `debian/changelog` version (`0.1.0-1` → `0.1.0-2` here) even for a
+test-only fix with no user-facing behavior change.
+
 ## Open questions (not yet decided)
 
 - Exact CI setup — to be established once there's a build worth gating.

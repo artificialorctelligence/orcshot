@@ -113,7 +113,17 @@ class TestRenderStepLabel:
         result = render_to_numpy(40, 40, lambda ctx: render_shape(ctx, shape))
         # sample away from dead center - a large centered digit glyph can
         # cover the exact middle pixel. Default fill is DarkRed (139,0,0).
-        assert tuple(result[10, 10][:3]) == (139, 0, 0)
+        # Tolerant, not exact - confirmed live on a real Launchpad PPA
+        # build farm chroot (different fontconfig/Cairo antialiasing
+        # defaults than this dev machine): the white "1" glyph's
+        # subpixel-antialiased edge reached this pixel and produced
+        # (139, 3, 38), colored fringing from the AA mode difference,
+        # not a real rendering bug - same class of environment
+        # sensitivity test_draws_the_number_in_a_contrasting_color
+        # below already tolerates via _colored_pixel_bounds's own
+        # tolerance parameter.
+        pixel = tuple(int(c) for c in result[10, 10][:3])
+        assert max(abs(a - b) for a, b in zip(pixel, (139, 0, 0))) <= 40
 
     def test_draws_the_number_in_a_contrasting_color(self):
         shape = StepLabelShape(Rect(0, 0, 40, 40), number=7)

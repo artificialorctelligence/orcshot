@@ -1,3 +1,12 @@
+orcshot (0.1.0-2) noble; urgency=medium
+
+  * Fix a test-only build failure on Launchpad's build farm: a StepLabel
+    render test asserted an exact pixel color that's sensitive to
+    Cairo/fontconfig antialiasing defaults, which differ from this dev
+    machine's. No user-facing change.
+
+ -- Orcshot <314918217+artificialorctelligence@users.noreply.github.com>  Sat, 15 Aug 2026 16:19:21 -0500
+
 orcshot (0.1.0-1) noble; urgency=medium
 
   * Initial release.
