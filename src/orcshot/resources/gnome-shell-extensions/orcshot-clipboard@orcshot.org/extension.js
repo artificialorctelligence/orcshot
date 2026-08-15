@@ -203,12 +203,23 @@ const _DIM_ALPHA = 0.5;
 // pickDestinationAsync below for why) - Python only ever *dispatches*
 // on whichever of these ids comes back, it doesn't build any menu UI
 // of its own for this path anymore.
+//
+// Icon names (task #133) match ui/editor_window.py's own File/Edit
+// menu items for the same actions exactly (document-save-symbolic,
+// edit-copy-symbolic, etc.) - task #96 gave destination_picker.py's
+// own Gtk.Menu hand-drawn icons, but this Shell-side picker (task
+// #77, which replaced that Gtk.Menu for the Wayland/Shell-native flow
+// specifically) never got any at all; menu.addAction() only ever
+// took a plain label, with no icon parameter to pass one through.
+// Themed icon names instead of porting the hand-drawn cairo glyphs -
+// simpler, and GNOME Shell's own icon theme lookup (St.Icon) already
+// resolves these names correctly, no drawing code needed in GJS.
 const DESTINATIONS = [
-  ['clipboard', 'Copy to Clipboard'],
-  ['save', 'Save'],
-  ['save_as', 'Save As...'],
-  ['edit', 'Edit'],
-  ['print', 'Print'],
+  ['clipboard', 'Copy to Clipboard', 'edit-copy-symbolic'],
+  ['save', 'Save', 'document-save-symbolic'],
+  ['save_as', 'Save As...', 'document-save-as-symbolic'],
+  ['edit', 'Edit', 'applications-graphics-symbolic'],
+  ['print', 'Print', 'document-print-symbolic'],
 ];
 
 // Shows a native Shell popup menu (PopupMenu.PopupMenu - the same
@@ -235,8 +246,11 @@ function pickDestinationAsync(x, y) {
     manager.addMenu(menu);
 
     let chosen = null;
-    for (const [id, label] of DESTINATIONS)
-      menu.addAction(label, () => { chosen = id; });
+    for (const [id, label, iconName] of DESTINATIONS) {
+      const item = new PopupMenu.PopupImageMenuItem(label, iconName);
+      item.connect('activate', () => { chosen = id; });
+      menu.addMenuItem(item);
+    }
 
     // Fires exactly once per open/close cycle regardless of *how* the
     // menu closed (item chosen - addAction's own default behavior

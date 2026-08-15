@@ -4900,6 +4900,51 @@ not a bug - proof the single-instance mechanism itself is working correctly, not
 16 new unit tests (`test_update_check.py`) plus 2 for the new `settings.last_update_check` field
 (`test_settings.py`). Full suite green (1029 passed, 3 skipped).
 
+## Destination-picker icons missing in the Wayland/Shell-native picker (task #133, complete 2026-08-14)
+
+**Wrong initial diagnosis, corrected before fixing anything - worth recording so it doesn't get
+re-chased.** When this was first filed (from task #50's live verification), the working theory was a
+rendering bug in `ui/destination_picker.py`'s `Gtk.Menu` - a pixbuf-based icon failing to composite
+inside a real `menu.popup_at_rect()` Wayland popup specifically, since an isolated test of
+`destination_icon_image()` rendered correctly. That isolated test was real but answered the wrong
+question: it only proved the pixbuf *data* was correct, and a follow-up reproduction (a real
+`Gtk.Menu` with pixbuf icons, actually shown via `popup_at_rect` against a live anchor window,
+inspected by reading the popup's own `GdkWindow` pixels directly - not a desktop screenshot) rendered
+correctly too. The Python code was never the problem.
+
+**Real root cause**: `capture/gnome_region_select.py`'s own module docstring says it outright - "the
+*entire* interaction (frozen backdrop, drag-to-select, ..., and the post-capture destination picker)
+runs inside the Shell/Mutter compositor process" for the GNOME-Shell-native Wayland flow (task #77).
+The popup the user actually sees is built by
+`resources/gnome-shell-extensions/orcshot-clipboard@orcshot.org/extension.js`'s own
+`pickDestinationAsync()`, using GNOME Shell's native `PopupMenu.PopupMenu` - a completely different
+render path from `destination_picker.py`'s `Gtk.Menu`, which `region_select.py`'s own comment already
+noted "is no longer used for the Wayland/Shell-native flow at all" (`ui/region_select.py:369-374`).
+Confirmed with `grep -i icon extension.js`: zero matches. Task #96 gave the Python picker hand-drawn
+icons; task #77's later Shell-side rewrite of the *popup itself* for this flow never carried them
+over - `menu.addAction(label, callback)` (the API used) only ever takes a plain label, no icon
+parameter exists on it at all. A missing feature, not a broken one.
+
+**Fix**: `DESTINATIONS` gained a third element per entry - a themed icon name matching
+`ui/editor_window.py`'s own File/Edit menu items for the exact same actions exactly
+(`edit-copy-symbolic`, `document-save-symbolic`, `document-save-as-symbolic`,
+`applications-graphics-symbolic` - the same one `_do_open_in_external_editor`'s own toolbar button
+uses, `document-print-symbolic`). The `menu.addAction()` calls became manually constructed
+`PopupMenu.PopupImageMenuItem(label, iconName)` instances (GNOME Shell's own built-in icon+label menu
+item class, from the same already-imported `PopupMenu` module) with `activate` connected by hand,
+added via `menu.addMenuItem()`. Themed icon names rather than porting the hand-drawn cairo glyphs to
+GJS/Clutter - simpler, and St.Icon's own icon-theme lookup already resolves these names correctly
+with no drawing code needed.
+
+**Verified live, twice, for real reasons each time**: `node --input-type=module --check` confirmed JS
+syntax before ever touching the VM. Per this project's own established finding
+([[feedback-extension-reload-caching]]), a GNOME Shell extension's `.js` doesn't reload on
+`gnome-extensions disable`/`enable` - only a full logout/login does - so the fix was pushed to the
+VM's user-local extension override path (`~/.local/share/gnome-shell/extensions/...`, which takes
+precedence over the system copy the `.deb` installed) and confirmed `State: ACTIVE` from that path
+only *after* a real logout/login. A genuine end-to-end capture (region-select through the destination
+picker) then confirmed icons render correctly - direflail's own words: "works."
+
 ## Licensing
 
 **Status: decided — GPLv3.** Greenshot (Windows) is GPLv3; this is a derivative work — same feature
