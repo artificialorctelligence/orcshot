@@ -34,12 +34,17 @@ from __future__ import annotations
 
 import os
 import sys
+import threading
+from datetime import datetime
+from importlib.metadata import version as installed_version
 
 import gi
 
 gi.require_version("Gtk", "3.0")
 from gi.repository import Gio, GLib, Gtk
 
+from orcshot.core.update_check import is_newer_version, should_check_now
+from orcshot.settings import get_last_update_check, get_update_check_interval_days, set_last_update_check
 from orcshot.ui.capture_modes import (
     start_active_window_capture,
     start_full_screen_capture,
@@ -48,6 +53,7 @@ from orcshot.ui.capture_modes import (
 from orcshot.resources import LOGO_PATH
 from orcshot.ui.first_run_setup import maybe_run_first_run_setup
 from orcshot.ui.region_select import start_region_capture
+from orcshot.ui.update_check import fetch_latest_release
 from orcshot.ui.window_picker import start_window_picker
 
 APPLICATION_ID = "org.orcshot.Orcshot"
@@ -56,6 +62,16 @@ CAPTURE_FULL_SCREEN_OPTION = "capture-full-screen"
 CAPTURE_ACTIVE_WINDOW_OPTION = "capture-active-window"
 CAPTURE_WINDOW_PICKER_OPTION = "capture-window-picker"
 CAPTURE_LAST_REGION_OPTION = "capture-last-region"
+# Real Windows checks 20s after startup, not immediately
+# (UpdateService.cs's BackgroundTask: "Initial delay, to make sure
+# this doesn't happen at the startup") - avoids competing with the
+# app's own startup/first-run dialog for attention or bandwidth.
+_UPDATE_CHECK_STARTUP_DELAY_SECONDS = 20
+# How often the periodic timer re-evaluates whether a check is due
+# (core/update_check.py's should_check_now) - day-granularity
+# interval settings don't need finer polling than this; simpler than
+# reproducing UpdateService.cs's own dynamic TimeSpan rescheduling.
+_UPDATE_CHECK_POLL_INTERVAL_SECONDS = 3600
 
 
 class OrcshotApplication(Gtk.Application):
@@ -91,6 +107,18 @@ class OrcshotApplication(Gtk.Application):
         Gtk.Window.set_default_icon_from_file(str(LOGO_PATH))
         self._tray_icon = self._build_tray_icon()
         maybe_run_first_run_setup()
+
+        # "app.open-uri" backs every notification's default (click)
+        # action below - Gio.Notification can only target a
+        # registered GAction, there's no "just open this URL" built
+        # in the way a plain callback would be.
+        open_uri_action = Gio.SimpleAction.new("open-uri", GLib.VariantType.new("s"))
+        open_uri_action.connect(
+            "activate", lambda _action, param: Gio.AppInfo.launch_default_for_uri(param.get_string(), None)
+        )
+        self.add_action(open_uri_action)
+
+        GLib.timeout_add_seconds(_UPDATE_CHECK_STARTUP_DELAY_SECONDS, self._start_periodic_update_checks)
 
     def do_command_line(self, command_line):
         self.activate()
@@ -355,6 +383,93 @@ class OrcshotApplication(Gtk.Application):
 
     def _show_tray_menu(self, menu: Gtk.Menu, button: int, time: int) -> None:
         menu.popup(None, None, None, None, button, time)
+
+    def _start_periodic_update_checks(self) -> bool:
+        self._periodic_update_check_tick()
+        GLib.timeout_add_seconds(_UPDATE_CHECK_POLL_INTERVAL_SECONDS, self._periodic_update_check_tick)
+        return False  # one-shot: the recurring timer above takes over
+
+    def _periodic_update_check_tick(self) -> bool:
+        self._run_update_check(manual=False)
+        return True  # GLib.timeout_add_seconds: keep repeating
+
+    def check_for_updates_now(self, parent: Gtk.Window = None) -> None:
+        """Help > Check for Updates... (task #103) - an Orcshot-only
+        addition; real Windows' own UpdateService.cs has no manual
+        trigger at all, purely the background timer this shares its
+        machinery with (see REQUIREMENTS.md). Unlike the silent
+        background check, a manual click always reports back - either
+        way, not just when there's an update - since silence after a
+        deliberate click would look broken. ``parent`` is the calling
+        EditorWindow (its Help menu is the only place this is wired
+        today), used as the result dialog's transient parent.
+        """
+        self._run_update_check(manual=True, parent=parent)
+
+    def _run_update_check(self, *, manual: bool, parent: Gtk.Window = None) -> None:
+        if not manual and not should_check_now(
+            get_last_update_check(), get_update_check_interval_days(), datetime.now()
+        ):
+            return
+        set_last_update_check(datetime.now())
+        threading.Thread(target=self._fetch_and_report, args=(manual, parent), daemon=True).start()
+
+    def _fetch_and_report(self, manual: bool, parent: Gtk.Window) -> None:
+        # Runs on a background thread - urlopen() would otherwise
+        # block the GTK main loop. GLib.idle_add hands the result back
+        # to the main thread, since every call below it (dialogs,
+        # notifications) needs to happen there.
+        result = fetch_latest_release()
+        GLib.idle_add(self._on_update_check_result, result, manual, parent)
+
+    def _on_update_check_result(self, result: tuple | None, manual: bool, parent: Gtk.Window) -> bool:
+        if result is None:
+            if manual:
+                self._show_update_check_failed_dialog(parent)
+            return False  # GLib.idle_add: one-shot
+
+        tag, url = result
+        if is_newer_version(tag, installed_version("orcshot")):
+            self._notify(
+                "Orcshot update available",
+                f"A newer version of Orcshot is available! Do you want to download Orcshot {tag}?",
+                uri=url,
+            )
+        elif manual:
+            self._show_up_to_date_dialog(parent)
+        return False
+
+    def _notify(self, title: str, body: str, *, uri: str = None) -> None:
+        """Shared with task #126 (capture-complete notifications,
+        still pending) - Gio.Notification works because this app is
+        already a registered Gio.Application. A stable id means a
+        second call replaces the first rather than stacking duplicate
+        notifications.
+        """
+        notification = Gio.Notification.new(title)
+        notification.set_body(body)
+        notification.set_icon(Gio.ThemedIcon.new("orcshot"))
+        if uri is not None:
+            notification.set_default_action_and_target("app.open-uri", GLib.Variant.new_string(uri))
+        self.send_notification("orcshot-update-available", notification)
+
+    def _show_update_check_failed_dialog(self, parent: Gtk.Window) -> None:
+        dialog = Gtk.MessageDialog(
+            transient_for=parent, message_type=Gtk.MessageType.ERROR, buttons=Gtk.ButtonsType.OK,
+            text="Couldn't check for updates",
+            secondary_text="No response from GitHub - check your network connection and try again.",
+        )
+        dialog.run()
+        dialog.destroy()
+
+    def _show_up_to_date_dialog(self, parent: Gtk.Window) -> None:
+        dialog = Gtk.MessageDialog(
+            transient_for=parent, message_type=Gtk.MessageType.INFO, buttons=Gtk.ButtonsType.OK,
+            text="Orcshot is up to date",
+            secondary_text=f"You're running the latest version ({installed_version('orcshot')}).",
+        )
+        dialog.run()
+        dialog.destroy()
 
 
 def main() -> int:

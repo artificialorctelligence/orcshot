@@ -26,6 +26,7 @@ from orcshot.settings import (
     get_filename_counter,
     get_footer_pattern,
     get_icon_size,
+    get_last_update_check,
     get_output_directory,
     get_output_settings,
     get_print_options,
@@ -44,6 +45,7 @@ from orcshot.settings import (
     set_filename_counter,
     set_footer_pattern,
     set_icon_size,
+    set_last_update_check,
     set_output_directory,
     set_output_settings,
     set_print_options,
@@ -333,6 +335,20 @@ class TestUpdateCheckIntervalDays:
         set_update_check_interval_days(7, path=path)
 
         assert get_update_check_interval_days(path=path) == 7
+
+
+class TestLastUpdateCheck:
+    def test_defaults_to_none(self, tmp_path):
+        path = tmp_path / "config.json"
+        assert get_last_update_check(path=path) is None
+
+    def test_set_then_get_round_trips(self, tmp_path):
+        path = tmp_path / "config.json"
+        when = datetime(2026, 3, 5, 9, 7, 2)
+
+        set_last_update_check(when, path=path)
+
+        assert get_last_update_check(path=path) == when
 
 
 class TestFilenameCounter:

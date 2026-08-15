@@ -37,6 +37,7 @@ _EXTERNAL_COMMANDS_KEY = "external_commands"
 _ICON_SIZE_KEY = "icon_size"
 _USE_DEFAULT_PROXY_KEY = "use_default_proxy"
 _UPDATE_CHECK_INTERVAL_DAYS_KEY = "update_check_interval_days"
+_LAST_UPDATE_CHECK_KEY = "last_update_check"
 _OUTPUT_SETTINGS_KEY = "output_settings"
 _EXCLUDED_DESTINATIONS_KEY = "excluded_destinations"
 _SHOW_MAGNIFIER_WHILE_SELECTING_KEY = "show_magnifier_while_selecting"
@@ -417,6 +418,27 @@ def set_update_check_interval_days(days: int, path: Path = None) -> None:
         path = config_file_path()
     settings = _load(path)
     settings[_UPDATE_CHECK_INTERVAL_DAYS_KEY] = days
+    _save(settings, path)
+
+
+def get_last_update_check(path: Path = None) -> datetime | None:
+    """Faithful port of Windows' own LastUpdateCheck
+    (ICoreConfiguration.cs) - when the periodic checker (task #103,
+    core/update_check.py's should_check_now) last actually ran, so a
+    restart doesn't immediately re-check just because there's no
+    in-memory state left. None means "never checked yet".
+    """
+    if path is None:
+        path = config_file_path()
+    raw = _load(path).get(_LAST_UPDATE_CHECK_KEY)
+    return datetime.fromisoformat(raw) if raw else None
+
+
+def set_last_update_check(when: datetime, path: Path = None) -> None:
+    if path is None:
+        path = config_file_path()
+    settings = _load(path)
+    settings[_LAST_UPDATE_CHECK_KEY] = when.isoformat()
     _save(settings, path)
 
 

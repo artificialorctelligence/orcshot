@@ -1367,6 +1367,13 @@ class EditorWindow(Gtk.Window):
 
         help_menu = add_menu("Help")
         add_item(help_menu, "Online Help", self._do_open_online_help, icon_name="help-browser-symbolic")
+        # Orcshot-only addition (task #103) - real Windows has no menu
+        # item here at all, its own update check is purely a silent
+        # background timer (UpdateService.cs, see REQUIREMENTS.md).
+        add_item(
+            help_menu, "Check for Updates...", self._do_check_for_updates,
+            icon_name="software-update-available-symbolic",
+        )
         add_item(help_menu, "About Orcshot", self._do_show_about, icon_name="help-about-symbolic")
 
         return menu_bar
@@ -1490,6 +1497,11 @@ class EditorWindow(Gtk.Window):
         from orcshot.ui.first_run_setup import run_setup_dialog
 
         run_setup_dialog(self)
+
+    def _do_check_for_updates(self) -> None:
+        app = Gio.Application.get_default()
+        if app is not None:
+            app.check_for_updates_now(self)
 
     def _do_show_about(self) -> None:
         dialog = Gtk.AboutDialog(transient_for=self)
@@ -4636,8 +4648,9 @@ def show_preferences_dialog(parent: Gtk.Window = None) -> None:
     lock them all went with it - they're normal, always-editable
     settings now like everything else. Check for unstable updates
     was removed outright rather than relocated - direflail's own
-    call, since this port has no update-checking system at all to
-    attach it to (task #103).
+    call, since Orcshot's own update checker (task #103) has no
+    beta channel to gate (GitHub's releases/latest endpoint already
+    excludes prereleases on its own - see REQUIREMENTS.md).
     """
     dialog = Gtk.Dialog(title="Preferences", transient_for=parent)
     dialog.set_default_size(480, 420)
@@ -4793,7 +4806,7 @@ def _build_general_settings_tab(parent: Gtk.Window) -> Gtk.Box:
     interval_spin = Gtk.SpinButton.new_with_range(0, 365, 1)
     interval_spin.set_value(get_update_check_interval_days())
     interval_spin.set_tooltip_text(
-        "Has no effect yet - this port doesn't check for updates at all (see task #103). "
+        "How often Orcshot checks GitHub for a newer release in the background. "
         "0 = never check, matching Windows' own UpdateCheckInterval semantics."
     )
     interval_spin.connect("value-changed", lambda spin: set_update_check_interval_days(spin.get_value_as_int()))

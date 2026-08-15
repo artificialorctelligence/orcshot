@@ -4756,6 +4756,86 @@ loop. Tray menu item order also verified directly (`Preferences...` sits between
 capture items and the separator before Quit, matching real Windows' own relative position). Full suite
 green (1011 passed, 3 skipped).
 
+## Check for Updates (task #103, complete 2026-08-14)
+
+**Faithful basis**: `UpdateService.cs` in full - a background timer, not a manual trigger (confirmed by
+reading the whole file plus `MainForm.cs`'s own `updateService.Startup()` call site and every
+`SettingsForm.Designer.cs` control; no "check now" button exists anywhere in real Windows). Starts 20
+seconds after startup (`BackgroundTask`'s own "Initial delay, to make sure this doesn't happen at the
+startup"), gated by `UpdateCheckInterval` days (0 = disabled - already ported as
+`settings.get_update_check_interval_days`, default 14, previously a documented no-op waiting on this
+task). On finding a newer version, shows a toast whose click action opens a generic Downloads page
+(`Process.Start(Downloads.AbsoluteUri)`, `ShowUpdate`) - it never names or picks a specific installer,
+which is exactly the precedent this task's own GitHub-Releases adaptation leans on.
+
+**Deliberate adaptations** (all discussed and confirmed with direflail before implementation):
+
+- **GitHub Releases instead of a self-hosted feed.** Real Windows polls `getgreenshot.org/update-feed.json`
+  (a file that project hosts itself); Orcshot has no equivalent website, so `core/update_check.py` +
+  `ui/update_check.py` poll `GET api.github.com/repos/orcshot/orcshot/releases/latest` instead. That
+  endpoint already excludes prereleases/drafts on its own, which is why there's no beta-channel
+  distinction to port (`IsBetaUpdateAvailable` has no Orcshot equivalent) - consistent with the real
+  Expert-tab "Check for unstable updates" checkbox already having been dropped outright (task #93
+  follow-up) rather than relocated.
+- **Link to the release page, not a specific installer asset.** Directly answers a hypothetical
+  direflail raised while scoping this: what if a future release needs more than one installer format
+  (`.deb`, Flatpak, AppImage, ...)? Real Windows' own answer is "don't try to know" - it always links to
+  a generic page and lets a human pick. A GitHub Release tag can carry multiple assets under one
+  version; since the update-checker only ever needs the release's own `html_url`, adding a second
+  installer format later is a packaging-only change - this code never has to learn about installer
+  types at all.
+- **No separate `LastUpdateShown` 24-hour reshow guard.** Real Windows has two timestamps - one gating
+  the check itself (`LastUpdateCheck`), a separate one gating how often the *same* found update gets
+  re-shown even if checks happen more frequently. Given `update_check_interval_days` defaults to 14 (and
+  is expected to normally be days, not hours), the check itself already can't repeat inside a day in any
+  realistic configuration, making the second guard redundant here - one `settings.last_update_check`
+  field (`get_last_update_check`/`set_last_update_check`, `settings.py`) covers both roles.
+- **New Orcshot-only manual trigger**: Help > "Check for Updates..." (`EditorWindow._do_check_for_updates`,
+  next to "About Orcshot"), since real Windows has nothing to match here at all - the task's own title
+  asked for "menu support" specifically. Unlike the silent background check, a manual click always
+  reports back (an "up to date" info dialog, or an error dialog if GitHub couldn't be reached) rather
+  than only speaking up when there's something to say - staying silent after a deliberate click would
+  read as broken.
+
+**Architecture**: `core/update_check.py` (pure, unit-tested) holds `parse_version`/`is_newer_version`
+(mirrors `ProcessFeed`'s own `Regex.Replace(tag, "[a-zA-Z\-]*", "")` cleanup before comparing) and
+`should_check_now` (mirrors `BackgroundTask`'s `checkIsDisabled`/`nextCheckIsInTheFuture` gating).
+`ui/update_check.py`'s `fetch_latest_release()` does the actual network call - stdlib `urllib.request`
+only, no new dependency for one lightweight GET a week; returns `None` on *any* failure (no release
+published yet, network down, malformed response), matching `UpdateCheck`'s own
+`if (updateFeed == null) return;`. `app.py` wires it all together: `do_startup` registers an
+`app.open-uri` `Gio.SimpleAction` (the only way a `Gio.Notification`'s click action can open a URL - it
+targets a registered action, not a plain callback) and a `GLib.timeout_add_seconds` chain (one-shot 20s
+delay, then a recurring hourly poll that re-checks `should_check_now` rather than reproducing Windows'
+own dynamic `TimeSpan` rescheduling). The network fetch runs on a background `threading.Thread` -
+`urlopen()` would otherwise block the GTK main loop - with `GLib.idle_add` marshaling the result back to
+the main thread, since every subsequent step (dialogs, notifications) has to run there.
+
+**Shared with task #126** (capture-complete notifications, still pending): `OrcshotApplication._notify`
+is a small `Gio.Notification` wrapper - the app already being a registered `Gio.Application` makes this
+~15 lines. Orcshot had no notification mechanism at all before this task; building it as a small shared
+piece now (title/body/click-action only, no sound) avoids a second one-off when #126 needs the same
+primitive.
+
+**Verified live** (`OrcshotApplication`, `.register()`'d but never `.run()` - avoids publishing a real
+D-Bus name for a throwaway test instance, or crashing outright: calling `do_startup()`/`add_action()`
+without registering first segfaults at the GLib level, confirmed by hitting it directly before fixing
+the verification script): `do_startup()` runs clean and registers `app.open-uri`; a manual check with a
+mocked "update available" response runs without raising; a manual check when already up to date opens
+and closes a real info dialog (driven via this project's own established `GLib.timeout_add` +
+`list_toplevels()` + `.response()` pattern); a manual check when the fetch fails opens and closes a real
+error dialog the same way; a periodic tick correctly skips the network call entirely when
+`should_check_now` says a check isn't due yet. `EditorWindow._do_check_for_updates` verified to build
+into the Help menu and no-op safely with no running `Gio.Application` (a bare `EditorWindow` instantiated
+outside `OrcshotApplication`, as several other live-verification scripts in this project already do).
+`_notify`'s actual notification delivery couldn't be exercised end-to-end in this pass specifically - a
+real Orcshot instance was already running on this dev machine during verification (`ps aux`, PID
+confirmed), so this script's own `OrcshotApplication` correctly registered as *remote* rather than
+primary, and `Gio.Application.send_notification` is a primary-only call (a harmless `GLib-GIO-CRITICAL`,
+not a bug - proof the single-instance mechanism itself is working correctly, not a gap in this feature).
+16 new unit tests (`test_update_check.py`) plus 2 for the new `settings.last_update_check` field
+(`test_settings.py`). Full suite green (1029 passed, 3 skipped).
+
 ## Licensing
 
 **Status: decided — GPLv3.** Greenshot (Windows) is GPLv3; this is a derivative work — same feature
