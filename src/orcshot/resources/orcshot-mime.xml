@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  shared-mime-info registration for the .orcshot file format (task
+  #123: PNG + trailing JSON shape layer + length/marker, see
+  ui/orcshot_file.py's own module docstring). sub-class-of image/png
+  is deliberate, not just decorative - it's a real PNG a plain image
+  viewer can still open (trailing bytes after IEND are ignored by any
+  reader that doesn't know about them), so this lets that fallback
+  keep working even where Orcshot itself isn't installed/registered.
+-->
+<mime-info xmlns="http://www.freedesktop.org/standards/shared-mime-info">
+  <mime-type type="application/x-orcshot">
+    <comment>Orcshot screenshot file</comment>
+    <sub-class-of type="image/png"/>
+    <icon name="orcshot"/>
+    <glob pattern="*.orcshot"/>
+  </mime-type>
+</mime-info>

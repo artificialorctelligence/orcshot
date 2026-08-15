@@ -1,5 +1,6 @@
 debian/orcshot.desktop usr/share/applications/
 src/orcshot/resources/orcshot.png usr/share/icons/hicolor/128x128/apps/
+src/orcshot/resources/orcshot-mime.xml usr/share/mime/packages/orcshot.xml
 src/orcshot/resources/gnome-shell-extensions/window-calls@domandoman.xyz/extension.js usr/share/gnome-shell/extensions/window-calls@domandoman.xyz/
 src/orcshot/resources/gnome-shell-extensions/window-calls@domandoman.xyz/metadata.json usr/share/gnome-shell/extensions/window-calls@domandoman.xyz/
 src/orcshot/resources/gnome-shell-extensions/orcshot-clipboard@orcshot.org/extension.js usr/share/gnome-shell/extensions/orcshot-clipboard@orcshot.org/

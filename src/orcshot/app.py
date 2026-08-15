@@ -105,7 +105,28 @@ class OrcshotApplication(Gtk.Application):
             self.start_window_picker()
         elif options.contains(CAPTURE_LAST_REGION_OPTION):
             self.start_last_region_capture()
+        else:
+            # task #129: a file-manager double-click/"Open With" on a
+            # .orcshot file (MimeType=application/x-orcshot in
+            # debian/orcshot.desktop) execs `orcshot %u` - a URI, not
+            # necessarily a plain path - which lands here as a
+            # positional argument, same as any other CLI invocation.
+            # Already routed through the same single-instance
+            # do_command_line forwarding every capture option above
+            # uses, so opening a file while Orcshot is already running
+            # reaches this same running instance rather than spawning
+            # a second one.
+            for arg in command_line.get_arguments()[1:]:
+                if not arg.startswith("-"):
+                    self.open_file(arg)
         return 0
+
+    def open_file(self, path_or_uri: str) -> None:
+        from orcshot.ui.editor_window import open_orcshot_file_in_new_window
+
+        path = Gio.File.new_for_commandline_arg(path_or_uri).get_path()
+        if path is not None:
+            open_orcshot_file_in_new_window(path)
 
     def do_activate(self):
         # Keeps the app alive with no window of its own; the tray icon

@@ -4663,6 +4663,58 @@ layer/undo-stack/selection state. `_on_draw` also exercised directly with an act
 and a live rubber-band rect to confirm the new drawing paths don't raise. Full suite green (1011
 passed, 3 skipped) both before and after.
 
+## File > Open for .orcshot files + MIME/double-click (task #129, complete 2026-08-14)
+
+**No real Windows equivalent, confirmed by source read.** `ImageEditorForm.Designer.cs`'s File menu
+has no "Open" item at all — the closest analogue is `LoadElementsToolStripMenuItemClick`
+(`ImageEditorForm.cs:1613-1628`, this port's own Object > Load Objects), which loads a shape-only
+`.gst` template onto the *current* surface rather than opening a saved capture as a new document.
+Real Greenshot has no general "reopen a saved capture" concept at all — screenshots are captured, not
+opened as files. This whole task is therefore an Orcshot-only addition, same as task #123's own
+`.orcshot` format it builds on.
+
+**Implementation:**
+- `EditorWindow._do_open` (File > Open..., placed first in the File menu, ahead of Save) and
+  `open_orcshot_file_in_new_window` (module-level, `ui/editor_window.py`) — the latter shared with the
+  app-level file-manager open path below. Opening always creates a **brand-new** `EditorWindow` rather
+  than replacing the current one's document, consistent with every capture already becoming its own
+  window (task #111's "Reuse Editor" setting doesn't exist yet). The loaded shapes become the new
+  window's initial content, not undoable edits — no mementos are pushed, so the fresh undo stack starts
+  empty and nothing is pre-selected, matching how opening a file leaves nothing to "undo" back out of.
+  An invalid/non-.orcshot file shows the same `Gtk.MessageDialog` error pattern already used by Object
+  > Load Objects, rather than raising.
+- **MIME/double-click**: `debian/orcshot.desktop` now sets `Exec=orcshot %u` and
+  `MimeType=application/x-orcshot;`; `src/orcshot/resources/orcshot-mime.xml` (installed to
+  `/usr/share/mime/packages/orcshot.xml`) registers `application/x-orcshot` with a `*.orcshot` glob and
+  `sub-class-of image/png` — deliberate, not decorative: a `.orcshot` file really is a valid PNG with a
+  trailing shape-layer blob (`ui/orcshot_file.py`'s own module docstring), so this keeps a plain image
+  viewer able to open one even where Orcshot itself isn't installed. No manual `update-mime-database`/
+  `update-desktop-database` calls added to `debian/orcshot.postinst` — both `/usr/share/mime/packages`
+  and `/usr/share/applications` already have dpkg triggers (via `shared-mime-info` and
+  `desktop-file-utils` respectively) that fire automatically on install, the same reason the existing
+  `.desktop`/icon files never needed one either.
+- `app.py`'s `do_command_line` gained an `else` branch: positional (non-option) command-line arguments
+  are treated as files to open via the new `OrcshotApplication.open_file` (resolves a plain path or a
+  `file://` URI via `Gio.File.new_for_commandline_arg`, since a file manager's `%u` substitution sends a
+  URI, not necessarily a bare path). This reuses the exact single-instance `do_command_line` forwarding
+  every capture CLI option already relies on, so double-clicking a `.orcshot` file while Orcshot is
+  already running opens it in the already-running instance rather than spawning a second process - no
+  new IPC mechanism needed. `HANDLES_OPEN`/`do_open` (GApplication's dedicated file-open vtable) was
+  considered and deliberately not used - it only takes over from `do_command_line` when the desktop
+  entry sets `DBusActivatable=true`, which this one doesn't, so a plain `HANDLES_COMMAND_LINE`
+  positional-argument check is the simpler, already-consistent mechanism here.
+
+**Verified live**: `save_orcshot_file` → `open_orcshot_file_in_new_window` round trip (base image and
+shape layer both come back correctly, undo stack starts empty, nothing pre-selected); the error-dialog
+path for a file with no `.orcshot` trailer, driven via this project's own established
+`GLib.timeout_add` + `Gtk.Window.list_toplevels()` + `.response()` pattern for a nested `dialog.run()`
+loop (confirmed it returns `None` rather than raising); `OrcshotApplication.open_file` resolving both a
+plain path and a `file://` URI to the same path. A real bug was caught this way before it shipped:
+`load_orcshot_file` was used in the new code but never actually imported (only
+`load_objects_file`/`save_orcshot_file`/etc. were) - `open_orcshot_file_in_new_window` would have raised
+`NameError` on its very first real use. Fixed by adding it to the existing import. Full suite green
+(1011 passed, 3 skipped).
+
 ## Licensing
 
 **Status: decided — GPLv3.** Greenshot (Windows) is GPLv3; this is a derivative work — same feature

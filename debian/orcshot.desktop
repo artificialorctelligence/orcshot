@@ -2,9 +2,10 @@
 Type=Application
 Name=Orcshot
 Comment=Screenshot capture and annotation tool
-Exec=orcshot
+Exec=orcshot %u
 Icon=orcshot
 Terminal=false
 StartupNotify=false
 StartupWMClass=orcshot
 Categories=Graphics;
+MimeType=application/x-orcshot;

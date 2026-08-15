@@ -233,7 +233,13 @@ from orcshot.ui.composite import composite_to_numpy
 from orcshot.ui.effects import resize_image, torn_edge_image
 from orcshot.ui.gdk_convert import pixbuf_to_numpy
 from orcshot.ui.file_export import orcshot_cache_dir, save_image_to_file
-from orcshot.ui.orcshot_file import InvalidOrcshotFileError, load_objects_file, save_objects_file, save_orcshot_file
+from orcshot.ui.orcshot_file import (
+    InvalidOrcshotFileError,
+    load_objects_file,
+    load_orcshot_file,
+    save_objects_file,
+    save_orcshot_file,
+)
 from orcshot.ui.icons import (
     crop_icon_image, effects_icon_image, highlight_icon_image, obfuscate_icon_image, resize_icon_image,
     rotate_ccw_icon_image, rotate_cw_icon_image, tool_icon_image,
@@ -1214,6 +1220,16 @@ class EditorWindow(Gtk.Window):
             return submenu
 
         file_menu = add_menu("File")
+        # Open... (task #129) has no real Windows equivalent - its own
+        # File menu has no "Open" item at all; the closest analogue,
+        # LoadElementsToolStripMenuItemClick (this port's own Object >
+        # Load Objects), loads a shape-only template onto the
+        # *current* surface rather than opening a saved capture as a
+        # new document. Placed first, ahead of Save, matching the
+        # conventional Open-before-Save ordering most apps use even
+        # though real Windows has nothing here to match against.
+        add_item(file_menu, "Open...", self._do_open, icon_name="document-open-symbolic")
+        file_menu.append(Gtk.SeparatorMenuItem())
         # Save = silent quick-save (preferred location, auto filename,
         # no dialog) vs. Save As... = always dialog-driven - real
         # Windows distinguishes these too (SaveToolStripMenuItem vs.
@@ -2861,6 +2877,30 @@ class EditorWindow(Gtk.Window):
             self.selected_shape = shape
             self.undo_redo.push(AddElementMemento(self.layer, shape))
         self._drawing_area.queue_draw()
+
+    def _do_open(self) -> None:
+        """File > Open... (task #129) - always opens into a brand-new
+        EditorWindow rather than replacing this one's document, same
+        as every other capture already becomes its own window (task
+        #111's "Reuse Editor" setting doesn't exist yet). Shared with
+        the file-manager double-click/MIME-open path (app.py's
+        do_open) via open_orcshot_file_in_new_window below, so both
+        get identical error handling.
+        """
+        dialog = Gtk.FileChooserDialog(title="Open", transient_for=self, action=Gtk.FileChooserAction.OPEN)
+        dialog.add_buttons(Gtk.STOCK_CANCEL, Gtk.ResponseType.CANCEL, Gtk.STOCK_OPEN, Gtk.ResponseType.OK)
+        dialog.set_current_folder(str(get_output_directory()))
+        orcshot_filter = Gtk.FileFilter()
+        orcshot_filter.set_name("Orcshot files")
+        orcshot_filter.add_pattern("*.orcshot")
+        dialog.add_filter(orcshot_filter)
+        try:
+            if dialog.run() != Gtk.ResponseType.OK:
+                return
+            path = dialog.get_filename()
+        finally:
+            dialog.destroy()
+        open_orcshot_file_in_new_window(path, transient_for=self)
 
     def _composited_image(self) -> np.ndarray:
         return composite_to_numpy(self._base_image, self.layer)
@@ -5119,3 +5159,33 @@ class EditorWindow(Gtk.Window):
         # Cancel, or the dialog's own close button (DELETE_EVENT) - both
         # default to the safe choice: don't close, don't lose anything.
         return True
+
+
+def open_orcshot_file_in_new_window(path, transient_for: Gtk.Window = None) -> "EditorWindow" | None:
+    """Loads an .orcshot file (task #123) into a brand-new
+    EditorWindow. Shared by EditorWindow._do_open (File > Open, task
+    #129) and app.py's do_open (the GApplication file-open vtable that
+    file-manager double-click/"Open With" ultimately triggers) - both
+    need identical error handling, and both always want a fresh window
+    rather than reusing one. The loaded shapes become the window's own
+    initial content, not undoable edits - no mementos are pushed for
+    them, so the fresh undo stack starts empty, matching how opening a
+    file doesn't leave anything to "undo" back out of.
+    """
+    try:
+        image, layer = load_orcshot_file(path)
+    except InvalidOrcshotFileError as exc:
+        error_dialog = Gtk.MessageDialog(
+            transient_for=transient_for, message_type=Gtk.MessageType.ERROR, buttons=Gtk.ButtonsType.OK,
+            text="Couldn't open file",
+        )
+        error_dialog.format_secondary_text(str(exc))
+        error_dialog.run()
+        error_dialog.destroy()
+        return None
+
+    editor = EditorWindow(image)
+    for shape in layer:
+        editor.layer.add(shape)
+    editor.show_all()
+    return editor
