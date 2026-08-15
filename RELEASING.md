@@ -14,12 +14,16 @@ match, or the built `.deb`'s own version won't line up with the source tree that
 - `debian/changelog` → add a **new** top entry (newest first, standard Debian changelog format):
 
   ```
-  orcshot (X.Y.Z-1) unstable; urgency=medium
+  orcshot (X.Y.Z-1) noble; urgency=medium
 
     * <one-line summary of what's new since the last release>
 
    -- Orcshot <314918217+artificialorctelligence@users.noreply.github.com>  <RFC 2822 date>
   ```
+
+  `noble` (not `unstable`) - this targets the PPA build in step 6 below. `unstable` is a
+  Debian-native distribution name; Launchpad rejects an upload whose changelog distribution isn't
+  one of the PPA's own supported Ubuntu series, so an `unstable` upload just fails outright.
 
   (`date -R` prints the date in the right format.)
 
@@ -52,7 +56,45 @@ Zero errors expected. A few harmless warnings are already documented in REQUIREM
 Packaging section (e.g. the icon-size mismatch) - anything new should be understood, not just
 dismissed.
 
-## 5. Install-test on every target
+## 5. Upload to the PPA (task #102)
+
+`ppa:artificialorctelligence/orcshot` on Launchpad. PPAs build from a *source* upload, not the
+binary `.deb` from step 3 - Launchpad's own build farm compiles/assembles the package itself.
+
+```bash
+dpkg-buildpackage -us -uc -S -sa
+debsign ../orcshot_X.Y.Z-1_source.changes
+dput ppa:artificialorctelligence/orcshot ../orcshot_X.Y.Z-1_source.changes
+```
+
+`-sa` forces the (native-format) source tarball to be included even on a non-first upload to this
+version - without it `dpkg-genchanges` may assume Launchpad already has it and omit it, which fails
+validation. `debsign` prompts for your GPG key (the one registered to the Launchpad account) to sign
+the `.changes` file - Launchpad rejects unsigned or unrecognized-key uploads.
+
+Requires a one-time local `~/.dput.cf` entry (not part of this repo - it's a per-machine config, not
+project state):
+
+```ini
+[orcshot-ppa]
+fqdn = ppa.launchpad.net
+method = ftp
+incoming = ~artificialorctelligence/orcshot/ubuntu/
+login = anonymous
+allow_unsigned_uploads = 0
+```
+
+Then `dput orcshot-ppa ../orcshot_X.Y.Z-1_source.changes` (or just `dput ppa:artificialorctelligence/orcshot ...`
+as above - `dput` understands the `ppa:` shorthand directly without needing the `[orcshot-ppa]` section
+at all; the section above is only needed if that shorthand ever stops resolving correctly).
+
+**Only one series needs a real upload.** Orcshot is `Architecture: all` with no series-specific
+build-dependencies (confirmed against Launchpad's own packaging docs) - once the `noble` (24.04)
+build succeeds, use the PPA's own "Copy packages" page (Launchpad web UI) to copy that same binary
+to `resolute` (26.04) rather than uploading source a second time. Check build status/logs at
+`https://launchpad.net/~artificialorctelligence/+archive/ubuntu/orcshot/+packages`.
+
+## 6. Install-test on every target
 
 This is the actual point of tasks #37/#38/#50 - the `.deb` itself never changes per target
 (`Architecture: all`, no compiled code), but whether each target's own repos carry every declared
@@ -62,9 +104,10 @@ For each target below: copy the `.deb` over, install it fresh, and confirm apt d
 succeeds *and* the installed binary (`/usr/bin/orcshot`, not a dev venv) actually launches.
 
 - [ ] **Mint/Cinnamon** (this host) - `sudo apt install ./orcshot_X.Y.Z-1_all.deb`
-- [ ] **Ubuntu 26.04 LTS** (task #50 - existing VM, already used for Wayland work, but never yet
-      install-tested via the real `.deb` - everything there so far ran from source via `PYTHONPATH`)
-- [ ] **Ubuntu 24.04 LTS / GNOME** (task #38 - VM in progress)
+- [ ] **Ubuntu 26.04 LTS** (task #50, verified) - re-check on each new version regardless
+- [ ] **Ubuntu 24.04 LTS / GNOME** (task #38, verified) - re-check on each new version regardless;
+      confirm the actual login session is Wayland before trusting the result (see
+      REQUIREMENTS.md's task #38 section for why this isn't a safe assumption)
 - [ ] *(later, task #37)* other Debian-family targets - pure Debian, Pop!_OS, etc.
 
 `VBoxManage guestcontrol <vm> copyto` + `run` is the established pattern for the VMs (see the
@@ -74,7 +117,7 @@ appears and a capture round-trips.
 RPM-based distros (Fedora/openSUSE) and Arch/AUR are a separate, later effort (task #132) - a
 different package format entirely, not another entry on this list.
 
-## 6. Commit, tag, push
+## 7. Commit, tag, push
 
 ```bash
 git add pyproject.toml debian/changelog
@@ -84,13 +127,13 @@ git push origin main
 git push origin vX.Y.Z
 ```
 
-## 7. Publish the GitHub Release
+## 8. Publish the GitHub Release
 
 Create a release for the `vX.Y.Z` tag (web UI or `gh release create vX.Y.Z`) and attach the built
 `.deb` as a release asset. This is the step task #103 actually depends on - `releases/latest` only
 returns something once a real, non-draft, non-prerelease release exists.
 
-## 8. Sanity-check the update checker
+## 9. Sanity-check the update checker
 
 Once published, confirm task #103 actually sees it: Help > Check for Updates... on a build one
 version behind should report the new release; on the just-built version itself, "up to date."
