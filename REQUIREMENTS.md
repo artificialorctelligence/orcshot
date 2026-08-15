@@ -2979,6 +2979,70 @@ packaged.
   actions this project's standing safety rules require checking first for, and `sudo` in this
   environment genuinely requires an interactive password this agent cannot supply anyway.
 
+### Ubuntu 26.04 LTS (task #50, complete 2026-08-14)
+
+**Status: done.** The same `.deb` built above (no rebuild needed for a different target -
+`Architecture: all`, no compiled code) was verified on the project's own "Ubuntu 26.04" VM (GNOME/
+Wayland - see the VM-testing reference notes), which had previously only ever run this app from
+source via `PYTHONPATH`, never through a real install. `apt-get --simulate install` confirmed every
+declared `Depends:` (including `gir1.2-ayatanaappindicator3-0.1`, the specific naming-drift risk
+flagged while scoping this - older Ubuntu/Mint releases shipped Canonical's original
+`gir1.2-appindicator3-0.1` instead) resolves cleanly against that release's own repos. The actual
+`sudo apt install` was run by the user directly inside the VM, same standing rule as the Mint install
+above.
+
+**A real packaging bug was caught and fixed by this verification, not just confirmed working**:
+`debian/orcshot.install`'s MIME-registration line (`src/orcshot/resources/orcshot-mime.xml
+usr/share/mime/packages/orcshot.xml`, task #129) tried to rename the file on install by putting a
+different filename in the destination column - but `dh_install`'s `.install` format always treats
+that column as a destination *directory*, never a rename target. The actual result: a directory
+literally named `orcshot.xml` got created with the real XML file nested inside it
+(`usr/share/mime/packages/orcshot.xml/orcshot-mime.xml`), which the `shared-mime-info` trigger then
+failed to parse (`I/O error: Is a directory`) the moment the package was actually installed - this
+had gone unnoticed until now because nothing since task #129 had exercised a real `.deb` install,
+only unit tests and live GTK checks of the app itself. Fixed by renaming the source resource file
+itself to `orcshot.xml` (`git mv`) and changing the `.install` line to a plain directory destination,
+matching every other line in that file. Rebuilt, re-verified with `dpkg-deb -c` that the path is now
+a real file, and confirmed live on the VM: dependency resolution, install, and the triggers
+(`desktop-file-utils`, `hicolor-icon-theme`, `gnome-menus`, `shared-mime-info`) all completed with no
+errors, `dpkg -l orcshot` shows `ii` (properly installed, not stuck in a broken state), and
+`/usr/share/mime/packages/orcshot.xml` is a real, correctly-parsed XML file containing the
+`application/x-orcshot` type.
+
+**Installed binary verified live, not just the package metadata**: after clearing a leftover
+dev-source `orcshot.app` process from earlier Wayland testing in the same VM (it had been squatting
+on the `org.orcshot.Orcshot` D-Bus name, silently absorbing the first launch attempt via GIO's own
+single-instance forwarding rather than actually testing anything), `/usr/bin/orcshot` (the real
+`[project.scripts]` entry point, not `python3 -m orcshot.app`) was launched via `VBoxManage
+guestcontrol` and confirmed to stay running and register `org.orcshot.Orcshot` on the session D-Bus.
+
+**Three findings along the way turned out to be artifacts of `guestcontrol`'s incomplete environment,
+not real bugs** - `guestcontrol` doesn't inherit the graphical session's environment at all (only the
+three vars this project's own VM-testing notes already call out), and this exercise found the list was
+still incomplete for a GUI app that needs XWayland:
+- The tray icon didn't render at first because `XDG_SESSION_TYPE` wasn't set (`_build_tray_icon`,
+  `app.py`, branches on it to choose `AyatanaAppIndicator3` vs `Gtk.StatusIcon`) - without it the
+  process silently took the X11 branch under Wayland, producing exactly the `gtk_widget_get_scale_factor`
+  failure task #66/#70 already documented for *that* branch specifically (not the harmless one it was
+  first mistaken for here). Fixed by adding `--putenv=XDG_SESSION_TYPE=wayland`.
+- A real capture (`PrtScrn`, forwarded via GIO's single-instance mechanism into this already-running
+  process) crashed with `Xlib.error.DisplayNameError` - `region_select_gnome_shell.py`'s cursor
+  backend needs XWayland's X11 protocol for cursor-position queries even on Wayland, and `$DISPLAY`
+  was never set. Fixed by adding `--putenv=DISPLAY=:0` (confirmed via the running `Xwayland :0` process).
+- Same capture then crashed with `Xlib.error.DisplayConnectionError: ...Authorization required...` -
+  `$XAUTHORITY` was missing too. Fixed by pointing it at XWayland's own auth cookie
+  (`--putenv=XAUTHORITY=/run/user/1000/.mutter-Xwaylandauth.<random>`, read off the running
+  `Xwayland` process's own `-auth` argument). With all of `XDG_SESSION_TYPE`/`DISPLAY`/`XAUTHORITY`
+  set, a real `PrtScrn` → region-select → destination-picker round trip completed with no crash.
+
+**A real, separate bug was found this way, not an artifact**: the destination-picker popup that
+successful capture opened showed no icons at all (not wrong-colored - absent). Confirmed via isolated
+testing that this is deeper than the task #127/#128 icon-color fix (calling `destination_icon_image`
+directly with the same resolved color produces a correct, visible pixbuf saved to PNG) - the defect is
+specifically in how that pixbuf composites inside a live `menu.popup_at_rect()` Wayland popup. Filed as
+task #133 rather than chased further here, since diagnosing on-screen compositing issues has no good
+tooling through `guestcontrol` round-trips - needs direct visual access.
+
 ## Open questions (not yet decided)
 
 - Exact CI setup — to be established once there's a build worth gating.
@@ -4684,7 +4748,7 @@ opened as files. This whole task is therefore an Orcshot-only addition, same as 
   An invalid/non-.orcshot file shows the same `Gtk.MessageDialog` error pattern already used by Object
   > Load Objects, rather than raising.
 - **MIME/double-click**: `debian/orcshot.desktop` now sets `Exec=orcshot %u` and
-  `MimeType=application/x-orcshot;`; `src/orcshot/resources/orcshot-mime.xml` (installed to
+  `MimeType=application/x-orcshot;`; `src/orcshot/resources/orcshot.xml` (installed to
   `/usr/share/mime/packages/orcshot.xml`) registers `application/x-orcshot` with a `*.orcshot` glob and
   `sub-class-of image/png` — deliberate, not decorative: a `.orcshot` file really is a valid PNG with a
   trailing shape-layer blob (`ui/orcshot_file.py`'s own module docstring), so this keeps a plain image
