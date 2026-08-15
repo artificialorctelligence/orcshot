@@ -3043,7 +3043,7 @@ specifically in how that pixbuf composites inside a live `menu.popup_at_rect()` 
 task #133 rather than chased further here, since diagnosing on-screen compositing issues has no good
 tooling through `guestcontrol` round-trips - needs direct visual access.
 
-### Ubuntu 24.04 LTS (task #38, in progress - two real fixes landed, one open issue, 2026-08-15)
+### Ubuntu 24.04 LTS (task #38, complete 2026-08-15)
 
 GNOME Shell 46 (mutter-14) is not just an older version of the GNOME Shell 50 (mutter-18) this port's
 bundled `orcshot-clipboard` extension was originally built and verified against (task #77/#82) - several
@@ -3136,18 +3136,44 @@ loggers, the `pickDestinationAsync`/`selectAsync` step loggers, the `GrabHelper`
 `overrides/Gio.js` source dumps) were removed once each fix was confirmed - only the real fixes above
 remain in the committed code.
 
-**Open - crosshair cursor doesn't reset after a capture completes (status: unresolved, minor)**
-Live-verified once the fix above unblocked the full pipeline: the editor opens correctly with the
-captured image, but the mouse pointer stays a crosshair afterward instead of resetting to the normal
-arrow. `_setCrosshairCursor`'s `Meta.Display` fallback path (used on GNOME 46 - see that function's
-own docstring) already resets via `actor.connect('destroy', () => global.display.set_cursor(Meta.
-Cursor.DEFAULT))`, and `Meta.Cursor.DEFAULT` is a real, distinct enum value (confirmed live via
-`GObject`/typelib introspection: `NONE=0`, `DEFAULT=1`, not a wrong-value bug) - not yet confirmed
-whether that `destroy`-triggered callback is actually firing. A one-line diagnostic was added and
-verified syntactically but never actually tested live - the Ubuntu 24.04 VM crashed and had to be
-rebuilt from scratch (fresh OS install, no `orcshot` installed, no bundled extension present) before
-the reproduction could run. Next step once the VM is reprovisioned: re-add that diagnostic (log a
-line inside the `destroy` callback), confirm whether it fires, and go from there.
+**Not a real bug - crosshair cursor briefly appeared stuck during diagnostic iteration, but resets
+correctly on a real install.** First observed while testing the async-dispatch fix above against a
+diagnostic-patched dev instance running from source via `PYTHONPATH` override on the original (pre-
+crash) Ubuntu 24.04 VM. After that VM crashed and was rebuilt from scratch and a real `.deb` built
+from this same commit was installed fresh (`sudo apt install ./orcshot_0.1.0-1_all.deb`, no source-
+tree overrides involved), a full capture round trip - drag-select, Edit, editor opens with the
+captured image, cursor back to a normal arrow immediately after - worked correctly with no special
+handling needed. The original observation was most likely an artifact of the rapid extension-reload/
+diagnostic-patching cycle on the earlier VM (a stale actor reference, or a `destroy` signal that
+hadn't fully propagated between edits) rather than a defect in `_setCrosshairCursor`'s reset logic
+itself.
+
+**Real, separate bug found during the .deb reinstall on the rebuilt VM: the first-run setup dialog's
+extension-enable checkboxes don't actually persist.** `ui/first_run_setup.py`'s "Enable reliable
+'Copy to Clipboard' support" checkbox was checked and the dialog confirmed with OK, yet
+`gsettings get org.gnome.shell enabled-extensions` came back `@as []` afterward - confirmed from the
+user's own terminal on the VM, not just this session's own `guestcontrol` queries, ruling out a
+stale-session-bus explanation. `gnome_extension_setup.enable_extension`'s logic (read `enabled-
+extensions` via `GioSettingsBackend`, add the UUID if missing, write back) and its call site in
+`first_run_setup.py` both read correctly by inspection - the actual defect hasn't been root-caused
+yet. Worked around for this session by having the user run the equivalent
+`gsettings set org.gnome.shell enabled-extensions "['orcshot-clipboard@orcshot.org']"` directly in
+their own terminal (which stuck correctly), then logging out/in - the extension then showed
+`enabled: true, state: 1` (ENABLED) via `org.gnome.Shell.Extensions.ListExtensions`, and capture
+worked normally after that. Filed as a new task rather than chased further here - worth a fresh
+`systematic-debugging` pass of its own (reproduce with a print/log added directly to `enable_extension`
+itself, confirm whether it's even reached, before guessing further).
+
+**Verification summary**: with the async-dispatch fix installed via a real `.deb` on a fresh Ubuntu
+24.04 install (not a source-tree/`PYTHONPATH` dev override), a full capture round trip was confirmed
+working end-to-end for: region-select → Edit (editor opens with the captured image, cursor resets
+correctly), region-select → Copy to Clipboard, and Window Picker capture → Open in External Editor.
+Two new, separate bugs surfaced during that last check - a destination-picker-menu artifact bleeding
+into window-picker captures, and the captured window's title bar being excluded - filed as tasks #134
+and #135 rather than folded into this one, since task #38's own actual scope (the GNOME-46
+compatibility blockers) is now fully resolved.
+
+## Open questions (not yet decided)
 
 - Exact CI setup — to be established once there's a build worth gating.
 
