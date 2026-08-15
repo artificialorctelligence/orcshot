@@ -70,6 +70,28 @@ def test_contains_point():
     assert not rect.contains(15, 25)
 
 
+def test_contains_rect_when_fully_inside():
+    outer = Rect(left=0, top=0, right=100, bottom=100)
+    inner = Rect(left=10, top=10, right=20, bottom=20)
+
+    assert outer.contains_rect(inner)
+    assert not inner.contains_rect(outer)
+
+
+def test_contains_rect_when_only_partially_overlapping():
+    a = Rect(left=0, top=0, right=10, bottom=10)
+    b = Rect(left=5, top=5, right=15, bottom=15)
+
+    assert not a.contains_rect(b)
+    assert not b.contains_rect(a)
+
+
+def test_contains_rect_when_identical():
+    rect = Rect(left=0, top=0, right=10, bottom=10)
+
+    assert rect.contains_rect(rect)
+
+
 def test_union_of_two_rects_covers_both():
     a = Rect(left=0, top=0, right=10, bottom=10)
     b = Rect(left=20, top=5, right=30, bottom=25)

@@ -236,11 +236,14 @@ class TestPrintOptions:
 
 class TestOutputSettings:
     def test_defaults_match_windows(self, tmp_path):
-        # ICoreConfiguration.cs:126-160
+        # ICoreConfiguration.cs:126-160, except filename_pattern/
+        # filename_pattern_mode - this port's own deliberate departure
+        # from Windows' ${TOKEN} default, per direflail's own call
+        # (task #127/#128 feedback): standard strftime by default.
         path = tmp_path / "config.json"
         settings = get_output_settings(path=path)
         assert settings == OutputSettings(
-            filename_pattern="${YYYY}-${MM}-${DD} ${hh}_${mm}_${ss}", filename_pattern_mode="greenshot",
+            filename_pattern="%Y-%m-%d %H_%M_%S", filename_pattern_mode="strftime",
             primary_format="png", copy_path_to_clipboard=True, reduce_colors=False,
             always_show_quality_dialog=False, jpeg_quality=80,
         )

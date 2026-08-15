@@ -12,7 +12,6 @@ from datetime import datetime
 
 from orcshot.core.filename_pattern import (
     DEFAULT_FILENAME_PATTERN,
-    MODE_GREENSHOT,
     MODE_STRFTIME,
     make_filename_safe,
     resolve_filename_pattern,
@@ -60,12 +59,6 @@ class TestGreenshotMode:
         result = resolve_filename_pattern("screenshot-${YYYY}${MM}${DD}-final", when, counter=1)
         assert result == "screenshot-20260305-final"
 
-    def test_default_pattern_matches_the_previous_hardcoded_quick_save_format(self):
-        # quick_save_filename's own pre-existing default, now expressed
-        # as a pattern instead of a hardcoded strftime call.
-        when = datetime(2026, 7, 26, 14, 23, 5)
-        assert resolve_filename_pattern(DEFAULT_FILENAME_PATTERN, when, counter=1) == "2026-07-26 14_23_05"
-
     def test_rrr_token_produces_random_alphanumerics_of_matching_length(self):
         when = datetime(2026, 1, 1, 0, 0, 0)
         result = resolve_filename_pattern("${RRRR}", when, counter=1, rng=random.Random(0))
@@ -110,6 +103,15 @@ class TestStrftimeMode:
         # behavior for anyone choosing it, not a silent footgun.
         when = datetime(2026, 3, 5, 9, 7, 2)
         assert resolve_filename_pattern("100%%done", when, counter=1, mode=MODE_STRFTIME) == "100%done"
+
+    def test_default_pattern_matches_the_previous_hardcoded_quick_save_format(self):
+        # quick_save_filename's own pre-existing default, now expressed
+        # as a pattern instead of a hardcoded strftime call - and, as
+        # of task #127/#128 feedback, DEFAULT_FILENAME_PATTERN/the
+        # default mode are both strftime now, not Greenshot ${TOKEN}.
+        when = datetime(2026, 7, 26, 14, 23, 5)
+        result = resolve_filename_pattern(DEFAULT_FILENAME_PATTERN, when, counter=1, mode=MODE_STRFTIME)
+        assert result == "2026-07-26 14_23_05"
 
 
 class TestMakeFilenameSafe:

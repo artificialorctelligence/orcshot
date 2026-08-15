@@ -44,13 +44,22 @@ from datetime import datetime
 MODE_GREENSHOT = "greenshot"
 MODE_STRFTIME = "strftime"
 
-# Matches quick_save_filename's own pre-existing default format
-# (settings.py) - Windows' real default additionally appends
-# "-${title}" (ICoreConfiguration.cs:127), dropped here for the same
-# reason quick_save_filename already documented: not every capture
-# mode has a single associated window title (region/full-screen
-# capture don't).
-DEFAULT_FILENAME_PATTERN = "${YYYY}-${MM}-${DD} ${hh}_${mm}_${ss}"
+# strftime-syntax by default (settings.OutputSettings.filename_pattern_mode
+# defaults to MODE_STRFTIME too, task #127/#128 live-verification
+# feedback - direflail's own call: standard Linux/Python convention over
+# Windows' own ${TOKEN} scheme for a fresh install). Same date/time
+# layout as quick_save_filename's own pre-existing default format
+# (settings.py) and MODE_GREENSHOT's own equivalent below - Windows'
+# real default additionally appends "-${title}" (ICoreConfiguration.cs
+# :127), dropped here for the same reason quick_save_filename already
+# documented: not every capture mode has a single associated window
+# title (region/full-screen capture don't). Switching the mode dropdown
+# without also editing this pattern text produces a mismatched result
+# (MODE_GREENSHOT's own ${...} tokens read literally as strftime text,
+# or vice versa) - a known, accepted limitation of two mutually
+# exclusive syntaxes sharing one text field, not something this default
+# alone can prevent.
+DEFAULT_FILENAME_PATTERN = "%Y-%m-%d %H_%M_%S"
 
 _TOKEN_WIDTHS = {"YYYY": 4, "MM": 2, "DD": 2, "hh": 2, "mm": 2, "ss": 2, "NUM": 6}
 _TOKEN_RE = re.compile(r"\$\{(\w+)\}")

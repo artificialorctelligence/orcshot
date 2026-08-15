@@ -21,7 +21,7 @@ from dataclasses import asdict, dataclass
 from datetime import datetime
 from pathlib import Path
 
-from orcshot.core.filename_pattern import DEFAULT_FILENAME_PATTERN, MODE_GREENSHOT
+from orcshot.core.filename_pattern import DEFAULT_FILENAME_PATTERN, MODE_STRFTIME
 
 CONFIG_FILENAME = "config.json"
 _OUTPUT_DIRECTORY_KEY = "output_directory"
@@ -218,7 +218,7 @@ class OutputSettings:
     """
 
     filename_pattern: str = DEFAULT_FILENAME_PATTERN  # OutputFileFilenamePattern (this port's own default, see the module docstring)
-    filename_pattern_mode: str = MODE_GREENSHOT  # this port's own addition, see the docstring above
+    filename_pattern_mode: str = MODE_STRFTIME  # this port's own addition, see the docstring above - direflail's own call (task #127/#128 feedback): standard strftime by default, not Windows' own ${TOKEN} scheme
     primary_format: str = "png"  # OutputFileFormat
     copy_path_to_clipboard: bool = True  # OutputFileCopyPathToClipboard
     reduce_colors: bool = False  # OutputFileReduceColors

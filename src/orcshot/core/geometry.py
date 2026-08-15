@@ -35,6 +35,12 @@ class Rect:
     def contains(self, x: int, y: int) -> bool:
         return self.left <= x < self.right and self.top <= y < self.bottom
 
+    def contains_rect(self, other: Rect) -> bool:
+        return (
+            self.left <= other.left and self.top <= other.top
+            and self.right >= other.right and self.bottom >= other.bottom
+        )
+
     def union(self, other: Rect) -> Rect:
         return Rect(
             min(self.left, other.left),

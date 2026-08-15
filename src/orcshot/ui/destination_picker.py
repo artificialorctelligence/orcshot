@@ -325,7 +325,17 @@ def show_destination_picker(
         clipboard_backend = default_clipboard_backend()
 
     menu = Gtk.Menu()
-    icon_color = _rgba_to_color(menu.get_style_context().get_color(Gtk.StateFlags.NORMAL))
+    # Query a throwaway top-level Gtk.Window's style context, not
+    # menu's own - a freshly constructed, not-yet-parented Gtk.Menu
+    # has no inherited CSS context yet and resolves to a wrong/
+    # transparent color (confirmed live: rendered every icon in this
+    # popup invisible on Wayland). A top-level window's own context
+    # resolves correctly even pre-realize (same fix as
+    # editor_window.py's own _build_menu_bar, task #127/#128
+    # feedback) - a throwaway Gtk.Window() rather than reusing the
+    # editor's own, since this picker is also reachable with no
+    # editor window open at all (tray icon, hotkey).
+    icon_color = _rgba_to_color(Gtk.Window().get_style_context().get_color(Gtk.StateFlags.NORMAL))
     for item_id, label, _handler in _all_destinations():
         item = Gtk.MenuItem()
         box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)

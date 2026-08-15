@@ -147,6 +147,7 @@ from orcshot.core.effects import (
 from orcshot.core.history import (
     AddElementMemento,
     BackgroundChangeMemento,
+    CompositeMemento,
     DeleteElementMemento,
     ElementChangeMemento,
     UndoRedoStack,
@@ -617,7 +618,7 @@ class EditorWindow(Gtk.Window):
         # don't distinguish who set them).
         self._syncing_style_panel = False
         # Bypasses the tool property below - same reason
-        # self._selected_shape just below sets its own backing field
+        # self._selected_shapes just below sets its own backing field
         # directly: the setter calls _refresh_style_panel, which
         # references style-panel widgets that don't exist yet this
         # early in construction.
@@ -687,7 +688,14 @@ class EditorWindow(Gtk.Window):
         # self._base_image directly: its setter refreshes the
         # obfuscate-amount label, but _obfuscate_amount_label doesn't
         # exist yet this early in construction.
-        self._selected_shape = None
+        #
+        # The list backing both selected_shape (singular) and
+        # selected_shapes (plural, task #125) - ordered, no duplicates,
+        # last entry is the "primary" shape (style panel display,
+        # resize handles - multi-shape resize is out of scope, matching
+        # real Windows' own Adorners, which only ever show on one
+        # element's own selection handles even during a multi-select).
+        self._selected_shapes = []
         # Last-used whole-image effect settings (DropShadowEffectSettings/
         # TornEdgeEffectSettings, IEditorConfiguration.cs:86-90) - a
         # left-click/keyboard-shortcut re-applies these, a right-click
@@ -718,20 +726,50 @@ class EditorWindow(Gtk.Window):
         # silently misalign every match, which is worse than a
         # redundant re-run.
         self._ocr_result = None
-        # A single cut/copied shape (Windows' per-shape Cut/Copy/Paste,
-        # distinct from _do_copy's whole-image-to-system-clipboard) -
-        # not the system clipboard, just in-editor state.
+        # The cut/copied shape(s) - a list since task #125's multi-
+        # select (Windows' per-shape Cut/Copy/Paste, distinct from
+        # _do_copy's whole-image-to-system-clipboard) - not the system
+        # clipboard, just in-editor state. None means nothing copied,
+        # matching the pre-task-#125 sentinel.
         self._shape_clipboard = None
+
+        # Rubber-band/marquee drag-select (task #125) - an Orcshot-only
+        # addition beyond the real port, since real Windows' own
+        # Surface.cs has no such feature at all (confirmed via its
+        # SurfaceMouseDown/Move handlers - only shift-click toggle and
+        # Select All exist there). _rubber_band_origin is the drag's
+        # starting (x, y); _rubber_band_rect is the live Rect while
+        # dragging, for both the overlay draw and the release-time hit
+        # test (core/geometry.py's own Rect.contains_rect - a shape's
+        # bounds must be *fully* inside the rectangle to be picked up,
+        # not just overlapping, matching Illustrator/Inkscape-style
+        # marquee select rather than the "any overlap" convention some
+        # other apps use).
+        self._rubber_band_origin = None
+        self._rubber_band_rect = None
+        # Whether shift was held when the current drag/rubber-band
+        # started - additive (preserves the existing selection) rather
+        # than replacing it, matching shift-click's own toggle
+        # semantics.
+        self._rubber_band_additive = False
 
         # drag-to-create state
         self._drag_origin = None
         self._drag_points = None
         self._drag_shape = None
 
-        # click-to-move state
-        self._move_shape = None
+        # click-to-move state - always a list since task #125 (moving a
+        # whole multi-selection together, matching real Windows' own
+        # SurfaceMouseMove: "dragged element has been selected before
+        # -> move all", Surface.cs:1707-1708), even for the single-
+        # shape case (a one-element list) - one code path, not two.
+        # _move_previews is a parallel list (by position, not a dict
+        # keyed by shape) deliberately: these are frozen dataclasses
+        # with structural equality, so two coincidentally-identical
+        # shapes would collide as the same dict key.
+        self._move_shapes = []
         self._move_origin = None
-        self._move_preview = None
+        self._move_previews = []
 
         # drag-a-handle-to-resize state
         self._resize_shape = None
@@ -887,7 +925,14 @@ class EditorWindow(Gtk.Window):
 
     @property
     def selected_shape(self):
-        return self._selected_shape
+        """The "primary" selected shape - the most recently selected
+        one, or the sole one when exactly one is selected. None when
+        zero (or, ambiguously, when the primary itself is what matters
+        for a single-shape operation on a multi-selection - callers
+        that need to act on the *whole* selection use selected_shapes
+        below instead).
+        """
+        return self._selected_shapes[-1] if self._selected_shapes else None
 
     @selected_shape.setter
     def selected_shape(self, shape) -> None:
@@ -896,10 +941,34 @@ class EditorWindow(Gtk.Window):
         Centralizing this in the property setter (rather than a call
         at each of the many call sites that assign self.selected_shape
         throughout this file) means it can't be missed by a future
-        one. Bypassed by __init__ - see self._selected_shape's own
+        one. Bypassed by __init__ - see self._selected_shapes's own
         comment there.
+
+        Replaces the *whole* selection with just ``shape`` (or clears
+        it for None) - task #125's own multi-select additions
+        (shift-click, rubber-band, Select All) go through
+        _set_selected_shapes instead, which this delegates to so both
+        paths share one place that calls _refresh_style_panel.
         """
-        self._selected_shape = shape
+        self._set_selected_shapes([shape] if shape is not None else [])
+
+    @property
+    def selected_shapes(self) -> list:
+        """Every currently-selected shape, in selection order (last
+        entry is the "primary" one - see selected_shape above). A
+        copy, not a live view - callers mutate the selection through
+        _set_selected_shapes, not by editing this list in place.
+        """
+        return list(self._selected_shapes)
+
+    def _set_selected_shapes(self, shapes: list) -> None:
+        """The one place that actually replaces the selection list and
+        refreshes the style panel - both selected_shape's setter
+        (single-shape callers, task #95 and earlier) and task #125's
+        own multi-select logic (shift-click toggle, rubber-band,
+        Select All) funnel through here.
+        """
+        self._selected_shapes = list(shapes)
         self._refresh_style_panel()
 
     @property
@@ -949,7 +1018,7 @@ class EditorWindow(Gtk.Window):
         controls just aren't visible then (visible_style_fields), so
         it's never actually shown.
         """
-        shape = self._selected_shape
+        shape = self.selected_shape
         if shape is not None and hasattr(shape, "style"):
             return shape.style
         return self._style_for_tool(self.tool)
@@ -986,7 +1055,7 @@ class EditorWindow(Gtk.Window):
            would otherwise treat this programmatic sync as a user edit
            and push a redundant memento.
         """
-        shape = self._selected_shape
+        shape = self.selected_shape
         if isinstance(shape, ObfuscateShape):
             amount_tool = _OBFUSCATE_MODE_TO_TOOL[shape.mode]
         else:
@@ -1099,12 +1168,16 @@ class EditorWindow(Gtk.Window):
         share one icon set in Windows too - e.g. copyToolStripMenuItem.
         Image is literally the same bitmap as its toolbar button).
 
-        Items intentionally NOT here yet, blocked on its own tracked
-        task: Select All (task #125 - needs real multi-select, this
-        port only tracks one selected shape today).
         """
         menu_bar = Gtk.MenuBar()
-        icon_color = _rgba_to_color(menu_bar.get_style_context().get_color(Gtk.StateFlags.NORMAL))
+        # Query self's style context, not menu_bar's own - a freshly
+        # constructed, not-yet-parented Gtk.MenuBar() has no inherited
+        # CSS context yet and resolves to a wrong/transparent color
+        # (confirmed live: rendered every Object menu tool icon
+        # invisible). The top-level window's own context resolves
+        # correctly even pre-realize - same pattern _build_tool_palette
+        # already uses for its own hand-drawn icons, see its comment.
+        icon_color = _rgba_to_color(self.get_style_context().get_color(Gtk.StateFlags.NORMAL))
 
         def add_menu(label: str) -> Gtk.Menu:
             menu = Gtk.Menu()
@@ -1216,9 +1289,23 @@ class EditorWindow(Gtk.Window):
                 icon_image=tool_icon_image(tool, icon_color, size=get_icon_size()),
             )
         object_menu.append(Gtk.SeparatorMenuItem())
+        # Select All sits directly before Delete, same group, no
+        # separator between them - matches real Windows' own
+        # objectToolStripMenuItem.DropDownItems order exactly
+        # (selectAllToolStripMenuItem, removeObjectToolStripMenuItem,
+        # ImageEditorForm.Designer.cs:731-732). Task #125 - needed real
+        # multi-selection to exist first (see EditorWindow.
+        # selected_shapes/_set_selected_shapes).
+        add_item(object_menu, "Select All", self._do_select_all, icon_name="edit-select-all-symbolic")
         add_item(object_menu, "Delete", self._do_delete, icon_name="edit-delete-symbolic")
         object_menu.append(Gtk.SeparatorMenuItem())
-        arrange_menu = add_submenu(object_menu, "Arrange")
+        # icon_name was missing entirely here (unlike every sibling in
+        # this menu - Delete, Save/Load Objects) - live-verified as a
+        # real visual inconsistency (task #127/#128 feedback): flush-
+        # left "Arrange" sitting between icon-indented rows looked like
+        # a spacing bug. Reuses "Bring to Top"'s own icon rather than
+        # inventing an unrelated one for the submenu header.
+        arrange_menu = add_submenu(object_menu, "Arrange", icon_name="go-top-symbolic")
         add_item(arrange_menu, "Bring to Top", self._do_bring_to_front, icon_name="go-top-symbolic")
         add_item(arrange_menu, "Up One Level", self._do_bring_forward, icon_name="go-up-symbolic")
         add_item(arrange_menu, "Down One Level", self._do_send_backward, icon_name="go-down-symbolic")
@@ -2372,7 +2459,7 @@ class EditorWindow(Gtk.Window):
         remembered default for the next Solid Fill shape. Mirrors
         _active_style() for shapes that do have a ShapeStyle.
         """
-        shape = self._selected_shape
+        shape = self.selected_shape
         if isinstance(shape, ObfuscateShape):
             return shape.fill_color
         return self._default_obfuscate_fill_color
@@ -2391,7 +2478,7 @@ class EditorWindow(Gtk.Window):
         """Mirrors _active_obfuscate_fill_color exactly, for
         Text Highlight's own Fill: swatch instead of Solid Fill's.
         """
-        shape = self._selected_shape
+        shape = self.selected_shape
         if isinstance(shape, HighlightShape):
             return shape.fill_color
         return self._default_highlight_fill_color
@@ -2493,7 +2580,7 @@ class EditorWindow(Gtk.Window):
         """Mirrors _active_obfuscate_fill_color, for the Text Color:
         swatch instead of the Fill: swatch.
         """
-        shape = self._selected_shape
+        shape = self.selected_shape
         if isinstance(shape, ObfuscateShape):
             return shape.text_color
         return self._default_obfuscate_text_color
@@ -2576,31 +2663,54 @@ class EditorWindow(Gtk.Window):
             self.selected_shape = None
             self._drawing_area.queue_draw()
 
-    def _do_delete(self) -> None:
+    def _do_select_all(self) -> None:
+        """Object > Select All (task #125, real Windows'
+        SelectAllToolStripMenuItemClick -> Surface.SelectAllElements,
+        Surface.cs:2510-2513) - selects every shape on the layer, not
+        just one.
+        """
         self._commit_text_editing_if_active()
-        if self.selected_shape is None:
+        self._set_selected_shapes(list(self.layer))
+        self._drawing_area.queue_draw()
+
+    def _do_delete(self) -> None:
+        """Multi-shape aware since task #125 - real Windows'
+        RemoveSelectedElements (Surface.cs:2118-2132) removes the
+        *whole* selection as one undo step, not just a single element;
+        CompositeMemento (already a faithful port of Windows' own
+        AddElementsMemento/DeleteElementsMemento batch mementos, just
+        never wired to anything before this) gives the same one-undo-
+        restores-everything behavior here.
+        """
+        self._commit_text_editing_if_active()
+        shapes = self.selected_shapes
+        if not shapes:
             return
-        shape = self.selected_shape
-        self.layer.remove(shape)
-        self.undo_redo.push(DeleteElementMemento(self.layer, shape))
-        self.selected_shape = None
+        mementos = []
+        for shape in shapes:
+            self.layer.remove(shape)
+            mementos.append(DeleteElementMemento(self.layer, shape))
+        self.undo_redo.push(CompositeMemento(mementos) if len(mementos) > 1 else mementos[0])
+        self._set_selected_shapes([])
         self._drawing_area.queue_draw()
 
     def _do_cut_shape(self) -> None:
         self._commit_text_editing_if_active()
-        if self.selected_shape is None:
+        shapes = self.selected_shapes
+        if not shapes:
             return
-        self._shape_clipboard = self.selected_shape
+        self._shape_clipboard = shapes
         self._do_delete()
 
     def _do_copy_shape(self) -> None:
         self._commit_text_editing_if_active()
-        if self.selected_shape is None:
+        shapes = self.selected_shapes
+        if not shapes:
             return
-        self._shape_clipboard = self.selected_shape
+        self._shape_clipboard = shapes
 
     def _do_paste_shape(self) -> None:
-        # Pastes the last cut/copied *shape*, not an image from the
+        # Pastes the last cut/copied shape(s), not an image from the
         # real system clipboard - Windows' Paste can also embed an
         # image from the system clipboard, but ClipboardBackend here
         # is write-only (set_image), with no read-back support built
@@ -2608,10 +2718,11 @@ class EditorWindow(Gtk.Window):
         self._commit_text_editing_if_active()
         if self._shape_clipboard is None:
             return
-        pasted = translate_shape(self._shape_clipboard, 20, 20)
-        self.layer.add(pasted)
-        self.selected_shape = pasted
-        self.undo_redo.push(AddElementMemento(self.layer, pasted))
+        pasted = [translate_shape(shape, 20, 20) for shape in self._shape_clipboard]
+        for shape in pasted:
+            self.layer.add(shape)
+            self.undo_redo.push(AddElementMemento(self.layer, shape))
+        self._set_selected_shapes(pasted)
         self._drawing_area.queue_draw()
 
     def _do_duplicate(self) -> None:
@@ -2619,15 +2730,19 @@ class EditorWindow(Gtk.Window):
         duplicateToolStripMenuItem/Ctrl+D) - same offset-copy-and-
         select behavior as Paste above, just sourced from the current
         selection directly instead of the shape clipboard, and without
-        touching it.
+        touching it. Multi-shape aware since task #125 - real Windows'
+        DuplicateSelectedElements (Surface.cs:2411-2420) duplicates the
+        whole selection, not just one element.
         """
         self._commit_text_editing_if_active()
-        if self.selected_shape is None:
+        shapes = self.selected_shapes
+        if not shapes:
             return
-        duplicated = translate_shape(self.selected_shape, 20, 20)
-        self.layer.add(duplicated)
-        self.selected_shape = duplicated
-        self.undo_redo.push(AddElementMemento(self.layer, duplicated))
+        duplicated = [translate_shape(shape, 20, 20) for shape in shapes]
+        for shape in duplicated:
+            self.layer.add(shape)
+            self.undo_redo.push(AddElementMemento(self.layer, shape))
+        self._set_selected_shapes(duplicated)
         self._drawing_area.queue_draw()
 
     def _do_bring_to_front(self) -> None:
@@ -4031,14 +4146,27 @@ class EditorWindow(Gtk.Window):
         self._hide_text_editor()
         self._drawing_area.queue_draw()
 
+    def _move_preview_for(self, shape):
+        """``shape``'s live move preview, if it's one of the shapes
+        currently being dragged - looked up by position in the
+        parallel _move_shapes/_move_previews lists (not a dict keyed
+        by shape - see _move_shapes' own comment on why), None if
+        ``shape`` isn't being moved right now.
+        """
+        for moving, preview in zip(self._move_shapes, self._move_previews):
+            if moving is shape:
+                return preview
+        return None
+
     def _selected_display_shape(self):
-        """The selected shape's current bounds for handle drawing,
-        following whichever live preview (if any) applies."""
+        """The selected (primary) shape's current bounds for handle
+        drawing, following whichever live preview (if any) applies."""
         if self._resize_shape is not None:
             return self._resize_preview or self._resize_shape
-        if self._move_shape is not None and self._move_shape is self.selected_shape:
-            return self._move_preview or self._move_shape
-        return self.selected_shape
+        primary = self.selected_shape
+        if primary is not None and any(s is primary for s in self._move_shapes):
+            return self._move_preview_for(primary) or primary
+        return primary
 
     def _draw_handles(self, ctx, shape):
         half = _HANDLE_SIZE / 2
@@ -4051,6 +4179,24 @@ class EditorWindow(Gtk.Window):
             ctx.set_line_width(1)
             ctx.stroke()
             ctx.restore()
+
+    def _draw_selection_outline(self, ctx, shape) -> None:
+        """A plain bounding-box outline, no resize handles - task
+        #125's own marker for every selected shape that isn't the
+        primary one (see _selected_display_shape). Same stroke color
+        as the primary shape's own handles, just without the fill
+        squares, so a multi-selection still reads as one coherent
+        "these are all selected" visual rather than looking like only
+        one shape is really selected.
+        """
+        b = shape.bounds
+        ctx.save()
+        ctx.set_source_rgb(*_HANDLE_STROKE)
+        ctx.set_line_width(1)
+        ctx.set_dash([4, 3])
+        ctx.rectangle(b.left, b.top, b.width, b.height)
+        ctx.stroke()
+        ctx.restore()
 
     def _resize_canvas_and_window(self) -> None:
         """Resizes the drawing area to the current base image's size
@@ -4457,14 +4603,26 @@ class EditorWindow(Gtk.Window):
         ctx.set_source_surface(self._surface, 0, 0)
         ctx.paint()
         for shape in self.layer:
-            if shape is self._move_shape and self._move_preview is not None:
-                render_shape(ctx, self._move_preview, base_image=self._base_image)
+            move_preview = self._move_preview_for(shape)
+            if move_preview is not None:
+                render_shape(ctx, move_preview, base_image=self._base_image)
             elif shape is self._resize_shape and self._resize_preview is not None:
                 render_shape(ctx, self._resize_preview, base_image=self._base_image)
             else:
                 render_shape(ctx, shape, base_image=self._base_image)
         if self._drag_shape is not None:
             render_shape(ctx, self._drag_shape, base_image=self._base_image)
+
+        # Every non-primary selected shape gets a plain outline (no
+        # resize handles - multi-shape resize is out of scope, see
+        # _selected_display_shape's own comment); the primary one gets
+        # full handles below, matching real Windows' own Adorners
+        # (only ever shown on one element even during a multi-select).
+        # Slicing to [:-1] is naturally [] when 0-1 shapes are
+        # selected, no separate length check needed.
+        for shape in self._selected_shapes[:-1]:
+            outline_shape = self._move_preview_for(shape) or shape
+            self._draw_selection_outline(ctx, outline_shape)
 
         display_shape = self._selected_display_shape()
         if display_shape is not None:
@@ -4551,12 +4709,17 @@ class EditorWindow(Gtk.Window):
                 return True
 
         hit = self.layer.topmost_at(x, y)
+        # Task #125: real Windows' own SurfaceMouseUp shift-toggle
+        # logic (Surface.cs:1607-1636), adapted to this port's own
+        # mouse-down-commits-selection architecture (predates this
+        # task) rather than switching to Windows' mouse-up-based one.
+        shift_held = bool(event.state & Gdk.ModifierType.SHIFT_MASK)
 
         if hit is not None and isinstance(hit, (TextShape, SpeechBubbleShape)) and event.type == Gdk.EventType._2BUTTON_PRESS:
             # A double-click's second press follows a first (single)
             # press that already ran the branch below and may have
             # started a move - cancel that, double-click means edit.
-            self._move_shape = None
+            self._move_shapes = []
             self._move_origin = None
             self.selected_shape = hit
             self._editing_text_shape = hit
@@ -4566,13 +4729,48 @@ class EditorWindow(Gtk.Window):
             return True
 
         if hit is not None:
-            self.selected_shape = hit
-            self._move_shape = hit
+            already_selected = any(s is hit for s in self._selected_shapes)
+            if shift_held and already_selected:
+                # Shift-click on an already-selected shape deselects
+                # just it, leaving the rest of the selection untouched
+                # - matches real Windows' own DeselectElement toggle -
+                # and doesn't start a move for a shape that's no longer
+                # selected.
+                self._set_selected_shapes([s for s in self._selected_shapes if s is not hit])
+                widget.queue_draw()
+                return True
+            if shift_held:
+                self._set_selected_shapes(self._selected_shapes + [hit])
+            elif not already_selected:
+                # Plain click on something NOT already part of a
+                # multi-selection replaces the whole selection - but a
+                # plain click on something that IS already selected
+                # deliberately leaves the rest of the selection alone,
+                # so dragging any member of an existing multi-selection
+                # moves the whole group (matches real Windows exactly,
+                # Surface.cs:1611-1630).
+                self.selected_shape = hit
+            # Move the *whole* current selection together, not just
+            # the clicked shape - real Windows' own SurfaceMouseMove:
+            # "dragged element has been selected before -> move all"
+            # (Surface.cs:1707-1708).
+            self._move_shapes = list(self._selected_shapes)
             self._move_origin = (x, y)
-        elif self.tool is not Tool.SELECT:
-            # Select (Windows' "Cursor" tool) only selects/moves/
-            # resizes existing shapes - clicking empty space with it
-            # active does nothing, unlike every drawing tool.
+        elif self.tool is Tool.SELECT:
+            # Select (Windows' "Cursor" tool) on empty space: real
+            # Windows just clears the selection here (Surface.cs:1632-
+            # 1635); this port also starts a rubber-band/marquee drag
+            # (task #125, an Orcshot-only addition beyond the real
+            # port - real Windows' own SurfaceMouseDown/Move has no
+            # such feature at all, confirmed via its source, see
+            # REQUIREMENTS.md's task #125 section). Shift-held starts
+            # an *additive* rubber band instead of clearing first.
+            if not shift_held:
+                self._set_selected_shapes([])
+            self._rubber_band_origin = (x, y)
+            self._rubber_band_rect = Rect(x, y, x, y)
+            self._rubber_band_additive = shift_held
+        else:
             self.selected_shape = None
             self._drag_origin = (x, y)
             if self.tool is Tool.FREEHAND:
@@ -4588,8 +4786,6 @@ class EditorWindow(Gtk.Window):
                     highlight_blur_radius=self._default_highlight_blur_radius,
                     highlight_magnification=self._default_highlight_magnification,
                 )
-        else:
-            self.selected_shape = None
         widget.queue_draw()
         return True
 
@@ -4611,9 +4807,14 @@ class EditorWindow(Gtk.Window):
             self._resize_preview = resize_shape(self._resize_shape, self._resize_handle, x, y)
             widget.queue_draw()
             return True
-        if self._move_shape is not None:
+        if self._move_shapes:
             dx, dy = x - self._move_origin[0], y - self._move_origin[1]
-            self._move_preview = translate_shape(self._move_shape, dx, dy)
+            self._move_previews = [translate_shape(shape, dx, dy) for shape in self._move_shapes]
+            widget.queue_draw()
+            return True
+        if self._rubber_band_origin is not None:
+            ox, oy = self._rubber_band_origin
+            self._rubber_band_rect = Rect.from_points(ox, oy, x, y)
             widget.queue_draw()
             return True
         if self._drag_origin is not None:
@@ -4660,22 +4861,51 @@ class EditorWindow(Gtk.Window):
             self._resize_preview = None
             widget.queue_draw()
             return True
-        if self._move_shape is not None:
+        if self._move_shapes:
             dx, dy = x - self._move_origin[0], y - self._move_origin[1]
-            if dx == 0 and dy == 0:
-                # a click without a drag - e.g. just selecting a shape,
-                # or the first press of what turns into a double-click.
-                # Nothing moved; pushing a memento here would only
-                # clutter undo history with a no-op step.
-                self.selected_shape = self._move_shape
-            else:
-                final = translate_shape(self._move_shape, dx, dy)
-                self.layer.replace(self._move_shape, final)
-                self.undo_redo.push(ElementChangeMemento(self.layer, before=self._move_shape, after=final))
-                self.selected_shape = final
-            self._move_shape = None
+            if dx != 0 or dy != 0:
+                # A real drag, not just a click - commit every moving
+                # shape to its translated position as one undo step
+                # (CompositeMemento, task #125 - real Windows' own
+                # multi-move is a single undo too, matching how a
+                # single-shape move already worked here). A no-op
+                # click's selection was already fully decided at
+                # button-press time (see _on_button_press's own
+                # comments) - nothing to do here for that case.
+                mementos = []
+                finals = []
+                for shape in self._move_shapes:
+                    final = translate_shape(shape, dx, dy)
+                    self.layer.replace(shape, final)
+                    mementos.append(ElementChangeMemento(self.layer, before=shape, after=final))
+                    finals.append(final)
+                self.undo_redo.push(CompositeMemento(mementos) if len(mementos) > 1 else mementos[0])
+                self._set_selected_shapes(finals)
+            self._move_shapes = []
             self._move_origin = None
-            self._move_preview = None
+            self._move_previews = []
+            widget.queue_draw()
+            return True
+        if self._rubber_band_origin is not None:
+            rect = self._rubber_band_rect
+            self._rubber_band_origin = None
+            self._rubber_band_rect = None
+            enclosed = [shape for shape in self.layer if rect.contains_rect(shape.bounds)]
+            if self._rubber_band_additive:
+                # Additive (shift-held) rubber band: union with the
+                # existing selection rather than replacing it, same
+                # spirit as shift-click's own toggle - though a second
+                # rubber band over already-selected shapes just leaves
+                # them selected (not a toggle-off), since "drag a box
+                # over things to add them" doesn't have an obvious
+                # toggle reading the way a single click does.
+                merged = list(self._selected_shapes)
+                for shape in enclosed:
+                    if not any(s is shape for s in merged):
+                        merged.append(shape)
+                self._set_selected_shapes(merged)
+            else:
+                self._set_selected_shapes(enclosed)
             widget.queue_draw()
             return True
         if self._drag_origin is not None:

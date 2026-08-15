@@ -4606,6 +4606,63 @@ committed and working; picking this up again (either finishing the pure-Python p
 types, or revisiting the Mono path, e.g. if `.greenshot` *reading* - which the Mono path gets nearly for
 free - becomes a priority) should start by reading this section, not re-deriving either approach.
 
+## Real multi-select: shift-click + rubber-band, Object > Select All (task #125, complete 2026-08-14)
+
+**Real Windows source read first, faithfully:** `Surface.cs`'s `SurfaceMouseDown`/`SurfaceMouseMove`/
+`SurfaceMouseUp` (~1477-1732), `SelectAllElements`/`SelectElements`/`SelectElement`/`DeselectElement`
+(~2485-2530), and `RemoveSelectedElements`/`CutSelectedElements`/`CopySelectedElements`/
+`DuplicateSelectedElements` (~2118-2420); `ImageEditorForm.cs`'s `SelectAllToolStripMenuItemClick`
+(line 1699); `ImageEditorForm.Designer.cs`'s exact Object menu ordering (`selectAllToolStripMenuItem`
+directly above `removeObjectToolStripMenuItem`, no separator between them). Real Windows commits
+shift-toggle membership on **mouse-up**, not mouse-down; a plain click on something not already
+selected replaces the whole selection; a plain click on something already part of a multi-selection
+leaves the selection untouched (so dragging any member moves the whole group). **Real Windows has no
+rubber-band/marquee-select at all** — confirmed by reading the complete `SurfaceMouseDown`/
+`SurfaceMouseMove` bodies and finding no branch for "drag over empty space to draw a selection
+rectangle."
+
+**Deliberate deviations:**
+- This port's selection commits on **mouse-down**, not mouse-up (a pre-existing architecture choice
+  from before this task, kept rather than switched, to limit the size of this change). Shift-toggle and
+  the "already-selected click preserves the group" behavior are both still faithfully reproduced, just
+  evaluated at press time instead of release time.
+- **Rubber-band/marquee select is an Orcshot-only addition beyond the real port** — direflail's own
+  explicit choice (`"Shift-click + rubber-band (bigger, Orcshot-only addition)"`) when asked to scope
+  this task, given real Windows has none. Dragging from empty space with the Select tool draws a
+  dashed selection rectangle; releasing selects every shape whose bounds are **fully** contained in it
+  (`Rect.contains_rect`, `core/geometry.py`) — partial overlap doesn't select, matching the common
+  "fully enclosed" convention most editors use for marquee-select. Shift-held rubber-band is additive
+  (unions with the existing selection) rather than replacing it.
+
+**Implementation:**
+- `EditorWindow._selected_shapes` (list, was a single `_selected_shape`) is the source of truth;
+  `selected_shape` (singular, returns the last/"primary" entry) stays as the existing property other
+  code already reads, `selected_shapes` (plural) is new. `_set_selected_shapes()` is the single funnel
+  point every selection change goes through.
+- Move state (`_move_shapes`/`_move_origin`/`_move_previews`) and clipboard (`_shape_clipboard`) were
+  pluralized the same way. `_do_delete`/`_do_cut_shape`/`_do_copy_shape`/`_do_paste_shape`/
+  `_do_duplicate` all now operate on the whole selection, pushing one `CompositeMemento` for a
+  multi-shape delete/move — `CompositeMemento` (`core/history.py`) already existed as a faithful port
+  of `AddElementsMemento`/`DeleteElementsMemento` but had never been wired to anything before this task.
+- Shapes are `@dataclass(frozen=True)` with structural equality, so two coincidentally-identical shape
+  instances would collide as the same value; every membership check and lookup in the new code
+  deliberately uses identity (`is`) or parallel lists, never a shape-keyed dict or `in`/`==`.
+- `Object > Select All` (`_do_select_all`) wired directly above `Delete` in the Object menu, matching
+  the real Designer.cs ordering exactly (no separator between them).
+- Non-primary selected shapes get a dashed outline (`_draw_selection_outline`) so a multi-selection is
+  visually distinguishable from a single one; the primary (last-selected) shape keeps the existing
+  resize-handle rendering.
+
+**Verified live** (`Gtk.Window`-based `EditorWindow`, synthetic `Gdk`-shaped press/motion/release
+events against the real handlers — not mocks): plain click, shift-click add/remove, click on an
+already-selected member preserving the group, dragging a multi-selection as one undo step (and
+undoing it as one step), full-selection Select All, rubber-band select (full-enclosure only, verified
+a partially-overlapping shape is correctly excluded), shift+rubber-band as additive, click-on-empty-
+space clearing the selection, and multi-shape Delete/Duplicate/Cut/Paste each producing the right
+layer/undo-stack/selection state. `_on_draw` also exercised directly with an active multi-selection
+and a live rubber-band rect to confirm the new drawing paths don't raise. Full suite green (1011
+passed, 3 skipped) both before and after.
+
 ## Licensing
 
 **Status: decided — GPLv3.** Greenshot (Windows) is GPLv3; this is a derivative work — same feature
