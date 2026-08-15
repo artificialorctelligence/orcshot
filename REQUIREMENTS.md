@@ -3234,6 +3234,17 @@ Two things came out of this, beyond just re-verifying everything under a confirm
   when manually re-enabling extensions via `gsettings` after a first-run-dialog issue, since only the
   clipboard one was fixed that way earlier this same session.
 
+**Final verification, confirmed Wayland session, real install**: with both bundled extensions enabled
+and the session type directly confirmed via `loginctl` (not assumed), the built `.deb` was reinstalled
+fresh (`sudo apt install ./orcshot_0.1.0-1_all.deb` over the already-installed version) and every
+capture flow re-tested against that real, freshly-launched process - no dev-source/`PYTHONPATH`
+override involved this time: region-select → Edit, region-select → Copy to Clipboard, Window Picker,
+and Active Window capture all confirmed working correctly by direflail, with no tray-menu artifact and
+the title bar correctly included. Also confirmed as expected, unrelated-to-this-work behavior: keybindings
+and the first-run-setup-done marker both survived the reinstall untouched, since `dpkg`/`apt` only ever
+touch a package's own files under `/usr/` - user-level `dconf`/`gsettings` state and Orcshot's own
+settings live entirely in the user's home directory, independent of any specific package install.
+
 ## Open questions (not yet decided)
 
 - Exact CI setup — to be established once there's a build worth gating.
