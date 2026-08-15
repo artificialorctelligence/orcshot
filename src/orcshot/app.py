@@ -74,6 +74,65 @@ _UPDATE_CHECK_STARTUP_DELAY_SECONDS = 20
 _UPDATE_CHECK_POLL_INTERVAL_SECONDS = 3600
 
 
+def _log_session_info() -> None:
+    """Logs which capture backend this run will actually use, once, at
+    startup. Added after a real incident: X11 vs Wayland is decided by
+    the display manager at login, not something this app (or a
+    developer testing it) can see just by looking at the desktop - a
+    VM that had been Wayland for an entire debugging session silently
+    came back as X11 after being rebuilt from a crash (same installer,
+    just more RAM/a different resolution), and every "it works" check
+    made afterward was actually exercising the X11-native capture path,
+    not the GNOME Shell extension path that session's actual bug fixes
+    targeted. `region_select.py`/`window_picker.py`/`_build_tray_icon`
+    already re-read `XDG_SESSION_TYPE` fresh at each decision point
+    (correct - a session-type change always means a fresh login, which
+    always means a fresh process via autostart, so there's nothing to
+    watch for *during* a run) - what was actually missing was any way
+    to see, after the fact, which path a given run took at all.
+    """
+    import sys
+
+    session_type = os.environ.get("XDG_SESSION_TYPE", "<unset>")
+    desktop = os.environ.get("XDG_CURRENT_DESKTOP", "<unset>")
+    if session_type == "wayland":
+        from orcshot.capture.gnome_region_select import is_available as gnome_shell_capture_available
+
+        extension = "available" if gnome_shell_capture_available() else "unavailable - falling back to portal-based capture"
+        backend = f"Wayland, GNOME Shell extension {extension}"
+    else:
+        backend = f"{session_type} (X11-native capture path)"
+    print(f"[orcshot] session_type={session_type} desktop={desktop} -> {backend}", file=sys.stderr, flush=True)
+
+
+def _defer(action) -> None:
+    """Runs ``action`` on the next main-loop iteration instead of
+    synchronously from within the caller. Every tray-menu item's own
+    "activate" handler used to call its capture-mode-starting method
+    directly - confirmed live (task #134) as a real race on X11/Mint
+    and Ubuntu 24.04/GNOME 46: the tray menu's own popdown/hide is
+    itself just a request queued during that same signal emission, not
+    something guaranteed to have reached the display server yet, and a
+    capture that starts synchronously can grab a screenshot (or, for
+    Window Picker, a specific window's frame rect) before that request
+    has actually been processed - a fragment of the still-technically-
+    visible menu ends up baked into the resulting image. Not
+    reproducible on Ubuntu 26.04/GNOME 50 - almost certainly a relative-
+    speed difference between display stacks rather than a different
+    code path, since the exact same synchronous call pattern is used
+    identically on both. Yielding one main-loop iteration here gives
+    GTK's own popdown handling (and, on X11, the display flush) a
+    chance to actually complete first, matching the standard fix for
+    this class of "closed a menu and started new UI work in the same
+    callback" race.
+    """
+    def run():
+        action()
+        return GLib.SOURCE_REMOVE
+
+    GLib.idle_add(run)
+
+
 class OrcshotApplication(Gtk.Application):
     def __init__(self):
         super().__init__(application_id=APPLICATION_ID, flags=Gio.ApplicationFlags.HANDLES_COMMAND_LINE)
@@ -104,6 +163,7 @@ class OrcshotApplication(Gtk.Application):
 
     def do_startup(self):
         Gtk.Application.do_startup(self)
+        _log_session_info()
         Gtk.Window.set_default_icon_from_file(str(LOGO_PATH))
         self._tray_icon = self._build_tray_icon()
         maybe_run_first_run_setup()
@@ -327,21 +387,27 @@ class OrcshotApplication(Gtk.Application):
     def _build_tray_menu(self) -> Gtk.Menu:
         menu = Gtk.Menu()
         region_item = Gtk.MenuItem(label="Capture Region")
-        region_item.connect("activate", lambda _item: self.start_region_capture(capture_mouse_cursor=False))
+        region_item.connect(
+            "activate", lambda _item: _defer(lambda: self.start_region_capture(capture_mouse_cursor=False))
+        )
         menu.append(region_item)
 
         full_screen_item = Gtk.MenuItem(label="Capture Full Screen")
-        full_screen_item.connect("activate", lambda _item: self.start_full_screen_capture(capture_mouse_cursor=False))
+        full_screen_item.connect(
+            "activate", lambda _item: _defer(lambda: self.start_full_screen_capture(capture_mouse_cursor=False))
+        )
         menu.append(full_screen_item)
 
         active_window_item = Gtk.MenuItem(label="Capture Active Window")
         active_window_item.connect(
-            "activate", lambda _item: self.start_active_window_capture(capture_mouse_cursor=False)
+            "activate", lambda _item: _defer(lambda: self.start_active_window_capture(capture_mouse_cursor=False))
         )
         menu.append(active_window_item)
 
         window_picker_item = Gtk.MenuItem(label="Capture Window...")
-        window_picker_item.connect("activate", lambda _item: self.start_window_picker(capture_mouse_cursor=False))
+        window_picker_item.connect(
+            "activate", lambda _item: _defer(lambda: self.start_window_picker(capture_mouse_cursor=False))
+        )
         from orcshot.capture.backend_select import window_picker_supported
 
         if not window_picker_supported():
@@ -354,7 +420,7 @@ class OrcshotApplication(Gtk.Application):
 
         self._repeat_item = Gtk.MenuItem(label="Repeat Last Region")
         self._repeat_item.connect(
-            "activate", lambda _item: self.start_last_region_capture(capture_mouse_cursor=False)
+            "activate", lambda _item: _defer(lambda: self.start_last_region_capture(capture_mouse_cursor=False))
         )
         self._repeat_item.set_sensitive(False)  # no region captured yet
         menu.append(self._repeat_item)

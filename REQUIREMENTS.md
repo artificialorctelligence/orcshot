@@ -3173,6 +3173,67 @@ into window-picker captures, and the captured window's title bar being excluded 
 and #135 rather than folded into this one, since task #38's own actual scope (the GNOME-46
 compatibility blockers) is now fully resolved.
 
+**Both #134/#135 turned out to be one real bug plus one false alarm, not two GNOME-46-specific
+issues** - see the section below.
+
+## Tray menu doesn't close before the next capture mode starts (task #134, complete 2026-08-15)
+
+Not a bug in `extension.js` at all, despite the initial diagnosis (see task #38's own section above,
+which originally suspected the post-capture destination picker) - the real defect was in `app.py`'s
+tray menu, and it predates today's GNOME 46 work entirely. Every tray menu item's `"activate"` handler
+called its capture-mode-starting method directly and synchronously
+(`region_item.connect("activate", lambda _item: self.start_region_capture(...))`, same shape for every
+item) - a classic "closed a menu and started new UI work in the same callback" race: the menu's own
+popdown/hide is itself just a request queued during that same signal emission, not something guaranteed
+to have reached the display server yet, so a capture that starts synchronously can grab a screenshot
+(or, for Window Picker, a specific window's frame rect) before that request has actually been
+processed - a fragment of the still-technically-visible menu ends up baked into the resulting image.
+
+Confirmed live by direflail across platforms: reproducible on Mint (X11) and Ubuntu 24.04/GNOME 46,
+not reproducible on Ubuntu 26.04/GNOME 50 - almost certainly a relative-speed difference between
+display stacks rather than a different code path, since the exact same synchronous call pattern is
+used identically everywhere. Fixed with a small `_defer()` helper (`GLib.idle_add()`, run once and
+returns `GLib.SOURCE_REMOVE`) wrapping all five tray-menu-item capture calls (region, full screen,
+active window, window picker, repeat last region) - yields one main-loop iteration so GTK's own
+popdown handling (and, on X11, the display flush) completes before the next capture starts. Verified
+live: no more menu fragment in the captured pixels, on a confirmed Wayland session with both bundled
+extensions enabled.
+
+**Task #135 (captured window excluding its title bar) turned out not to be a real, separate bug** -
+re-tested under the same confirmed-Wayland conditions and the title bar was correctly included via
+`WindowPickerOverlay`'s existing `metaWindow.get_frame_rect()`. The original observation was made
+while the VM's session had silently become X11 (see below) with the `window-calls` extension not yet
+enabled, so "Capture Window" was actually running through the entirely separate X11-native code path
+that day, not `extension.js` at all.
+
+### A real process lesson: X11 vs Wayland is not something you can assume stays constant
+
+The Ubuntu 24.04 VM crashed mid-session and was rebuilt from the same installer (direflail just bumped
+RAM/resolution) - the rebuilt VM silently came up in an X11 session instead of Wayland, and stayed
+that way through several further logout/login cycles before anyone noticed. GDM remembers the last-
+picked session type from its own login-screen gear icon; something about the rebuild changed what it
+defaulted to. Every "it works!" check made in the meantime (several of task #38's own "confirmed live"
+claims, task #134/#135's original diagnoses) was actually exercising the *X11-native* capture path, not
+the GNOME Shell extension path the day's actual bug fixes targeted - real time was spent chasing a
+"destination-picker menu" theory for #134 that never had anything to do with `extension.js` at all,
+purely because the environment wasn't what it was assumed to be.
+
+Two things came out of this, beyond just re-verifying everything under a confirmed Wayland session
+(`loginctl show-session <id> -p Type`, not assumed):
+
+- `_log_session_info()` (`app.py`'s `do_startup`) now logs the detected session type, desktop, and
+  (on Wayland) GNOME Shell extension availability once at every real startup - `[orcshot]
+  session_type=... desktop=... -> ...`. Purely diagnostic, changes no behavior - the existing per-
+  capture `XDG_SESSION_TYPE` checks in `region_select.py`/`window_picker.py`/`_build_tray_icon` were
+  already correct (read fresh at each decision point, not cached at import time), so there was nothing
+  to fix architecturally - what was missing was just visibility into which path a given run actually
+  took, for exactly this kind of situation.
+- The bundled `window-calls` extension (separate from `orcshot-clipboard`, both offered by the same
+  first-run-setup dialog) needs to be enabled independently for Window Picker/Active Window capture to
+  work at all on Wayland (`capture/backend_select.py`'s `window_picker_supported()`) - easy to forget
+  when manually re-enabling extensions via `gsettings` after a first-run-dialog issue, since only the
+  clipboard one was fixed that way earlier this same session.
+
 ## Open questions (not yet decided)
 
 - Exact CI setup — to be established once there's a build worth gating.
