@@ -4496,7 +4496,7 @@ sets a selection, is undoable - undoing both loads empties the layer again), and
 corrupt file (shows the error dialog, leaves the layer untouched, no crash). Full suite green (996 passed, 3
 skipped) before committing.
 
-## .greenshot NRBF export proof-of-concept: RectangleContainer (task #124, in progress, 2026-08-14)
+## .greenshot NRBF export proof-of-concept: RectangleContainer (task #124, PARKED, 2026-08-14)
 
 Real Windows `.greenshot`/`.gst` files embed the shape layer via raw .NET `BinaryFormatter` (MS-NRBF wire
 format) - `GreenshotFileFormatHandler.cs:49-133`, `Surface.cs:729-764`. Earlier research (recorded in the
@@ -4582,6 +4582,29 @@ the Single/Double packing bug; `test_greenshot_export.py`: a regression test for
 bug, header/MessageEnd framing, and exact bounds/style byte-pattern checks using the same values verified
 live against the VM). `tests/fixtures/rectangle_container.nrbf` is the real VM-captured reference file.
 Full suite green (1008 passed, 3 skipped).
+
+**Decision: parked as a maybe-add.** Before stopping, the obvious next step - calling real Greenshot's own
+compiled DLLs directly via `pythonnet`+Mono instead of maintaining a hand-ported encoder - was actually
+tested, not just discussed. Installed `mono-complete`, pulled `Greenshot.Editor.dll`/`Greenshot.Base.dll` +
+all 33 `Dapplo.*` dependencies off the `windows11` VM (`VBoxManage guestcontrol copyfrom --recursive`), and
+proved live: the real DLLs load under Mono on Linux, a full `RectangleContainer` with real
+`Field`/`FieldType`/`System.Drawing.Color` objects constructs correctly (`Color.FromArgb` needs no
+`libgdiplus`/GDI+ P/Invoke), `BinaryFormatter.Serialize` works, and deserializing back through the real
+`BinaryFormatterHelper` whitelist binder succeeds with exactly correct values. The assumption that
+`Dapplo.Windows.*` (Windows-only P/Invoke wrappers) would block this was wrong - .NET's assembly loading is
+lazy, so a DLL is only resolved once a type from it is actually touched (one real exception:
+`FormatterServices.GetUninitializedObject` needs every field's *type* resolvable up front for the full
+object layout, which is why `log4net.dll` and `Dapplo.Windows.Common.dll` specifically were still required
+even for construction-only). Measured real sizes: a minimal Mono *runtime* (not `mono-complete`'s
+compiler/dev/doc tooling) is ~13.4MB core engine + ~6.7MB of System.* CIL libraries actually touched, plus
+~5.4MB for the full bundled Greenshot DLL set - **~25-30MB of permanent runtime dependency for every
+install**, for a feature most users won't use. Legally uncomplicated (GPLv3-to-GPLv3 reuse with
+attribution), but direflail weighed the size cost against wanting Orcshot to stay small and chose small:
+*"let's just save our own files in .orcshot format. leave saving .greenshot with mono the way we described
+as a maybe-add."* Task #124 is parked, not abandoned - the pure-Python proof-of-concept above stays
+committed and working; picking this up again (either finishing the pure-Python path for the other ~13 shape
+types, or revisiting the Mono path, e.g. if `.greenshot` *reading* - which the Mono path gets nearly for
+free - becomes a priority) should start by reading this section, not re-deriving either approach.
 
 ## Licensing
 
