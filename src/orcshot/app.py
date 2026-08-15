@@ -41,7 +41,8 @@ from importlib.metadata import version as installed_version
 import gi
 
 gi.require_version("Gtk", "3.0")
-from gi.repository import Gio, GLib, Gtk
+gi.require_version("Gdk", "3.0")
+from gi.repository import Gdk, Gio, GLib, Gtk
 
 from orcshot.core.update_check import is_newer_version, should_check_now
 from orcshot.settings import get_last_update_check, get_update_check_interval_days, set_last_update_check
@@ -72,6 +73,10 @@ _UPDATE_CHECK_STARTUP_DELAY_SECONDS = 20
 # interval settings don't need finer polling than this; simpler than
 # reproducing UpdateService.cs's own dynamic TimeSpan rescheduling.
 _UPDATE_CHECK_POLL_INTERVAL_SECONDS = 3600
+
+
+def _rgba_to_color(rgba: Gdk.RGBA) -> tuple:
+    return (round(rgba.red * 255), round(rgba.green * 255), round(rgba.blue * 255), round(rgba.alpha * 255))
 
 
 def _log_session_info() -> None:
@@ -385,28 +390,98 @@ class OrcshotApplication(Gtk.Application):
         return icon
 
     def _build_tray_menu(self) -> Gtk.Menu:
+        # Task #137: real Windows Greenshot has an icon on every one of
+        # these items too (MainForm.Designer.cs: contextmenu_capturearea.
+        # Image, contextmenu_capturewindow.Image, contextmenu_settings.
+        # Image, contextmenu_exit.Image, etc.) - this menu had never had
+        # any, on any platform, confirmed live by direflail on Ubuntu
+        # 24.04, 26.04, and X11/Mint alike. Capture-mode icons are hand-
+        # drawn (icons.py's capture_mode_icon_image - no standardized
+        # freedesktop name for "region select"/"active window", same
+        # reasoning as the tool-palette icons in that file's own
+        # docstring); Preferences/Quit reuse standard theme icon names,
+        # matching editor_window.py's own menu_item helper and its
+        # existing "preferences-system-symbolic" for the same action.
+        from orcshot.ui.icons import capture_mode_icon_image
+
         menu = Gtk.Menu()
-        region_item = Gtk.MenuItem(label="Capture Region")
-        region_item.connect(
-            "activate", lambda _item: _defer(lambda: self.start_region_capture(capture_mouse_cursor=False))
+        icon_color = _rgba_to_color(Gtk.Window().get_style_context().get_color(Gtk.StateFlags.NORMAL))
+
+        def menu_item(label: str, handler, *, icon_mode: str = None, icon_name: str = None) -> Gtk.MenuItem:
+            # Gtk.ImageMenuItem, not a Gtk.MenuItem wrapping a hand-built
+            # Gtk.Box(icon+label) - this menu (unlike editor_window.py's
+            # own menu_item helper, which builds a purely local, X11/
+            # Wayland-both-fine Gtk.Menu) gets exported over the
+            # DBusMenu protocol by AyatanaAppIndicator3.Indicator.
+            # set_menu() under Wayland, rendered by a *remote* process
+            # (the Shell's own AppIndicator support), not drawn locally
+            # at all. Confirmed live (task #137): the Box+Image+Label
+            # version showed icons correctly on X11 (real local Gtk.Menu
+            # rendering, understands arbitrary child widgets) but showed
+            # none at all on Wayland/Ubuntu 26.04 - the DBusMenu exporter
+            # only knows how to serialize icons from recognized GTK
+            # properties (ImageMenuItem's own `image`), not by
+            # introspecting a menu item's freeform widget tree. Same
+            # underlying "cross-process menu rendering has its own rules"
+            # class of issue task #133 already hit for the destination
+            # picker, just a different mechanism (DBusMenu export here,
+            # vs. that one's Shell-native PopupMenu). Deprecated since
+            # GTK 3.10 but still functional - the deprecation is *why*
+            # editor_window.py/destination_picker.py moved away from it
+            # for their own (local-only) menus, not evidence it's broken.
+            item = Gtk.ImageMenuItem(label=label)
+            if icon_mode is not None:
+                item.set_image(capture_mode_icon_image(icon_mode, icon_color))
+            elif icon_name is not None:
+                item.set_image(Gtk.Image.new_from_icon_name(icon_name, Gtk.IconSize.MENU))
+            item.set_always_show_image(True)
+            # Icon side wants to be left on both platforms (task #137).
+            # On Wayland this menu is DBusMenu-exported (see the comment
+            # above) and ubuntu-appindicators@ubuntu.com's dbusMenu.js
+            # hard-codes Clutter.ActorAlign.END for every item's icon,
+            # with no DBusMenu property a client can set to override it
+            # - confirmed by reading its actual source, not fixable from
+            # here. An earlier attempt to force RTL direction on this
+            # item to compensate broke icon display entirely on Wayland
+            # (reverted - RTL evidently reorders GtkImageMenuItem's
+            # internal image+label children, not just their rendering,
+            # and the DBusMenu exporter's icon-extraction is order-
+            # dependent). On X11 this menu is a genuine local Gtk.Menu
+            # (never exported), and GtkImageMenuItem's icon side is
+            # governed by gtk_widget_get_direction() - nothing here was
+            # setting it explicitly, so it fell back to whatever the
+            # live session's process-wide default resolved to. Forcing
+            # LTR here is the opposite change from the one that broke
+            # Wayland and is scoped to the X11-only branch, so it can't
+            # repeat that regression.
+            if os.environ.get("XDG_SESSION_TYPE") != "wayland":
+                item.set_direction(Gtk.TextDirection.LTR)
+            item.connect("activate", lambda _item: handler())
+            return item
+
+        region_item = menu_item(
+            "Capture Region", lambda: _defer(lambda: self.start_region_capture(capture_mouse_cursor=False)),
+            icon_mode="region",
         )
         menu.append(region_item)
 
-        full_screen_item = Gtk.MenuItem(label="Capture Full Screen")
-        full_screen_item.connect(
-            "activate", lambda _item: _defer(lambda: self.start_full_screen_capture(capture_mouse_cursor=False))
+        full_screen_item = menu_item(
+            "Capture Full Screen",
+            lambda: _defer(lambda: self.start_full_screen_capture(capture_mouse_cursor=False)),
+            icon_mode="full_screen",
         )
         menu.append(full_screen_item)
 
-        active_window_item = Gtk.MenuItem(label="Capture Active Window")
-        active_window_item.connect(
-            "activate", lambda _item: _defer(lambda: self.start_active_window_capture(capture_mouse_cursor=False))
+        active_window_item = menu_item(
+            "Capture Active Window",
+            lambda: _defer(lambda: self.start_active_window_capture(capture_mouse_cursor=False)),
+            icon_mode="active_window",
         )
         menu.append(active_window_item)
 
-        window_picker_item = Gtk.MenuItem(label="Capture Window...")
-        window_picker_item.connect(
-            "activate", lambda _item: _defer(lambda: self.start_window_picker(capture_mouse_cursor=False))
+        window_picker_item = menu_item(
+            "Capture Window...", lambda: _defer(lambda: self.start_window_picker(capture_mouse_cursor=False)),
+            icon_mode="window_picker",
         )
         from orcshot.capture.backend_select import window_picker_supported
 
@@ -418,9 +493,10 @@ class OrcshotApplication(Gtk.Application):
             )
         menu.append(window_picker_item)
 
-        self._repeat_item = Gtk.MenuItem(label="Repeat Last Region")
-        self._repeat_item.connect(
-            "activate", lambda _item: _defer(lambda: self.start_last_region_capture(capture_mouse_cursor=False))
+        self._repeat_item = menu_item(
+            "Repeat Last Region",
+            lambda: _defer(lambda: self.start_last_region_capture(capture_mouse_cursor=False)),
+            icon_mode="repeat_region",
         )
         self._repeat_item.set_sensitive(False)  # no region captured yet
         menu.append(self._repeat_item)
@@ -435,14 +511,14 @@ class OrcshotApplication(Gtk.Application):
         # used here. Before this task, Preferences was only reachable
         # from inside an already-open editor - this is the only way to
         # reach it with none open at all.
-        preferences_item = Gtk.MenuItem(label="Preferences...")
-        preferences_item.connect("activate", lambda _item: self.show_preferences())
+        preferences_item = menu_item(
+            "Preferences...", self.show_preferences, icon_name="preferences-system-symbolic",
+        )
         menu.append(preferences_item)
 
         menu.append(Gtk.SeparatorMenuItem())
 
-        quit_item = Gtk.MenuItem(label="Quit")
-        quit_item.connect("activate", lambda _item: self.quit())
+        quit_item = menu_item("Quit", self.quit, icon_name="application-exit-symbolic")
         menu.append(quit_item)
         menu.show_all()
         return menu

@@ -5168,6 +5168,76 @@ precedence over the system copy the `.deb` installed) and confirmed `State: ACTI
 only *after* a real logout/login. A genuine end-to-end capture (region-select through the destination
 picker) then confirmed icons render correctly - direflail's own words: "works."
 
+## Tray icon capture-mode menu had no icons at all (task #137, complete 2026-08-15)
+
+**Reported by direflail via screenshot**: the tray icon's own right-click menu (Capture Region/Full
+Screen/Active Window/Window.../Repeat Last Region/Preferences/Quit) had never had icons, on any
+platform - confirmed live on Ubuntu 24.04, 26.04, and X11/Mint alike. Real Windows Greenshot has an
+icon on every one of these (`MainForm.Designer.cs`: `contextmenu_capturearea.Image`,
+`contextmenu_capturewindow.Image`, `contextmenu_settings.Image`, `contextmenu_exit.Image`, etc.).
+
+**Fix, part 1 - icons**: five new hand-drawn cairo icons added to `ui/icons.py`
+(`capture_mode_icon_image()` / `_CAPTURE_MODE_ICON_BUILDERS`) - a dashed rectangle for Capture Region
+(the "marching ants" region-select metaphor), a monitor+stand for Full Screen, a solid window frame
+for Active Window, the same frame dashed for Window Picker (dashed = interactive pick, solid =
+concrete/current, kept consistent across the pair), and a rectangle plus a small refresh arrow for
+Repeat Last Region. Preferences/Quit reuse standard theme icon names
+(`preferences-system-symbolic`/`application-exit-symbolic`), matching `editor_window.py`'s own
+`menu_item` helper. Each icon was rendered to a standalone PNG and visually checked before being wired
+in - the same discipline used for the earlier toolbar icons.
+
+**Fix, part 2 - Wayland showed no icons even after part 1**: `_build_tray_menu`'s `menu_item` helper
+originally built each row as a `Gtk.MenuItem` wrapping a hand-composed `Gtk.Box(image, label)`, the
+same pattern `editor_window.py`/`destination_picker.py` use for their own (purely local) menus. That
+rendered correctly on X11 but showed no icons at all on Wayland/Ubuntu 26.04. Root cause: unlike those
+other menus, this one is exported over the DBusMenu D-Bus protocol by
+`AyatanaAppIndicator3.Indicator.set_menu()` under Wayland (see `_build_tray_icon`'s own comment for why
+X11 stays on `Gtk.StatusIcon` instead of unifying onto AppIndicator) and rendered by a *remote*
+process - `ubuntu-appindicators@ubuntu.com`, the Shell extension that hosts AppIndicator menus - using
+its own JS/Clutter/St widgets, not this process's GTK widget tree at all. Its exporter only reads
+recognized GTK properties (`Gtk.ImageMenuItem.image`), not an arbitrary child widget composition.
+Switching every row to `Gtk.ImageMenuItem` (deprecated since GTK 3.10 but still functional - the
+deprecation is exactly why the other, local-only menus moved away from it, not evidence it's broken)
+plus `set_always_show_image(True)` fixed Wayland without regressing X11.
+
+**Fix, part 3 - icon side inconsistent between platforms**: once icons were visible everywhere, X11
+showed them on the left and Wayland on the right - inconsistent with each other and with the
+destination picker (left on both platforms). First attempt: force `Gtk.TextDirection.RTL` on every
+item to make X11 match Wayland's right side instead. This was wrong and confirmed live to be wrong -
+it broke icon display entirely on Wayland. RTL evidently reorders `GtkImageMenuItem`'s internal
+image+label children, not just their visual rendering, and the DBusMenu exporter's own icon-extraction
+logic is order-dependent, so flipping direction on the exported menu broke serialization. Reverted
+immediately.
+
+direflail's actual ask, once the platforms were correctly compared side by side (not the initial
+mixed-up screenshot pairing): both platforms *left*, matching the destination picker. Wayland's right
+side is `ubuntu-appindicators@ubuntu.com`'s own `dbusMenu.js` hard-coding `xAlign:
+Clutter.ActorAlign.END` for every menu item's icon (confirmed by reading its source) - no DBusMenu
+property exists for a client to override this, so it's not fixable from Orcshot's code, full stop.
+
+X11's side turned out to be fixable, but not obviously so. Nothing in this codebase was setting
+`GtkImageMenuItem`'s text direction, yet isolated reproductions of the exact same widget code (a bare
+`Gtk.StatusIcon` + `Gtk.ImageMenuItem` + `menu.popup()`, run standalone, run from the app's own venv,
+run with `GTK3_MODULES=xapp-gtk3-module` set to match the live session) all rendered icons on the
+*left* - contradicting the real running app, which direflail confirmed by photo was showing icons on
+the *right* on X11/Mint. Dead ends checked and ruled out: the active theme
+(`Mint-Y-Dark-Blue`)'s CSS has no `ImageMenuItem`- or direction-specific rules; `xapp-gtk3-module`
+(present in the real session's `GTK3_MODULES`, absent from the isolated tests) only forces window
+*icons* (`gtk_window_set_icon`), confirmed by reading its exported symbols - nothing menu-related;
+attaching a debugger to the live process to read its actual resolved direction was blocked by
+`ptrace_scope` (would need root, not pursued). The exact mechanism behind the live divergence was never
+positively identified. What *is* true regardless: `GtkImageMenuItem`'s icon side is governed by
+`gtk_widget_get_direction()` (confirmed in GTK's own source), X11's tray menu is a genuine local
+`Gtk.Menu` never exported anywhere (unlike Wayland's), so explicitly forcing `Gtk.TextDirection.LTR`
+on it is safe regardless of *why* the live default was resolving differently - it's the opposite change
+from the one that broke Wayland, and it's scoped to the `XDG_SESSION_TYPE != "wayland"` branch only, so
+it cannot touch the DBusMenu-exported path at all. Verified live: icons moved to the left on X11/Mint,
+confirmed by direflail.
+
+**Final state**: icons on every tray-menu item, left-aligned on X11 (matching the destination picker).
+Wayland keeps its right-aligned icons - a known, permanent platform difference, not a bug to keep
+chasing.
+
 ## Licensing
 
 **Status: decided — GPLv3.** Greenshot (Windows) is GPLv3; this is a derivative work — same feature

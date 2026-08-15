@@ -906,6 +906,116 @@ _DESTINATION_ICON_BUILDERS = {
 }
 
 
+def _capture_region_icon(color: Color) -> cairo.ImageSurface:
+    """Dashed rectangle - the "marching ants" region-select metaphor.
+    Dashed (not solid) deliberately matches _capture_window_picker_icon
+    below - both represent an interactive "you choose" action, versus
+    the solid shapes used for "the current/remembered one" (Active
+    Window, Repeat Last Region)."""
+    surface = _blank_surface()
+    ctx = cairo.Context(surface)
+    r, g, b, a = color
+    ctx.set_source_rgba(r / 255, g / 255, b / 255, a / 255)
+    ctx.set_line_width(2)
+    ctx.set_dash([3, 2])
+    ctx.rectangle(_MARGIN, _MARGIN, ICON_SIZE - 2 * _MARGIN, ICON_SIZE - 2 * _MARGIN)
+    ctx.stroke()
+    return surface
+
+
+def _capture_full_screen_icon(color: Color) -> cairo.ImageSurface:
+    """A monitor: screen bezel plus a small stand - the standard
+    "display" glyph shape."""
+    surface = _blank_surface()
+    ctx = cairo.Context(surface)
+    r, g, b, a = color
+    ctx.set_source_rgba(r / 255, g / 255, b / 255, a / 255)
+    ctx.set_line_width(2)
+    ctx.set_line_join(cairo.LINE_JOIN_ROUND)
+    screen_bottom = ICON_SIZE * 0.66
+    _rounded_rect_path(ctx, _MARGIN, _MARGIN, ICON_SIZE - 2 * _MARGIN, screen_bottom - _MARGIN, 2)
+    ctx.stroke()
+    ctx.move_to(ICON_SIZE / 2, screen_bottom)
+    ctx.line_to(ICON_SIZE / 2, ICON_SIZE - _MARGIN)
+    ctx.stroke()
+    ctx.move_to(ICON_SIZE * 0.3, ICON_SIZE - _MARGIN)
+    ctx.line_to(ICON_SIZE * 0.7, ICON_SIZE - _MARGIN)
+    ctx.stroke()
+    return surface
+
+
+def _window_frame_icon(color: Color, *, dashed: bool) -> cairo.ImageSurface:
+    """Shared by Active Window (solid) and Window Picker (dashed) -
+    an application-window frame with a title-bar strip near the top."""
+    surface = _blank_surface()
+    ctx = cairo.Context(surface)
+    r, g, b, a = color
+    ctx.set_source_rgba(r / 255, g / 255, b / 255, a / 255)
+    ctx.set_line_width(2)
+    if dashed:
+        ctx.set_dash([3, 2])
+    _rounded_rect_path(ctx, _MARGIN, _MARGIN, ICON_SIZE - 2 * _MARGIN, ICON_SIZE - 2 * _MARGIN, 2)
+    ctx.stroke()
+    ctx.set_dash([])
+    title_bar_bottom = _MARGIN + (ICON_SIZE - 2 * _MARGIN) * 0.28
+    ctx.move_to(_MARGIN, title_bar_bottom)
+    ctx.line_to(ICON_SIZE - _MARGIN, title_bar_bottom)
+    ctx.stroke()
+    return surface
+
+
+def _capture_active_window_icon(color: Color) -> cairo.ImageSurface:
+    return _window_frame_icon(color, dashed=False)
+
+
+def _capture_window_picker_icon(color: Color) -> cairo.ImageSurface:
+    return _window_frame_icon(color, dashed=True)
+
+
+def _capture_repeat_icon(color: Color) -> cairo.ImageSurface:
+    """A solid rectangle (a remembered, concrete region - not an
+    interactive selection, hence solid rather than dashed like
+    _capture_region_icon) plus a small refresh/repeat arrow."""
+    surface = _blank_surface()
+    ctx = cairo.Context(surface)
+    r, g, b, a = color
+    ctx.set_source_rgba(r / 255, g / 255, b / 255, a / 255)
+    ctx.set_line_width(2)
+    inset = ICON_SIZE * 0.14
+    ctx.rectangle(_MARGIN, _MARGIN + inset, ICON_SIZE - 2 * _MARGIN - inset, ICON_SIZE - 2 * _MARGIN - inset)
+    ctx.stroke()
+    cx, cy, radius = ICON_SIZE - _MARGIN - inset * 0.5, _MARGIN + inset * 0.5, inset * 1.15
+    ctx.set_line_width(1.6)
+    start, end = math.radians(20), math.radians(310)
+    ctx.arc(cx, cy, radius, start, end)
+    ctx.stroke()
+    head_x, head_y = cx + radius * math.cos(end), cy + radius * math.sin(end)
+    ctx.move_to(head_x, head_y)
+    ctx.line_to(head_x - radius * 0.7, head_y)
+    ctx.move_to(head_x, head_y)
+    ctx.line_to(head_x, head_y + radius * 0.7)
+    ctx.stroke()
+    return surface
+
+
+_CAPTURE_MODE_ICON_BUILDERS = {
+    "region": _capture_region_icon,
+    "full_screen": _capture_full_screen_icon,
+    "active_window": _capture_active_window_icon,
+    "window_picker": _capture_window_picker_icon,
+    "repeat_region": _capture_repeat_icon,
+}
+
+
+def capture_mode_icon_image(mode: str, color: Color = _DEFAULT_COLOR) -> Gtk.Image:
+    """Icon for a tray-menu capture-mode item (task #137) - one of
+    "region"/"full_screen"/"active_window"/"window_picker"/
+    "repeat_region"."""
+    surface = _CAPTURE_MODE_ICON_BUILDERS[mode](color)
+    pixbuf = Gdk.pixbuf_get_from_surface(surface, 0, 0, surface.get_width(), surface.get_height())
+    return Gtk.Image.new_from_pixbuf(pixbuf)
+
+
 def destination_icon_image(destination_id: str, color: Color = _DEFAULT_COLOR) -> Gtk.Image:
     """Icon for a destination-picker menu item (task #96) - falls back
     to the generic command glyph for dynamically-configured
