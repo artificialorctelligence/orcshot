@@ -50,6 +50,13 @@ from orcshot.ui.gdk_convert import pixbuf_to_numpy
 OBJECT_PATH = "/org/gnome/Shell/Extensions/OrcshotCapture"
 INTERFACE = "org.gnome.Shell.Extensions.OrcshotCapture"
 
+# A third distinct object path (task #137 follow-up), same reasoning as
+# OBJECT_PATH's own comment - the Shell-native tray panel button's state
+# (SetRepeatAvailable) is a separate D-Bus capability from either of the
+# two above.
+TRAY_OBJECT_PATH = "/org/gnome/Shell/Extensions/OrcshotTray"
+TRAY_INTERFACE = "org.gnome.Shell.Extensions.OrcshotTray"
+
 
 def is_available() -> bool:
     from orcshot.capture.gnome_clipboard import is_available as clipboard_is_available
@@ -59,6 +66,67 @@ def is_available() -> bool:
     # extension.js's enable(), so Ping() answering for one confirms
     # the other is present too.
     return clipboard_is_available()
+
+
+def notify_repeat_available(available: bool) -> None:
+    """Best-effort push to the Shell-native tray panel button (task #137
+    follow-up), if that's what's active - it lives in a different
+    process from app.py's own self._repeat_item, with no way to poll
+    this app's last_region state itself, so app.py's _remember_region
+    pushes changes here instead. Silently does nothing when the
+    extension isn't running (X11, or Wayland without it) - same
+    is_available() guard as everything else in this module, and the
+    same fire-and-forget shape as gnome_clipboard.py's SetImage call
+    (no reply expected, nothing useful to do if this particular call
+    fails - the panel button just keeps its last-known sensitivity)."""
+    if not is_available():
+        return
+    bus = Gio.bus_get_sync(Gio.BusType.SESSION, None)
+    bus.call(
+        BUS_NAME, TRAY_OBJECT_PATH, TRAY_INTERFACE, "SetRepeatAvailable",
+        GLib.Variant("(b)", (available,)), None, Gio.DBusCallFlags.NONE, -1, None, None, None,
+    )
+
+
+def shell_tray_button_active() -> bool:
+    """Whether the Shell-native tray panel button actually exists right
+    now - not just whether the extension responds at all (is_available()
+    only confirms Ping(), which predates this feature and would still
+    succeed against a stale cached module that never built one).
+    HasTrayButton distinguishes "the extension's own PanelMenu.Button
+    construction succeeded" from "it threw and enable() caught it" (see
+    extension.js's own enable()), so app.py's _build_tray_icon can fall
+    back to AyatanaAppIndicator3 instead of leaving the user with no
+    tray icon at all in that case."""
+    if not is_available():
+        return False
+    try:
+        bus = Gio.bus_get_sync(Gio.BusType.SESSION, None)
+        reply = bus.call_sync(
+            BUS_NAME, TRAY_OBJECT_PATH, TRAY_INTERFACE, "HasTrayButton",
+            None, GLib.VariantType("(b)"), Gio.DBusCallFlags.NONE, 2000, None,
+        )
+        return reply.unpack()[0]
+    except GLib.Error:
+        return False
+
+
+def get_tray_button_error() -> str:
+    """Empty string if there's no error to report - including when the
+    extension isn't running at all, since that case is already covered
+    elsewhere (app.py's _check_shell_extension_health) and doesn't need
+    a second, redundant message here."""
+    if not is_available():
+        return ""
+    try:
+        bus = Gio.bus_get_sync(Gio.BusType.SESSION, None)
+        reply = bus.call_sync(
+            BUS_NAME, TRAY_OBJECT_PATH, TRAY_INTERFACE, "GetTrayButtonError",
+            None, GLib.VariantType("(s)"), Gio.DBusCallFlags.NONE, 2000, None,
+        )
+        return reply.unpack()[0]
+    except GLib.Error:
+        return ""
 
 
 def decode_png(data: bytes):

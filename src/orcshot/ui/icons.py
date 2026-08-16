@@ -1010,7 +1010,18 @@ _CAPTURE_MODE_ICON_BUILDERS = {
 def capture_mode_icon_image(mode: str, color: Color = _DEFAULT_COLOR) -> Gtk.Image:
     """Icon for a tray-menu capture-mode item (task #137) - one of
     "region"/"full_screen"/"active_window"/"window_picker"/
-    "repeat_region"."""
+    "repeat_region". This same geometry is independently reimplemented
+    in JS/Cairo for orcshot-clipboard@orcshot.org's own Shell-native
+    tray panel button (task #137 follow-up, see that extension's own
+    _TRAY_ICON_DRAWERS) rather than shared with this function - GJS
+    can't import this module, and drawing live (colored from
+    St.ThemeNode.get_foreground_color() at paint time, the same value
+    the row's own label text uses) is what makes that button's icons
+    correctly legible under any theme, not just this app's own GTK
+    windows. Keep the two geometries in sync by hand if either changes -
+    same reasoning as [[feedback-shape-serialization-sync]] for the
+    .orcshot/.greenshot export pair.
+    """
     surface = _CAPTURE_MODE_ICON_BUILDERS[mode](color)
     pixbuf = Gdk.pixbuf_get_from_surface(surface, 0, 0, surface.get_width(), surface.get_height())
     return Gtk.Image.new_from_pixbuf(pixbuf)

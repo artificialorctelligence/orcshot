@@ -30,6 +30,13 @@ BUS_NAME = "org.gnome.Shell"
 OBJECT_PATH = "/org/gnome/Shell/Extensions/OrcshotClipboard"
 INTERFACE = "org.gnome.Shell.Extensions.OrcshotClipboard"
 
+# Bump this alongside extension.js's own API_VERSION constant whenever the
+# D-Bus contract of any of the bundled extension's interfaces changes -
+# see get_live_api_version's own docstring for why this exists at all.
+EXPECTED_API_VERSION = 2
+_VERSION_OBJECT_PATH = "/org/gnome/Shell/Extensions/OrcshotVersion"
+_VERSION_INTERFACE = "org.gnome.Shell.Extensions.OrcshotVersion"
+
 
 class GnomeClipboardUnavailable(RuntimeError):
     """The extension isn't installed, enabled, or responding - callers
@@ -84,3 +91,26 @@ def is_available() -> bool:
         return True
     except GnomeClipboardUnavailable:
         return False
+
+
+def get_live_api_version() -> int | None:
+    """The API version the *currently loaded* extension process reports,
+    or None if it isn't running at all (not installed/enabled - the same
+    case is_available() already covers, kept separate rather than
+    merged into it since most callers only care about one or the
+    other). Distinct from is_available(): GNOME Shell caches an
+    extension's JS module for the whole login session (see
+    gnome_extension_setup.py's own docstring) - a package upgrade only
+    replaces the file on disk, so an already-running Shell keeps
+    serving the *old* module, Ping() included, until a full logout/
+    login. This is what actually lets Orcshot tell "not running" apart
+    from "running, but stale" and say so (task #137 follow-up)."""
+    try:
+        bus = Gio.bus_get_sync(Gio.BusType.SESSION, None)
+        reply = bus.call_sync(
+            BUS_NAME, _VERSION_OBJECT_PATH, _VERSION_INTERFACE, "GetApiVersion",
+            None, GLib.VariantType("(i)"), Gio.DBusCallFlags.NONE, 2000, None,
+        )
+        return reply.unpack()[0]
+    except GLib.Error:
+        return None

@@ -170,7 +170,9 @@ class OrcshotApplication(Gtk.Application):
         Gtk.Application.do_startup(self)
         _log_session_info()
         Gtk.Window.set_default_icon_from_file(str(LOGO_PATH))
+        self._register_tray_actions()
         self._tray_icon = self._build_tray_icon()
+        self._check_shell_extension_health()
         maybe_run_first_run_setup()
 
         # "app.open-uri" backs every notification's default (click)
@@ -246,6 +248,14 @@ class OrcshotApplication(Gtk.Application):
         # changes works identically on both platforms instead.
         if self._repeat_item is not None:
             self._repeat_item.set_sensitive(True)
+        # Best-effort push to the Shell-native tray panel button, if that's
+        # what's active (see _build_tray_icon) - it lives in a different
+        # process with no way to poll self._repeat_item itself, and
+        # notify_repeat_available already no-ops safely when the extension
+        # isn't running (X11, or Wayland without it).
+        from orcshot.capture.gnome_region_select import notify_repeat_available
+
+        notify_repeat_available(True)
 
     def show_preferences(self) -> None:
         """Task #119: the tray icon's own "Preferences..." item. Uses
@@ -332,11 +342,141 @@ class OrcshotApplication(Gtk.Application):
         # there's nothing new to record.
         start_last_region_capture(self.last_region, capture_mouse_cursor=capture_mouse_cursor)
 
+    def _tray_action_handlers(self) -> dict:
+        """One handler per capture mode, keyed by the same mode string
+        icons.py's capture_mode_icon_image() already uses - shared
+        between _build_tray_menu's local Gtk.Menu (X11 and the
+        AppIndicator3 Wayland fallback below) and
+        _register_tray_actions' GActions (activated by the Shell-
+        native panel button in a *different* process, see that
+        method's own docstring), rather than defining the same five
+        closures twice.
+        """
+        return {
+            "region": lambda: self.start_region_capture(capture_mouse_cursor=False),
+            "full_screen": lambda: self.start_full_screen_capture(capture_mouse_cursor=False),
+            "active_window": lambda: self.start_active_window_capture(capture_mouse_cursor=False),
+            "window_picker": lambda: self.start_window_picker(capture_mouse_cursor=False),
+            "repeat_region": lambda: self.start_last_region_capture(capture_mouse_cursor=False),
+        }
+
+    def _register_tray_actions(self) -> None:
+        """Exposes the same actions _tray_action_handlers backs as
+        GActions, reachable over D-Bus with no custom interface code
+        needed on this side - GApplication automatically exports
+        every registered action at /org/orcshot/Orcshot (application_id
+        with '.' replaced by '/') via the standard org.gtk.Actions
+        interface, since this app is already a registered Gio.
+        Application with a fixed application_id (see this file's own
+        docstring). The Shell-native tray panel button
+        (orcshot-clipboard@orcshot.org, built when
+        gnome_region_select.shell_tray_button_active() - see
+        _build_tray_icon) lives in a separate process and activates
+        these by name via Gio.DBusActionGroup instead of calling into
+        this process directly - see that extension's own
+        _activateTrayAction.
+        """
+        for mode, handler in self._tray_action_handlers().items():
+            action = Gio.SimpleAction.new(f"tray-{mode}", None)
+            action.connect("activate", lambda _action, _param, h=handler: _defer(h))
+            self.add_action(action)
+        preferences_action = Gio.SimpleAction.new("tray-preferences", None)
+        preferences_action.connect("activate", lambda *_args: self.show_preferences())
+        self.add_action(preferences_action)
+        quit_action = Gio.SimpleAction.new("tray-quit", None)
+        quit_action.connect("activate", lambda *_args: self.quit())
+        self.add_action(quit_action)
+
+    def _check_shell_extension_health(self) -> None:
+        """Surfaces two real, ordinary-but-easy-to-miss states
+        _log_session_info can only log to a terminal nobody's watching
+        (task #137 follow-up):
+
+        1. The extension is running, but it's a *stale* cached copy
+           from before an update - GNOME Shell caches an extension's JS
+           module for the whole login session (see
+           gnome_extension_setup.py's own docstring), so a package
+           upgrade that changes extension.js leaves an already-running
+           Shell serving the old module, Ping() included, until the
+           user logs out and back in. First-run setup already tells a
+           *new* user this ("Both require logging out and back in to
+           take effect.") - nothing told an *existing*, upgrading user
+           the same thing before this.
+        2. The extension is current, but its own tray panel button
+           construction threw (see extension.js's own enable(), which
+           catches that specifically so it can't take the whole
+           extension down) - _build_tray_icon already falls back to
+           AyatanaAppIndicator3 for this, so the user isn't left
+           without a tray icon, but the underlying failure is still
+           worth surfacing rather than silently swallowing.
+
+        Not installed/enabled at all is deliberately left alone here -
+        that's the ordinary state on X11, or on Wayland before first-
+        run setup has run at all, not something to nag about.
+        """
+        if os.environ.get("XDG_SESSION_TYPE") != "wayland":
+            return
+        from orcshot.capture.gnome_clipboard import EXPECTED_API_VERSION, get_live_api_version
+        from orcshot.capture.gnome_region_select import (
+            get_tray_button_error, is_available, shell_tray_button_active,
+        )
+
+        if not is_available():
+            return
+
+        live_version = get_live_api_version()
+        if live_version is not None and live_version < EXPECTED_API_VERSION:
+            self._notify(
+                "Orcshot's Wayland integration needs a restart",
+                "An update changed how Orcshot's Shell extension works, but your session is "
+                "still running the previous version. Log out and back in to finish applying it.",
+            )
+            return  # explains a missing/stale tray button too - no separate report needed
+
+        if not shell_tray_button_active():
+            error = get_tray_button_error()
+            detail = f"\n\n{error}" if error else ""
+            self._notify(
+                "Orcshot's tray icon fell back to a plain version",
+                "Its usual Shell-integrated tray icon couldn't be created, so a plain fallback "
+                f"is being used instead. This is a bug worth reporting.{detail}",
+            )
+
     def _build_tray_icon(self):
-        """Returns a Gtk.StatusIcon (X11) or an AyatanaAppIndicator3.
-        Indicator (Wayland) - deliberately not unified onto one
+        """Returns a Gtk.StatusIcon (X11), an AyatanaAppIndicator3.
+        Indicator (Wayland fallback), or None (Wayland with
+        orcshot-clipboard@orcshot.org available - the extension's own
+        Shell-native PanelMenu.Button owns the tray instead, built
+        from _register_tray_actions' GActions rather than any local
+        widget here at all; see REQUIREMENTS.md's task #137 follow-up
+        for why the fallback stays rather than requiring the
+        extension unconditionally - first boot before a relogin,
+        Shell-version skew, or the user disabling extensions are all
+        real, ordinary ways it can be temporarily or persistently
+        unavailable).
+
+        Deliberately not unified onto one
         mechanism for both platforms, see the branch below for why.
         """
+        if os.environ.get("XDG_SESSION_TYPE") == "wayland":
+            from orcshot.capture.gnome_region_select import shell_tray_button_active
+
+            if shell_tray_button_active():
+                # No local widget at all - orcshot-clipboard@orcshot.org's
+                # own PanelMenu.Button owns the tray for this run, talking
+                # back to _register_tray_actions' GActions. Checking the
+                # button's own success (not just is_available()'s Ping())
+                # matters here: is_available() would also return True
+                # against a stale cached module from before an update, or
+                # one whose panel-button construction threw and was
+                # caught (see extension.js's own enable()) - either way
+                # there'd be no real button to hand off to, and returning
+                # None here would leave the user with no tray icon at
+                # all. _check_shell_extension_health surfaces both of
+                # those cases separately instead of silently falling
+                # through to here.
+                return None
+
         menu = self._build_tray_menu()
 
         if os.environ.get("XDG_SESSION_TYPE") == "wayland":
@@ -459,29 +599,25 @@ class OrcshotApplication(Gtk.Application):
             item.connect("activate", lambda _item: handler())
             return item
 
+        handlers = self._tray_action_handlers()
+
         region_item = menu_item(
-            "Capture Region", lambda: _defer(lambda: self.start_region_capture(capture_mouse_cursor=False)),
-            icon_mode="region",
+            "Capture Region", lambda: _defer(handlers["region"]), icon_mode="region",
         )
         menu.append(region_item)
 
         full_screen_item = menu_item(
-            "Capture Full Screen",
-            lambda: _defer(lambda: self.start_full_screen_capture(capture_mouse_cursor=False)),
-            icon_mode="full_screen",
+            "Capture Full Screen", lambda: _defer(handlers["full_screen"]), icon_mode="full_screen",
         )
         menu.append(full_screen_item)
 
         active_window_item = menu_item(
-            "Capture Active Window",
-            lambda: _defer(lambda: self.start_active_window_capture(capture_mouse_cursor=False)),
-            icon_mode="active_window",
+            "Capture Active Window", lambda: _defer(handlers["active_window"]), icon_mode="active_window",
         )
         menu.append(active_window_item)
 
         window_picker_item = menu_item(
-            "Capture Window...", lambda: _defer(lambda: self.start_window_picker(capture_mouse_cursor=False)),
-            icon_mode="window_picker",
+            "Capture Window...", lambda: _defer(handlers["window_picker"]), icon_mode="window_picker",
         )
         from orcshot.capture.backend_select import window_picker_supported
 
@@ -494,9 +630,7 @@ class OrcshotApplication(Gtk.Application):
         menu.append(window_picker_item)
 
         self._repeat_item = menu_item(
-            "Repeat Last Region",
-            lambda: _defer(lambda: self.start_last_region_capture(capture_mouse_cursor=False)),
-            icon_mode="repeat_region",
+            "Repeat Last Region", lambda: _defer(handlers["repeat_region"]), icon_mode="repeat_region",
         )
         self._repeat_item.set_sensitive(False)  # no region captured yet
         menu.append(self._repeat_item)

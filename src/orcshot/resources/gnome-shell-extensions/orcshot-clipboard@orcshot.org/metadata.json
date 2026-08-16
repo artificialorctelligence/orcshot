@@ -1,6 +1,6 @@
 {
   "name": "Orcshot Clipboard",
-  "description": "Exposes a D-Bus method that copies image data to the clipboard using St.Clipboard's privileged Shell-side access - lets Orcshot reliably put captures on the clipboard under Wayland, where an ordinary client app cannot (see the project's own REQUIREMENTS.md, Clipboard under Wayland section, for why).",
+  "description": "Exposes D-Bus methods that copy image data to the clipboard and run the interactive capture flow using Shell-side privileged access, plus a Shell-native tray panel button for Orcshot's own capture-mode menu (see the project's own REQUIREMENTS.md for why each piece needs to run inside the Shell process rather than as an ordinary client app).",
   "uuid": "orcshot-clipboard@orcshot.org",
   "shell-version": [
     "45",
@@ -10,6 +10,6 @@
     "49",
     "50"
   ],
-  "version": 1,
+  "version": 2,
   "url": "https://github.com/orcshot/orcshot"
 }

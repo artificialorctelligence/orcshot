@@ -5,3 +5,4 @@ src/orcshot/resources/gnome-shell-extensions/window-calls@domandoman.xyz/extensi
 src/orcshot/resources/gnome-shell-extensions/window-calls@domandoman.xyz/metadata.json usr/share/gnome-shell/extensions/window-calls@domandoman.xyz/
 src/orcshot/resources/gnome-shell-extensions/orcshot-clipboard@orcshot.org/extension.js usr/share/gnome-shell/extensions/orcshot-clipboard@orcshot.org/
 src/orcshot/resources/gnome-shell-extensions/orcshot-clipboard@orcshot.org/metadata.json usr/share/gnome-shell/extensions/orcshot-clipboard@orcshot.org/
+src/orcshot/resources/gnome-shell-extensions/orcshot-clipboard@orcshot.org/icons/*.png usr/share/gnome-shell/extensions/orcshot-clipboard@orcshot.org/icons/

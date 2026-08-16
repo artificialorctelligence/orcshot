@@ -60,8 +60,10 @@ import Meta from 'gi://Meta';
 import Shell from 'gi://Shell';
 import St from 'gi://St';
 
+import { Extension as ShellExtension } from 'resource:///org/gnome/shell/extensions/extension.js';
 import * as Main from 'resource:///org/gnome/shell/ui/main.js';
 import { GrabHelper } from 'resource:///org/gnome/shell/ui/grabHelper.js';
+import * as PanelMenu from 'resource:///org/gnome/shell/ui/panelMenu.js';
 import * as PopupMenu from 'resource:///org/gnome/shell/ui/popupMenu.js';
 
 // Neither is promisified by default - GNOME Shell's own screenshot.js
@@ -187,6 +189,47 @@ const CAPTURE_IFACE = `
          <arg type="b" direction="out" name="ok" />
          <arg type="s" direction="out" name="destination" />
          <arg type="ay" direction="out" name="pngBytes" />
+      </method>
+   </interface>
+</node>`;
+
+// A third distinct object path (task #137 follow-up), same reasoning as
+// CAPTURE_IFACE's own comment above - this is a separate D-Bus
+// capability from either of the other two. app.py's own
+// notify_repeat_available() calls this whenever last_region changes, so
+// the panel button built below can track sensitivity without polling a
+// process it has no other visibility into.
+const TRAY_IFACE = `
+<node>
+   <interface name="org.gnome.Shell.Extensions.OrcshotTray">
+      <method name="SetRepeatAvailable">
+         <arg type="b" direction="in" name="available" />
+      </method>
+      <method name="HasTrayButton">
+         <arg type="b" direction="out" name="active" />
+      </method>
+      <method name="GetTrayButtonError">
+         <arg type="s" direction="out" name="error" />
+      </method>
+   </interface>
+</node>`;
+
+// Bumped whenever the D-Bus contract any of the interfaces above expose
+// changes shape - lets app.py's own _check_shell_extension_health tell
+// "not running at all" apart from "running, but an already-open Shell
+// session is still serving a *stale* cached copy from before the last
+// update" (see gnome_extension_setup.py's own docstring for why that's
+// a real, ordinary state and not a hypothetical one - GNOME Shell never
+// reloads an extension's .js on its own, only a full logout/login does).
+// Bump this alongside any future change to CLIPBOARD_IFACE/CAPTURE_IFACE/
+// TRAY_IFACE, not just this file's own version control history.
+const API_VERSION = 2;
+
+const VERSION_IFACE = `
+<node>
+   <interface name="org.gnome.Shell.Extensions.OrcshotVersion">
+      <method name="GetApiVersion">
+         <arg type="i" direction="out" name="version" />
       </method>
    </interface>
 </node>`;
@@ -1472,7 +1515,134 @@ class EyedropperOverlay extends St.Widget {
   }
 }
 
-export default class Extension {
+// Task #137 follow-up (see REQUIREMENTS.md): the tray icon's own
+// capture-mode menu moved here from app.py's AyatanaAppIndicator3 on
+// Wayland, because AppIndicator hands menu rendering off to a *different*
+// extension (ubuntu-appindicators@ubuntu.com) that hard-codes right-
+// aligned icons with no override - confirmed by reading its own
+// dbusMenu.js. This file's menu is built with GNOME Shell's own
+// PopupMenu.PopupImageMenuItem directly, same as the destination picker
+// above, which already renders left-aligned (confirmed live) - reading
+// GNOME Shell's own js/ui/popupMenu.js source (gnome-shell 50 branch)
+// confirmed why: PopupImageMenuItem adds its St.Icon as the *first*
+// child, before the label, so the icon column sits ahead of the text
+// regardless of the icon's own x_align (that only positions the icon
+// within its own reserved column, not which side of the row it's on) -
+// a structurally different construction from ubuntu-appindicators'
+// bespoke reimplementation, which appends its icon *after* an
+// x_expand'd label.
+const TRAY_MODE_ITEMS = [
+  ['Capture Region', 'region', 'tray-region'],
+  ['Capture Full Screen', 'full_screen', 'tray-full_screen'],
+  ['Capture Active Window', 'active_window', 'tray-active_window'],
+  ['Capture Window...', 'window_picker', 'tray-window_picker'],
+  ['Repeat Last Region', 'repeat_region', 'tray-repeat_region'],
+];
+
+// These five icons are drawn live with Cairo (task #137 follow-up, see
+// REQUIREMENTS.md for the full trail) rather than loaded from a pre-
+// rendered PNG - a real theme could be light, dark, or something else
+// entirely, and there turned out to be no working way to get a file-
+// based Gio.FileIcon auto-recolored to match it: `-st-icon-style:
+// symbolic` (the mechanism real symbolic icon *names* like
+// preferences-system-symbolic/application-exit-symbolic below get this
+// for free from) had no effect on one, confirmed live with a CSS
+// background-color test that proved the stylesheet itself loads fine.
+// Drawing directly into an St.DrawingArea's own 'repaint' handler
+// sidesteps all of that: the color is read from
+// area.get_theme_node().get_foreground_color() *at paint time*, the
+// exact same color the row's own label text uses, so it's correct for
+// whatever theme is actually active - not just light vs dark, any
+// theme - with no static file, no CSS trick, and no guessing.
+// Geometry mirrors icons.py's own capture_mode_icon_image() builders
+// (same shapes, same reasoning for each - dashed vs solid meaning
+// "interactive pick" vs "concrete/current" - see that file's own
+// docstrings) at a 16-unit logical size with a 3-unit margin, matching
+// this menu's actual ~16-17px icon-size (confirmed live via
+// St.ThemeNode -> .popup-menu-icon { icon-size: 1.091em }) so nothing
+// needs downscaling. Cairo's own method names are camelCase here
+// (setLineWidth, moveTo, ...) rather than icons.py's snake_case - a
+// real GJS binding difference from PyGObject's Cairo bindings, not a
+// typo - matching this file's own existing crosshair-drawing code
+// above.
+const _TRAY_ICON_SIZE = 16;
+const _TRAY_ICON_MARGIN = 3;
+
+function _trayRoundedRectPath(cr, x, y, w, h, r) {
+  cr.newSubPath();
+  cr.arc(x + w - r, y + r, r, -Math.PI / 2, 0);
+  cr.arc(x + w - r, y + h - r, r, 0, Math.PI / 2);
+  cr.arc(x + r, y + h - r, r, Math.PI / 2, Math.PI);
+  cr.arc(x + r, y + r, r, Math.PI, (3 * Math.PI) / 2);
+  cr.closePath();
+}
+
+function _drawTrayRegionIcon(cr, size, margin) {
+  cr.setLineWidth(2);
+  cr.setDash([3, 2], 0);
+  cr.rectangle(margin, margin, size - 2 * margin, size - 2 * margin);
+  cr.stroke();
+}
+
+function _drawTrayFullScreenIcon(cr, size, margin) {
+  cr.setLineWidth(2);
+  cr.setLineJoin(Cairo.LineJoin.ROUND);
+  const screenBottom = size * 0.66;
+  _trayRoundedRectPath(cr, margin, margin, size - 2 * margin, screenBottom - margin, 2);
+  cr.stroke();
+  cr.moveTo(size / 2, screenBottom);
+  cr.lineTo(size / 2, size - margin);
+  cr.stroke();
+  cr.moveTo(size * 0.3, size - margin);
+  cr.lineTo(size * 0.7, size - margin);
+  cr.stroke();
+}
+
+function _drawTrayWindowFrameIcon(cr, size, margin, dashed) {
+  cr.setLineWidth(2);
+  if (dashed) {
+    cr.setDash([3, 2], 0);
+  }
+  _trayRoundedRectPath(cr, margin, margin, size - 2 * margin, size - 2 * margin, 2);
+  cr.stroke();
+  cr.setDash([], 0);
+  const titleBarBottom = margin + (size - 2 * margin) * 0.28;
+  cr.moveTo(margin, titleBarBottom);
+  cr.lineTo(size - margin, titleBarBottom);
+  cr.stroke();
+}
+
+function _drawTrayRepeatIcon(cr, size, margin) {
+  cr.setLineWidth(2);
+  const inset = size * 0.14;
+  cr.rectangle(margin, margin + inset, size - 2 * margin - inset, size - 2 * margin - inset);
+  cr.stroke();
+  const cx = size - margin - inset * 0.5;
+  const cy = margin + inset * 0.5;
+  const radius = inset * 1.15;
+  cr.setLineWidth(1.6);
+  const start = (20 * Math.PI) / 180;
+  const end = (310 * Math.PI) / 180;
+  cr.arc(cx, cy, radius, start, end);
+  cr.stroke();
+  const headX = cx + radius * Math.cos(end);
+  const headY = cy + radius * Math.sin(end);
+  cr.moveTo(headX, headY);
+  cr.lineTo(headX - radius * 0.7, headY);
+  cr.moveTo(headX, headY);
+  cr.lineTo(headX, headY + radius * 0.7);
+  cr.stroke();
+}
+
+const _TRAY_ICON_DRAWERS = {
+  region: (cr, size, margin) => _drawTrayRegionIcon(cr, size, margin),
+  full_screen: (cr, size, margin) => _drawTrayFullScreenIcon(cr, size, margin),
+  active_window: (cr, size, margin) => _drawTrayWindowFrameIcon(cr, size, margin, false),
+  window_picker: (cr, size, margin) => _drawTrayWindowFrameIcon(cr, size, margin, true),
+  repeat_region: (cr, size, margin) => _drawTrayRepeatIcon(cr, size, margin),
+};
+
+export default class Extension extends ShellExtension {
   // Two separate exported objects at two separate paths - tried a
   // single combined multi-<interface> document first (wrong, GJS only
   // parses one interface per wrapJSObject call - see CAPTURE_IFACE's
@@ -1487,6 +1657,31 @@ export default class Extension {
     this._dbus.export(Gio.DBus.session, '/org/gnome/Shell/Extensions/OrcshotClipboard');
     this._captureDbus = Gio.DBusExportedObject.wrapJSObject(CAPTURE_IFACE, this);
     this._captureDbus.export(Gio.DBus.session, '/org/gnome/Shell/Extensions/OrcshotCapture');
+    this._trayDbus = Gio.DBusExportedObject.wrapJSObject(TRAY_IFACE, this);
+    this._trayDbus.export(Gio.DBus.session, '/org/gnome/Shell/Extensions/OrcshotTray');
+    this._versionDbus = Gio.DBusExportedObject.wrapJSObject(VERSION_IFACE, this);
+    this._versionDbus.export(Gio.DBus.session, '/org/gnome/Shell/Extensions/OrcshotVersion');
+
+    // Wrapped separately from the D-Bus exports above: those back the
+    // whole Wayland capture flow (region-select, destination picker),
+    // not just this tray button - a bug in panel-button construction
+    // must not take the rest of enable() down with it and get the
+    // entire extension auto-disabled by Shell over a cosmetic feature.
+    // The error (if any) is kept, not just logged, so app.py's own
+    // _check_shell_extension_health can show the user something more
+    // useful than a silently missing tray icon (task #137 follow-up) -
+    // GetTrayButtonError below is how it gets there.
+    this._trayButtonError = '';
+    try {
+      this._trayButton = this._buildTrayButton();
+      Main.panel.addToStatusArea('orcshot-tray', this._trayButton);
+    } catch (e) {
+      console.error(`[orcshot] failed to create Shell-native tray button: ${e}`);
+      this._trayButtonError = e.stack ? `${e}\n${e.stack}` : String(e);
+      this._trayButton = null;
+      this._repeatItem = null;
+      this._repeatIconArea = null;
+    }
   }
 
   disable() {
@@ -1496,6 +1691,126 @@ export default class Extension {
     this._captureDbus.flush();
     this._captureDbus.unexport();
     delete this._captureDbus;
+    this._trayDbus.flush();
+    this._trayDbus.unexport();
+    delete this._trayDbus;
+    this._versionDbus.flush();
+    this._versionDbus.unexport();
+    delete this._versionDbus;
+
+    if (this._trayButton) {
+      this._trayButton.destroy();
+      this._trayButton = null;
+    }
+    this._repeatItem = null;
+  }
+
+  // App.py registers each of these as a GAction (see its own
+  // _register_tray_actions) - GApplication exports its action group
+  // automatically over D-Bus at /org/orcshot/Orcshot, no custom
+  // interface needed on that side. Fire-and-forget: activate_action has
+  // no return value, and there's nothing useful to do here if Orcshot
+  // isn't running to receive it (same as any other tray-icon click
+  // landing on a dead app).
+  _activateTrayAction(name) {
+    const actionGroup = Gio.DBusActionGroup.get(Gio.DBus.session, 'org.orcshot.Orcshot', '/org/orcshot/Orcshot');
+    actionGroup.activate_action(name, null);
+  }
+
+  _trayIconPath(name) {
+    return GLib.build_filenamev([this.path, 'icons', `${name}.png`]);
+  }
+
+  _buildTrayButton() {
+    const button = new PanelMenu.Button(0.0, 'Orcshot', false);
+    button.add_child(new St.Icon({
+      gicon: Gio.icon_new_for_string(this._trayIconPath('orcshot')),
+      style_class: 'system-status-icon',
+    }));
+
+    for (const [label, iconMode, actionName] of TRAY_MODE_ITEMS) {
+      // Manually built rather than PopupImageMenuItem (see the block
+      // comment above TRAY_MODE_ITEMS for the full why): these icons
+      // paint themselves live with Cairo, not from a loaded Gio.Icon.
+      const item = new PopupMenu.PopupBaseMenuItem();
+      const iconArea = new St.DrawingArea({
+        style_class: 'popup-menu-icon',
+        // `icon-size` (the CSS property giving Preferences/Quit's real
+        // St.Icon their size) is icon-specific - confirmed live it does
+        // nothing for a plain St.DrawingArea, which rendered nothing at
+        // all as a result (zero allocated size, no error - 'repaint'
+        // either never fired or painted an empty surface). Explicit
+        // pixel size instead, matching _TRAY_ICON_SIZE.
+        width: _TRAY_ICON_SIZE,
+        height: _TRAY_ICON_SIZE,
+        x_align: Clutter.ActorAlign.CENTER,
+        y_align: Clutter.ActorAlign.CENTER,
+      });
+      iconArea.connect('repaint', () => {
+        const cr = iconArea.get_context();
+        const [width, height] = iconArea.get_surface_size();
+        const color = iconArea.get_theme_node().get_foreground_color();
+        cr.setSourceRGBA(color.red / 255, color.green / 255, color.blue / 255, color.alpha / 255);
+        const size = Math.min(width, height);
+        const margin = size * (_TRAY_ICON_MARGIN / _TRAY_ICON_SIZE);
+        _TRAY_ICON_DRAWERS[iconMode](cr, size, margin);
+        cr.$dispose();
+      });
+      item.add_child(iconArea);
+      const itemLabel = new St.Label({
+        text: label,
+        y_expand: true,
+        y_align: Clutter.ActorAlign.CENTER,
+      });
+      item.add_child(itemLabel);
+      item.label_actor = itemLabel;
+      item.connect('activate', () => this._activateTrayAction(actionName));
+      button.menu.addMenuItem(item);
+      if (iconMode === 'repeat_region') {
+        // Starts disabled, same as app.py's own self._repeat_item -
+        // nothing's been captured yet this run. SetRepeatAvailable
+        // (below) tracks it from there via app.py's
+        // notify_repeat_available, called from the same
+        // _remember_region site that updates the local Gtk.Menu
+        // fallback's own item. queue_repaint() on sensitivity change
+        // matters here specifically (unlike the other four, static
+        // once drawn): get_foreground_color() itself returns a dimmer
+        // shade automatically once :insensitive applies, but only a
+        // fresh 'repaint' picks that up - see SetRepeatAvailable.
+        item.setSensitive(false);
+        this._repeatItem = item;
+        this._repeatIconArea = iconArea;
+      }
+    }
+
+    button.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
+    const preferencesItem = new PopupMenu.PopupImageMenuItem('Preferences...', 'preferences-system-symbolic');
+    preferencesItem.connect('activate', () => this._activateTrayAction('tray-preferences'));
+    button.menu.addMenuItem(preferencesItem);
+
+    button.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
+    const quitItem = new PopupMenu.PopupImageMenuItem('Quit', 'application-exit-symbolic');
+    quitItem.connect('activate', () => this._activateTrayAction('tray-quit'));
+    button.menu.addMenuItem(quitItem);
+
+    return button;
+  }
+
+  SetRepeatAvailable(available) {
+    this._repeatItem?.setSensitive(available);
+    this._repeatIconArea?.queue_repaint();
+  }
+
+  HasTrayButton() {
+    return !!this._trayButton;
+  }
+
+  GetTrayButtonError() {
+    return this._trayButtonError ?? '';
+  }
+
+  GetApiVersion() {
+    return API_VERSION;
   }
 
   SetImage(pngBytes) {

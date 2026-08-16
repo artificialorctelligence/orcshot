@@ -5234,9 +5234,109 @@ from the one that broke Wayland, and it's scoped to the `XDG_SESSION_TYPE != "wa
 it cannot touch the DBusMenu-exported path at all. Verified live: icons moved to the left on X11/Mint,
 confirmed by direflail.
 
-**Final state**: icons on every tray-menu item, left-aligned on X11 (matching the destination picker).
-Wayland keeps its right-aligned icons - a known, permanent platform difference, not a bug to keep
-chasing.
+**Final state at the time**: icons on every tray-menu item, left-aligned on X11 (matching the
+destination picker). Wayland kept its right-aligned icons, believed to be a permanent platform
+difference not worth chasing further - **superseded the same day**, see the next section: the
+Wayland tray menu was rearchitected entirely rather than left as a known limitation.
+
+## Tray menu rearchitected as a Shell-native panel button (task #137 follow-up, complete 2026-08-15)
+
+direflail pushed back on accepting Wayland's right-aligned icons as permanent (see the previous
+section's "not a bug to keep chasing" - direflail: "is the extension really the best way for
+wayland?" then, once scoped, "build it right. we don't know who's going to run this or what theme
+they'll use"). What follows is a real architectural change, not a bigger version of the same fix.
+
+**Why AppIndicator3 couldn't be fixed in place**: the Wayland tray icon (`AyatanaAppIndicator3.
+Indicator.set_menu()`) hands the whole menu over to `ubuntu-appindicators@ubuntu.com`, a *different*,
+third-party Shell extension, which reconstructs it with its own JS/Clutter widgets and hard-codes
+right-aligned icons in its own `dbusMenu.js` (`xAlign: Clutter.ActorAlign.END`, confirmed by reading
+its source) - no DBusMenu property exists for a client to override that. Nothing on Orcshot's side of
+that protocol can change it.
+
+**The fix**: move the tray icon itself into `orcshot-clipboard@orcshot.org` (this project's own,
+already-installed Shell extension, used since task #77/#133 for the Wayland capture flow) as a real
+`PanelMenu.Button` with GNOME Shell's own `PopupMenu`/`PopupBaseMenuItem` widgets - the same class of
+fix task #133 already used for the destination picker, applied to the tray icon too. `app.py` still
+owns every capture-mode action; the Shell-side button reaches them via `Gio.DBusActionGroup`, which
+works with zero new D-Bus interface code on the Python side - `GApplication` already auto-exports its
+registered actions at `/org/orcshot/Orcshot` (`APPLICATION_ID` with `.` → `/`) over the standard
+`org.gtk.Actions` interface, since this app is already a registered `Gio.Application` with a fixed
+`application_id`. `app.py` gained `_tray_action_handlers()`/`_register_tray_actions()` (one shared
+dict of the five capture-mode closures, reused by both the local `Gtk.Menu` and the new GActions -
+not duplicated) and `_check_shell_extension_health()` (below).
+
+**AppIndicator3 stays as a fallback, deliberately** - `_build_tray_icon()` only skips it when
+`gnome_region_select.shell_tray_button_active()` (a real `HasTrayButton` D-Bus probe, not just
+`is_available()`'s `Ping()`) confirms the Shell's own button actually exists. Extension-not-installed,
+not-yet-enabled (first boot before a relogin), Shell-version skew, and the user disabling extensions
+are all real, ordinary states, not edge cases to shrug off - keeping a working fallback for them cost
+nothing since the code already existed.
+
+**Staleness and failure surfacing (`_check_shell_extension_health`, called from `do_startup`)** - a
+real gap direflail flagged before this was scoped: GNOME Shell caches an extension's loaded JS module
+for the entire login session (see `gnome_extension_setup.py`'s own docstring) - a package upgrade that
+changes `extension.js` leaves an already-running Shell serving the *old* module, `Ping()` included,
+until the user logs out and back in. First-run setup already told a *new* user this ("Both require
+logging out and back in to take effect.") but nothing told an *upgrading* one. `extension.js` gained a
+fourth D-Bus interface, `OrcshotVersion.GetApiVersion()`, returning a constant (`API_VERSION`, bump
+alongside any future D-Bus contract change) that `gnome_clipboard.get_live_api_version()` compares
+against `EXPECTED_API_VERSION`; a live version below expected triggers a real desktop notification
+("...needs a restart..."), reusing the `_notify()` helper task #103's update-check already
+established rather than a new mechanism. Separately, `OrcshotTray.HasTrayButton()`/
+`GetTrayButtonError()` let Python tell "extension not running" apart from "running, but its own panel-
+button construction threw" (caught in `enable()` specifically so a bug there can't take the whole
+extension - and the real capture flow it also backs - down with it) - the latter surfaces the actual
+JS error/stack in a second notification, not a silently missing tray icon.
+
+**Icon alignment, actually fixed this time**: `PopupMenu.PopupImageMenuItem` adds its `St.Icon` as the
+*first* child, before the label (confirmed by reading GNOME Shell's own `js/ui/popupMenu.js`, gnome-
+shell 50 branch) - a structurally different construction from `ubuntu-appindicators`' bespoke
+reimplementation, which appends its icon *after* an `x_expand`'d label. Left-aligned by construction,
+no direction hack needed this time.
+
+**Icon color - the real saga, worth recording in full so it isn't re-chased**: direflail's screenshots
+went through, in order - icons invisible against a light-themed menu background (assumed dark, from
+older destination-picker screenshots); a `-st-icon-style: regular` CSS override that made it *worse*
+(disabled the theme-adaptive recoloring symbolic icon *names* like `preferences-system-symbolic` get
+automatically); icons visible only on hover (the row highlight gave a white icon just enough contrast
+to read - the clue that finally pinned down "the icon loads fine, the color is just wrong for this
+theme"); a `-st-icon-style: symbolic` override with *zero* effect, even though a `background-color:
+red` test on the same CSS class rendered correctly (proving the stylesheet loads and the class
+applies - `-st-icon-style` itself just doesn't do anything for a file-based `Gio.FileIcon`, evidently
+governing icon-*theme-name* lookup variant selection, not arbitrary pixel recoloring); a pragmatic
+hardcoded-dark-color PNG (works only for light themes, direflail explicitly rejected this: "we don't
+know who's going to run this or what theme they'll use"). Along the way, a real, separate bug surfaced
+and got fixed regardless of the color question: `PopupImageMenuItem`'s constructor routes its icon
+through `setIcon()`, which branches on `GObject.type_is_a(icon, Gio.Icon)` - `Gio.Icon` is an
+interface, and this check doesn't recognize a `Gio.FileIcon` as satisfying it in this GJS/Shell
+version, so icons went through the *wrong* branch (`icon_name = <a GObject>`) and rendered nothing at
+all until `item._icon.gicon = ...` was set directly, bypassing `setIcon()` entirely (the panel
+button's own top-bar logo, built the same direct way, had worked correctly the whole time - the
+comparison that caught this).
+
+**Final fix**: draw the five icons live with Cairo inside an `St.DrawingArea`'s own `'repaint'` signal
+handler, reading `area.get_theme_node().get_foreground_color()` *at paint time* - the exact color the
+row's own label text uses, so it's correct under any theme, not a light/dark guess. `St.DrawingArea`
+was already a proven pattern in this same file (the region-select magnifier loupe/crosshair use it);
+the geometry is a hand-ported copy of `icons.py`'s own `_capture_region_icon`/
+`_capture_full_screen_icon`/`_window_frame_icon`/`_capture_repeat_icon` (same coordinates, GJS's
+Cairo binding uses camelCase method names - `setLineWidth`/`moveTo` - where PyGObject's uses
+snake_case, a real binding difference, not a typo) - kept in sync by hand, same reasoning as
+[[feedback-shape-serialization-sync]]. `PopupImageMenuItem` can't host an arbitrary actor, so these
+five items are built manually from `PopupMenu.PopupBaseMenuItem` instead (`add_child()` the
+`St.DrawingArea` and an `St.Label`, set `label_actor` - the exact pattern `PopupMenuItem` itself uses,
+confirmed by reading it). One more real bug here too: `St.DrawingArea` rendered *nothing at all*,
+even on hover, with zero errors - `icon-size` (the CSS property sizing `St.Icon`) turned out to be
+`St.Icon`-specific and does nothing for a generic `St.DrawingArea`, leaving it at zero allocated size;
+fixed with an explicit `width`/`height` in pixels instead of relying on that CSS property.
+`SetRepeatAvailable` calls `queue_repaint()` after `setSensitive()` so the disabled/enabled color
+change (`get_foreground_color()` already returns the dimmer `:insensitive` shade automatically) is
+actually redrawn, not just set.
+
+**Verified live** (Ubuntu 26.04/GNOME Shell 50.1): icons render correctly colored, correctly shaped,
+left-aligned, both capture and window-picker capture confirmed working end-to-end through the new
+GAction path, "Repeat Last Region" correctly dims/undims and its icon redraws to match. direflail's
+own words once it finally worked: "finally."
 
 ## Licensing
 
