@@ -271,6 +271,19 @@ class OrcshotApplication(Gtk.Application):
         parent = self._open_editors[-1] if self._open_editors else None
         show_preferences_dialog(parent)
 
+    def open_file_from_tray(self) -> None:
+        """The tray icon's own "Open File..." (task #140) - faithful to
+        real Windows' own tray context menu, which has always had this
+        (MainForm.Designer.cs:92's contextmenu_openfile, sitting right
+        after the capture items in the real menu's AddRange order,
+        MainForm.Designer.cs:83-103). Same topmost-open-editor-as-
+        transient-parent reasoning as show_preferences just above.
+        """
+        from orcshot.ui.editor_window import choose_and_open_orcshot_file
+
+        parent = self._open_editors[-1] if self._open_editors else None
+        choose_and_open_orcshot_file(transient_for=parent)
+
     def register_editor_window(self, editor) -> None:
         self._open_editors.append(editor)
 
@@ -278,25 +291,38 @@ class OrcshotApplication(Gtk.Application):
         if editor in self._open_editors:
             self._open_editors.remove(editor)
 
-    def _block_if_editor_open(self) -> bool:
-        """True (after focusing the existing editor instead) if a new
-        capture shouldn't start right now because one's already open.
+    def _block_if_modal_dialog_open(self) -> bool:
+        """True (after presenting the grabbing dialog instead) if a new
+        capture shouldn't start right now because something else
+        already holds a GTK grab.
 
-        Without this, triggering a hotkey while EditorWindow is open
-        produces a confusing, silent no-op - reported live: the
-        capture overlay/destination-picker flow never visibly
-        appeared, though the app didn't hang either. Root cause wasn't
-        pinned down precisely (Cinnamon/Muffin focus-stealing
-        prevention likely keeps the newly-created override-redirect
-        overlay from actually receiving input while the editor already
-        has focus), but disallowing overlapping captures avoids the
-        whole scenario rather than chasing that edge case, and matches
-        the reasonable expectation that starting a new capture
-        mid-annotation isn't something you'd want to happen anyway.
+        Real, reproduced live (task #138 follow-up): with the old,
+        broader ``_block_if_editor_open`` removed (task #138 - multiple
+        editors are meant to coexist, matching real Windows Greenshot),
+        triggering a capture while e.g. EditorWindow's own close-time
+        save prompt (``_on_delete_event``) was showing let a new
+        capture overlay actually get created and shown (screen dims,
+        crosshair cursor appears) but never receive any pointer input
+        at all - reported live by direflail. Root cause:
+        ``ui/region_select.py``'s overlay only ever grabs *keyboard*
+        input via ``Gdk.Seat`` (see that module's own comment) - plain,
+        ungrabbed button events are how its drag-select normally works,
+        and ``Gtk.Dialog.run()`` (used by the save prompt, and 26 other
+        ``Gtk.Dialog`` usages in ``editor_window.py`` alone -
+        Preferences, Save As, text-entry dialogs, etc.) holds its own
+        process-wide GTK grab for as long as it's open, intercepting
+        that same pointer input first.
+
+        Narrower than the removed ``_block_if_editor_open`` on purpose:
+        that blocked on *any* open editor, even with nothing actually
+        grabbing input, which is exactly what task #138 fixed. This
+        only blocks when something concrete is actually grabbing right
+        now, so multiple editor windows still coexist freely.
         """
-        if not self._open_editors:
+        current = Gtk.grab_get_current()
+        if current is None:
             return False
-        self._open_editors[-1].present()
+        current.get_toplevel().present()
         return True
 
     def start_region_capture(self, capture_mouse_cursor: bool = True) -> None:
@@ -315,27 +341,27 @@ class OrcshotApplication(Gtk.Application):
         docstring and REQUIREMENTS.md's cursor auto-capture section
         for the full citation trail.
         """
-        if self._block_if_editor_open():
+        if self._block_if_modal_dialog_open():
             return
         start_region_capture(on_captured=self._remember_region, capture_mouse_cursor=capture_mouse_cursor)
 
     def start_full_screen_capture(self, capture_mouse_cursor: bool = True) -> None:
-        if self._block_if_editor_open():
+        if self._block_if_modal_dialog_open():
             return
         start_full_screen_capture(on_captured=self._remember_region, capture_mouse_cursor=capture_mouse_cursor)
 
     def start_active_window_capture(self, capture_mouse_cursor: bool = True) -> None:
-        if self._block_if_editor_open():
+        if self._block_if_modal_dialog_open():
             return
         start_active_window_capture(on_captured=self._remember_region, capture_mouse_cursor=capture_mouse_cursor)
 
     def start_window_picker(self, capture_mouse_cursor: bool = True) -> None:
-        if self._block_if_editor_open():
+        if self._block_if_modal_dialog_open():
             return
         start_window_picker(on_captured=self._remember_region, capture_mouse_cursor=capture_mouse_cursor)
 
     def start_last_region_capture(self, capture_mouse_cursor: bool = True) -> None:
-        if self._block_if_editor_open():
+        if self._block_if_modal_dialog_open():
             return
         # Deliberately not chained through _remember_region: the
         # region being repeated already *is* self.last_region, so
@@ -380,6 +406,9 @@ class OrcshotApplication(Gtk.Application):
             action = Gio.SimpleAction.new(f"tray-{mode}", None)
             action.connect("activate", lambda _action, _param, h=handler: _defer(h))
             self.add_action(action)
+        open_file_action = Gio.SimpleAction.new("tray-open-file", None)
+        open_file_action.connect("activate", lambda *_args: self.open_file_from_tray())
+        self.add_action(open_file_action)
         preferences_action = Gio.SimpleAction.new("tray-preferences", None)
         preferences_action.connect("activate", lambda *_args: self.show_preferences())
         self.add_action(preferences_action)
@@ -634,6 +663,20 @@ class OrcshotApplication(Gtk.Application):
         )
         self._repeat_item.set_sensitive(False)  # no region captured yet
         menu.append(self._repeat_item)
+
+        menu.append(Gtk.SeparatorMenuItem())
+
+        # Task #140: real Windows' own tray context menu has always had
+        # this (contextmenu_openfile, MainForm.Designer.cs:92), sitting
+        # right after the capture items in the real AddRange order
+        # (MainForm.Designer.cs:83-103) - this port had no equivalent
+        # until now, meaning opening a file required already having an
+        # editor open (its own File > Open) or going through the file
+        # manager.
+        open_file_item = menu_item(
+            "Open File...", self.open_file_from_tray, icon_name="document-open-symbolic",
+        )
+        menu.append(open_file_item)
 
         menu.append(Gtk.SeparatorMenuItem())
 

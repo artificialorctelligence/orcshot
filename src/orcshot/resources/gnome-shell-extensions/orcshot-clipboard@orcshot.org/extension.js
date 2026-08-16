@@ -1784,6 +1784,16 @@ export default class Extension extends ShellExtension {
     }
 
     button.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
+    // Task #140: real Windows' own tray context menu has always had this
+    // (contextmenu_openfile, MainForm.Designer.cs:92), right after the
+    // capture items in the real AddRange order (MainForm.Designer.cs:
+    // 83-103) - a real, themed icon name, same as Preferences/Quit
+    // below, so no live-Cairo-drawing complexity needed here.
+    const openFileItem = new PopupMenu.PopupImageMenuItem('Open File...', 'document-open-symbolic');
+    openFileItem.connect('activate', () => this._activateTrayAction('tray-open-file'));
+    button.menu.addMenuItem(openFileItem);
+
+    button.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
     const preferencesItem = new PopupMenu.PopupImageMenuItem('Preferences...', 'preferences-system-symbolic');
     preferencesItem.connect('activate', () => this._activateTrayAction('tray-preferences'));
     button.menu.addMenuItem(preferencesItem);

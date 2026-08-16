@@ -616,7 +616,9 @@ _EXTERNAL_EDITOR_CANDIDATES = (
 
 
 class EditorWindow(Gtk.Window):
-    def __init__(self, image: np.ndarray, clipboard_backend: ClipboardBackend = None):
+    def __init__(
+        self, image: np.ndarray, clipboard_backend: ClipboardBackend = None, already_saved: bool = False,
+    ):
         super().__init__(title="Orcshot image editor")
         self._base_image = image
         self._surface = numpy_to_cairo_surface(image)
@@ -632,7 +634,25 @@ class EditorWindow(Gtk.Window):
         self.undo_redo = UndoRedoStack()
         # The undo_redo.generation as of the last successful save - see
         # the is_modified property below (Surface.Modified port).
-        self._saved_generation = 0
+        # ``already_saved=False`` (a fresh, never-before-saved capture -
+        # destination_picker.py's own EditorWindow(image) call for the
+        # "Edit" destination, the default) starts this at a value
+        # undo_redo.generation (always 0 initially) can never equal on
+        # its own, matching real Windows: Surface.Modified defaults to
+        # true at construction (Surface.cs:328) and gets reasserted
+        # true when a fresh capture's editor opens regardless of edits
+        # (ImageEditorForm.cs:186, `_surface.Modified = !outputMade`) -
+        # confirmed live this wasn't happening here (direflail: closing
+        # an untouched fresh capture showed no save prompt at all), and
+        # confirmed against the real source before fixing it, since
+        # this could otherwise have been a deliberate design choice
+        # rather than a divergence. ``already_saved=True``
+        # (open_orcshot_file_in_new_window, task #123/#129 - opening an
+        # *existing* .orcshot file) starts it equal to generation
+        # instead, matching "the last thing that happened to this
+        # content was a save" - correctly unchanged from before this
+        # fix, since that path already behaved right.
+        self._saved_generation = 0 if already_saved else -1
         # Faithful port of ImageEditorForm/Surface's zoom (see
         # core/zoom.py's module docstring for citations). Actual Size
         # (100%) is Windows' own initial ZoomFactor too.
@@ -891,10 +911,16 @@ class EditorWindow(Gtk.Window):
         self.add(box)
 
         self.connect("key-press-event", self._on_key_press)
-        # Registers with the running OrcshotApplication (if any) so
-        # it can decline to start an overlapping capture while this
-        # editor is open - see app.py's _block_if_editor_open. This
-        # replaces a stale `self.connect("destroy", Gtk.main_quit)`
+        # Registers with the running OrcshotApplication (if any) so it
+        # can find the topmost open editor as a transient-parent for
+        # Preferences (app.py's show_preferences) - multiple editors are
+        # allowed open at once (task #138, matching real
+        # Windows Greenshot's own default: EditorDestination.cs's
+        # ExportCapture always opens a fresh ImageEditorForm unless the
+        # user opts into "Reuse already open editor", off by default -
+        # IEditorConfiguration.cs:73-75), so this list can hold more
+        # than one entry. This replaces a stale
+        # `self.connect("destroy", Gtk.main_quit)`
         # left over from early standalone-script testing (a plain
         # Gtk.main() loop, not the real Gtk.Application) - confirmed
         # live that call was already a harmless no-op against the real
@@ -948,13 +974,17 @@ class EditorWindow(Gtk.Window):
 
     @property
     def is_modified(self) -> bool:
-        """Faithful port of Surface.Modified (ISurface.cs:193) - true
-        whenever anything has changed since the last successful save
-        (including via undo/redo, which real Greenshot also counts as
-        a modification - see core/history.py's UndoRedoStack.generation
-        docstring). Checked by _on_delete_event before closing, matching
-        ImageEditorFormFormClosing's own `_surface.Modified` check
-        (ImageEditorForm.cs:1006).
+        """Faithful port of Surface.Modified (Surface.cs:328,427-431,535;
+        ImageEditorForm.cs:186) - true whenever anything has changed
+        since the last successful save (including via undo/redo, which
+        real Greenshot also counts as a modification - see
+        core/history.py's UndoRedoStack.generation docstring), *and*
+        true from construction for a fresh, never-saved capture even
+        with zero edits (see __init__'s own already_saved param) -
+        Windows' Modified is semantically "not yet exported," not "user
+        touched something." Checked by _on_delete_event before closing,
+        matching ImageEditorFormFormClosing's own `_surface.Modified`
+        check (ImageEditorForm.cs:1006).
         """
         return self.undo_redo.generation != self._saved_generation
 
@@ -2923,25 +2953,9 @@ class EditorWindow(Gtk.Window):
         """File > Open... (task #129) - always opens into a brand-new
         EditorWindow rather than replacing this one's document, same
         as every other capture already becomes its own window (task
-        #111's "Reuse Editor" setting doesn't exist yet). Shared with
-        the file-manager double-click/MIME-open path (app.py's
-        do_open) via open_orcshot_file_in_new_window below, so both
-        get identical error handling.
+        #111's "Reuse Editor" setting doesn't exist yet).
         """
-        dialog = Gtk.FileChooserDialog(title="Open", transient_for=self, action=Gtk.FileChooserAction.OPEN)
-        dialog.add_buttons(Gtk.STOCK_CANCEL, Gtk.ResponseType.CANCEL, Gtk.STOCK_OPEN, Gtk.ResponseType.OK)
-        dialog.set_current_folder(str(get_output_directory()))
-        orcshot_filter = Gtk.FileFilter()
-        orcshot_filter.set_name("Orcshot files")
-        orcshot_filter.add_pattern("*.orcshot")
-        dialog.add_filter(orcshot_filter)
-        try:
-            if dialog.run() != Gtk.ResponseType.OK:
-                return
-            path = dialog.get_filename()
-        finally:
-            dialog.destroy()
-        open_orcshot_file_in_new_window(path, transient_for=self)
+        choose_and_open_orcshot_file(transient_for=self)
 
     def _composited_image(self) -> np.ndarray:
         return composite_to_numpy(self._base_image, self.layer)
@@ -2985,7 +2999,7 @@ class EditorWindow(Gtk.Window):
         # "bmp, gif, jpg, png, tiff" - "greenshot" is a Save-As-only
         # format on Windows too, never a quick-save default there
         # either (ICoreConfiguration.cs:130-132).
-        format_combo.append("orcshot", "Orcshot (with shapes, task #123)")
+        format_combo.append("orcshot", "Orcshot")
         format_combo.set_active_id(output_settings.primary_format)
         if format_combo.get_active_id() is None:
             format_combo.set_active_id("png")
@@ -4575,6 +4589,35 @@ class EditorWindow(Gtk.Window):
         return True
 
 
+def choose_and_open_orcshot_file(transient_for: Gtk.Window = None) -> None:
+    """Shared file-chooser flow for opening an .orcshot file - used by
+    EditorWindow._do_open (File > Open, task #129) and app.py's tray
+    icon "Open File..." (faithful to real Windows' own tray context
+    menu, which has always had this: MainForm.Designer.cs:92
+    (contextmenu_openfile) sits in the real AddRange order right after
+    the capture items and "capture clipboard"
+    (MainForm.Designer.cs:83-103), before the settings section - this
+    port had no equivalent at all until now, meaning opening a file
+    required already having an editor open. Both callers want the
+    identical dialog and error handling, and both always open into a
+    brand-new window.
+    """
+    dialog = Gtk.FileChooserDialog(title="Open", transient_for=transient_for, action=Gtk.FileChooserAction.OPEN)
+    dialog.add_buttons(Gtk.STOCK_CANCEL, Gtk.ResponseType.CANCEL, Gtk.STOCK_OPEN, Gtk.ResponseType.OK)
+    dialog.set_current_folder(str(get_output_directory()))
+    orcshot_filter = Gtk.FileFilter()
+    orcshot_filter.set_name("Orcshot files")
+    orcshot_filter.add_pattern("*.orcshot")
+    dialog.add_filter(orcshot_filter)
+    try:
+        if dialog.run() != Gtk.ResponseType.OK:
+            return
+        path = dialog.get_filename()
+    finally:
+        dialog.destroy()
+    open_orcshot_file_in_new_window(path, transient_for=transient_for)
+
+
 def open_orcshot_file_in_new_window(path, transient_for: Gtk.Window = None) -> "EditorWindow" | None:
     """Loads an .orcshot file (task #123) into a brand-new
     EditorWindow. Shared by EditorWindow._do_open (File > Open, task
@@ -4585,6 +4628,11 @@ def open_orcshot_file_in_new_window(path, transient_for: Gtk.Window = None) -> "
     initial content, not undoable edits - no mementos are pushed for
     them, so the fresh undo stack starts empty, matching how opening a
     file doesn't leave anything to "undo" back out of.
+
+    ``already_saved=True`` (see EditorWindow.__init__'s own docstring
+    for the full citation trail) - this content already matches what's
+    on disk at ``path``, so closing without further edits shouldn't
+    prompt to save it again.
     """
     try:
         image, layer = load_orcshot_file(path)
@@ -4598,7 +4646,7 @@ def open_orcshot_file_in_new_window(path, transient_for: Gtk.Window = None) -> "
         error_dialog.destroy()
         return None
 
-    editor = EditorWindow(image)
+    editor = EditorWindow(image, already_saved=True)
     for shape in layer:
         editor.layer.add(shape)
     editor.show_all()

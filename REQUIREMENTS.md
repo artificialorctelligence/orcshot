@@ -5338,6 +5338,127 @@ left-aligned, both capture and window-picker capture confirmed working end-to-en
 GAction path, "Repeat Last Region" correctly dims/undims and its icon redraws to match. direflail's
 own words once it finally worked: "finally."
 
+## Multiple editor windows allowed at once (task #138, complete 2026-08-15)
+
+Reported live by direflail: `File > Open` on a saved `.orcshot` file while a capture's editor was
+already open just opened a second, independent editor window - surprising, since starting a *new
+capture* while an editor was open did the opposite (`app.py`'s `_block_if_editor_open`, added earlier
+for task #14/#15's original hotkey flow, silently refused and focused the existing editor instead).
+
+**Checked against the real Windows source before picking a direction** (this project's own standing
+rule - see [[feedback-faithful-port-verification]]): there is no "one editor at a time" limit in
+Windows Greenshot at all. Both a fresh capture and opening a saved `.greenshot` file route through the
+same method, `EditorDestination.ExportCapture` (`EditorDestination.cs:89-152`), which by default
+(`ReuseEditor` defaults to `false`, `IEditorConfiguration.cs:73-75`) always constructs a fresh,
+independent `ImageEditorForm` (`EditorDestination.cs:112`) - multiple editor windows are meant to
+coexist freely; a static `EditorList`/`Editors` collection (`ImageEditorForm.cs:78`) just tracks them
+for cross-editor operations, with no cap. The only reuse behavior is the opt-in "Reuse already open
+editor" setting (off by default), which injects into the first *unmodified* open editor rather than
+enforcing a limit. So `File > Open`'s behavior was actually the faithful one; the capture-side block
+was the divergence.
+
+**Why the block existed**: added as a workaround for a real report - triggering a hotkey while an
+editor was open produced a confusing, silent no-op (the capture overlay/destination-picker flow never
+appeared, though the app didn't hang). The suspected cause, per the block's own docstring, was never
+actually confirmed: "Cinnamon/Muffin focus-stealing prevention likely keeps the newly-created
+override-redirect overlay from actually receiving input while the editor already has focus" - a guess,
+not a diagnosis. Root-caused today by looking at the overlay's actual input-acquisition code
+(`ui/region_select.py`): it's a `Gtk.WindowType.POPUP` (X11 override-redirect), and acquires input via
+an explicit `Gdk.Seat` grab scoped to `KEYBOARD` capabilities only (not `POINTER`), called with no real
+event timestamp - a real, independently-plausible weak point, unrelated to the focus-stealing guess.
+
+**Live-tested rather than assumed**: with the block temporarily disabled, opened one editor, kept it
+focused, triggered a second capture, and completed a real drag-select over the already-focused editor -
+worked correctly, confirmed by direflail ("it worked fine"). The original bug did not reproduce.
+Whether it was fixed incidentally by later changes (e.g. task #134's tray-menu-close-race `_defer`
+fix, which changed capture-start timing) or was misdiagnosed from the start wasn't pinned down further
+- not worth chasing given it doesn't reproduce and matching Windows' actual default behavior is the
+right direction regardless.
+
+**Fix**: removed `_block_if_editor_open()` and its five call sites in `app.py` entirely (`start_region_
+capture`/`start_full_screen_capture`/`start_active_window_capture`/`start_window_picker`/`start_last_
+region_capture`). `self._open_editors`/`register_editor_window`/`unregister_editor_window` stay -
+`show_preferences()` still uses the topmost open editor as Preferences' transient parent, and now
+correctly tracks more than one.
+
+## Modal-dialog-vs-capture-overlay regression (task #138 follow-up, complete 2026-08-15)
+
+Removing `_block_if_editor_open()` (above) opened a narrower but real hole: reported live by
+direflail, while `EditorWindow._on_delete_event`'s "save changes?" prompt (a `Gtk.Dialog.run()`) was
+open, triggering a new capture still ran - the screen dimmed and the crosshair cursor appeared, but no
+click ever registered, and the overlay silently vanished on the next click with no capture and no error.
+
+Root cause: `ui/region_select.py`'s capture overlay only ever grabs *keyboard* input via `Gdk.Seat`
+(see that module's own comment) - it relies on plain, ungrabbed button events for its drag-select, which
+normally works fine. `Gtk.Dialog.run()` holds its own process-wide GTK grab for as long as it's open
+(used by the save prompt, and 26 other `Gtk.Dialog` call sites in `editor_window.py` alone -
+Preferences, Save As, text-entry dialogs, etc.), which intercepts that same pointer input first, so the
+overlay never sees the click.
+
+**Fix**: added `_block_if_modal_dialog_open()` in `app.py`, wired into the same five capture-start
+methods `_block_if_editor_open()` used to guard. Checks `Gtk.grab_get_current()` - `None` means nothing
+is actually grabbing, so the capture proceeds; otherwise it presents the grabbing dialog's toplevel
+instead of starting a capture that can never receive input. Deliberately narrower than the removed
+`_block_if_editor_open()`: that blocked on *any* open editor regardless of whether it was actually
+intercepting input, which is exactly the over-broad behavior task #138 removed. This only blocks when
+something concrete is grabbing right now, so multiple editor windows keep coexisting freely - only an
+active modal dialog blocks a new capture.
+
+## Fresh captures start "modified" even with zero edits (complete 2026-08-15)
+
+Reported live by direflail: opening a fresh capture in the editor and closing it again *without making
+any changes* produced no "save changes?" prompt at all - expected, since nothing was touched. But the
+user's own stated intent was broader: "the only time that shouldn't come up is if the last thing you
+did was save (or save as)" - i.e. a never-yet-saved capture should always prompt, edited or not, since
+nothing has been exported yet.
+
+Checked against the real Windows source before fixing (per [[feedback-faithful-port-verification]]):
+`Surface.Modified` defaults `true` at construction (`Surface.cs:328`), and gets explicitly reasserted
+`true` when a fresh capture's editor opens - `ImageEditorForm.cs:186`'s
+`surface.Modified = !outputMade` - regardless of whether the user has edited anything. Windows'
+`Modified` is semantically "not yet exported," not "user touched something." Orcshot's own
+`is_modified` (`ui/editor_window.py`) only tracked the latter (`undo_redo.generation !=
+_saved_generation`, both starting at `0`) - a real divergence, confirmed by the live report before
+fixing, not a guess.
+
+**Fix**: added an `already_saved: bool = False` parameter to `EditorWindow.__init__`. When `False` (the
+default - used for every fresh capture via `destination_picker.py`'s `EditorWindow(image)` call),
+`_saved_generation` starts at `-1`, a sentinel `undo_redo.generation` (which itself always starts at
+`0`) can never equal on its own - so `is_modified` is `True` from construction, matching Windows, until
+an actual save happens. When `True` (`open_orcshot_file_in_new_window`, task #123/#129 - opening an
+*existing* `.orcshot` file whose on-disk content already matches what's loaded), `_saved_generation`
+starts equal to `generation` instead, correctly unchanged from before this fix - closing an unedited
+reopened file still doesn't prompt. Live-verified both cases: a fresh, untouched capture now prompts to
+save on close; an untouched reopened `.orcshot` file still doesn't.
+
+## Tray icon "Open File..." (task #140, complete 2026-08-15)
+
+direflail noted that opening a saved `.orcshot` file was "a really out of the way path" - it required
+already having an editor open (via its own `File > Open`) or going through the file manager; there was
+no way to open one directly from the tray, the app's primary entry point when no editor is open yet.
+
+Checked against the real Windows source first: `contextmenu_openfile` is a real, always-present item in
+Windows' own tray context menu (`MainForm.Designer.cs:92`), sitting in the real `AddRange` order right
+after the capture items and "capture clipboard" (`MainForm.Designer.cs:83-103`), before the settings
+section - this port had no equivalent at all. (Windows also has a separate, opt-in
+`ClickActions.OPEN_EMPTY_EDITOR` single-click behavior, `MainForm.cs:1277-1278` - a configurable
+single-click action in Settings, not a static menu row - deliberately not ported; building the whole
+configurable-click-action system for one row wasn't worth it here.)
+
+**Fix**: extracted the existing file-chooser logic out of `EditorWindow._do_open` into a new shared
+module-level function, `choose_and_open_orcshot_file(transient_for=None)` in `ui/editor_window.py`, so
+both `File > Open` and the new tray entry point get identical dialog behavior and error handling.
+Added `OrcshotApplication.open_file_from_tray()` in `app.py` (same topmost-open-editor-as-transient-
+parent reasoning as `show_preferences`), a `tray-open-file` GAction, and an "Open File..." row in both
+the X11 `AppIndicator3` menu (`_build_tray_menu`) and the Wayland Shell-native panel button's own menu
+(`extension.js`'s `_buildTrayButton`), each activating the same GAction.
+
+Verified end-to-end on both platforms: X11 confirmed live by direflail ("works"). Wayland confirmed by
+activating `tray-open-file` directly over D-Bus (`org.gtk.Actions.Activate`) and checking, via the
+bundled window-calls extension, that a real GTK "Open" file-chooser window appeared - confirms the full
+chain (Shell extension menu → GAction → Python handler → dialog) without needing to view any live
+capture content.
+
 ## Licensing
 
 **Status: decided — GPLv3.** Greenshot (Windows) is GPLv3; this is a derivative work — same feature
