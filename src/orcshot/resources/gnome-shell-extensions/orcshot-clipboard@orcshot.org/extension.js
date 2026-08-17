@@ -248,16 +248,17 @@ const _DIM_ALPHA = 0.5;
 // on whichever of these ids comes back, it doesn't build any menu UI
 // of its own for this path anymore.
 //
-// Icon names (task #133) match ui/editor_window.py's own File/Edit
+// Geometry keys (task #146) match ui/editor_window.py's own File/Edit
 // menu items for the same actions exactly (document-save-symbolic,
-// edit-copy-symbolic, etc.) - task #96 gave destination_picker.py's
-// own Gtk.Menu hand-drawn icons, but this Shell-side picker (task
-// #77, which replaced that Gtk.Menu for the Wayland/Shell-native flow
-// specifically) never got any at all; menu.addAction() only ever
-// took a plain label, with no icon parameter to pass one through.
-// Themed icon names instead of porting the hand-drawn cairo glyphs -
-// simpler, and GNOME Shell's own icon theme lookup (St.Icon) already
-// resolves these names correctly, no drawing code needed in GJS.
+// edit-copy-symbolic, etc.) - and icons.py's own destination_icon_image
+// maps these same destination ids to the same keys, so this picker
+// and destination_picker.py's own X11 Gtk.Menu draw identical icons.
+// Previously themed icon names looked up via St.Icon (simpler, no
+// drawing code needed) - reverted per direflail: "I don't want
+// default icon sets... every icon in the wayland version [must] look
+// like the x11 version, no exceptions" (a theme-name lookup only
+// guarantees a consistent *name*, not a consistent *look*, across
+// machines with different icon themes installed).
 const DESTINATIONS = [
   ['clipboard', 'Copy to Clipboard', 'edit-copy-symbolic'],
   ['save', 'Save', 'document-save-symbolic'],
@@ -289,9 +290,13 @@ function pickDestinationAsync(x, y) {
     const manager = new PopupMenu.PopupMenuManager(anchor);
     manager.addMenu(menu);
 
+    const iconGeometry = _loadIconGeometry();
     let chosen = null;
-    for (const [id, label, iconName] of DESTINATIONS) {
-      const item = new PopupMenu.PopupImageMenuItem(label, iconName);
+    for (const [id, label, geometryKey] of DESTINATIONS) {
+      // size=24 matches icons.py's own destination_icon_image, which
+      // always renders at its module ICON_SIZE constant (24) - not
+      // the tray menu's 16px default, a real, different size class.
+      const { item } = _buildDrawnMenuItem(iconGeometry, geometryKey, label, 24);
       item.connect('activate', () => { chosen = id; });
       menu.addMenuItem(item);
     }
@@ -1554,19 +1559,7 @@ const TRAY_MODE_ITEMS = [
 // exact same color the row's own label text uses, so it's correct for
 // whatever theme is actually active - not just light vs dark, any
 // theme - with no static file, no CSS trick, and no guessing.
-// Geometry mirrors icons.py's own capture_mode_icon_image() builders
-// (same shapes, same reasoning for each - dashed vs solid meaning
-// "interactive pick" vs "concrete/current" - see that file's own
-// docstrings) at a 16-unit logical size with a 3-unit margin, matching
-// this menu's actual ~16-17px icon-size (confirmed live via
-// St.ThemeNode -> .popup-menu-icon { icon-size: 1.091em }) so nothing
-// needs downscaling. Cairo's own method names are camelCase here
-// (setLineWidth, moveTo, ...) rather than icons.py's snake_case - a
-// real GJS binding difference from PyGObject's Cairo bindings, not a
-// typo - matching this file's own existing crosshair-drawing code
-// above.
 const _TRAY_ICON_SIZE = 16;
-const _TRAY_ICON_MARGIN = 3;
 
 function _trayRoundedRectPath(cr, x, y, w, h, r) {
   cr.newSubPath();
@@ -1577,70 +1570,136 @@ function _trayRoundedRectPath(cr, x, y, w, h, r) {
   cr.closePath();
 }
 
-function _drawTrayRegionIcon(cr, size, margin) {
-  cr.setLineWidth(2);
-  cr.setDash([3, 2], 0);
-  cr.rectangle(margin, margin, size - 2 * margin, size - 2 * margin);
-  cr.stroke();
-}
-
-function _drawTrayFullScreenIcon(cr, size, margin) {
-  cr.setLineWidth(2);
-  cr.setLineJoin(Cairo.LineJoin.ROUND);
-  const screenBottom = size * 0.66;
-  _trayRoundedRectPath(cr, margin, margin, size - 2 * margin, screenBottom - margin, 2);
-  cr.stroke();
-  cr.moveTo(size / 2, screenBottom);
-  cr.lineTo(size / 2, size - margin);
-  cr.stroke();
-  cr.moveTo(size * 0.3, size - margin);
-  cr.lineTo(size * 0.7, size - margin);
-  cr.stroke();
-}
-
-function _drawTrayWindowFrameIcon(cr, size, margin, dashed) {
-  cr.setLineWidth(2);
-  if (dashed) {
-    cr.setDash([3, 2], 0);
+// Task #143: this used to be four separate hand-drawn functions here,
+// a second independent copy of the same shapes icons.py's own
+// capture_mode_icon_image() drew in Python - real duplicated logic,
+// kept in sync only by a human remembering to update both. GJS can't
+// import icons.py (a completely separate process, no shared
+// interpreter) so the two sides can never share *code* - but they can
+// share *data*, since any process on this machine can read the same
+// file off disk regardless of language. icon_geometry.json (installed
+// alongside this file, read via this.path below) holds each icon as a
+// flat list of drawing ops, coordinates normalized to 0..1 (fractions
+// of whatever pixel size the icon renders at - this menu's own
+// ~16-17px icon-size, confirmed live via St.ThemeNode ->
+// .popup-menu-icon { icon-size: 1.091em }). This function is the
+// GJS-side interpreter for that data; icons.py's _render_icon_geometry
+// is the Python-side one, reading the identical file. Cairo's own
+// method names are camelCase here (setLineWidth, moveTo, ...) rather
+// than icons.py's snake_case - a real GJS binding difference from
+// PyGObject's Cairo bindings, not a typo. Only style values
+// (line width, dash pattern, rounded_rectangle's corner radius) are
+// absolute pixels, unscaled - matches the geometry file's own Python-
+// side interpreter, and the original hand-drawn code before it, where
+// those were always fixed constants regardless of icon size.
+function _renderIconGeometry(cr, ops, size) {
+  for (const op of ops) {
+    switch (op.op) {
+      case 'rectangle':
+        cr.rectangle(op.x * size, op.y * size, op.w * size, op.h * size);
+        break;
+      case 'rounded_rectangle':
+        _trayRoundedRectPath(cr, op.x * size, op.y * size, op.w * size, op.h * size, op.radius);
+        break;
+      case 'arc':
+        cr.arc(op.cx * size, op.cy * size, op.radius * size,
+          (op.start_deg * Math.PI) / 180, (op.end_deg * Math.PI) / 180);
+        break;
+      case 'move_to':
+        cr.moveTo(op.x * size, op.y * size);
+        break;
+      case 'line_to':
+        cr.lineTo(op.x * size, op.y * size);
+        break;
+      case 'curve_to':
+        cr.curveTo(op.x1 * size, op.y1 * size, op.x2 * size, op.y2 * size, op.x3 * size, op.y3 * size);
+        break;
+      case 'set_line_width':
+        cr.setLineWidth(op.width);
+        break;
+      case 'set_dash':
+        cr.setDash(op.pattern, 0);
+        break;
+      case 'set_line_join':
+        cr.setLineJoin(op.join === 'round' ? Cairo.LineJoin.ROUND
+          : op.join === 'bevel' ? Cairo.LineJoin.BEVEL : Cairo.LineJoin.MITER);
+        break;
+      case 'set_line_cap':
+        cr.setLineCap(op.cap === 'round' ? Cairo.LineCap.ROUND
+          : op.cap === 'square' ? Cairo.LineCap.SQUARE : Cairo.LineCap.BUTT);
+        break;
+      case 'close_path':
+        cr.closePath();
+        break;
+      case 'stroke':
+        cr.stroke();
+        break;
+      case 'fill':
+        cr.fill();
+        break;
+      default:
+        throw new Error(`unknown icon geometry op: ${op.op}`);
+    }
   }
-  _trayRoundedRectPath(cr, margin, margin, size - 2 * margin, size - 2 * margin, 2);
-  cr.stroke();
-  cr.setDash([], 0);
-  const titleBarBottom = margin + (size - 2 * margin) * 0.28;
-  cr.moveTo(margin, titleBarBottom);
-  cr.lineTo(size - margin, titleBarBottom);
-  cr.stroke();
 }
 
-function _drawTrayRepeatIcon(cr, size, margin) {
-  cr.setLineWidth(2);
-  const inset = size * 0.14;
-  cr.rectangle(margin, margin + inset, size - 2 * margin - inset, size - 2 * margin - inset);
-  cr.stroke();
-  const cx = size - margin - inset * 0.5;
-  const cy = margin + inset * 0.5;
-  const radius = inset * 1.15;
-  cr.setLineWidth(1.6);
-  const start = (20 * Math.PI) / 180;
-  const end = (310 * Math.PI) / 180;
-  cr.arc(cx, cy, radius, start, end);
-  cr.stroke();
-  const headX = cx + radius * Math.cos(end);
-  const headY = cy + radius * Math.sin(end);
-  cr.moveTo(headX, headY);
-  cr.lineTo(headX - radius * 0.7, headY);
-  cr.moveTo(headX, headY);
-  cr.lineTo(headX, headY + radius * 0.7);
-  cr.stroke();
+// icon_geometry.json (task #143) - the shared source of truth for
+// every drawn icon in this file, read fresh each call rather than
+// cached at module scope, since enable()/disable() cycles are rare
+// (only a real toggle or extension update) and this avoids a stale
+// copy surviving a live-edited geometry file across one of those
+// cycles. Plain file I/O, not a Python import - see
+// _renderIconGeometry's own docstring above for why this couldn't be
+// a shared function but could still be a shared file. Module-level
+// (not an Extension instance method, despite needing this file's own
+// install directory) because pickDestinationAsync below - a plain
+// function, not a class method - needs it too; import.meta.url is
+// this module's own real file:// URL regardless of which scope reads
+// it, confirmed live via `gjs -m` on this exact GJS/Shell version.
+function _loadIconGeometry() {
+  const [path] = GLib.filename_from_uri(import.meta.url);
+  const geometryPath = GLib.build_filenamev([GLib.path_get_dirname(path), 'icon_geometry.json']);
+  const [, bytes] = GLib.file_get_contents(geometryPath);
+  return JSON.parse(new TextDecoder().decode(bytes));
 }
 
-const _TRAY_ICON_DRAWERS = {
-  region: (cr, size, margin) => _drawTrayRegionIcon(cr, size, margin),
-  full_screen: (cr, size, margin) => _drawTrayFullScreenIcon(cr, size, margin),
-  active_window: (cr, size, margin) => _drawTrayWindowFrameIcon(cr, size, margin, false),
-  window_picker: (cr, size, margin) => _drawTrayWindowFrameIcon(cr, size, margin, true),
-  repeat_region: (cr, size, margin) => _drawTrayRepeatIcon(cr, size, margin),
-};
+// Task #146: same reasoning as _buildTrayButton's own capture-mode
+// items (see _renderIconGeometry's own docstring above) - every menu
+// item that used to carry a stock PopupImageMenuItem icon name
+// (Open File/Preferences/Quit below, and pickDestinationAsync's own
+// items further down) gets one of these instead, so nothing in this
+// extension ever depends on which icon theme happens to be
+// installed. `geometryKey` is the exact stock icon name each item
+// used to pass to PopupImageMenuItem's constructor - also the
+// icon_geometry.json key, so swapping call sites was a pure
+// substitution.
+function _buildDrawnMenuItem(iconGeometry, geometryKey, label, size = _TRAY_ICON_SIZE) {
+  const item = new PopupMenu.PopupBaseMenuItem();
+  const iconArea = new St.DrawingArea({
+    style_class: 'popup-menu-icon',
+    // `icon-size` (the CSS property giving a stock-name St.Icon its
+    // size) is icon-specific - confirmed live it does nothing for a
+    // plain St.DrawingArea, which rendered nothing at all as a result
+    // (zero allocated size, no error). Explicit pixel size instead.
+    width: size,
+    height: size,
+    x_align: Clutter.ActorAlign.CENTER,
+    y_align: Clutter.ActorAlign.CENTER,
+  });
+  iconArea.connect('repaint', () => {
+    const cr = iconArea.get_context();
+    const [width, height] = iconArea.get_surface_size();
+    const color = iconArea.get_theme_node().get_foreground_color();
+    cr.setSourceRGBA(color.red / 255, color.green / 255, color.blue / 255, color.alpha / 255);
+    _renderIconGeometry(cr, iconGeometry[geometryKey], Math.min(width, height));
+    cr.$dispose();
+  });
+  item.add_child(iconArea);
+  const itemLabel = new St.Label({ text: label, y_expand: true, y_align: Clutter.ActorAlign.CENTER });
+  item.add_child(itemLabel);
+  item.label_actor = itemLabel;
+  return { item, iconArea };
+}
 
 export default class Extension extends ShellExtension {
   // Two separate exported objects at two separate paths - tried a
@@ -1671,6 +1730,33 @@ export default class Extension extends ShellExtension {
     // _check_shell_extension_health can show the user something more
     // useful than a silently missing tray icon (task #137 follow-up) -
     // GetTrayButtonError below is how it gets there.
+    // direflail, live-reported: the tray menu opens fine and looks
+    // completely normal even when Orcshot's own Python process isn't
+    // running to receive clicks (most commonly right after a fresh
+    // login, before anything has launched it this session) - every
+    // item's own _activateTrayAction is genuinely fire-and-forget (see
+    // its own comment below), so nothing ever told the user *why*
+    // nothing happened. This is the missing half of the existing
+    // health-check story: _check_shell_extension_health (app.py) can
+    // only ever run *from* a live Python process, so it can tell you
+    // "the Shell extension is broken," but there's no way for Python
+    // to warn about itself being dead - only the Shell side can
+    // observe that. Set *before* _buildTrayButton runs, so the menu
+    // is built already-correctly-insensitive from the start rather
+    // than flashing enabled-then-disabled - Gio.bus_watch_name's own
+    // first callback (appeared or vanished, whichever matches the
+    // real current state) fires asynchronously moments later and
+    // corrects this either way, so starting pessimistic here costs
+    // nothing and a false "looks fine" is exactly the bug being fixed.
+    this._appAvailable = false;
+    this._repeatAvailable = false;
+    // direflail: "might want to time how long it takes that thing to
+    // load... might help debug" - GLib.get_monotonic_time() (µs,
+    // immune to wall-clock/timezone changes, the correct clock for
+    // measuring an elapsed duration) captured here and compared
+    // against in _setAppAvailable's own appeared branch below.
+    this._enabledAtUs = GLib.get_monotonic_time();
+
     this._trayButtonError = '';
     try {
       this._trayButton = this._buildTrayButton();
@@ -1682,6 +1768,17 @@ export default class Extension extends ShellExtension {
       this._repeatItem = null;
       this._repeatIconArea = null;
     }
+
+    // Reacts in real time (not a poll) to Python's own D-Bus name
+    // (org.orcshot.Orcshot, auto-owned by its GApplication)
+    // appearing/vanishing - confirmed live via `gjs -m` that both
+    // callbacks fire with the expected (connection, name[, nameOwner])
+    // signature on this GJS version.
+    this._appWatchId = Gio.bus_watch_name(
+      Gio.BusType.SESSION, 'org.orcshot.Orcshot', Gio.BusNameWatcherFlags.NONE,
+      () => this._setAppAvailable(true),
+      () => this._setAppAvailable(false),
+    );
   }
 
   disable() {
@@ -1698,11 +1795,53 @@ export default class Extension extends ShellExtension {
     this._versionDbus.unexport();
     delete this._versionDbus;
 
+    if (this._appWatchId) {
+      Gio.bus_unwatch_name(this._appWatchId);
+      this._appWatchId = null;
+    }
+
     if (this._trayButton) {
       this._trayButton.destroy();
       this._trayButton = null;
     }
     this._repeatItem = null;
+    this._appGatedItems = null;
+    this._logoIcon = null;
+  }
+
+  // Task #147: dims the top-bar logo and disables every menu item
+  // that would otherwise silently do nothing - direflail's own
+  // question ("should we grey the orcshot logo out until it IS
+  // loaded?") answered directly: yes, this is exactly that. Repeat
+  // Last Region needs *both* this and its own existing
+  // SetRepeatAvailable gate to be enabled - recomputed here from
+  // both stored booleans rather than trusting whichever call came
+  // last, so a stale SetRepeatAvailable from just before Python
+  // vanished can't leave it wrongly clickable.
+  _setAppAvailable(available) {
+    if (available) {
+      const elapsedSeconds = (GLib.get_monotonic_time() - this._enabledAtUs) / 1e6;
+      console.log(`[orcshot] org.orcshot.Orcshot appeared on the session bus ${elapsedSeconds.toFixed(1)}s after this extension's own enable()`);
+    }
+    this._appAvailable = available;
+    for (const item of this._appGatedItems ?? [])
+      item.setSensitive(available);
+    if (this._repeatItem)
+      this._repeatItem.setSensitive(available && !!this._repeatAvailable);
+    if (this._logoIcon)
+      this._logoIcon.opacity = available ? 255 : 100;
+    // direflail: "when orcshot is greyed out, don't let it open
+    // popups" - greyed-out menu items alone (above) still let the
+    // menu itself open empty-looking-but-technically-fine, same as
+    // clicking a disabled toolbar button shouldn't drop its dropdown
+    // either. reactive=false stops the click/touch press that
+    // PanelMenu.Button's own built-in toggle relies on from reaching
+    // this actor at all, so the menu never opens in the first place -
+    // simpler and flash-free compared to reopening open-state-changed
+    // to immediately re-close it.
+    if (this._trayButton)
+      this._trayButton.reactive = available;
+    this._repeatIconArea?.queue_repaint();
   }
 
   // App.py registers each of these as a GAction (see its own
@@ -1722,48 +1861,33 @@ export default class Extension extends ShellExtension {
   }
 
   _buildTrayButton() {
+    const iconGeometry = _loadIconGeometry();
     const button = new PanelMenu.Button(0.0, 'Orcshot', false);
-    button.add_child(new St.Icon({
+    // Matches _setAppAvailable's own reactive toggle - starts in sync
+    // with this._appAvailable (already forced pessimistic-false in
+    // enable() before this method runs) rather than defaulting
+    // reactive (the St.Button/PanelMenu.Button default), so there's no
+    // brief window where a fresh button opens its popup before the
+    // first _setAppAvailable call corrects it.
+    button.reactive = this._appAvailable;
+    this._logoIcon = new St.Icon({
       gicon: Gio.icon_new_for_string(this._trayIconPath('orcshot')),
       style_class: 'system-status-icon',
-    }));
+      opacity: this._appAvailable ? 255 : 100,
+    });
+    button.add_child(this._logoIcon);
+
+    // Every item below except Repeat Last Region (which has its own
+    // separate SetRepeatAvailable gate, combined with this one in
+    // _setAppAvailable) goes here so a single loop can grey all of
+    // them out together - task #147.
+    this._appGatedItems = [];
 
     for (const [label, iconMode, actionName] of TRAY_MODE_ITEMS) {
       // Manually built rather than PopupImageMenuItem (see the block
       // comment above TRAY_MODE_ITEMS for the full why): these icons
       // paint themselves live with Cairo, not from a loaded Gio.Icon.
-      const item = new PopupMenu.PopupBaseMenuItem();
-      const iconArea = new St.DrawingArea({
-        style_class: 'popup-menu-icon',
-        // `icon-size` (the CSS property giving Preferences/Quit's real
-        // St.Icon their size) is icon-specific - confirmed live it does
-        // nothing for a plain St.DrawingArea, which rendered nothing at
-        // all as a result (zero allocated size, no error - 'repaint'
-        // either never fired or painted an empty surface). Explicit
-        // pixel size instead, matching _TRAY_ICON_SIZE.
-        width: _TRAY_ICON_SIZE,
-        height: _TRAY_ICON_SIZE,
-        x_align: Clutter.ActorAlign.CENTER,
-        y_align: Clutter.ActorAlign.CENTER,
-      });
-      iconArea.connect('repaint', () => {
-        const cr = iconArea.get_context();
-        const [width, height] = iconArea.get_surface_size();
-        const color = iconArea.get_theme_node().get_foreground_color();
-        cr.setSourceRGBA(color.red / 255, color.green / 255, color.blue / 255, color.alpha / 255);
-        const size = Math.min(width, height);
-        const margin = size * (_TRAY_ICON_MARGIN / _TRAY_ICON_SIZE);
-        _TRAY_ICON_DRAWERS[iconMode](cr, size, margin);
-        cr.$dispose();
-      });
-      item.add_child(iconArea);
-      const itemLabel = new St.Label({
-        text: label,
-        y_expand: true,
-        y_align: Clutter.ActorAlign.CENTER,
-      });
-      item.add_child(itemLabel);
-      item.label_actor = itemLabel;
+      const { item, iconArea } = _buildDrawnMenuItem(iconGeometry, iconMode, label);
       item.connect('activate', () => this._activateTrayAction(actionName));
       button.menu.addMenuItem(item);
       if (iconMode === 'repeat_region') {
@@ -1780,6 +1904,9 @@ export default class Extension extends ShellExtension {
         item.setSensitive(false);
         this._repeatItem = item;
         this._repeatIconArea = iconArea;
+      } else {
+        item.setSensitive(this._appAvailable);
+        this._appGatedItems.push(item);
       }
     }
 
@@ -1787,27 +1914,33 @@ export default class Extension extends ShellExtension {
     // Task #140: real Windows' own tray context menu has always had this
     // (contextmenu_openfile, MainForm.Designer.cs:92), right after the
     // capture items in the real AddRange order (MainForm.Designer.cs:
-    // 83-103) - a real, themed icon name, same as Preferences/Quit
-    // below, so no live-Cairo-drawing complexity needed here.
-    const openFileItem = new PopupMenu.PopupImageMenuItem('Open File...', 'document-open-symbolic');
-    openFileItem.connect('activate', () => this._activateTrayAction('tray-open-file'));
-    button.menu.addMenuItem(openFileItem);
+    // 83-103).
+    const openFile = _buildDrawnMenuItem(iconGeometry, 'document-open-symbolic', 'Open File...');
+    openFile.item.connect('activate', () => this._activateTrayAction('tray-open-file'));
+    openFile.item.setSensitive(this._appAvailable);
+    this._appGatedItems.push(openFile.item);
+    button.menu.addMenuItem(openFile.item);
 
     button.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
-    const preferencesItem = new PopupMenu.PopupImageMenuItem('Preferences...', 'preferences-system-symbolic');
-    preferencesItem.connect('activate', () => this._activateTrayAction('tray-preferences'));
-    button.menu.addMenuItem(preferencesItem);
+    const preferences = _buildDrawnMenuItem(iconGeometry, 'preferences-system-symbolic', 'Preferences...');
+    preferences.item.connect('activate', () => this._activateTrayAction('tray-preferences'));
+    preferences.item.setSensitive(this._appAvailable);
+    this._appGatedItems.push(preferences.item);
+    button.menu.addMenuItem(preferences.item);
 
     button.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
-    const quitItem = new PopupMenu.PopupImageMenuItem('Quit', 'application-exit-symbolic');
-    quitItem.connect('activate', () => this._activateTrayAction('tray-quit'));
-    button.menu.addMenuItem(quitItem);
+    const quit = _buildDrawnMenuItem(iconGeometry, 'application-exit-symbolic', 'Quit');
+    quit.item.connect('activate', () => this._activateTrayAction('tray-quit'));
+    quit.item.setSensitive(this._appAvailable);
+    this._appGatedItems.push(quit.item);
+    button.menu.addMenuItem(quit.item);
 
     return button;
   }
 
   SetRepeatAvailable(available) {
-    this._repeatItem?.setSensitive(available);
+    this._repeatAvailable = available;
+    this._repeatItem?.setSensitive(available && !!this._appAvailable);
     this._repeatIconArea?.queue_repaint();
   }
 

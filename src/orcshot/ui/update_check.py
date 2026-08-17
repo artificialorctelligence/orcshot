@@ -23,7 +23,7 @@ import json
 import urllib.error
 import urllib.request
 
-GITHUB_REPO = "orcshot/orcshot"
+GITHUB_REPO = "artificialorctelligence/orcshot"
 _RELEASES_LATEST_URL = f"https://api.github.com/repos/{GITHUB_REPO}/releases/latest"
 # GitHub's API 403s any request with no User-Agent header at all.
 _USER_AGENT = "orcshot-update-check"

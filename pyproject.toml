@@ -29,13 +29,26 @@ dev = [
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/orcshot"]
-# GNOME Shell extension resources are OS-packaging data only (copied to
-# /usr/share/gnome-shell/extensions/ via debian/orcshot.install,
-# which reads straight from the source tree, not the wheel) - nothing
-# in the Python package itself ever reads them at a package-relative
-# path the way resources/orcshot.png is, so there's no reason
-# for them to also end up duplicated under dist-packages/.
-exclude = ["src/orcshot/resources/gnome-shell-extensions"]
+# Most GNOME Shell extension resources are OS-packaging data only
+# (copied to /usr/share/gnome-shell/extensions/ via
+# debian/orcshot.install, which reads straight from the source tree,
+# not the wheel) - the extension .js itself, its metadata.json, and
+# its own tray-icon PNGs are never read by the Python package at a
+# package-relative path the way resources/orcshot.png is, so there's
+# no reason for those specifically to also end up duplicated under
+# dist-packages/. icon_geometry.json is the one exception (task #146):
+# ui/icons.py's own stock_icon_image reads it via _ICON_GEOMETRY_PATH,
+# a package-relative path, specifically so the Python and GJS
+# interpreters share one geometry source - excluding the whole
+# directory (the original, broader rule here) shipped a package that
+# crashed on first launch with FileNotFoundError, confirmed live via
+# a real .deb install (task #145) after task #146 quietly broke this
+# rule's original "nothing Python-side reads these" premise.
+exclude = [
+    "src/orcshot/resources/gnome-shell-extensions/**/*.js",
+    "src/orcshot/resources/gnome-shell-extensions/**/metadata.json",
+    "src/orcshot/resources/gnome-shell-extensions/**/icons/*.png",
+]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

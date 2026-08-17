@@ -4405,7 +4405,7 @@ drift apart (mirrors real Windows' own `zoomMainMenuItem`/`zoomStatusDropDownBtn
 Zoom In/Out, matching Windows - the percentage/Best Fit/Actual Size entries have no `.Image` set there
 either.
 
-**Help**: Online Help (new - opens `github.com/orcshot/orcshot` in a browser for now; real help-page
+**Help**: Online Help (new - opens `github.com/artificialorctelligence/orcshot` in a browser for now; real help-page
 content, probably a GitHub wiki page, is content-writing not code, tracked as a follow-up rather than
 blocking this) and About Orcshot.
 
@@ -5059,7 +5059,7 @@ which is exactly the precedent this task's own GitHub-Releases adaptation leans 
 
 - **GitHub Releases instead of a self-hosted feed.** Real Windows polls `getgreenshot.org/update-feed.json`
   (a file that project hosts itself); Orcshot has no equivalent website, so `core/update_check.py` +
-  `ui/update_check.py` poll `GET api.github.com/repos/orcshot/orcshot/releases/latest` instead. That
+  `ui/update_check.py` poll `GET api.github.com/repos/artificialorctelligence/orcshot/releases/latest` instead. That
   endpoint already excludes prereleases/drafts on its own, which is why there's no beta-channel
   distinction to port (`IsBetaUpdateAvailable` has no Orcshot equivalent) - consistent with the real
   Expert-tab "Check for unstable updates" checkbox already having been dropped outright (task #93
@@ -5458,6 +5458,210 @@ activating `tray-open-file` directly over D-Bus (`org.gtk.Actions.Activate`) and
 bundled window-calls extension, that a real GTK "Open" file-chooser window appeared - confirms the full
 chain (Shell extension menu → GAction → Python handler → dialog) without needing to view any live
 capture content.
+
+## Shared vector-icon geometry for the 5 tray icons (task #143, complete 2026-08-16)
+
+The task #137 follow-up section above ends with the 5 tray-menu capture-mode icons hand-ported into
+`extension.js` as a second, independent copy of `icons.py`'s own drawing logic - "kept in sync by hand"
+was an accepted tradeoff at the time, not a solved problem. direflail asked directly why the two
+couldn't just match exactly, and after walking through *why* they're separate processes (GJS running
+inside gnome-shell itself, no shared interpreter with Orcshot's own Python process - the same
+constraint discussed in that section, restated more plainly), landed on the real distinction: Python
+and GJS can never share *code*, but they can share *data*, since any process on the same machine can
+read the same file off disk regardless of language.
+
+**Fix**: `icon_geometry.json` (installed alongside `extension.js`/`metadata.json`, read from
+`RESOURCES_DIR / "gnome-shell-extensions" / "orcshot-clipboard@orcshot.org" / "icon_geometry.json"` on
+the Python side and `this.path` on the GJS side) holds each of the 5 icons as a flat list of drawing
+ops - `rectangle`/`rounded_rectangle`/`arc`/`move_to`/`line_to`/`set_line_width`/`set_dash`/
+`set_line_join`/`stroke` - with position/size values normalized to 0..1 (fractions of whatever pixel
+size the icon renders at) and style values (line width, dash pattern, `rounded_rectangle`'s corner
+radius) left as absolute pixels, matching how those were always fixed constants in the original
+hand-drawn code regardless of icon size. `icons.py`'s `_render_icon_geometry` and `extension.js`'s
+`_renderIconGeometry` are now two small, mechanical interpreters - "loop over ops, dispatch each to
+this platform's own Cairo binding" - replacing what used to be 10 separate hand-drawn functions (5
+icons × 2 languages) with 1 shared data file + 2 thin interpreters. Any future geometry change happens
+once, in the JSON; both platforms pick it up automatically, with nothing left to drift by hand.
+
+The exact normalized coordinates were generated programmatically from the original hand-drawn
+functions' own formulas (a small one-off script evaluating each icon's real math - `ICON_SIZE`/
+`_MARGIN`-relative expressions, including the repeat-icon's trig for its arrow head) rather than
+transcribed by hand, specifically to avoid a transcription error silently drifting the new geometry
+from the old.
+
+**Verified two ways before deleting the original functions**: (1) a pixel-diff comparing the old
+hand-drawn Python functions against the new geometry-driven `capture_mode_icon_image` - byte-identical
+output for all 5 icons; (2) a standalone GJS script (outside the Shell extension entirely, using
+`imports.gi.cairo` directly) running the exact same op-interpretation logic against the same JSON file,
+with its rendered output pulled back and compared pixel-for-pixel against Python's - also byte-identical
+for all 5 icons, on both the host machine and the Ubuntu 26.04 VM. This is a stronger guarantee than the
+original hand-ported version ever had: the two platforms aren't just *intended* to match, they're
+now provably drawing from the same source data and produce provably identical rasters.
+
+## Duplicate tray icon on delayed extension activation (task #144, complete 2026-08-16)
+
+Live-observed on the Ubuntu 26.04 VM (screenshot: two identical Orcshot tray icons side by side) while
+re-testing the Shell extension mid-session. Root cause: `_build_tray_icon`'s AppIndicator3-vs-None
+decision runs once, synchronously, in `do_startup` - *before* `maybe_run_first_run_setup` even runs.
+For a brand-new Wayland user who says yes to GNOME-native capture during that wizard,
+`enable_extension` (`first_run_setup.py`) flips `orcshot-clipboard@orcshot.org` on *after* the tray
+decision was already made using the extension's not-yet-enabled state - both the AppIndicator3
+fallback built moments earlier and the extension's own now-active Shell-native panel button end up on
+screen at once, with nothing ever tearing the first one down. Not purely a VM-testing artifact: this
+is a real path a genuine first-time user can hit, not just something specific to this session's manual
+extension toggling.
+
+**Fix**: `_recheck_tray_icon_after_extension_change` (`app.py`), called once right after
+`maybe_run_first_run_setup` returns. Polls `shell_tray_button_active()` up to 6 times, 500ms apart
+(~3s total) rather than checking exactly once more - `enable_extension` only flips a GSettings key,
+and GNOME Shell activates the extension in response to that asynchronously, not necessarily by the
+time the wizard's own blocking `dialog.run()` has already returned. Tears the AppIndicator3 fallback
+down (`set_status(IndicatorStatus.PASSIVE)`) the moment the extension comes up; gives up silently if
+it never does (`_check_shell_extension_health`, called earlier in the same `do_startup`, already
+covers surfacing that outcome to the user - nothing more to add here for it). Deliberately scoped to
+this one concrete, common trigger (every new Wayland user's own first-run wizard) rather than a
+general poll for every possible later way the extension could become active - e.g. toggling it by
+hand in the GNOME Extensions app while Orcshot happens to already be running is real but much rarer.
+
+**Verified with an isolated harness** rather than a full VM first-run-setup re-run: the real method,
+bound to a fake `self` with a stand-in indicator object (`set_status` calls recorded) and
+`shell_tray_button_active` mocked to flip from `False` to `True` after a controlled number of calls,
+pumping the real `GLib` main loop. Covers three cases - activates on the very first poll, activates
+after a couple of delayed polls, and never activates at all - the last one confirming the fallback is
+correctly left alone (not torn down) rather than leaving the user with no tray icon at all if the
+extension genuinely never comes up. Not yet re-verified by actually running first-run setup fresh
+end-to-end on a VM (the concrete scenario that surfaced this) - flagged as a known gap, not silently
+skipped.
+
+## Every icon in the app is now hand-drawn, none loaded from the system icon theme (task #146, complete 2026-08-16)
+
+Following directly from task #143 above, direflail asked why *only* the 5 tray icons got the shared-
+geometry treatment when the app still had 30 other icons (`edit-undo-symbolic`, `document-save-
+symbolic`, `preferences-system-symbolic`, and so on) loaded from the system's installed icon theme via
+`Gtk.Image.new_from_icon_name`/`PopupImageMenuItem`. Those guarantee a consistent *name*, not a
+consistent *look* - this project's own two real test machines (Mint's default Mint-Y theme, Ubuntu's
+default Yaru) render the same name differently, the same root problem the 5 tray icons had for a
+different reason (two languages instead of two themes). direflail's own words: "I don't want default
+icon sets. they're going to be different between platforms and I don't want that... every icon in the
+wayland version [must] look like the x11 version, no exceptions."
+
+**Scope**: every stock icon name used anywhere in the app - `editor_window.py`'s menu bar, action
+toolbar, and crop confirm/cancel buttons; `app.py`'s X11 tray menu; and `extension.js`'s Wayland tray
+menu *and* its own separate destination-picker popup (`pickDestinationAsync`, which had quietly been
+using stock names this whole time even though `icons.py`'s own `destination_icon_image` gave the X11
+destination picker hand-drawn icons back in task #96 - a second real instance of the same X11/Wayland
+mismatch, found while auditing for this task, not previously known). 30 new names in total, plus
+reusing the 5 that already had a hand-drawn equivalent (`_save_icon`/`_print_icon`/`_edit_icon`/
+`_clipboard_icon`, retired in favor of the shared geometry entries they were ported into).
+
+**Format extended**: `_render_icon_geometry`/`_renderIconGeometry` gained three ops the original 5
+icons never needed - `fill`, `set_line_cap`, `close_path` - required to faithfully port
+`_save_icon`'s filled floppy-disk notch and `_edit_icon`'s filled pencil-tip triangle into the shared
+format without changing how either looks.
+
+**Geometry generated, not hand-typed**: a one-off Python script defines each new icon using the exact
+same method-call style as the original hand-drawn functions (`rectangle`/`arc`/`move_to`/`line_to`/
+`fill`/etc. at real `ICON_SIZE`-unit coordinates) against a small recorder object standing in for a
+real `cairo.Context`, which captures each call as a normalized op automatically - the same reasoning
+as task #143's own extraction script (avoid hand-computing/transcribing 30 icons' worth of fractions
+by hand, a real source of silent drift risk). Visually reviewed via a rendered montage before wiring
+anything up (caught nothing needing a redesign - all 30 read clearly at real icon size).
+
+**Wiring collapsed to a few shared call sites, not ~40 individual ones**: every menu/toolbar icon in
+this app already funneled through a small number of shared builder helpers (`menu_item`/`add_item`/
+`add_submenu` in `editor_window.py`'s `_build_menu_bar`, a second `add` in `_populate_zoom_menu`,
+`add_button` in `_build_action_toolbar`, `menu_item` in `app.py`'s tray menu) - each one only needed
+its single `Gtk.Image.new_from_icon_name(icon_name, ...)` line swapped for `icons.py`'s new
+`stock_icon_image(icon_name, icon_color, size=16)`, with `icon_name`/call-site *strings* completely
+unchanged (they're also the `icon_geometry.json` keys, so this was a pure substitution). Same idea on
+the Wayland side: a new `_buildDrawnMenuItem(iconGeometry, geometryKey, label)` replaced both
+`_buildTrayButton`'s inline capture-mode-item construction and every remaining `PopupImageMenuItem`
+call, in both `_buildTrayButton` and `pickDestinationAsync`.
+
+**`icon_geometry.json` reading made available outside the Extension class**: `pickDestinationAsync` is
+a plain module-level function (not an `Extension` instance method), so it can't reach `this.path` the
+way `_buildTrayButton` used to. Switched the geometry loader to resolve the extension's own install
+directory via `import.meta.url` (`GLib.filename_from_uri` + `GLib.path_get_dirname`) instead - live-
+confirmed with `gjs -m` against a real `.mjs` file on the actual GJS version this Shell ships, since
+`import.meta` support isn't universal across every GJS version. Works identically from any scope in
+the module, so this is now a plain function, not a method - no instance needed to load geometry at all.
+
+**Verified**: every one of the 35 shared geometry entries (5 original tray icons + 30 new) renders
+without error via the Python interpreter; a standalone GJS script (no `gnome-shell` process involved,
+just `imports.gi.cairo` directly) running the identical op-interpretation logic against the identical
+JSON file produced byte-identical rasters to Python's own output, confirmed for all 35, on both the
+host machine and the Ubuntu 26.04 VM. The 5 icons ported from existing hand-drawn functions
+(`edit-copy-symbolic`/`document-save-symbolic`/`document-save-as-symbolic`/`applications-graphics-
+symbolic`/`document-print-symbolic`) were separately pixel-diffed against their original
+`_clipboard_icon`/`_save_icon`/`_edit_icon`/`_print_icon` implementations before those functions were
+deleted, confirming the port preserved the exact existing, already-approved (task #96) look. Full test
+suite passes throughout. Not yet visually confirmed live by direflail on the actual VM screen (the
+Shell-side changes need a logout/login to take effect, per the extension-reload-caching limitation
+noted elsewhere in this document) - the pixel-level verification above is strong evidence, but isn't a
+substitute for an actual look.
+
+**Correction, same day**: the 30 new icons above were originally *hand-designed* fresh - reasonable-
+looking line-art guesses at what each action conventionally looks like, not extracted from anything.
+direflail caught a real miss live (Preferences rendered as a plain gear; the real icon everywhere on
+this system is a crossed wrench and screwdriver) and clarified what "look like the x11 version" had
+actually meant from the start: not a new interpretation of these icons, the *exact* geometry the real
+system icon theme was already rendering before this task ever touched them.
+
+**Fix**: replaced all 30 hand-designed geometries with real ones extracted directly from
+`/usr/share/icons/Adwaita/symbolic/.../<name>.svg` - the actual files these icon names were resolving
+to. Required a real (if small) SVG path parser: SVG's path-data grammar (`M`/`L`/`H`/`V`/`C`/`S`/`A`/`Z`,
+absolute and relative, implicit command repetition, and one real gotcha - `A`'s two flag arguments are
+single digits allowed to run together with no separator, e.g. `A5.881 5.881 0 001.437 4.75` means
+flags `0`,`0` then `x=1.437`, not one number `001.437`) converted into this project's own op format.
+One new op, `curve_to` (cubic Bezier - `ctx.curve_to`/`cr.curveTo`, both already native to their
+respective Cairo bindings), plus a standard elliptical-arc-to-Bezier conversion (SVG spec Appendix F.6
+endpoint-to-center parameterization, split into <=90° segments - Cairo has no native ellipse-arc
+primitive either, so this is what every real SVG-to-Cairo renderer already does internally) for the one
+icon (`help-browser-symbolic`) whose real SVG actually uses an elliptical arc.
+
+**Re-verified the same way**: visual montage review before wiring anything up (this time genuinely
+recognizable as the real, familiar GNOME icon set - Preferences is now the correct crossed tools,
+`edit-select-all-symbolic` turned out to be a dot-grid pattern in real Adwaita rather than the corner
+brackets guessed the first time around, `help-browser-symbolic` a life-preserver rather than a plain
+question mark); all 35 shared geometries (5 original + 30, now real) still produce byte-identical
+rasters between the Python and GJS interpreters, arc-derived icon included - confirming the arc-to-
+Bezier math is correct, not just plausible-looking, since two independent interpreters agree on every
+pixel from the same source data.
+
+## Tray menu greys out when Python isn't running to receive clicks (task #147, complete 2026-08-16)
+
+Live-hit by direflail right after a logout/login: the Wayland tray menu opened and looked completely
+normal, but clicking anything - a capture mode, Preferences, Quit - did nothing. Root cause: every
+item's `_activateTrayAction` fires its GAction over D-Bus and is deliberately fire-and-forget (no
+return value, nothing useful to do if Orcshot isn't running) - if Python hasn't been launched yet this
+session (no autostart is wired up on this dev/test setup; a real installed system with "launch on
+startup" enabled wouldn't normally hit this window at all), the Shell-native panel button still builds
+and opens fine since it lives inside gnome-shell itself, entirely independent of whether Python exists.
+
+direflail asked three direct questions: (1) "I thought we had checks for that now?" - `app.py`'s
+`_check_shell_extension_health` only checks Shell-extension health, and can only ever run *from* a live
+Python process - there was no way for it to detect its *own* absence, and no code at all on the Shell
+side watching for Python specifically. (2) "should we grey the orcshot logo out until it IS loaded?" -
+yes, exactly the right fix. (3) explicit ask to fix it.
+
+**Fix**: `extension.js` watches `org.orcshot.Orcshot`'s D-Bus name via `Gio.bus_watch_name` (reacts in
+real time to the name appearing/vanishing, not a poll - confirmed live via `gjs -m` that both callback
+signatures match GIO's documented `(connection, name[, name_owner])`). Starts pessimistic (every gated
+item and the top-bar logo icon begin insensitive/dimmed the moment the tray button is built, before the
+watch's first callback has even had a chance to fire) rather than assuming available - a false "looks
+fine" was the entire bug. `_setAppAvailable(available)` toggles every capture-mode/Open-File/
+Preferences/Quit item's sensitivity plus the logo's `opacity`; Repeat Last Region combines this with
+its own pre-existing `SetRepeatAvailable` gate (both booleans now stored and recomputed together, so a
+stale `SetRepeatAvailable` call just before Python vanishes can't leave it wrongly clickable).
+
+**Bonus, direflail's own suggestion mid-fix**: "might want to time how long it takes that thing to
+load... might help debug" - `enable()` captures `GLib.get_monotonic_time()` (µs, immune to wall-clock/
+timezone changes - the correct clock for measuring an elapsed duration, not a timestamp), and the
+watcher's appeared callback logs the elapsed seconds since `enable()` to the journal every time Python
+successfully appears on the bus, for exactly this kind of debugging going forward.
+
+Syntax-checked and structurally reviewed; not yet visually confirmed live on the VM screen - the JS
+change needs another logout/login to take effect, per this document's own extension-reload-caching note.
 
 ## Licensing
 

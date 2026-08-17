@@ -33,10 +33,14 @@ than text labels: the drawing tools use small hand-drawn Cairo icons
 (ui/icons.py, reusing ui/render.py's actual renderers where one
 exists, so an icon can never visually drift from what the tool draws
 - no icon theme has standardized names for "rectangle annotation
-tool"), the generic actions use standard freedesktop theme icon names
-(edit-undo-symbolic etc., confirmed present via Gtk.IconTheme.has_icon
-before relying on them) so they follow the system icon theme/dark-
-light mode automatically, same as everything else in this app.
+tool"). The generic actions (edit-undo-symbolic etc.) used to load
+from the system's installed icon theme instead - reverted (task #146)
+in favor of icons.py's own stock_icon_image, which draws the exact
+same geometry Orcshot always draws everywhere else, so these no
+longer depend on which icon theme happens to be installed (still
+follows light/dark mode, just via this app's own theme-foreground-
+color query rather than the system theme's own light/dark icon
+variants).
 
 The Text tool drags out a box same as Rectangle, then enters an
 editing mode backed by a real Gtk.TextView overlaid on the canvas via
@@ -242,7 +246,7 @@ from orcshot.ui.orcshot_file import (
 )
 from orcshot.ui.icons import (
     crop_icon_image, effects_icon_image, highlight_icon_image, obfuscate_icon_image, resize_icon_image,
-    rotate_ccw_icon_image, rotate_cw_icon_image, tool_icon_image,
+    rotate_ccw_icon_image, rotate_cw_icon_image, stock_icon_image, tool_icon_image,
 )
 from orcshot.ui.printing import print_image
 from orcshot.ui.render import bubble_corner_radius, render_shape, vertical_text_offset
@@ -1257,7 +1261,7 @@ class EditorWindow(Gtk.Window):
             if icon_image is not None:
                 box.pack_start(icon_image, False, False, 0)
             elif icon_name is not None:
-                box.pack_start(Gtk.Image.new_from_icon_name(icon_name, Gtk.IconSize.MENU), False, False, 0)
+                box.pack_start(stock_icon_image(icon_name, icon_color, size=16), False, False, 0)
             box.pack_start(Gtk.Label(label=label), False, False, 0)
             item.add(box)
             item.connect("activate", lambda _i: handler())
@@ -1271,7 +1275,7 @@ class EditorWindow(Gtk.Window):
             item = Gtk.MenuItem()
             box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
             if icon_name is not None:
-                box.pack_start(Gtk.Image.new_from_icon_name(icon_name, Gtk.IconSize.MENU), False, False, 0)
+                box.pack_start(stock_icon_image(icon_name, icon_color, size=16), False, False, 0)
             box.pack_start(Gtk.Label(label=label), False, False, 0)
             item.add(box)
             item.set_submenu(submenu)
@@ -1342,12 +1346,22 @@ class EditorWindow(Gtk.Window):
         # same RadioToolButtons the palette itself owns (not
         # self.tool = ... directly) so the toolbar's own pressed state
         # stays in sync - the identical pattern _on_key_press's letter
-        # shortcuts already use. Icons scale with the same "Icon size"
-        # Preferences setting as the toolbar (settings.get_icon_size) -
-        # matches real Windows, whose menuStrip1.ImageScalingSize is
-        # literally set to the same coreConfiguration.IconSize its
-        # toolbar uses (ImageEditorForm.Designer.cs:586), not a
-        # separate menu-specific size.
+        # Fixed at the same 16px every other menu item's icon renders at
+        # (Gtk.IconSize.MENU, used throughout this whole menu bar - see
+        # add_item/menu_item above) rather than scaling with the
+        # toolbar's own "Icon size" Preferences setting
+        # (settings.get_icon_size, up to 24px by default and larger
+        # still at bigger settings). Real Windows does scale its whole
+        # menuStrip1 with coreConfiguration.IconSize
+        # (ImageEditorForm.Designer.cs:586) - a deliberate deviation
+        # from that here, live-verified as a real inconsistency (task
+        # #127/#128 feedback): these 8 rows alone rendering taller than
+        # every other row in every other menu, in this same menu bar,
+        # read as a visual bug rather than a feature, and would only
+        # get worse at larger Icon size settings - on a low-res display
+        # (see this same session's Help-dialog overflow fix just below)
+        # menu height is a real, scarce resource this port can't afford
+        # to spend on it.
         for tool, label in (
             (Tool.RECTANGLE, "Rectangle"),
             (Tool.ELLIPSE, "Ellipse"),
@@ -1361,7 +1375,7 @@ class EditorWindow(Gtk.Window):
             add_item(
                 object_menu, label,
                 lambda tool=tool: self._tool_buttons[tool].set_active(True),
-                icon_image=tool_icon_image(tool, icon_color, size=get_icon_size()),
+                icon_image=tool_icon_image(tool, icon_color, size=16),
             )
         object_menu.append(Gtk.SeparatorMenuItem())
         # Select All sits directly before Delete, same group, no
@@ -1418,11 +1432,13 @@ class EditorWindow(Gtk.Window):
         Actual Size entries have no .Image set there either.
         """
 
+        icon_color = _rgba_to_color(self.get_style_context().get_color(Gtk.StateFlags.NORMAL))
+
         def add(label: str, handler, *, icon_name: str = None) -> None:
             item = Gtk.MenuItem()
             box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
             if icon_name is not None:
-                box.pack_start(Gtk.Image.new_from_icon_name(icon_name, Gtk.IconSize.MENU), False, False, 0)
+                box.pack_start(stock_icon_image(icon_name, icon_color, size=16), False, False, 0)
             box.pack_start(Gtk.Label(label=label), False, False, 0)
             item.add(box)
             item.connect("activate", lambda _i: handler())
@@ -1443,7 +1459,7 @@ class EditorWindow(Gtk.Window):
         this menu-wiring task since it's content-writing, not code.
         Opens the repo root in the meantime rather than a dead link.
         """
-        webbrowser.open("https://github.com/orcshot/orcshot")
+        webbrowser.open("https://github.com/artificialorctelligence/orcshot")
 
     def _do_quick_save(self) -> None:
         """Real Windows' silent "Save" - writes immediately to the
@@ -2206,9 +2222,10 @@ class EditorWindow(Gtk.Window):
         """
         toolbar = Gtk.Toolbar()
         toolbar.set_style(Gtk.ToolbarStyle.ICONS)
+        icon_color = _rgba_to_color(self.get_style_context().get_color(Gtk.StateFlags.NORMAL))
 
         def add_button(icon_name: str, tooltip: str, handler) -> Gtk.ToolButton:
-            button = Gtk.ToolButton(icon_widget=Gtk.Image.new_from_icon_name(icon_name, Gtk.IconSize.SMALL_TOOLBAR))
+            button = Gtk.ToolButton(icon_widget=stock_icon_image(icon_name, icon_color, size=16))
             button.set_tooltip_text(tooltip)
             button.connect("clicked", lambda _b: handler())
             toolbar.insert(button, -1)
@@ -2501,17 +2518,17 @@ class EditorWindow(Gtk.Window):
         # btnConfirm/btnCancel's own appearance (a checkmark and a
         # "no entry" circle-with-a-line-through-it, confirmed by the
         # user comparing side-by-side with the real app) more closely
-        # than a text label would. Standard freedesktop theme icons,
-        # same convention _build_action_toolbar already uses for the
-        # generic Save/Copy/Print/etc buttons, not hand-drawn Cairo
-        # icons - Confirm/Cancel are generic actions, not tools.
+        # than a text label would. Geometry-driven (task #146), same
+        # as every other icon in this file now - not loaded from the
+        # system icon theme.
+        icon_color = _rgba_to_color(self.get_style_context().get_color(Gtk.StateFlags.NORMAL))
         self._crop_confirm_cell = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
         confirm_button = Gtk.Button()
-        confirm_button.set_image(Gtk.Image.new_from_icon_name("emblem-ok-symbolic", Gtk.IconSize.BUTTON))
+        confirm_button.set_image(stock_icon_image("emblem-ok-symbolic", icon_color, size=16))
         confirm_button.set_tooltip_text("Confirm")
         confirm_button.connect("clicked", lambda _b: self._confirm_crop())
         cancel_button = Gtk.Button()
-        cancel_button.set_image(Gtk.Image.new_from_icon_name("action-unavailable-symbolic", Gtk.IconSize.BUTTON))
+        cancel_button.set_image(stock_icon_image("action-unavailable-symbolic", icon_color, size=16))
         cancel_button.set_tooltip_text("Cancel (Esc)")
         cancel_button.connect("clicked", lambda _b: self._cancel_crop())
         self._crop_confirm_cell.pack_start(confirm_button, False, False, 0)
@@ -3262,12 +3279,20 @@ class EditorWindow(Gtk.Window):
         save_image_to_file(self._composited_image(), path)
         subprocess.Popen(command + [str(path)])
 
+    # Points at the wiki's single Home page (task #142) - a plain
+    # "#anchor" suffix on the base URL resolves against whichever page
+    # GitHub treats as the wiki's default, no "/Home" needed.
+    _WIKI_URL = "https://github.com/artificialorctelligence/orcshot/wiki"
+
     # Mirrors _TOOL_KEYS above one-for-one, in the same order - "6" is
     # handled outside that dict (see its own comment there) but listed
     # here in its natural position anyway. Solid Fill/Scramble/Pixelize/
     # Blur are deliberately absent as their own rows (no dedicated key
-    # each) but called out in their own explanatory row so this doesn't
-    # read as though they were just forgotten.
+    # each) - the last row here points at the wiki instead of trying to
+    # cram all twelve sub-mode names into this dialog (live-reported,
+    # task #127/#128 feedback: the old inline version was the single
+    # longest line in the whole dialog and the main reason wrapping
+    # became necessary at all).
     _HELP_SECTIONS = [
         ("Tools", [
             ("Escape", "Select"),
@@ -3284,9 +3309,8 @@ class EditorWindow(Gtk.Window):
             ("C", "Crop (whichever mode was last prepared)"),
             ("M", "Emoji"),
             ("Z", "Resize (a whole-image effect, not a drawing tool)"),
-            ("", "Every tool's own sub-modes (Text/Area/Grayscale/Magnify Highlight; Solid Fill/Scramble/"
-                  "Pixelize/Blur Obfuscate; Default/Vertical/Horizontal Crop) - via that tool's own Mode "
-                  "dropdown, no dedicated key each"),
+            ("", f'For details on each tool\'s sub-modes, see the '
+                 f'<a href="{_WIKI_URL}#tools-and-their-sub-modes">wiki</a>.', True),
         ]),
         ("Editing", [
             ("Delete", "Delete the selected shape"),
@@ -3326,7 +3350,12 @@ class EditorWindow(Gtk.Window):
         capture backend happened to get selected.
         """
         if os.environ.get("XDG_SESSION_TYPE") == "wayland":
-            return [("Click", "Open the tray menu (Wayland has no separate click action)")]
+            why_url = f"{EditorWindow._WIKI_URL}#why-does-the-wayland-tray-icon-only-have-one-click-action"
+            return [(
+                "Click",
+                f'Open the tray menu\n(Wayland has no separate click action - <a href="{why_url}">Why?</a>)',
+                True,
+            )]
         return [
             ("Left-click", "Start a region capture immediately"),
             ("Right-click", "Open the tray menu"),
@@ -3336,6 +3365,21 @@ class EditorWindow(Gtk.Window):
         self._commit_text_editing_if_active()
         dialog = Gtk.Dialog(title="Orcshot Help", transient_for=self)
         dialog.add_buttons(Gtk.STOCK_CLOSE, Gtk.ResponseType.CLOSE)
+        # This grid's natural height (every tool/editing/action/tray
+        # row, ~35 at last count) comfortably exceeds a low-res display
+        # - live-reported (task #127/#128 feedback) on a 1366x768 VM:
+        # content ran off both the bottom and (since GTK still sizes a
+        # non-scrolling dialog to the grid's natural *width* too) the
+        # right edge, with no scrollbar and the dialog's own Close
+        # button pushed out of reach - the only way out was killing the
+        # process. Capped default size + a real scroller fixes both:
+        # the dialog can no longer grow past the screen, and Close
+        # always stays on-screen regardless of session/tool-list length.
+        # A little wider than tall (520 vs. 480) since height was the
+        # dimension actually running off a real low-res screen, not
+        # width - see add_row's own function_label wrapping below for
+        # why width doesn't need the same scrolling treatment.
+        dialog.set_default_size(520, 480)
         content = dialog.get_content_area()
         content.set_border_width(12)
 
@@ -3352,7 +3396,7 @@ class EditorWindow(Gtk.Window):
             grid.attach(label, 0, row, 2, 1)
             row += 1
 
-        def add_row(key: str, function: str) -> None:
+        def add_row(key: str, function: str, markup: bool = False) -> None:
             nonlocal row
             # Slightly indented relative to its own section header,
             # not the header's own left edge - matches this dialog's
@@ -3365,24 +3409,65 @@ class EditorWindow(Gtk.Window):
             key_label.set_xalign(0)
             key_label.set_selectable(True)
             key_label.set_margin_start(12)
-            function_label = Gtk.Label(label=function)
+            function_label = Gtk.Label()
+            # markup=True rows (the wiki links below) get Pango markup
+            # instead of plain text - GtkLabel opens <a href> links
+            # itself (default "activate-link" handling, no signal to
+            # wire up) once markup is enabled.
+            if markup:
+                function_label.set_markup(function)
+            else:
+                function_label.set_label(function)
             function_label.set_xalign(0)
+            function_label.set_yalign(0)
             function_label.set_selectable(True)
+            # Wraps instead of running off the right edge (the longest
+            # entry, the Tools section's sub-modes row, is ~200
+            # characters - live-reported, task #127/#128 feedback) -
+            # max_width_chars caps the *wrap* width Pango uses
+            # regardless of how much horizontal room the dialog
+            # happens to have, so this reads as a fixed-width text
+            # column even though nothing else here sets an explicit
+            # pixel width. Paired with the scroller below being
+            # vertical-only (no hscrollbar at all) rather than the
+            # AUTOMATIC/AUTOMATIC used everywhere else in this file -
+            # this dialog is the one place an unwrapped, arbitrarily
+            # long line is expected, so it's the one place that
+            # would've actually needed a working hscrollbar; wrapping
+            # instead sidesteps needing one.
+            function_label.set_line_wrap(True)
+            function_label.set_max_width_chars(42)
+            function_label.set_hexpand(True)
             grid.attach(key_label, 0, row, 1, 1)
             grid.attach(function_label, 1, row, 1, 1)
             row += 1
 
         for title, entries in self._HELP_SECTIONS:
             add_header(title)
-            for key, function in entries:
-                add_row(key, function)
+            for entry in entries:
+                add_row(*entry)
 
         add_header("Tray Icon")
-        for key, function in self._tray_icon_help_rows():
-            add_row(key, function)
+        for entry in self._tray_icon_help_rows():
+            add_row(*entry)
 
-        content.pack_start(grid, True, True, 0)
+        scroller = Gtk.ScrolledWindow()
+        scroller.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+        scroller.add(grid)
+        content.pack_start(scroller, True, True, 0)
         dialog.show_all()
+        # Live-reported (task #127/#128 feedback): GTK didn't open this
+        # scrolled the way vadj/hadj default to (0, 0) - every
+        # selectable Gtk.Label above is focusable, and something in
+        # this dialog's own focus chain (Gtk.Dialog.run() picks an
+        # initial focus widget same as any window) was landing on one
+        # of the later rows, which GtkViewport then auto-scrolled into
+        # view on realize. Forcing both adjustments back to 0 after
+        # show_all() - but before run()'s nested loop starts, so it
+        # takes effect before the dialog is ever seen - sidesteps
+        # relying on whichever widget GTK happens to pick.
+        scroller.get_vadjustment().set_value(0)
+        scroller.get_hadjustment().set_value(0)
         dialog.run()
         dialog.destroy()
 

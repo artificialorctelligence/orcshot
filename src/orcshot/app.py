@@ -174,6 +174,7 @@ class OrcshotApplication(Gtk.Application):
         self._tray_icon = self._build_tray_icon()
         self._check_shell_extension_health()
         maybe_run_first_run_setup()
+        self._recheck_tray_icon_after_extension_change()
 
         # "app.open-uri" backs every notification's default (click)
         # action below - Gio.Notification can only target a
@@ -471,6 +472,57 @@ class OrcshotApplication(Gtk.Application):
                 f"is being used instead. This is a bug worth reporting.{detail}",
             )
 
+    def _recheck_tray_icon_after_extension_change(self) -> None:
+        """Task #144: `_build_tray_icon` makes its AppIndicator3-vs-None
+        decision once, synchronously, in `do_startup` - before
+        `maybe_run_first_run_setup` has even run. For a brand-new
+        Wayland user who says yes to GNOME-native capture during that
+        wizard, `enable_extension` (first_run_setup.py) flips
+        orcshot-clipboard@orcshot.org on *after* that decision was
+        already made - live-confirmed (screenshot: two identical tray
+        icons) that both the AppIndicator3 fallback built moments
+        earlier and the extension's own now-active Shell-native panel
+        button end up on screen at once, with nothing ever tearing the
+        first one down.
+
+        Called once, right after `maybe_run_first_run_setup` returns in
+        `do_startup`. Polls rather than checking exactly once more:
+        `enable_extension` only flips a GSettings key, and GNOME Shell
+        picks that up and actually activates the extension
+        asynchronously, not necessarily by the time the wizard's own
+        blocking `dialog.run()` returns - confirmed live this can still
+        lag a checkable amount. Gives up silently after ~3 seconds
+        (`_check_shell_extension_health`, called earlier in the same
+        `do_startup`, already covers the case where it never comes up
+        at all - nothing more to add here for that outcome).
+
+        Deliberately scoped to this one concrete, common trigger rather
+        than a general poll for every possible later way the extension
+        could become active (e.g. toggling it by hand in the GNOME
+        Extensions app while Orcshot happens to already be running) -
+        real, but much rarer than every new user's own first-run wizard.
+        """
+        if self._tray_icon is None or os.environ.get("XDG_SESSION_TYPE") != "wayland":
+            return
+        attempts_left = [6]
+
+        def _poll() -> bool:
+            from orcshot.capture.gnome_region_select import shell_tray_button_active
+
+            if shell_tray_button_active():
+                import gi
+
+                gi.require_version("AyatanaAppIndicator3", "0.1")
+                from gi.repository import AyatanaAppIndicator3
+
+                self._tray_icon.set_status(AyatanaAppIndicator3.IndicatorStatus.PASSIVE)
+                self._tray_icon = None
+                return False
+            attempts_left[0] -= 1
+            return attempts_left[0] > 0
+
+        GLib.timeout_add(500, _poll)
+
     def _build_tray_icon(self):
         """Returns a Gtk.StatusIcon (X11), an AyatanaAppIndicator3.
         Indicator (Wayland fallback), or None (Wayland with
@@ -571,7 +623,7 @@ class OrcshotApplication(Gtk.Application):
         # docstring); Preferences/Quit reuse standard theme icon names,
         # matching editor_window.py's own menu_item helper and its
         # existing "preferences-system-symbolic" for the same action.
-        from orcshot.ui.icons import capture_mode_icon_image
+        from orcshot.ui.icons import capture_mode_icon_image, stock_icon_image
 
         menu = Gtk.Menu()
         icon_color = _rgba_to_color(Gtk.Window().get_style_context().get_color(Gtk.StateFlags.NORMAL))
@@ -602,7 +654,7 @@ class OrcshotApplication(Gtk.Application):
             if icon_mode is not None:
                 item.set_image(capture_mode_icon_image(icon_mode, icon_color))
             elif icon_name is not None:
-                item.set_image(Gtk.Image.new_from_icon_name(icon_name, Gtk.IconSize.MENU))
+                item.set_image(stock_icon_image(icon_name, icon_color, size=16))
             item.set_always_show_image(True)
             # Icon side wants to be left on both platforms (task #137).
             # On Wayland this menu is DBusMenu-exported (see the comment

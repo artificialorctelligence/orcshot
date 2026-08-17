@@ -18,7 +18,7 @@ sudo apt install dpkg-dev debhelper dh-python pybuild-plugin-pyproject python3-a
     python3-gi-cairo python3-cairo python3-numpy python3-shapely python3-xlib \
     gir1.2-gtk-3.0 gir1.2-rsvg-2.0 gir1.2-gdkpixbuf-2.0 gir1.2-pango-1.0 gir1.2-glib-2.0
 
-git clone https://github.com/orcshot/orcshot.git
+git clone https://github.com/artificialorctelligence/orcshot.git
 cd orcshot
 dpkg-buildpackage -us -uc -b
 sudo apt install ../orcshot_*_all.deb

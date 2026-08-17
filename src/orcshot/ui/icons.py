@@ -29,6 +29,8 @@ confirmed present via Gtk.IconTheme.has_icon before relying on them.
 
 from __future__ import annotations
 
+import functools
+import json
 import math
 
 import cairo
@@ -45,6 +47,7 @@ from orcshot.core.shapes import (
     SpeechBubbleShape,
 )
 from orcshot.core.tools import Tool
+from orcshot.resources import RESOURCES_DIR
 from orcshot.ui.render import (
     render_arrow, render_ellipse, render_freehand, render_line, render_rectangle,
     render_speech_bubble,
@@ -70,6 +73,76 @@ def _rounded_rect_path(ctx: cairo.Context, x: float, y: float, w: float, h: floa
     ctx.arc(x + r, y + h - r, r, math.pi / 2, math.pi)
     ctx.arc(x + r, y + r, r, math.pi, 3 * math.pi / 2)
     ctx.close_path()
+
+
+# Task #143: the 5 tray capture-mode icons (region/full_screen/
+# active_window/window_picker/repeat_region) used to be hand-drawn
+# once here and a second time, independently, in extension.js's own
+# _TRAY_ICON_DRAWERS - real duplicated logic, kept in sync only by a
+# human remembering to update both whenever either changed (the risk
+# [[feedback-shape-serialization-sync]] already names for the
+# .orcshot/.greenshot pair). Since GJS can't import this module at
+# all (a completely separate process - see icon_geometry.json's own
+# citation trail in extension.js), the two implementations can never
+# literally share *code* - but they can share *data*: icon_geometry.
+# json holds each icon as a flat list of drawing ops (coordinates
+# normalized to 0..1, i.e. fractions of whatever pixel size the icon
+# is actually rendered at), and this function - _render_icon_geometry
+# - is the Python-side interpreter for that data. extension.js has its
+# own interpreter, _renderIconGeometry, reading the identical file
+# (this is a real Linux filesystem, not a Python import, so any
+# process that can read a path can read this one - no language barrier
+# for plain data the way there is for running code). Only style values
+# (line_width, dash pattern, rounded_rectangle's corner radius) are
+# absolute pixels, unscaled - matches the original hand-drawn code,
+# where those were always fixed constants regardless of ICON_SIZE.
+def _render_icon_geometry(ctx: cairo.Context, ops: list, size: float) -> None:
+    for op in ops:
+        kind = op["op"]
+        if kind == "rectangle":
+            ctx.rectangle(op["x"] * size, op["y"] * size, op["w"] * size, op["h"] * size)
+        elif kind == "rounded_rectangle":
+            _rounded_rect_path(ctx, op["x"] * size, op["y"] * size, op["w"] * size, op["h"] * size, op["radius"])
+        elif kind == "arc":
+            ctx.arc(
+                op["cx"] * size, op["cy"] * size, op["radius"] * size,
+                math.radians(op["start_deg"]), math.radians(op["end_deg"]),
+            )
+        elif kind == "move_to":
+            ctx.move_to(op["x"] * size, op["y"] * size)
+        elif kind == "line_to":
+            ctx.line_to(op["x"] * size, op["y"] * size)
+        elif kind == "curve_to":
+            ctx.curve_to(
+                op["x1"] * size, op["y1"] * size, op["x2"] * size, op["y2"] * size,
+                op["x3"] * size, op["y3"] * size,
+            )
+        elif kind == "set_line_width":
+            ctx.set_line_width(op["width"])
+        elif kind == "set_dash":
+            ctx.set_dash(op["pattern"])
+        elif kind == "set_line_join":
+            joins = {"round": cairo.LINE_JOIN_ROUND, "miter": cairo.LINE_JOIN_MITER, "bevel": cairo.LINE_JOIN_BEVEL}
+            ctx.set_line_join(joins[op["join"]])
+        elif kind == "set_line_cap":
+            caps = {"round": cairo.LINE_CAP_ROUND, "butt": cairo.LINE_CAP_BUTT, "square": cairo.LINE_CAP_SQUARE}
+            ctx.set_line_cap(caps[op["cap"]])
+        elif kind == "close_path":
+            ctx.close_path()
+        elif kind == "stroke":
+            ctx.stroke()
+        elif kind == "fill":
+            ctx.fill()
+        else:
+            raise ValueError(f"unknown icon geometry op: {kind!r}")
+
+
+_ICON_GEOMETRY_PATH = RESOURCES_DIR / "gnome-shell-extensions" / "orcshot-clipboard@orcshot.org" / "icon_geometry.json"
+
+
+@functools.lru_cache(maxsize=1)
+def _icon_geometry() -> dict:
+    return json.loads(_ICON_GEOMETRY_PATH.read_text())
 
 
 def _rectangle_icon(color: Color) -> cairo.ImageSurface:
@@ -805,83 +878,18 @@ def crop_icon_image(color: Color = _DEFAULT_COLOR) -> Gtk.Image:
 
 # --- destination-picker icons (task #96) ---------------------------------
 
-def _clipboard_icon(color: Color) -> cairo.ImageSurface:
-    surface = _blank_surface()
-    ctx = cairo.Context(surface)
-    r, g, b, a = color
-    ctx.set_source_rgba(r / 255, g / 255, b / 255, a / 255)
-    ctx.set_line_width(1.8)
-    _rounded_rect_path(ctx, _MARGIN + 1, _MARGIN + 3, ICON_SIZE - 2 * _MARGIN - 2, ICON_SIZE - 2 * _MARGIN - 4, 2)
-    ctx.stroke()
-    _rounded_rect_path(ctx, ICON_SIZE / 2 - 4, _MARGIN, 8, 5, 1.5)
-    ctx.stroke()
-    return surface
-
-
-def _save_icon(color: Color) -> cairo.ImageSurface:
-    """Floppy disk - also used for "Save As...", same as most apps
-    don't bother with a second icon for it."""
-    surface = _blank_surface()
-    ctx = cairo.Context(surface)
-    r, g, b, a = color
-    ctx.set_source_rgba(r / 255, g / 255, b / 255, a / 255)
-    ctx.set_line_width(1.8)
-    _rounded_rect_path(ctx, _MARGIN, _MARGIN, ICON_SIZE - 2 * _MARGIN, ICON_SIZE - 2 * _MARGIN, 2)
-    ctx.stroke()
-    ctx.rectangle(ICON_SIZE * 0.55, _MARGIN, ICON_SIZE * 0.2, ICON_SIZE * 0.22)
-    ctx.fill()
-    ctx.rectangle(ICON_SIZE * 0.3, ICON_SIZE * 0.55, ICON_SIZE * 0.4, ICON_SIZE * 0.3)
-    ctx.stroke()
-    return surface
-
-
-def _edit_icon(color: Color) -> cairo.ImageSurface:
-    surface = _blank_surface()
-    ctx = cairo.Context(surface)
-    r, g, b, a = color
-    ctx.set_source_rgba(r / 255, g / 255, b / 255, a / 255)
-    ctx.set_line_width(2)
-    ctx.set_line_cap(cairo.LINE_CAP_ROUND)
-    x1, y1 = ICON_SIZE - _MARGIN, _MARGIN
-    x2, y2 = _MARGIN + 3, ICON_SIZE - _MARGIN - 3
-    ctx.move_to(x1, y1)
-    ctx.line_to(x2, y2)
-    ctx.stroke()
-    ctx.move_to(x2, y2)
-    ctx.line_to(x2 + 5, y2)
-    ctx.line_to(x2, y2 - 5)
-    ctx.close_path()
-    ctx.fill()
-    ctx.move_to(_MARGIN, ICON_SIZE - _MARGIN)
-    ctx.line_to(ICON_SIZE * 0.45, ICON_SIZE - _MARGIN)
-    ctx.stroke()
-    return surface
-
-
-def _print_icon(color: Color) -> cairo.ImageSurface:
-    surface = _blank_surface()
-    ctx = cairo.Context(surface)
-    r, g, b, a = color
-    ctx.set_source_rgba(r / 255, g / 255, b / 255, a / 255)
-    ctx.set_line_width(1.8)
-    ctx.rectangle(_MARGIN, ICON_SIZE * 0.4, ICON_SIZE - 2 * _MARGIN, ICON_SIZE * 0.32)
-    ctx.stroke()
-    ctx.rectangle(ICON_SIZE * 0.3, _MARGIN, ICON_SIZE * 0.4, ICON_SIZE * 0.3)
-    ctx.stroke()
-    ctx.rectangle(ICON_SIZE * 0.3, ICON_SIZE * 0.72, ICON_SIZE * 0.4, ICON_SIZE * 0.18)
-    ctx.stroke()
-    return surface
-
-
 def _external_command_icon(color: Color) -> cairo.ImageSurface:
     """Generic icon for any configured ExternalCommand destination
     (task #110) - a terminal-prompt glyph, since these can run
-    anything, not one specific action to depict."""
+    anything, not one specific action to depict. Kept as its own
+    hand-drawn function (not geometry.json-backed like everything else
+    below) - there's no matching stock icon name this needs to stay
+    consistent with, since it never had one to begin with.
+    """
     surface = _blank_surface()
     ctx = cairo.Context(surface)
     r, g, b, a = color
     ctx.set_source_rgba(r / 255, g / 255, b / 255, a / 255)
-    ctx.set_line_width(1.8)
     _rounded_rect_path(ctx, _MARGIN, _MARGIN, ICON_SIZE - 2 * _MARGIN, ICON_SIZE - 2 * _MARGIN, 2)
     ctx.stroke()
     ctx.set_line_width(2)
@@ -897,134 +905,50 @@ def _external_command_icon(color: Color) -> cairo.ImageSurface:
     return surface
 
 
-_DESTINATION_ICON_BUILDERS = {
-    "clipboard": _clipboard_icon,
-    "save": _save_icon,
-    "save_as": _save_icon,
-    "edit": _edit_icon,
-    "print": _print_icon,
+# Maps a destination id to the same geometry.json key used for the
+# equivalent stock-icon-replacement action elsewhere in the app (task
+# #146) - "Copy to Clipboard" is genuinely the same icon as generic
+# "Copy", "Save As" genuinely looks like "Save" (matches the old
+# _save_icon's own docstring: "most apps don't bother with a second
+# icon for it"). Reusing the same keys instead of separate
+# "dest-..." ones keeps one geometry per *meaning*, not one per
+# call site.
+_DESTINATION_ICON_KEYS = {
+    "clipboard": "edit-copy-symbolic",
+    "save": "document-save-symbolic",
+    "save_as": "document-save-as-symbolic",
+    "edit": "applications-graphics-symbolic",
+    "print": "document-print-symbolic",
 }
 
 
-def _capture_region_icon(color: Color) -> cairo.ImageSurface:
-    """Dashed rectangle - the "marching ants" region-select metaphor.
-    Dashed (not solid) deliberately matches _capture_window_picker_icon
-    below - both represent an interactive "you choose" action, versus
-    the solid shapes used for "the current/remembered one" (Active
-    Window, Repeat Last Region)."""
-    surface = _blank_surface()
+def _drawn_icon_image(geometry_key: str, color: Color, size: int) -> Gtk.Image:
+    surface = cairo.ImageSurface(cairo.FORMAT_ARGB32, size, size)
     ctx = cairo.Context(surface)
     r, g, b, a = color
     ctx.set_source_rgba(r / 255, g / 255, b / 255, a / 255)
-    ctx.set_line_width(2)
-    ctx.set_dash([3, 2])
-    ctx.rectangle(_MARGIN, _MARGIN, ICON_SIZE - 2 * _MARGIN, ICON_SIZE - 2 * _MARGIN)
-    ctx.stroke()
-    return surface
-
-
-def _capture_full_screen_icon(color: Color) -> cairo.ImageSurface:
-    """A monitor: screen bezel plus a small stand - the standard
-    "display" glyph shape."""
-    surface = _blank_surface()
-    ctx = cairo.Context(surface)
-    r, g, b, a = color
-    ctx.set_source_rgba(r / 255, g / 255, b / 255, a / 255)
-    ctx.set_line_width(2)
-    ctx.set_line_join(cairo.LINE_JOIN_ROUND)
-    screen_bottom = ICON_SIZE * 0.66
-    _rounded_rect_path(ctx, _MARGIN, _MARGIN, ICON_SIZE - 2 * _MARGIN, screen_bottom - _MARGIN, 2)
-    ctx.stroke()
-    ctx.move_to(ICON_SIZE / 2, screen_bottom)
-    ctx.line_to(ICON_SIZE / 2, ICON_SIZE - _MARGIN)
-    ctx.stroke()
-    ctx.move_to(ICON_SIZE * 0.3, ICON_SIZE - _MARGIN)
-    ctx.line_to(ICON_SIZE * 0.7, ICON_SIZE - _MARGIN)
-    ctx.stroke()
-    return surface
-
-
-def _window_frame_icon(color: Color, *, dashed: bool) -> cairo.ImageSurface:
-    """Shared by Active Window (solid) and Window Picker (dashed) -
-    an application-window frame with a title-bar strip near the top."""
-    surface = _blank_surface()
-    ctx = cairo.Context(surface)
-    r, g, b, a = color
-    ctx.set_source_rgba(r / 255, g / 255, b / 255, a / 255)
-    ctx.set_line_width(2)
-    if dashed:
-        ctx.set_dash([3, 2])
-    _rounded_rect_path(ctx, _MARGIN, _MARGIN, ICON_SIZE - 2 * _MARGIN, ICON_SIZE - 2 * _MARGIN, 2)
-    ctx.stroke()
-    ctx.set_dash([])
-    title_bar_bottom = _MARGIN + (ICON_SIZE - 2 * _MARGIN) * 0.28
-    ctx.move_to(_MARGIN, title_bar_bottom)
-    ctx.line_to(ICON_SIZE - _MARGIN, title_bar_bottom)
-    ctx.stroke()
-    return surface
-
-
-def _capture_active_window_icon(color: Color) -> cairo.ImageSurface:
-    return _window_frame_icon(color, dashed=False)
-
-
-def _capture_window_picker_icon(color: Color) -> cairo.ImageSurface:
-    return _window_frame_icon(color, dashed=True)
-
-
-def _capture_repeat_icon(color: Color) -> cairo.ImageSurface:
-    """A solid rectangle (a remembered, concrete region - not an
-    interactive selection, hence solid rather than dashed like
-    _capture_region_icon) plus a small refresh/repeat arrow."""
-    surface = _blank_surface()
-    ctx = cairo.Context(surface)
-    r, g, b, a = color
-    ctx.set_source_rgba(r / 255, g / 255, b / 255, a / 255)
-    ctx.set_line_width(2)
-    inset = ICON_SIZE * 0.14
-    ctx.rectangle(_MARGIN, _MARGIN + inset, ICON_SIZE - 2 * _MARGIN - inset, ICON_SIZE - 2 * _MARGIN - inset)
-    ctx.stroke()
-    cx, cy, radius = ICON_SIZE - _MARGIN - inset * 0.5, _MARGIN + inset * 0.5, inset * 1.15
-    ctx.set_line_width(1.6)
-    start, end = math.radians(20), math.radians(310)
-    ctx.arc(cx, cy, radius, start, end)
-    ctx.stroke()
-    head_x, head_y = cx + radius * math.cos(end), cy + radius * math.sin(end)
-    ctx.move_to(head_x, head_y)
-    ctx.line_to(head_x - radius * 0.7, head_y)
-    ctx.move_to(head_x, head_y)
-    ctx.line_to(head_x, head_y + radius * 0.7)
-    ctx.stroke()
-    return surface
-
-
-_CAPTURE_MODE_ICON_BUILDERS = {
-    "region": _capture_region_icon,
-    "full_screen": _capture_full_screen_icon,
-    "active_window": _capture_active_window_icon,
-    "window_picker": _capture_window_picker_icon,
-    "repeat_region": _capture_repeat_icon,
-}
+    _render_icon_geometry(ctx, _icon_geometry()[geometry_key], size)
+    pixbuf = Gdk.pixbuf_get_from_surface(surface, 0, 0, surface.get_width(), surface.get_height())
+    return Gtk.Image.new_from_pixbuf(pixbuf)
 
 
 def capture_mode_icon_image(mode: str, color: Color = _DEFAULT_COLOR) -> Gtk.Image:
     """Icon for a tray-menu capture-mode item (task #137) - one of
     "region"/"full_screen"/"active_window"/"window_picker"/
-    "repeat_region". This same geometry is independently reimplemented
-    in JS/Cairo for orcshot-clipboard@orcshot.org's own Shell-native
-    tray panel button (task #137 follow-up, see that extension's own
-    _TRAY_ICON_DRAWERS) rather than shared with this function - GJS
-    can't import this module, and drawing live (colored from
-    St.ThemeNode.get_foreground_color() at paint time, the same value
-    the row's own label text uses) is what makes that button's icons
-    correctly legible under any theme, not just this app's own GTK
-    windows. Keep the two geometries in sync by hand if either changes -
-    same reasoning as [[feedback-shape-serialization-sync]] for the
-    .orcshot/.greenshot export pair.
+    "repeat_region". Geometry comes from icon_geometry.json (task
+    #143), shared with orcshot-clipboard@orcshot.org's own Shell-
+    native tray panel button - see _render_icon_geometry's own
+    docstring above for why this couldn't just be one shared function
+    (GJS runs in a different process and can't import this module
+    at all) but could still be one shared *file* (plain data, no
+    language barrier). Drawing live rather than loading a pre-
+    rendered image is still necessary on the Wayland side (colored
+    from St.ThemeNode.get_foreground_color() at paint time, so it's
+    legible under any theme) - this function doesn't need that same
+    trick since it's colored by its caller instead, but uses the
+    identical geometry data either way.
     """
-    surface = _CAPTURE_MODE_ICON_BUILDERS[mode](color)
-    pixbuf = Gdk.pixbuf_get_from_surface(surface, 0, 0, surface.get_width(), surface.get_height())
-    return Gtk.Image.new_from_pixbuf(pixbuf)
+    return _drawn_icon_image(mode, color, ICON_SIZE)
 
 
 def destination_icon_image(destination_id: str, color: Color = _DEFAULT_COLOR) -> Gtk.Image:
@@ -1033,7 +957,47 @@ def destination_icon_image(destination_id: str, color: Color = _DEFAULT_COLOR) -
     ExternalCommand destinations (ids like "external:My Command"),
     which have no fixed action to depict.
     """
-    builder = _DESTINATION_ICON_BUILDERS.get(destination_id, _external_command_icon)
-    surface = builder(color)
-    pixbuf = Gdk.pixbuf_get_from_surface(surface, 0, 0, surface.get_width(), surface.get_height())
-    return Gtk.Image.new_from_pixbuf(pixbuf)
+    geometry_key = _DESTINATION_ICON_KEYS.get(destination_id)
+    if geometry_key is None:
+        surface = _external_command_icon(color)
+        pixbuf = Gdk.pixbuf_get_from_surface(surface, 0, 0, surface.get_width(), surface.get_height())
+        return Gtk.Image.new_from_pixbuf(pixbuf)
+    return _drawn_icon_image(geometry_key, color, ICON_SIZE)
+
+
+def stock_icon_image(name: str, color: Color = _DEFAULT_COLOR, size: int = 16) -> Gtk.Image:
+    """Task #146: direflail asked for every icon in the app to be
+    drawn by Orcshot itself, none loaded from the system's installed
+    icon theme - "I don't want default icon sets. they're going to be
+    different between platforms and I don't want that... every icon
+    in the wayland version [must] look like the x11 version, no
+    exceptions." A theme-name lookup (Gtk.Image.new_from_icon_name)
+    only guarantees a *consistent name*, not a consistent *look* -
+    two machines with different icon themes installed (this project's
+    own two real test targets: Mint's default Mint-Y vs Ubuntu's
+    default Yaru) render the same name differently, same root problem
+    the 5 tray icons already had for a different reason (two
+    languages, not two themes). `name` is the exact stock icon name
+    each call site used to pass to Gtk.Image.new_from_icon_name /
+    icon_name= (e.g. "edit-undo-symbolic") - kept as the geometry.json
+    key too, so replacing a call site is a pure substitution, nothing
+    else to rename. Default size 16 matches Gtk.IconSize.MENU, what
+    every menu item that used to carry one of these names rendered at.
+
+    Geometry for these 30 (unlike the 5 capture-mode icons above, hand-
+    ported from this project's own pre-existing drawing code) is
+    extracted from the real Adwaita symbolic icon SVGs
+    (/usr/share/icons/Adwaita/symbolic/.../<name>.svg) via a one-off
+    parser (SVG path 'd' grammar -> this module's own op format,
+    including elliptical arcs converted to cubic Beziers, the standard
+    technique real SVG-to-Cairo renderers use internally) - not
+    redrawn from scratch. A first pass here *did* hand-design fresh
+    lookalikes instead, and got a real one visibly wrong (Preferences
+    as a plain gear instead of Adwaita's actual crossed wrench-and-
+    screwdriver, caught live by direflail) - extracting the real path
+    data instead removes the guessing entirely, and is what "look like
+    the x11 version" actually meant: not a new interpretation of what
+    these actions conventionally look like, the exact icon that was
+    already there.
+    """
+    return _drawn_icon_image(name, color, size)
