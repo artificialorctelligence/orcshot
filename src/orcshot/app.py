@@ -130,12 +130,32 @@ def _defer(action) -> None:
     chance to actually complete first, matching the standard fix for
     this class of "closed a menu and started new UI work in the same
     callback" race.
+
+    priority=GLib.PRIORITY_DEFAULT, not the plain GLib.idle_add(run)
+    this used to be (task #150 follow-up): every capture mode routed
+    through here ends up nesting request_screenshot()'s own blocking
+    GLib.MainLoop().run() (capture/wayland_portal.py) one level inside
+    this callback whenever the Shell extension isn't handling the
+    capture - and GLib.idle_add's own default priority is
+    PRIORITY_DEFAULT_IDLE, a *lower* priority than PRIORITY_DEFAULT,
+    which this project's own established finding (portal-reentrancy
+    note) already documented as capable of starving a deferred callback
+    indefinitely under a continuous stream of other events. Live-
+    observed as a real, if less severe, symptom of exactly that here:
+    not a full hang, but the portal backend intermittently returning
+    response_code=2 (PortalRequestFailed) for a request that succeeded
+    every single time when made standalone, outside this idle-priority
+    contention entirely - confirmed by calling the exact same
+    request_screenshot() function directly, repeatedly, with no
+    failures at all once it wasn't sharing an idle-priority slot with
+    whatever else GNOME Shell/Mutter was scheduling at PRIORITY_DEFAULT
+    or higher at that moment.
     """
     def run():
         action()
         return GLib.SOURCE_REMOVE
 
-    GLib.idle_add(run)
+    GLib.idle_add(run, priority=GLib.PRIORITY_DEFAULT)
 
 
 class OrcshotApplication(Gtk.Application):
@@ -344,22 +364,30 @@ class OrcshotApplication(Gtk.Application):
         """
         if self._block_if_modal_dialog_open():
             return
-        start_region_capture(on_captured=self._remember_region, capture_mouse_cursor=capture_mouse_cursor)
+        self._run_capture(
+            lambda: start_region_capture(on_captured=self._remember_region, capture_mouse_cursor=capture_mouse_cursor)
+        )
 
     def start_full_screen_capture(self, capture_mouse_cursor: bool = True) -> None:
         if self._block_if_modal_dialog_open():
             return
-        start_full_screen_capture(on_captured=self._remember_region, capture_mouse_cursor=capture_mouse_cursor)
+        self._run_capture(lambda: start_full_screen_capture(
+            on_captured=self._remember_region, capture_mouse_cursor=capture_mouse_cursor
+        ))
 
     def start_active_window_capture(self, capture_mouse_cursor: bool = True) -> None:
         if self._block_if_modal_dialog_open():
             return
-        start_active_window_capture(on_captured=self._remember_region, capture_mouse_cursor=capture_mouse_cursor)
+        self._run_capture(lambda: start_active_window_capture(
+            on_captured=self._remember_region, capture_mouse_cursor=capture_mouse_cursor
+        ))
 
     def start_window_picker(self, capture_mouse_cursor: bool = True) -> None:
         if self._block_if_modal_dialog_open():
             return
-        start_window_picker(on_captured=self._remember_region, capture_mouse_cursor=capture_mouse_cursor)
+        self._run_capture(
+            lambda: start_window_picker(on_captured=self._remember_region, capture_mouse_cursor=capture_mouse_cursor)
+        )
 
     def start_last_region_capture(self, capture_mouse_cursor: bool = True) -> None:
         if self._block_if_modal_dialog_open():
@@ -367,7 +395,47 @@ class OrcshotApplication(Gtk.Application):
         # Deliberately not chained through _remember_region: the
         # region being repeated already *is* self.last_region, so
         # there's nothing new to record.
-        start_last_region_capture(self.last_region, capture_mouse_cursor=capture_mouse_cursor)
+        self._run_capture(
+            lambda: start_last_region_capture(self.last_region, capture_mouse_cursor=capture_mouse_cursor)
+        )
+
+    def _run_capture(self, action) -> None:
+        """Runs a capture action, catching the one class of exception
+        every capture entry point above can raise but none of them (nor
+        anything downstream in region_select.py/window_picker.py/
+        capture_modes.py) ever caught (task #150). All three portal
+        exceptions (wayland_portal.py) come from the same source -
+        capture_backend.grab() under Wayland when the Shell extension
+        isn't handling the capture itself - a state that's completely
+        normal, not a rare edge case: any Wayland session before
+        first-run-setup enables orcshot-clipboard@orcshot.org, or any
+        session where the user declined it, uses this portal path for
+        every capture.
+
+        Confirmed live as a real, always-reproducible crash before this
+        fix: hitting Escape on the very first capture's permission
+        dialog (PortalRequestCancelled, response_code=1 - the single
+        most ordinary way to back out of a capture) crashed the whole
+        app exactly the same as a genuine portal failure did
+        (PortalRequestFailed, response_code=2, live-observed during
+        task #145's verification - the crash that prompted this fix).
+
+        PortalRequestCancelled is treated as a plain cancel - silently
+        does nothing, the same as dismissing the region-select overlay
+        or window-picker with Escape already does. PortalRequestFailed/
+        PortalRequestTimedOut are surfaced via a real notification
+        rather than silently swallowed, matching this class's own
+        existing _notify() convention for other capture-adjacent
+        failures above (e.g. the Shell-extension-fallback notice).
+        """
+        from orcshot.capture.wayland_portal import PortalRequestCancelled, PortalRequestFailed, PortalRequestTimedOut
+
+        try:
+            action()
+        except PortalRequestCancelled:
+            pass
+        except (PortalRequestFailed, PortalRequestTimedOut) as e:
+            self._notify("Screenshot failed", f"The screenshot couldn't be taken.\n\n{e}")
 
     def _tray_action_handlers(self) -> dict:
         """One handler per capture mode, keyed by the same mode string

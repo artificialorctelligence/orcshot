@@ -362,19 +362,41 @@ def configure_hotkey(
     profile: DesktopKeybindingProfile = CINNAMON_PROFILE,
 ) -> bool:
     """Idempotently ensures a ``profile``-specific custom keybinding
-    exists for ``binding`` -> ``command``, named ``name``. Returns True
-    if a new binding was added, False if one already existed (matched
-    by name) and nothing changed. Does not check for conflicts with
-    *other* bindings first - call find_conflicts (and clear_conflict,
-    if the caller decides to overwrite) before this.
+    exists for ``binding`` -> ``command``, named ``name`` - "ensures"
+    now includes correcting an existing same-named entry's command/
+    binding if they've drifted, not just confirming a name is present
+    (task #150 follow-up). The name-only check used to treat any
+    existing entry with a matching name as fully done regardless of
+    what it actually pointed at - live-reproduced as a real bug: a
+    stale entry from an old dev checkout (pointing at a since-deleted
+    ``PYTHONPATH`` directory) has the exact same name a fresh run
+    creates, so first-run-setup kept seeing "already configured" and
+    never updated the command, no matter how many times it ran. This
+    directly contradicted _default_executable's own documented intent
+    (switch a dev-checkout hotkey over to the real installed binary
+    once one exists) - `_default_executable` correctly returns the
+    right executable, but nothing downstream ever acted on the change
+    once a same-named entry already existed. Returns True if a new
+    binding was added, False if one already existed by name (whether
+    or not its command/binding needed correcting). Does not check for
+    conflicts with *other* bindings first - call find_conflicts (and
+    clear_conflict, if the caller decides to overwrite) before this.
     """
     entries = _custom_list_entries(backend, profile)
 
     for entry in entries:
         slot = _slot_from_entry(entry, profile)
         path = profile.path_template.format(slot=slot)
-        if backend.get_string(profile.custom_keybinding_schema, path, "name") == name:
-            return False
+        if backend.get_string(profile.custom_keybinding_schema, path, "name") != name:
+            continue
+        if backend.get_string(profile.custom_keybinding_schema, path, "command") != command:
+            backend.set_string(profile.custom_keybinding_schema, path, "command", command)
+        if profile.custom_binding_is_array:
+            if backend.get_strv(profile.custom_keybinding_schema, path, "binding") != [binding]:
+                backend.set_strv(profile.custom_keybinding_schema, path, "binding", [binding])
+        elif backend.get_string(profile.custom_keybinding_schema, path, "binding") != binding:
+            backend.set_string(profile.custom_keybinding_schema, path, "binding", binding)
+        return False
 
     slot = next_available_slot([_slot_from_entry(e, profile) for e in entries])
     path = profile.path_template.format(slot=slot)
@@ -455,17 +477,47 @@ class GioSettingsBackend:
     """The real adapter - manually verified against this machine's
     actual Cinnamon gsettings schema, but not exercised by any test or
     calling code in this project (see the module docstring).
+
+    Caches one Gio.Settings instance per (schema, path) rather than
+    constructing a fresh one on every call (task #150 follow-up - a
+    real, evidence-based fix, not a guess). A read-modify-write like
+    gnome_extension_setup.enable_extension's own (get_strv, compute,
+    set_strv) is only self-consistent if the read and write go through
+    the *same* Gio.Settings object - its own internal cache guarantees
+    a set_strv() is visible to a get_strv() on that same instance
+    immediately, with no round trip needed. Two independent instances
+    racing on the same key have no such guarantee: the second's read
+    depends on dconf's own commit-then-notify cycle from the first's
+    write having actually completed, which isn't instant. Live-
+    confirmed as the real cause of a long-standing, previously
+    unexplained bug: calling enable_extension twice in a row (for
+    window-calls then orcshot-clipboard, both writing the same
+    `enabled-extensions` key) reliably left the second UUID missing -
+    window-calls persisted, orcshot-clipboard silently didn't, on a
+    real .deb install with no checkbox or dev-checkout complications
+    involved this time. The same fragile pattern almost certainly
+    explains the still-open "hotkey rewrite doesn't stick" symptom
+    too, since configure_all_hotkeys drives multiple writes through
+    this identical backend.
     """
 
+    def __init__(self):
+        self._cache = {}
+
     def _settings(self, schema: str, path: str):
+        key = (schema, path)
+        cached = self._cache.get(key)
+        if cached is not None:
+            return cached
+
         import gi
 
         gi.require_version("Gio", "2.0")
         from gi.repository import Gio
 
-        if path == "/":
-            return Gio.Settings.new(schema)
-        return Gio.Settings.new_with_path(schema, path)
+        settings = Gio.Settings.new(schema) if path == "/" else Gio.Settings.new_with_path(schema, path)
+        self._cache[key] = settings
+        return settings
 
     def get_strv(self, schema: str, path: str, key: str) -> list:
         return list(self._settings(schema, path).get_strv(key))

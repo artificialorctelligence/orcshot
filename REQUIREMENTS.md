@@ -5663,6 +5663,323 @@ successfully appears on the bus, for exactly this kind of debugging going forwar
 Syntax-checked and structurally reviewed; not yet visually confirmed live on the VM screen - the JS
 change needs another logout/login to take effect, per this document's own extension-reload-caching note.
 
+## Reliable clipboard support is no longer an opt-in checkbox (task #145 follow-up, 2026-08-17)
+
+While verifying task #144 with a real `.deb` install and a genuinely fresh first-run-setup (extension
+disabled beforehand, GNOME Shell's own module cache confirmed clear via a full logout/login - see this
+document's own extension-reload-caching note), the "Enable reliable 'Copy to Clipboard' support"
+checkbox came out of the wizard unchecked despite defaulting to checked, and the extension stayed
+disabled. Initially read as the user simply having unchecked it - but this project already has an
+open, not-yet-root-caused finding from 2026-08-15 (see the "Real, separate bug found during the .deb
+reinstall on the rebuilt VM" section above, task #38's own verification log) that this exact checkbox's
+`enable_extension` call sometimes doesn't persist the gsettings write at all, confirmed independently
+of any stale-session-bus explanation. Whether today's instance was a deliberate uncheck or that same
+unresolved persistence bug wasn't distinguished - moot for what happened next, but worth reading
+together if that older bug ever gets chased down, since this section may be its true root cause working
+as designed (nothing to fail to persist if there's no longer a checkbox to leave unchecked).
+
+direflail, on why the checkbox shouldn't exist as a choice at all: "we're not installing anything
+malicious, and we're trying to develop responsibly... 99% of the users installing this are neither
+going to know nor care that the extension exists - only that the program works... it's ALWAYS going to
+be enabled, otherwise the program won't work. I wouldn't even have it set up as an option in the source
+code... why else would you install this program if you didn't want clipboard support? it's a screenshot
+app." The earlier framing in this codebase (and in conversation) treated enabling a Shell extension as
+a bigger trust decision than installing the package that ships it - direflail pushed back on that
+directly: the real trust decision already happened at `sudo dpkg -i`, and gating one first-party
+feature of that same already-approved package behind a second checkbox doesn't protect anyone who
+wasn't already going to check it.
+
+**Change**: `ui/first_run_setup.py` no longer builds a `clipboard_check` `Gtk.CheckButton` at all.
+`enable_extension(settings_backend, CLIPBOARD_EXTENSION_UUID)` is now called unconditionally whenever
+the dialog completes with OK on a session where it applies (`is_gnome_wayland`), the same way autostart
+and hotkeys aren't offered as individually-skippable core-functionality choices either. `window_calls_
+check` (the "Capture Window" mode extension) deliberately keeps its own checkbox - unlike
+`orcshot-clipboard@orcshot.org` (wholly original code for this project, see `extension.js`'s own header
+comment), `window-calls@domandoman.xyz` is a bundled *third-party* patched fork (see
+[[reference_window_calls_extension]] equivalent in REQUIREMENTS - the "Bundled GNOME extension"
+section), a genuinely different provenance question rather than a trust-level one. No documentation
+mention added either, direflail's own reasoning: a doc callout is warranted for code sourced from other
+projects, not for code written specifically for this one - anyone who cares can already read the source.
+
+Not yet re-verified live after this change - the very next step is exactly the same real `.deb`-install
++ fresh-first-run-setup cycle task #145 was already mid-way through, rebuilt with this change, to
+confirm the extension now activates unconditionally and task #144's teardown fix still fires correctly
+with no checkbox involved at all.
+
+**Update, same day: `window_calls_check` removed too, and the "requires logging out" warning turned
+out to be simply wrong, not a real limitation.** direflail pushed further on the remaining checkbox:
+"if the user isn't going to be able to use the program correctly upon install without a login... we
+either need to fix it completely or patch it... I don't see any other screenshot programs asking for a
+restart." That's the right bar - checked whether a restart is actually required, rather than accepting
+it as a given the way the original dialog copy implied.
+
+It isn't. `gnome_clipboard.is_available()` is a live `Ping()` D-Bus probe, called fresh on *every single
+capture attempt* - not a value cached once at startup the way `_build_tray_icon`'s AppIndicator3-vs-None
+decision was (task #144's actual bug). `gnome_window_picker.is_available()` and `gnome_region_select.
+is_available()` both just delegate to that same live probe. Combined with GNOME Shell activating a
+freshly-enabled extension in well under a second (measured live earlier this session: ~0.3s), a
+first-time user's *actual* first capture attempt - which happens some real seconds after finishing the
+dialog, not the same instant - already sees the extension as available. Even a capture attempted within
+that sub-second window just falls back gracefully to the portal/invisible-window path instead of
+failing. There was never a real case where the user needed to log out first; the dialog's own warning
+text was simply stale, predating (or never updated to match) this live-probing architecture.
+
+**Change**: `window_calls_check` removed the same way `clipboard_check` was - `enable_extension(...,
+WINDOW_CALLS_EXTENSION_UUID)` is now unconditional too, right alongside the clipboard call, both gated
+on the single `is_gnome_wayland` check. The "Requires logging out and back in to take effect." label is
+gone entirely, not reworded - it wasn't accurate for either extension. `window-calls@domandoman.xyz`'s
+third-party status remains documented where it already was correctly documented -
+`THIRD_PARTY_NOTICES.md` and `debian/copyright` - not a new README section (direflail: doc callouts are
+for code sourced from other projects, which this already covers; a first-run dialog checkbox was never
+the right vehicle for that disclosure in the first place).
+
+An earlier proposal in this same conversation - spinning up a nested `gnome-shell --devkit --wayland`
+session as part of onboarding, to sidestep an assumed restart requirement - was correctly never adopted
+as real product behavior; it was only ever floated as a possible dev-iteration speedup for testing
+`extension.js` edits without a real logout, explicitly out of scope for what a real end user should ever
+see. Worth remembering it surfaced at all: it was a well-intentioned reach for a workaround before the
+actual question ("does this genuinely require a restart?") had been checked - the real fix, once
+checked, needed no workaround at all.
+
+## Portal capture exceptions crash the whole app (task #150, complete 2026-08-18)
+
+Live-observed crash during the same #145 verification pass, unrelated to any of the checkbox/first-run
+changes above: a real apport crash report from `/usr/bin/orcshot`, `orcshot.capture.wayland_portal.
+PortalRequestFailed: screenshot portal returned response code 2`, with a full traceback from `app.py`'s
+tray-click handler down through `region_select.py` -> `region_select_wayland.py` ->
+`capture/wayland.py` -> `capture/wayland_portal.py`, completely unhandled.
+
+Grepped the whole codebase before proposing any fix (systematic-debugging, not a guess):
+`PortalRequestCancelled`/`PortalRequestFailed`/`PortalRequestTimedOut` (defined in
+`capture/wayland_portal.py`) were **never caught anywhere else in this project** - zero matches outside
+their own defining module. That means this wasn't specific to response code 2 at all: the completely
+ordinary case of a user hitting Escape on the screenshot permission dialog
+(`PortalRequestCancelled`, response code 1) would crash the app exactly the same way. This is the
+portal-based fallback capture path (`capture_backend.grab()` under Wayland, used whenever
+`orcshot-clipboard@orcshot.org` isn't handling the capture itself - i.e. any session before first-run
+setup enables it, or where the user declines to) - a completely normal, everyday state, not a rare edge
+case, so this was a real, always-reproducible crash for anyone in it.
+
+direflail: "if the user isn't going to be able to use the program correctly upon install without a
+login, then [we need a real solution]... if you recommended a subpar solution then we either need to
+fix it completely or patch it" - in the course of chasing that down (see the section above), it turned
+out there was no actual restart requirement to work around; investigating *that* claim is what surfaced
+this crash in the first place, mid-test.
+
+**Fix**: `OrcshotApplication._run_capture` (`app.py`), a single shared wrapper around all five
+`start_*_capture` methods (region select, full screen, active window, window picker, last-region
+repeat) - the one point both the tray-click path (via `_defer`) and the hotkey/CLI path
+(`do_command_line`) already converge through, so one fix covers both invocation paths rather than
+patching `region_select.py`/`window_picker.py`/`capture_modes.py` separately. `PortalRequestCancelled`
+is swallowed silently, matching every other "user backed out of a capture" convention already in this
+app (Escape on the region-select overlay or window picker); `PortalRequestFailed`/
+`PortalRequestTimedOut` are surfaced via a real `_notify()` call instead of crashing, matching this
+class's own existing notification pattern for other capture-adjacent failures.
+
+**Verified with an isolated harness**, matching this project's own established pattern for GTK-adjacent
+`app.py` logic (see task #144's own verification note above) rather than a full pytest suite entry -
+`_run_capture` bound to a fake `self` (just a `_notify` recorder), exercised against the real exception
+classes: confirmed `PortalRequestCancelled` is swallowed with no notification, `PortalRequestFailed`/
+`PortalRequestTimedOut` each produce exactly one notification mentioning the underlying error and are
+not re-raised, a normal (non-raising) action still runs through untouched, and - importantly - an
+unrelated exception (`ValueError`) is *not* swallowed and still propagates, confirming the catch is
+scoped to only the three portal exceptions rather than accidentally hiding real bugs.
+
+**Follow-up, same day: the crash-prevention fix above wasn't the whole story - the underlying capture
+was still silently failing every time from the real tray-click path, even though it worked perfectly
+every time when called standalone.** direflail's report after the first rebuild: a tray-triggered
+region capture's popup closed and nothing else happened - no overlay, and a subsequent drag just
+produced the OS's own ordinary desktop rubber-band-select box, meaning `WaylandRegionSelect` never
+actually got constructed at all, its own `capture_backend.grab()` call having failed before the
+interactive overlay could show itself.
+
+Root-caused by direct comparison rather than more guessing: `capture/wayland_portal.py`'s
+`request_screenshot()` (both a hand-written standalone probe using the exact same D-Bus options, and
+the real function imported and called directly, out-of-process) succeeded every single time, with no
+failures across repeated calls. Only the *real* running app's own tray-click-triggered attempt failed.
+That pointed straight at [[feedback_wayland_portal_reentrancy]] - already-documented project knowledge
+recorded from earlier work on the eyedropper/window-picker overlays, but this codebase had one call
+site that didn't yet follow it: `app.py`'s `_defer()` (the task #134 fix that yields one main-loop
+iteration so a tray menu's popdown completes before its capture starts) called
+`GLib.idle_add(run)` with no explicit priority - which defaults to `GLib.PRIORITY_DEFAULT_IDLE`, a
+*lower* priority than `GLib.PRIORITY_DEFAULT`. `request_screenshot()` nests its own blocking
+`GLib.MainLoop().run()` one level inside whatever calls it under Wayland (whenever the Shell extension
+isn't handling the capture itself) - and per the existing finding, an idle-priority-deferred callback
+nesting a portal call like this can be starved/preempted by other events at or above its own priority,
+exactly the class of bug already seen (if not identically manifested - that earlier note describes a
+full hang; here the portal backend returned a fast but wrong `response_code=2` instead, still
+consistent with the callback's timing being disturbed by priority contention rather than running
+cleanly).
+
+**Fix**: `_defer()` now calls `GLib.idle_add(run, priority=GLib.PRIORITY_DEFAULT)`, matching
+`eyedropper_wayland.py`'s own `_load_backdrop` call (already correctly using this priority, confirmed
+by reading it - the fix this project had already learned once, just not yet applied to this second
+call site). Grepped every other `GLib.idle_add` call in the codebase before considering this complete:
+`editor_window.py`'s canvas resize and `app.py`'s own update-check-result handoff are unrelated to any
+portal call and don't need the same treatment; `window_picker_wayland.py` only mentions `idle_add` in a
+comment describing a past, abandoned approach, no live call site there at all.
+
+Not yet re-verified live on the VM after this specific fix - the next step.
+
+**Re-verified live, same night: the priority fix alone did NOT resolve it.** Rebuilt, reinstalled fresh,
+retested via the real tray icon - direflail, verbatim: "still broken." No new crash this time (the
+exception-handling fix from earlier in this same task still holds - real, confirmed progress, not
+undone), but the capture itself still doesn't produce an overlay or any visible result. This was a
+well-evidenced hypothesis, not a guess, but it wasn't the (or the whole) root cause - don't treat the
+priority bump as *the* fix for this task; it's one real improvement layered under a problem that's
+still open. Paused here for the night at direflail's request rather than continuing to guess further -
+see this section's own task entry (#150) for the concrete next-session starting points (fresh crash
+dump if any, re-run the standalone-vs-real-process comparison specifically post-priority-fix, and
+consider whether - per [[feedback_wayland_portal_reentrancy]]'s own explicit warning - one level of
+idle-priority deferral simply isn't enough here, the same way the eyedropper overlay needed more than
+one fix before its own reentrancy problem was fully resolved).
+
+**Resolved the next day, 2026-08-18: both fixes were actually correct - the "still broken" report was
+against a build that hadn't picked up the priority fix cleanly, not a sign the fix itself was wrong.**
+Rather than guess again, switched to direct evidence: synced the current (already-fixed) source into
+the VM's dev checkout (a plain user-owned directory, no `sudo`/reinstall/logout cycle needed for a
+Python-only change - unlike the GNOME Shell extension's own JS caching, a fresh Python process just
+re-imports whatever's on disk) and added temporary diagnostic logging directly to `_defer`'s `run()`
+and `request_screenshot()` (entry, the `Screenshot()` call, the nested `loop.run()`, and `on_response`
+firing) - never committed, VM-only, removed once the answer was in hand.
+
+Triggered a region capture via `gdbus call ... org.gtk.Actions.Activate 'tray-region'` - the exact
+same `_defer(handlers["region"])` call a real click reaches, confirmed by reading both
+`_register_tray_actions` (the Shell-native GAction path) and `_build_tray_menu`'s `menu_item` calls
+(the local/AppIndicator3 path, `region_item = menu_item(..., lambda: _defer(handlers["region"]), ...)`)
+- both converge on the identical call, so this synthetic trigger is a faithful stand-in for either real
+tray, not an approximation. The log showed a complete, clean success: `request_screenshot()` entered,
+`Screenshot()` returned a request handle, the nested loop ran, `on_response` fired ~340ms later with
+`response_code=0` and a real screenshot URI, and `_defer.run()` returned with no exception - the
+capture-and-overlay flow direflail had reported as producing nothing instead worked exactly as
+designed. direflail then independently confirmed via a genuine interactive test on the real VM screen:
+captured a region (the overlay from the synthetic trigger above was still sitting there, waiting - direflail
+completed that same drag manually), then triggered a second, fully fresh capture via a real tray-icon
+click, and confirmed the result pasted correctly into Krita - proving the clipboard delivery path
+works end-to-end too, not just the screenshot grab. The diagnostic log recorded both captures
+completing normally, timestamped ~2 minutes apart, matching direflail's own two-step description.
+
+Both fixes stand as correct and complete for the actual capture crash/reentrancy problem: the exception
+handling (crash prevention) and the `GLib.PRIORITY_DEFAULT` idle priority (the reentrancy fix) were the
+whole story for *that specific bug*. The final real-`.deb`-install confirmation pass called for above
+did happen (direflail: "let's do it") and surfaced two more, entirely separate real bugs during the
+audit that followed - documented in their own sections immediately below, not folded in here, since
+neither one is a capture-reentrancy problem at all.
+
+## GioSettingsBackend created a fresh Gio.Settings per call, racing back-to-back writes to the same key (task #150 follow-up, complete 2026-08-18)
+
+Surfaced during the post-#150 audit direflail asked for ("i'm thinking an audit of what we have... is
+in order"): first-run-setup enabled `window-calls@domandoman.xyz` correctly but silently dropped
+`orcshot-clipboard@orcshot.org`, even though both extensions are now enabled unconditionally,
+back-to-back, in the same code path (see the checkbox-removal section above). Root cause, found by
+reading rather than guessing further: `GioSettingsBackend._settings()` (`hotkey_setup.py`) called
+`Gio.Settings.new(schema)` fresh on *every single* `get_strv`/`set_strv`/`get_string`/`set_string` call,
+never reusing an instance. `enable_extension`'s own read-modify-write (read the current list, add the
+UUID, write back) is only self-consistent if the read and write happen through the *same* `Gio.Settings`
+object - its own internal cache guarantees an immediate `get_strv()` sees a `set_strv()` it just made,
+with no round trip needed. Two independent instances racing on the same key have no such guarantee:
+the second call's fresh read depends on dconf's own commit-then-notify cycle from the first call's
+write having actually completed by then, which isn't instant. This is a real, long-standing fragility,
+not new - it very likely explains the previously-unresolved 2026-08-15 finding elsewhere in this
+document ("the first-run setup dialog's extension-enable checkboxes don't actually persist").
+
+**Fix**: `GioSettingsBackend.__init__` now holds a `{(schema, path): Gio.Settings}` cache; `_settings()`
+returns the cached instance if one exists for that key, constructing and caching a new one only on
+first use. No behavior change for any single call - only for repeated calls addressing the same
+(schema, path), which now share one object's internally-consistent view instead of racing.
+
+**Verified live against the real gsettings backend**, not just a fake one - `enable_extension` called
+twice in a row (`window-calls` then `orcshot-clipboard`, both against a single shared
+`GioSettingsBackend` instance) inside a real `GLib.MainLoop`, confirmed by reading the *raw* key
+(`gsettings get org.gnome.shell enabled-extensions`) rather than `gnome-extensions list --enabled` -
+the latter reflects GNOME Shell's own live activation state, which lags behind the underlying setting
+and misled an earlier check into looking like the fix hadn't worked. The raw key correctly contained
+both UUIDs after the fix; Shell's own catch-up to actually *activate* newly-enabled extensions (as
+opposed to correctly recording that they should be) is a separate, so far unexplained thread, not
+something this specific fix was ever meant to address.
+
+## configure_hotkey's name-only idempotency check never updated a stale command (task #150 follow-up, complete 2026-08-18)
+
+Also surfaced during the same audit: four custom keybindings pointing at `PYTHONPATH=~/orcshot-verify`
+(a dev checkout from 2026-08-14, since deleted) never got corrected across several first-run-setup
+re-runs, even after `_default_executable()` started correctly resolving to the real installed
+`/usr/bin/orcshot`. Root cause: `configure_hotkey` (`hotkey_setup.py`) checked only whether a custom
+keybinding with the given *name* already existed - "Orcshot - Region Capture" and friends - and
+returned immediately if so, never inspecting or correcting the *command* that name pointed at. Since a
+stale entry from an old run has the exact same name a fresh run would create, every subsequent run saw
+"already configured" and left the stale command untouched indefinitely. This directly undermined
+`_default_executable`'s own documented purpose (prefer the installed console script over a dev-only
+invocation once one exists) - the right executable was being computed correctly the whole time, nothing
+downstream ever acted on a change once a same-named entry already existed.
+
+**Fix**: `configure_hotkey` now compares the existing entry's `command` (and `binding`) against what
+would be written fresh, and corrects them in place when they've drifted, rather than treating "a name
+exists" as sufficient. Still returns `False` in this case (matching the existing "no *new* binding was
+added" contract) - only the in-place correction is new. A differently-named existing entry is still left
+completely alone, same as before.
+
+**New test**: `test_updates_a_stale_command_under_a_matching_name` (`tests/unit/test_hotkey_setup.py`) -
+seeds a `FakeSettingsBackend` with a same-named entry pointing at an old `PYTHONPATH` command, calls
+`configure_hotkey` with the current executable, and asserts the command and binding get corrected in
+place with no new slot created. All 40 existing hotkey tests still pass unchanged, confirming the
+existing "don't disturb a differently-named binding" and "fully idempotent when nothing changed"
+behaviors are untouched.
+
+## Writing enabled-extensions was never enough - Shell needs to be told directly (task #150 follow-up, complete 2026-08-18)
+
+The real, final root cause of this whole night's capture-doesn't-work saga, found only after the two
+fixes above were verified individually correct and capture *still* silently did nothing (direflail:
+"no change" - and, when told the situation was still unresolved and offered a pause: "please stop
+offering to stop... i want to keep going. i have rebooted the vm."). A genuinely fresh boot - ruling
+out any live change-notification timing explanation once and for all - still left `window-calls` and
+`orcshot-clipboard` both listed correctly in the raw `enabled-extensions` gsettings key but never
+actually activated by Shell (`GetExtensionInfo` reported `state: 6` / INITIALIZED, `enabled: false`,
+`error: ''` for both - Shell had seen them, not acted on them, no error to explain why).
+
+Isolated by direct comparison: running the official `gnome-extensions enable orcshot-clipboard@orcshot.org`
+CLI command against the exact same already-correct gsettings state activated it immediately -
+`GetExtensionInfo` went from `state: 6/enabled: false` to `state: 1/enabled: true` right away. That CLI
+tool doesn't do anything Orcshot's own `enable_extension` wasn't already doing to the gsettings key
+(confirmed by introspecting `org.gnome.Shell`'s own D-Bus interface) - the difference is that it *also*
+calls `org.gnome.Shell.Extensions.EnableExtension(uuid)` directly. Writing the persistent setting and
+asking the running Shell to act on it turn out to be two genuinely separate steps; this project's code
+had only ever done the first.
+
+**Fix**: new `gnome_extension_setup.enable_extension_live(uuid)` - a real-system-only function (same
+category as `GioSettingsBackend` itself, never exercised by a test) that calls
+`org.gnome.Shell.Extensions.EnableExtension` via a synchronous `Gio.DBusProxy` call.
+`ui/first_run_setup.py`'s wizard now calls this for both UUIDs immediately after the existing
+`enable_extension` gsettings writes - the write is still what makes the setting survive a *future*
+login on its own; this is what makes it actually work *this* session too. Each call is independently
+wrapped in a `try/except GLib.Error` - autostart/hotkeys/the gsettings writes already succeeded by this
+point in the handler, and one extension's D-Bus hiccup shouldn't take the other down with it or make
+the wizard look like it crashed.
+
+**Verified live, twice, both ways**: (1) directly - `enable_extension_live` called for both UUIDs
+against a freshly-disabled baseline, confirmed via `gnome-extensions list --enabled` (not just the raw
+key this time) showing both genuinely active; (2) end-to-end - relaunched orcshot fresh with the
+extension already live, confirmed `_log_session_info` logged "GNOME Shell extension available" at
+startup (not falling back to the portal) and `HasTrayButton` returned `true` (the Shell-native panel
+button, not the AppIndicator3 fallback), then triggered a real region capture through it with no crash
+and no error - the shutter-sound side effect from every earlier test in this document is gone too,
+exactly as expected once the Shell-native path is genuinely the one running rather than the portal
+fallback.
+
+This also retroactively explains the still-open 2026-08-15 "extension-enable checkbox doesn't persist"
+finding referenced earlier in this document, and the `state: 6`/`HasTrayButton` failures direflail hit
+repeatedly across this session's own dev-checkout/`.deb`-reinstall cycles - none of those were the
+extension-reload JS-caching issue this project had already correctly diagnosed and documented
+elsewhere; they were this, a second, previously-unidentified gap in the enable path itself.
+
+**Final end-to-end confirmation, task #145 closed**: a full real `.deb` cycle from a clean baseline -
+uninstall, clear `~/.config/orcshot/`, reset both extensions to disabled, reinstall, fresh first-run-
+setup - confirmed every piece correct together: `gnome-extensions list --enabled` shows both
+`window-calls@domandoman.xyz` and `orcshot-clipboard@orcshot.org` genuinely active (not just listed),
+`HasTrayButton` returns `true`, all four hotkeys correctly read `/usr/bin/orcshot --capture-*` (not the
+stale dev-checkout path), and a real capture completed with no crash. direflail confirmed independently:
+"working again." This closes out task #145's own original goal (verify task #144's fix via a real `.deb`
+install) along with the four additional real bugs task #150's investigation surfaced along the way.
+
 ## Licensing
 
 **Status: decided — GPLv3.** Greenshot (Windows) is GPLv3; this is a derivative work — same feature

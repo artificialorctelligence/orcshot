@@ -72,13 +72,14 @@ import sys
 import gi
 
 gi.require_version("Gtk", "3.0")
-from gi.repository import Gtk
+from gi.repository import GLib, Gtk
 
 from orcshot.autostart import install_autostart_entry
 from orcshot.gnome_extension_setup import (
     CLIPBOARD_EXTENSION_UUID,
     WINDOW_CALLS_EXTENSION_UUID,
     enable_extension,
+    enable_extension_live,
     gnome_shell_present,
 )
 from orcshot.hotkey_setup import (
@@ -202,37 +203,43 @@ def _run_dialog(parent, executable: str, settings_backend) -> None:
             wrap=True, xalign=0,
         ), False, False, 0)
 
-    # Both offered only on a session where they could plausibly work at
-    # all - checked, not assumed (see
-    # gnome_extension_setup.gnome_shell_present's docstring). "Capture
-    # Window" has no other way to work correctly under Wayland (see
-    # REQUIREMENTS.md's Wayland window-picker section); reliable
-    # clipboard support under Wayland has no other way to work either
-    # (see REQUIREMENTS.md's "Clipboard under Wayland" section) -
-    # without this, captures still copy via the invisible-window
-    # fallback in wayland_clipboard.py, just with its known window-list
-    # reflow side effect.
+    # Neither GNOME Wayland extension is offered as a checkbox - both
+    # are unconditionally enabled below whenever this dialog completes
+    # with OK on a session where they'd apply (is_gnome_wayland),
+    # checked live rather than assumed (see gnome_extension_setup.
+    # gnome_shell_present's docstring), same as autostart/hotkeys
+    # aren't re-litigated as individually skippable app-core-
+    # functionality choices either. direflail, on why: "it's ALWAYS
+    # going to be enabled, otherwise the program won't work... why
+    # else would you install this program if you didn't want clipboard
+    # support? it's a screenshot app" - and the same reasoning was
+    # extended to window-calls (needed for "Capture Window" mode to
+    # work correctly under Wayland at all - see REQUIREMENTS.md's
+    # Wayland window-picker section) once it was clear neither checkbox
+    # was protecting anyone who wasn't already going to check it.
+    #
+    # No "requires logging out" warning either (removed, not just
+    # never added here) - it was stale: gnome_clipboard.is_available()
+    # (both gnome_window_picker.is_available and gnome_region_select.
+    # is_available delegate to it) is a live Ping() probe, called fresh
+    # on every single capture attempt, not a value cached at startup -
+    # confirmed by reading it, not assumed. Combined with GNOME Shell
+    # activating a freshly-enabled extension in well under a second
+    # (measured live: ~0.3s), a first-time user's actual first capture
+    # attempt - which happens some real seconds after finishing this
+    # dialog, not the same instant - already sees the extension as
+    # available. Even a capture attempted within that sub-second window
+    # just gracefully falls back to the portal/invisible-window path
+    # instead of failing, so there was never a real "won't work without
+    # a restart" case to warn about.
+    #
+    # orcshot-clipboard@orcshot.org is this project's own wholly
+    # original extension.js (see that file's own header comment);
+    # window-calls@domandoman.xyz is a bundled *third-party* patched
+    # fork, already documented in THIRD_PARTY_NOTICES.md and
+    # debian/copyright - real provenance worth documenting there,
+    # unlike a checkbox that most users have no context to evaluate.
     is_gnome_wayland = os.environ.get("XDG_SESSION_TYPE") == "wayland" and gnome_shell_present()
-    window_calls_check = None
-    clipboard_check = None
-    if is_gnome_wayland:
-        content.pack_start(Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL), False, False, 4)
-        window_calls_check = Gtk.CheckButton(
-            label="Enable window capture support (\"Capture Window\" mode)"
-        )
-        window_calls_check.set_active(True)
-        content.pack_start(window_calls_check, False, False, 0)
-
-        clipboard_check = Gtk.CheckButton(
-            label="Enable reliable \"Copy to Clipboard\" support"
-        )
-        clipboard_check.set_active(True)
-        content.pack_start(clipboard_check, False, False, 0)
-
-        content.pack_start(Gtk.Label(
-            label="Both require logging out and back in to take effect.",
-            wrap=True, xalign=0,
-        ), False, False, 0)
 
     dialog.show_all()
     response = dialog.run()
@@ -248,11 +255,23 @@ def _run_dialog(parent, executable: str, settings_backend) -> None:
                 clear_conflict(settings_backend, conflict)
             configure_all_hotkeys(settings_backend, executable, skip=skip, profile=profile)
 
-        if window_calls_check is not None and window_calls_check.get_active():
+        if is_gnome_wayland:
             enable_extension(settings_backend, WINDOW_CALLS_EXTENSION_UUID)
-
-        if clipboard_check is not None and clipboard_check.get_active():
             enable_extension(settings_backend, CLIPBOARD_EXTENSION_UUID)
+            # enable_extension above only persists the setting for a
+            # future login - enable_extension_live (task #150 follow-
+            # up, see its own docstring for the live-reproduced bug)
+            # is what actually activates each extension in the running
+            # Shell right now. Each wrapped separately and best-effort:
+            # autostart/hotkeys/the gsettings writes above already
+            # succeeded by this point, and a transient D-Bus hiccup on
+            # one extension shouldn't take the other down with it or
+            # leave the wizard looking like it crashed.
+            for uuid in (WINDOW_CALLS_EXTENSION_UUID, CLIPBOARD_EXTENSION_UUID):
+                try:
+                    enable_extension_live(uuid)
+                except GLib.Error as e:
+                    print(f"[orcshot] enable_extension_live({uuid!r}) failed: {e}", file=sys.stderr)
 
     mark_first_run_setup_done()
     dialog.destroy()

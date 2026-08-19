@@ -112,6 +112,29 @@ class TestConfigureHotkey:
         assert added_again is False
         assert backend.get_strv(CUSTOM_LIST_SCHEMA, "/", "custom-list") == ["custom0"]
 
+    def test_updates_a_stale_command_under_a_matching_name(self):
+        # Task #150 follow-up: a same-named entry pointing at a stale
+        # command (e.g. an old dev checkout's PYTHONPATH invocation)
+        # must actually get corrected, not left alone just because the
+        # name already matches - live-reproduced as a real bug where
+        # first-run-setup silently never fixed a hotkey pointing at a
+        # deleted directory, no matter how many times it ran.
+        existing_path = CUSTOM_KEYBINDING_PATH_TEMPLATE.format(slot="custom0")
+        backend = FakeSettingsBackend({
+            (CUSTOM_LIST_SCHEMA, "/", "custom-list"): ["custom0"],
+            (CUSTOM_KEYBINDING_SCHEMA, existing_path, "name"): "Orcshot - Region Capture",
+            (CUSTOM_KEYBINDING_SCHEMA, existing_path, "command"): "env PYTHONPATH=/old/checkout python3 -m orcshot.app --capture-region",
+            (CUSTOM_KEYBINDING_SCHEMA, existing_path, "binding"): ["Print"],
+        })
+
+        added = configure_hotkey(backend, "Orcshot - Region Capture", "Print", "orcshot --capture-region")
+
+        assert added is False
+        assert backend.get_string(CUSTOM_KEYBINDING_SCHEMA, existing_path, "command") == "orcshot --capture-region"
+        assert backend.get_strv(CUSTOM_KEYBINDING_SCHEMA, existing_path, "binding") == ["Print"]
+        # No new slot created - the stale entry was corrected in place.
+        assert backend.get_strv(CUSTOM_LIST_SCHEMA, "/", "custom-list") == ["custom0"]
+
     def test_a_differently_named_existing_binding_does_not_block_configuration(self):
         existing_path = CUSTOM_KEYBINDING_PATH_TEMPLATE.format(slot="custom0")
         backend = FakeSettingsBackend({
