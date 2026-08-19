@@ -482,8 +482,38 @@ class OrcshotApplication(Gtk.Application):
         preferences_action.connect("activate", lambda *_args: self.show_preferences())
         self.add_action(preferences_action)
         quit_action = Gio.SimpleAction.new("tray-quit", None)
-        quit_action.connect("activate", lambda *_args: self.quit())
+        quit_action.connect("activate", lambda *_args: self._quit_and_hide_tray_button())
         self.add_action(quit_action)
+
+    def _quit_and_hide_tray_button(self) -> None:
+        """direflail: "when the user selects quit, i want all parts of
+        the program to quit and vanish. it should not be running
+        anymore... it should remain this way until the user
+        restarts." (task #150 follow-up). self.quit() alone already
+        fully terminates this process - confirmed live, nothing was
+        left in `ps aux` after a plain quit - but the Shell-native tray
+        panel button is owned by the extension, a separate process,
+        and only ever *dims* on its own when this process's D-Bus name
+        vanishes (the same reaction a crash gets, since the extension
+        can't otherwise tell a deliberate quit apart from one). Calling
+        the extension's own Quitting() method first, best-effort, is
+        what makes it actually disappear instead of sticking around
+        dimmed - see extension.js's own Quitting() docstring for the
+        full reasoning. Wrapped in try/except: the extension might not
+        be the active tray at all (X11, or Wayland before it's ever
+        been enabled), and quitting must never be blocked by a Shell
+        extension call failing.
+        """
+        try:
+            proxy = Gio.DBusProxy.new_for_bus_sync(
+                Gio.BusType.SESSION, Gio.DBusProxyFlags.NONE, None,
+                "org.gnome.Shell", "/org/gnome/Shell/Extensions/OrcshotTray",
+                "org.gnome.Shell.Extensions.OrcshotTray", None,
+            )
+            proxy.call_sync("Quitting", None, Gio.DBusCallFlags.NONE, -1, None)
+        except GLib.Error:
+            pass
+        self.quit()
 
     def _check_shell_extension_health(self) -> None:
         """Surfaces two real, ordinary-but-easy-to-miss states

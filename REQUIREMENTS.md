@@ -5980,6 +5980,85 @@ stale dev-checkout path), and a real capture completed with no crash. direflail 
 "working again." This closes out task #145's own original goal (verify task #144's fix via a real `.deb`
 install) along with the four additional real bugs task #150's investigation surfaced along the way.
 
+## CaptureRect's parameters.deepUnpack() was never callable (task #151, complete 2026-08-18)
+
+After task #150 closed, direflail did further real-world testing against the real `.deb` install and
+reported: full-screen capture, active-window capture, and repeat-last-region all "does nothing" (region
+capture and window-picker capture, which don't go through this code path, both worked). All three
+broken modes share one thing: they resolve a rectangle in the extension (JS side, Shell-native) and
+call back into Python's `CaptureRect` D-Bus method with it, rather than the region-select overlay
+producing the rectangle itself the way region/window-picker capture do.
+
+Root-caused with a live diagnostic rather than guessed at, per direflail's explicit instruction
+("install some diagnostics before you reimplement a fix"): a standalone GJS script
+(`Gio.DBusExportedObject.wrapJSObject` + a minimal one-method test interface + `Gio.bus_own_name`)
+logged `typeof`, `constructor.name`, and `Array.isArray()` for the `parameters` argument an
+`async TestMethodAsync(parameters, invocation)` handler actually receives. On this GJS version
+(1.88.0 / Shell 50.1), `parameters` arrives as an already-unpacked plain JS `Array`, not a
+`GLib.Variant` - `parameters.deepUnpack` is `undefined`, so
+`CaptureRectAsync`'s `const [x, y, width, height] = parameters.deepUnpack();`
+(`extension.js`) threw a `TypeError` on every call, silently swallowed with no visible error because
+nothing surfaces exceptions thrown inside a GDBusExportedObject async handler back to the caller by
+default.
+
+**Fix**: removed the `.deepUnpack()` call - `const [x, y, width, height] = parameters;` - since
+`parameters` is already the plain array of unpacked values.
+
+**Verified live**: deployed to the per-user extension override
+(`~/.local/share/gnome-shell/extensions/orcshot-clipboard@orcshot.org/`), full logout/login (a genuine
+JS reload, not just an extension disable/enable - see the extension-reload-caching finding earlier in
+this document), then all three previously-broken capture modes exercised for real. direflail confirmed:
+"capture modes all seem to work now."
+
+## Quit only dimmed the Shell-native tray button instead of fully terminating the app (task #151, complete 2026-08-18)
+
+Also from direflail's same round of real-world testing: "quit - just greys out the orcshot icon - this
+should quit the whole program." Direction given explicitly: "when the user selects quit, i want all
+parts of the program to quit and vanish. it should not be running anymore (until the user restarts).
+it should remain this way until the user uninstalls."
+
+Investigation confirmed `self.quit()` alone already fully terminates the Python process - nothing left
+in `ps aux` after a plain quit, verified live - so the "still visible" complaint was entirely about the
+Shell-native tray panel button, which is owned by the extension (a separate process from Python) and
+only reacts to Python's `org.orcshot.Orcshot` D-Bus name vanishing from the bus. That reaction,
+`_setAppAvailable(false)`, was written to *dim* the button (per task #147's own "grey out when Python
+isn't running to receive clicks" requirement) rather than remove it - the correct behavior for a crash,
+where the button dimming while staying put/discoverable is exactly the point, but the wrong behavior
+for a deliberate Quit, which the extension has no way to distinguish from a crash on its own since both
+just look like "the bus name vanished."
+
+**Fix**: added a `Quitting()` method (no args, no return) to the extension's existing `OrcshotTray`
+D-Bus interface (`TRAY_IFACE` in `extension.js`) that destroys the tray button outright -
+`this._trayButton.destroy(); this._trayButton = null;` plus clearing its associated menu-item/icon-area
+references - distinct from the pre-existing crash-path dimming, which is untouched. Tray-button
+construction was extracted out of `enable()` into a new `_ensureTrayButton()` helper so the button can
+be rebuilt the next time the app becomes available (both at extension-enable time and from the existing
+`Gio.bus_watch_name` "appeared" callback), since a deliberate Quit now actually destroys the GObject
+rather than just hiding it.
+
+On the Python side (`app.py`), the Quit tray action now calls a new
+`_quit_and_hide_tray_button()` instead of `self.quit()` directly: it best-effort calls the extension's
+`Quitting()` over a synchronous `Gio.DBusProxy` (wrapped in `try/except GLib.Error` - the extension
+might not be the active tray at all, e.g. X11, or Wayland before first-run-setup has ever enabled it,
+and quitting must never be blocked by a Shell extension call failing), then calls `self.quit()` as
+before.
+
+**Verified live** on the Ubuntu 26.04 VM, after a full reboot (needed to load the new `Quitting` method
+into Shell's cached copy of the extension - see the extension-reload-caching finding earlier in this
+document) and using the dev checkout so the new Python code was actually exercised (the system's
+autostarted `/usr/bin/orcshot` still runs the pre-fix build until the next `.deb` release): (1) a plain
+`kill` of the process (simulating a crash) left `HasTrayButton` reporting `true` - dimmed, not removed,
+confirming the crash path is unchanged; (2) relaunching rebuilt the button via the new
+`_ensureTrayButton()` path, `HasTrayButton` back to `true` with no duplicate; (3) triggering the real
+`tray-quit` GAction (`gdbus call ... org.gtk.Actions.Activate 'tray-quit'`) - the same code path both
+the AppIndicator3 menu and the Shell-native panel button's Quit item run through - left `ps aux` showing
+no orcshot process at all, the `org.orcshot.Orcshot` D-Bus name gone, and `HasTrayButton` now reporting
+`false`: the button is genuinely destroyed, not dimmed, exactly matching direflail's stated requirement.
+
+Still outstanding: this fix has only been deployed to the per-user extension override and the dev
+checkout, not the actual shippable `.deb` - rebuilding and reinstalling the package (requiring
+direflail's `sudo`) is needed before this is live in the real installed app.
+
 ## Licensing
 
 **Status: decided — GPLv3.** Greenshot (Windows) is GPLv3; this is a derivative work — same feature

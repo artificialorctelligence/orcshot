@@ -211,6 +211,8 @@ const TRAY_IFACE = `
       <method name="GetTrayButtonError">
          <arg type="s" direction="out" name="error" />
       </method>
+      <method name="Quitting">
+      </method>
    </interface>
 </node>`;
 
@@ -1757,6 +1759,33 @@ export default class Extension extends ShellExtension {
     // against in _setAppAvailable's own appeared branch below.
     this._enabledAtUs = GLib.get_monotonic_time();
 
+    this._ensureTrayButton();
+
+    // Reacts in real time (not a poll) to Python's own D-Bus name
+    // (org.orcshot.Orcshot, auto-owned by its GApplication)
+    // appearing/vanishing - confirmed live via `gjs -m` that both
+    // callbacks fire with the expected (connection, name[, nameOwner])
+    // signature on this GJS version. _ensureTrayButton on the
+    // appeared side too (not just enable() above) - Quitting() below
+    // can have destroyed the button entirely since the last time
+    // Python was seen, and a rebuild is needed before there's
+    // anything for _setAppAvailable to update the sensitivity/opacity
+    // of.
+    this._appWatchId = Gio.bus_watch_name(
+      Gio.BusType.SESSION, 'org.orcshot.Orcshot', Gio.BusNameWatcherFlags.NONE,
+      () => { this._ensureTrayButton(); this._setAppAvailable(true); },
+      () => this._setAppAvailable(false),
+    );
+  }
+
+  // Split out of enable() (task #150 follow-up) so it can also run
+  // later, from the appeared-name watcher, after Quitting() has
+  // destroyed the button - a no-op if the button already exists
+  // (enable()'s own original call site, and every ordinary appeared
+  // event once the button's already up).
+  _ensureTrayButton() {
+    if (this._trayButton)
+      return;
     this._trayButtonError = '';
     try {
       this._trayButton = this._buildTrayButton();
@@ -1768,17 +1797,6 @@ export default class Extension extends ShellExtension {
       this._repeatItem = null;
       this._repeatIconArea = null;
     }
-
-    // Reacts in real time (not a poll) to Python's own D-Bus name
-    // (org.orcshot.Orcshot, auto-owned by its GApplication)
-    // appearing/vanishing - confirmed live via `gjs -m` that both
-    // callbacks fire with the expected (connection, name[, nameOwner])
-    // signature on this GJS version.
-    this._appWatchId = Gio.bus_watch_name(
-      Gio.BusType.SESSION, 'org.orcshot.Orcshot', Gio.BusNameWatcherFlags.NONE,
-      () => this._setAppAvailable(true),
-      () => this._setAppAvailable(false),
-    );
   }
 
   disable() {
@@ -1952,6 +1970,31 @@ export default class Extension extends ShellExtension {
     return this._trayButtonError ?? '';
   }
 
+  // direflail: "when the user selects quit, i want all parts of the
+  // program to quit and vanish. it should not be running anymore...
+  // it should remain this way until the user uninstalls" (task #150
+  // follow-up). Called by app.py's own Quit handler, right before it
+  // calls Gio.Application.quit() - the vanished-name watcher alone
+  // can't tell a deliberate quit apart from a crash, both look
+  // identical from here (Python's bus name just disappears either
+  // way), and a crash should keep the existing dim-but-present
+  // behavior (it might come back on its own; a deliberate quit
+  // shouldn't look like it might). Fully destroys the panel button,
+  // unlike _setAppAvailable(false)'s ordinary dimming -
+  // _ensureTrayButton rebuilds it fresh the next time Python's own
+  // bus name actually reappears (a fresh launch, autostart at the
+  // next login, etc.), not before.
+  Quitting() {
+    if (this._trayButton) {
+      this._trayButton.destroy();
+      this._trayButton = null;
+    }
+    this._repeatItem = null;
+    this._repeatIconArea = null;
+    this._appGatedItems = null;
+    this._logoIcon = null;
+  }
+
   GetApiVersion() {
     return API_VERSION;
   }
@@ -2057,7 +2100,20 @@ export default class Extension extends ShellExtension {
   // D-Bus caller's own point of view now that a destination choice is
   // part of the round trip (see gnome_capture_rect.py's docstring).
   async CaptureRectAsync(parameters, invocation) {
-    const [x, y, width, height] = parameters.deepUnpack();
+    // parameters arrives already unpacked into a plain JS array by
+    // GDBusExportedObject's own async-method calling convention on
+    // this GJS version (1.88.0/Shell 50.1) - confirmed live with an
+    // isolated standalone D-Bus test server outside the extension
+    // entirely (no logout/login needed to check this), not assumed:
+    // typeof parameters === 'object', parameters.constructor.name ===
+    // 'Array', parameters value [5, 10] for a two-int test call. The
+    // previous `.deepUnpack()` call here was simply wrong - a plain
+    // Array has no such method - and had evidently never been
+    // exercised end-to-end before task #150's investigation (direflail:
+    // "capture full screen/active window/repeat last region - does
+    // nothing"), unlike every other async D-Bus method in this file,
+    // none of which call deepUnpack on their own parameters.
+    const [x, y, width, height] = parameters;
     let reply;
     try {
       const [content, scale] = await new Shell.Screenshot().screenshot_stage_to_content();
