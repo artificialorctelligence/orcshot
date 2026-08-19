@@ -53,7 +53,7 @@ class GnomeShellWindowPicker:
     def show(self) -> None:
         start_window_picker(self._on_selected, self._on_cancelled)
 
-    def _on_selected(self, image, absolute_rect: Rect, destination: str) -> None:
+    def _on_selected(self, image, absolute_rect: Rect, destination: str, title: str = "") -> None:
         if self._on_captured is not None:
             self._on_captured(absolute_rect)
 
@@ -66,4 +66,4 @@ class GnomeShellWindowPicker:
 
         from orcshot.ui.destination_picker import dispatch_destination
 
-        dispatch_destination(destination, image, cursor_shape)
+        dispatch_destination(destination, image, cursor_shape, title=title)

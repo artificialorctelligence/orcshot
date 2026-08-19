@@ -132,8 +132,14 @@ const CLIPBOARD_IFACE = `
 // chosen action, no picker UI of its own for this flow at all anymore.
 // StartWindowPicker follows the exact same shape/reasoning as
 // StartRegionSelect above (see that method's own comment) - same
-// reply tuple, same reused pickDestinationAsync for the destination
-// choice, same reasons a client-side Gtk.Menu can't do that part.
+// reused pickDestinationAsync for the destination choice, same
+// reasons a client-side Gtk.Menu can't do that part - plus one extra
+// "title" field StartRegionSelect has no equivalent of (task #139):
+// the picked Meta.Window's own title, for ${title} filename-pattern
+// resolution (core/filename_pattern.py) - meaningful for a specific
+// window the same way active-window capture's title already is
+// (ui/capture_modes.py), unlike a region select with no single
+// associated window.
 //
 // CaptureRect has no gesture/overlay of its own, unlike the two
 // methods above (task #73), used by ui/capture_modes.py's full-screen/
@@ -168,6 +174,7 @@ const CAPTURE_IFACE = `
       <method name="StartWindowPicker">
          <arg type="b" direction="out" name="ok" />
          <arg type="s" direction="out" name="destination" />
+         <arg type="s" direction="out" name="title" />
          <arg type="ay" direction="out" name="pngBytes" />
          <arg type="i" direction="out" name="x" />
          <arg type="i" direction="out" name="y" />
@@ -1146,7 +1153,20 @@ class WindowPickerOverlay extends St.Widget {
     if (destination === null)
       return null;
 
-    return { x: rect.x, y: rect.y, width: rect.width, height: rect.height, pngBytes, destination };
+    // get_title() confirmed live via GJS introspection against this
+    // system's actual Meta-18.typelib (not assumed) - falls back to ''
+    // defensively rather than letting a title lookup failure take the
+    // whole picker down with it, same "don't let a new feature's own
+    // failure break existing functionality" reasoning as this file's
+    // other best-effort D-Bus calls.
+    let title = '';
+    try {
+      title = metaWindow.get_title() || '';
+    } catch (e) {
+      logError(e, 'Error reading window title in WindowPickerOverlay');
+    }
+
+    return { x: rect.x, y: rect.y, width: rect.width, height: rect.height, pngBytes, destination, title };
   }
 
   _windowAt(x, y) {
@@ -2069,13 +2089,13 @@ export default class Extension extends ShellExtension {
       const overlay = new WindowPickerOverlay();
       const result = await overlay.selectAsync();
       reply = result === null
-        ? [false, '', [], 0, 0, 0, 0]
-        : [true, result.destination, result.pngBytes, result.x, result.y, result.width, result.height];
+        ? [false, '', '', [], 0, 0, 0, 0]
+        : [true, result.destination, result.title, result.pngBytes, result.x, result.y, result.width, result.height];
     } catch (e) {
       logError(e, 'Error in StartWindowPicker');
-      reply = [false, '', [], 0, 0, 0, 0];
+      reply = [false, '', '', [], 0, 0, 0, 0];
     }
-    invocation.return_value(new GLib.Variant('(bsayiiii)', reply));
+    invocation.return_value(new GLib.Variant('(bssayiiii)', reply));
   }
 
   async StartEyedropperAsync(_parameters, invocation) {

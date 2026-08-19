@@ -6142,6 +6142,85 @@ self-registration; not a bug in the feature code, fixed in the test script.)
 with unsaved changes is open, confirming the retitled Save As dialog actually appears and that the app
 genuinely exits afterward - needs direflail's own `sudo` access to this VM.
 
+## Task #139: wire window title into the ${title} filename pattern token (complete 2026-08-19)
+
+`core/filename_pattern.py`'s `resolve_filename_pattern` already accepted a `title` parameter and
+correctly substituted it into `${title}` (MODE_GREENSHOT) - that part was done from the start. What
+was missing: every real call site passed nothing, so the token always resolved to empty. Confirmed by
+grep - `resolve_filename_pattern` had exactly three callers (`destination_picker.py`'s `_quick_save`/
+`_save_as`, `editor_window.py`'s `_do_quick_save`) and none of them passed `title` at all.
+
+The actual window title was already available - `capture/window.py`'s `WindowInfo` dataclass has always
+had a `.title` field, populated by every platform's real `WindowEnumerator` - it just never got carried
+from wherever a window was identified through to wherever a filename gets resolved, across four
+genuinely separate code paths (X11 active-window/window-picker share `capture/modes.py`'s window
+resolution; the Wayland fallback overlay reuses `ui/window_picker.py`'s same `on_selected`; the Wayland
+Shell-native window-picker is a fully separate extension.js/D-Bus round trip with no Python-side window
+enumeration involved at all).
+
+direflail confirmed scope explicitly before this started: Save/Save As reachable from an *already-open*
+editor should also resolve `${title}` correctly (not just quick-save actions reachable straight from the
+destination picker), since real Greenshot always has the originating window's title available regardless
+of destination.
+
+**Fix, by layer**:
+
+- `capture/modes.py`: `active_window_region` (returned just a clamped `Rect`) renamed to
+  `active_window_info`, now returns the whole clamped `WindowInfo` (bounds *and* title) or `None`. Its
+  one caller (`ui/capture_modes.py::start_active_window_capture`) and its 4 existing unit tests updated
+  accordingly (`tests/unit/capture/test_modes.py`); one new test added for the title itself.
+- `ui/capture_modes.py`: `_capture_and_pick` gained a `title` parameter, threaded to both its branches -
+  the classic `show_destination_picker` path and the Wayland Shell-native `dispatch_destination` path
+  (that one needed no extension.js change: for active-window mode specifically, Python already knows the
+  title from its own `WindowEnumerator` call, independent of the `CaptureRect` D-Bus round trip that
+  only fetches pixels).
+- `ui/destination_picker.py`: `_quick_save`/`_save_as`/`_open_editor` all gained a `title` parameter,
+  used in their `resolve_filename_pattern`/`EditorWindow(...)` calls. Every destination handler in
+  `_DESTINATION_TABLE` (plus the dynamically-generated Office/ExternalCommand entries) now shares one
+  four-argument calling convention (`img, cs, clipboard_backend, title`) - handlers that don't care about
+  the title (clipboard, print, external commands, Office) just accept and ignore it, rather than
+  special-casing a side channel only for the three that do. `dispatch_destination`/
+  `show_destination_picker` both gained a `title` parameter threading through to that call.
+- `ui/editor_window.py`: `EditorWindow.__init__` gained a `window_title` parameter (distinct from the
+  window's own fixed Gtk chrome title, "Orcshot image editor" - this is the *captured* window's title),
+  stored and used by `_do_quick_save`'s own `resolve_filename_pattern` call - satisfies direflail's
+  explicit "editor too" scope confirmation. `open_orcshot_file_in_new_window` (reopening a previously-
+  saved `.orcshot` file) deliberately leaves it at the default `""` - a reopened file has no originating
+  window anymore, same as region/full-screen capture never had one.
+- `ui/window_picker.py`: the `on_selected` closure `start_window_picker` builds - shared by *both* the
+  X11 `WindowPickerWindow` overlay and the Wayland-without-extension `WaylandWindowPicker` fallback -
+  already receives the full `window_info` (title included); it just wasn't passing `.title` through to
+  `show_destination_picker`. One-line fix covers both platforms' fallback path at once.
+- **extension.js** (Wayland Shell-native window-picker, the one path with no local Python window
+  enumeration to draw from): `StartWindowPicker`'s D-Bus reply gained a `title` field -
+  `(bsayiiii)` → `(bssayiiii)`, sourced from `Meta.Window.get_title()` on the picked window, wrapped in
+  its own try/catch that falls back to `''` rather than letting a title-lookup failure take the whole
+  picker down with it (verified `get_title()` is a real method live, via GJS introspection against this
+  system's actual `Meta-18.typelib` - `GI_TYPELIB_PATH=/usr/lib/x86_64-linux-gnu/mutter-18`, since `Meta`
+  isn't in a standalone `gjs` process's default search path; confirming rather than guessing, per this
+  project's own established GJS-verification convention). `capture/gnome_window_picker.py` and
+  `ui/window_picker_gnome_shell.py` updated to match the new signature and thread `title` through to
+  `dispatch_destination`.
+
+**Verified live** on the Ubuntu 26.04 VM: full test suite green (1031 passed) after every change; the
+rebuilt extension.js's `StartWindowPicker` interface introspected live via `gdbus introspect` and
+confirmed to export the new `title` out-arg with no JS errors at Shell startup (a real, clean reload,
+not just a syntax check); and, most concretely, a standalone script exercised the *entire* active-window
+path against real system state - the real GNOME window-calls enumerator, a real focused window (GNOME
+Text Editor, "New Document (Draft) - Text Editor"), through `active_window_info` and
+`resolve_filename_pattern` with a real `${title}`-containing pattern - producing
+`2026-08-19 18_31_25 - New Document (Draft) - Text Editor`, confirming the entire chain end-to-end with
+no mocks.
+
+**Not verified live**: the three interactive window-*picker* click paths (X11's `WindowPickerWindow`,
+the Wayland fallback `WaylandWindowPicker`, and the Wayland Shell-native `GnomeShellWindowPicker`) - each
+needs a real hover-then-click gesture over a real window, which has no synthetic-input equivalent
+available this session (same limitation this project has always documented for every interactive
+overlay - region-select, window-picker, eyedropper - "verified by running it," meaning a human actually
+clicking). Code-reviewed and consistent with the verified active-window path's same threading pattern,
+but direflail's own test of an actual window-picker capture (X11 or Wayland, whichever the tray menu is
+set to) is the remaining confirmation needed to close this out fully.
+
 ## Licensing
 
 **Status: decided — GPLv3.** Greenshot (Windows) is GPLv3; this is a derivative work — same feature

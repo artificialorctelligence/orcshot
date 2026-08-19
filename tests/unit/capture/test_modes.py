@@ -6,7 +6,7 @@ needing GTK.
 """
 
 from orcshot.capture.fake import FakeCaptureBackend, FakeWindowEnumerator
-from orcshot.capture.modes import active_window_region, full_screen_region
+from orcshot.capture.modes import active_window_info, full_screen_region
 from orcshot.capture.backend import Monitor
 from orcshot.capture.window import WindowInfo
 from orcshot.core.geometry import Rect
@@ -35,21 +35,27 @@ class TestActiveWindowRegion:
         backend = FakeCaptureBackend()
         active = window(Rect(100, 100, 500, 400))
         enumerator = FakeWindowEnumerator(windows=[active], active=active)
-        assert active_window_region(backend, enumerator) == Rect(100, 100, 500, 400)
+        assert active_window_info(backend, enumerator).bounds == Rect(100, 100, 500, 400)
+
+    def test_returns_the_focused_windows_title(self):
+        backend = FakeCaptureBackend()
+        active = window(Rect(100, 100, 500, 400), title="Notes - GNOME Text Editor")
+        enumerator = FakeWindowEnumerator(windows=[active], active=active)
+        assert active_window_info(backend, enumerator).title == "Notes - GNOME Text Editor"
 
     def test_returns_none_when_nothing_is_focused(self):
         backend = FakeCaptureBackend()
         enumerator = FakeWindowEnumerator(windows=[], active=None)
-        assert active_window_region(backend, enumerator) is None
+        assert active_window_info(backend, enumerator) is None
 
     def test_clamps_a_window_extending_past_the_screen(self):
         backend = FakeCaptureBackend(monitors=[Monitor("A", Rect(0, 0, 1920, 1080), is_primary=True)])
         active = window(Rect(1800, 900, 2200, 1300))  # extends past both edges
         enumerator = FakeWindowEnumerator(windows=[active], active=active)
-        assert active_window_region(backend, enumerator) == Rect(1800, 900, 1920, 1080)
+        assert active_window_info(backend, enumerator).bounds == Rect(1800, 900, 1920, 1080)
 
     def test_returns_none_for_a_window_entirely_off_screen(self):
         backend = FakeCaptureBackend(monitors=[Monitor("A", Rect(0, 0, 1920, 1080), is_primary=True)])
         active = window(Rect(5000, 5000, 5100, 5100))
         enumerator = FakeWindowEnumerator(windows=[active], active=active)
-        assert active_window_region(backend, enumerator) is None
+        assert active_window_info(backend, enumerator) is None

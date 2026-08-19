@@ -6,7 +6,7 @@ there's no window class here, just grab-then-show-picker functions.
 
 Not unit tested for the same reason region_select.py isn't: GTK glue
 with no meaningful headless test. The *which Rect to grab* logic these
-call (capture.modes.full_screen_region/active_window_region) is pure
+call (capture.modes.full_screen_region/active_window_info) is pure
 and tested there instead.
 
 ``capture_mouse_cursor`` on every ``start_*`` function here is the
@@ -29,7 +29,7 @@ import os
 from orcshot.capture.backend import CaptureBackend
 from orcshot.capture.backend_select import default_capture_backend
 from orcshot.capture.cursor import CursorBackend
-from orcshot.capture.modes import active_window_region, full_screen_region
+from orcshot.capture.modes import active_window_info, full_screen_region
 from orcshot.capture.window import WindowEnumerator
 from orcshot.core.cursor_capture import cursor_shape_for_capture
 from orcshot.core.geometry import Rect
@@ -84,11 +84,18 @@ def capture_cursor_shape(
     )
 
 
-def _capture_and_pick(capture_backend: CaptureBackend, region: Rect, cursor_shape: CursorShape = None) -> None:
+def _capture_and_pick(
+    capture_backend: CaptureBackend, region: Rect, cursor_shape: CursorShape = None, title: str = "",
+) -> None:
     """Grabs ``region`` and runs the destination-picker interaction on
-    it - the *which* Rect (full_screen_region/active_window_region/an
+    it - the *which* Rect (full_screen_region/active_window_info/an
     already-remembered last_region) is unaffected by any of this, only
     how the pixels get fetched and which picker UI shows differs.
+
+    ``title`` (task #139) is the captured window's title, for
+    active-window capture only - full-screen/last-region callers leave
+    it as "", matching core/filename_pattern.py's own documented
+    "not every capture mode has a single associated window title".
 
     Prefers one continuous Shell-native round trip (grab + Shell-native
     destination picker, gnome_capture_rect.start_capture_rect) over the
@@ -117,7 +124,7 @@ def _capture_and_pick(capture_backend: CaptureBackend, region: Rect, cursor_shap
             from orcshot.ui.destination_picker import dispatch_destination
 
             def on_destination_chosen(image, destination) -> None:
-                dispatch_destination(destination, image, cursor_shape)
+                dispatch_destination(destination, image, cursor_shape, title=title)
 
             start_capture_rect(region, on_destination_chosen)
             return
@@ -125,7 +132,7 @@ def _capture_and_pick(capture_backend: CaptureBackend, region: Rect, cursor_shap
     from orcshot.ui.destination_picker import show_destination_picker
 
     image = capture_backend.grab(region)
-    show_destination_picker(image, cursor_shape=cursor_shape)
+    show_destination_picker(image, cursor_shape=cursor_shape, title=title)
 
 
 def start_full_screen_capture(
@@ -158,13 +165,14 @@ def start_active_window_capture(
         capture_backend = default_capture_backend()
     if window_enumerator is None:
         window_enumerator = _default_window_enumerator()
-    region = active_window_region(capture_backend, window_enumerator)
-    if region is None:
+    window_info = active_window_info(capture_backend, window_enumerator)
+    if window_info is None:
         return
+    region = window_info.bounds
     if on_captured is not None:
         on_captured(region)
     cursor_shape = capture_cursor_shape(region, capture_mouse_cursor, cursor_backend)
-    _capture_and_pick(capture_backend, region, cursor_shape)
+    _capture_and_pick(capture_backend, region, cursor_shape, title=window_info.title)
 
 
 def start_last_region_capture(

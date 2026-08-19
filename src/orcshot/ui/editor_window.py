@@ -622,9 +622,16 @@ _EXTERNAL_EDITOR_CANDIDATES = (
 class EditorWindow(Gtk.Window):
     def __init__(
         self, image: np.ndarray, clipboard_backend: ClipboardBackend = None, already_saved: bool = False,
+        window_title: str = "",
     ):
         super().__init__(title="Orcshot image editor")
         self._base_image = image
+        # The captured window's title (task #139, active-window/window-
+        # picker capture only - "" otherwise), remembered for
+        # _do_quick_save's own ${title} filename-pattern resolution.
+        # Distinct from this Gtk.Window's own chrome title set just
+        # above, which is always the fixed "Orcshot image editor".
+        self._window_title = window_title
         self._surface = numpy_to_cairo_surface(image)
         height, width = image.shape[:2]
 
@@ -1489,7 +1496,10 @@ class EditorWindow(Gtk.Window):
         directory = get_output_directory()
         counter = consume_filename_counter()
         filename = (
-            resolve_filename_pattern(settings.filename_pattern, datetime.now(), counter, mode=settings.filename_pattern_mode)
+            resolve_filename_pattern(
+                settings.filename_pattern, datetime.now(), counter,
+                title=self._window_title, mode=settings.filename_pattern_mode,
+            )
             + "." + settings.primary_format
         )
         path = directory / filename

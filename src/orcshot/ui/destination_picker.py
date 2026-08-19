@@ -100,11 +100,11 @@ def _flattened(image: np.ndarray, cursor_shape: CursorShape = None) -> np.ndarra
     return composite_to_numpy(image, layer)
 
 
-def _open_editor(image: np.ndarray, cursor_shape: CursorShape = None) -> None:
+def _open_editor(image: np.ndarray, cursor_shape: CursorShape = None, title: str = "") -> None:
     from orcshot.ui.editor_window import EditorWindow
     from orcshot.core.history import AddElementMemento
 
-    editor = EditorWindow(image)
+    editor = EditorWindow(image, window_title=title)
     if cursor_shape is not None:
         editor.layer.add(cursor_shape)
         editor.selected_shape = cursor_shape
@@ -112,7 +112,7 @@ def _open_editor(image: np.ndarray, cursor_shape: CursorShape = None) -> None:
     editor.show_all()
 
 
-def _quick_save(image: np.ndarray, cursor_shape: CursorShape = None) -> None:
+def _quick_save(image: np.ndarray, cursor_shape: CursorShape = None, title: str = "") -> None:
     """Task #95's Output tab - now uses the same settings.OutputSettings
     (filename pattern/primary format/JPEG quality/copy-path-to-
     clipboard) as EditorWindow._do_quick_save, not the older fixed
@@ -120,13 +120,19 @@ def _quick_save(image: np.ndarray, cursor_shape: CursorShape = None) -> None:
     the same conceptual action (Windows' own FileDestination), just
     reached from a different entry point (picker menu vs. menu bar),
     and had drifted out of sync while that menu-bar path was built.
+
+    ``title`` (task #139) is the captured window's title (active-
+    window/window-picker capture only, "" otherwise) - fills in
+    core/filename_pattern.py's ``${title}`` token.
     """
     output_settings = get_output_settings()
     directory = get_output_directory()
     directory.mkdir(parents=True, exist_ok=True)
     counter = consume_filename_counter()
     filename = (
-        resolve_filename_pattern(output_settings.filename_pattern, datetime.now(), counter, mode=output_settings.filename_pattern_mode)
+        resolve_filename_pattern(
+            output_settings.filename_pattern, datetime.now(), counter, title=title, mode=output_settings.filename_pattern_mode,
+        )
         + "." + output_settings.primary_format
     )
     path = directory / filename
@@ -135,10 +141,11 @@ def _quick_save(image: np.ndarray, cursor_shape: CursorShape = None) -> None:
         Gtk.Clipboard.get_default(Gdk.Display.get_default()).set_text(str(path), -1)
 
 
-def _save_as(image: np.ndarray, cursor_shape: CursorShape = None) -> None:
+def _save_as(image: np.ndarray, cursor_shape: CursorShape = None, title: str = "") -> None:
     """See _quick_save's own note - same drift, same fix (primary
     format now drives the suggested extension, JPEG quality is
-    applied, path-to-clipboard is honored)."""
+    applied, path-to-clipboard is honored). ``title`` - see
+    _quick_save's own docstring."""
     output_settings = get_output_settings()
     dialog = Gtk.FileChooserDialog(title="Save Screenshot As", action=Gtk.FileChooserAction.SAVE)
     dialog.add_buttons(
@@ -150,7 +157,8 @@ def _save_as(image: np.ndarray, cursor_shape: CursorShape = None) -> None:
     # actually happens (below), not just because a dialog with a
     # suggested name was shown and possibly cancelled.
     suggested = resolve_filename_pattern(
-        output_settings.filename_pattern, datetime.now(), get_filename_counter(), mode=output_settings.filename_pattern_mode,
+        output_settings.filename_pattern, datetime.now(), get_filename_counter(),
+        title=title, mode=output_settings.filename_pattern_mode,
     )
     dialog.set_current_name(f"{suggested}.{output_settings.primary_format}")
     dialog.set_do_overwrite_confirmation(True)
@@ -172,16 +180,16 @@ def _save_as(image: np.ndarray, cursor_shape: CursorShape = None) -> None:
 # neither duplicates the actual destination logic. Order/labels match
 # Windows' own destination priority (see this module's own docstring).
 _DESTINATION_TABLE = [
-    ("clipboard", "Copy to Clipboard", lambda img, cs, clipboard_backend: clipboard_backend.set_image(_flattened(img, cs))),
-    ("save", "Save", lambda img, cs, clipboard_backend: _quick_save(img, cs)),
-    ("save_as", "Save As...", lambda img, cs, clipboard_backend: _save_as(img, cs)),
-    ("edit", "Edit", lambda img, cs, clipboard_backend: _open_editor(img, cs)),
-    ("print", "Print", lambda img, cs, clipboard_backend: print_image(_flattened(img, cs))),
+    ("clipboard", "Copy to Clipboard", lambda img, cs, clipboard_backend, title: clipboard_backend.set_image(_flattened(img, cs))),
+    ("save", "Save", lambda img, cs, clipboard_backend, title: _quick_save(img, cs, title)),
+    ("save_as", "Save As...", lambda img, cs, clipboard_backend, title: _save_as(img, cs, title)),
+    ("edit", "Edit", lambda img, cs, clipboard_backend, title: _open_editor(img, cs, title)),
+    ("print", "Print", lambda img, cs, clipboard_backend, title: print_image(_flattened(img, cs))),
 ]
 
 
 def _external_command_entry(command):
-    def handler(img, cs, _clipboard_backend, command=command):
+    def handler(img, cs, _clipboard_backend, _title, command=command):
         run_external_command(command, _flattened(img, cs))
 
     return (f"external:{command.name}", command.name, handler)
@@ -216,7 +224,7 @@ def _office_entry():
         return None
     name, path_command = found
 
-    def handler(img, cs, _clipboard_backend, path_command=path_command):
+    def handler(img, cs, _clipboard_backend, _title, path_command=path_command):
         import os
         import subprocess
         import tempfile
@@ -267,6 +275,7 @@ def _all_destinations(include_excluded: bool = False) -> list:
 
 def dispatch_destination(
     destination_id: str, image: np.ndarray, cursor_shape: CursorShape = None, clipboard_backend: ClipboardBackend = None,
+    title: str = "",
 ) -> None:
     """Runs whichever destination action ``destination_id`` names (one
     of _all_destinations()'s ids) - the Shell-native picker's own
@@ -274,7 +283,13 @@ def dispatch_destination(
     already know which destination was chosen (see
     ui/region_select_gnome_shell.py) rather than needing to show a
     picker of their own. A blank/unrecognized id is a no-op - matches
-    the picker being dismissed without a choice."""
+    the picker being dismissed without a choice.
+
+    ``title`` (task #139) - the captured window's title, threaded
+    through to whichever handler cares (_quick_save/_save_as/
+    _open_editor); every other handler accepts and ignores it, one
+    shared calling convention for every destination.
+    """
     if clipboard_backend is None:
         from orcshot.capture.backend_select import default_clipboard_backend
 
@@ -282,18 +297,20 @@ def dispatch_destination(
 
     for item_id, _label, handler in _all_destinations():
         if item_id == destination_id:
-            handler(image, cursor_shape, clipboard_backend)
+            handler(image, cursor_shape, clipboard_backend, title)
             return
 
 
 def show_destination_picker(
     image: np.ndarray, clipboard_backend: ClipboardBackend = None, cursor_shape: CursorShape = None,
     anchor_window: Gdk.Window = None, anchor_local_pos: tuple[int, int] = None,
-    refresh_image=None,
+    refresh_image=None, title: str = "",
 ) -> Gtk.Menu:
     """Pops up the picker at the current pointer position. Returns the
     Gtk.Menu - callers don't need it (GTK keeps it alive while shown),
     but tests/scripts may want to inspect it.
+
+    ``title`` (task #139) - see dispatch_destination's own docstring.
 
     ``anchor_window``/``anchor_local_pos`` are for Wayland callers only
     (see ui/region_select_wayland.py): the screen's root window - the
@@ -345,7 +362,7 @@ def show_destination_picker(
 
         def on_activate(_item, item_id=item_id) -> None:
             final_image = refresh_image() if refresh_image is not None else image
-            dispatch_destination(item_id, final_image, cursor_shape, clipboard_backend)
+            dispatch_destination(item_id, final_image, cursor_shape, clipboard_backend, title=title)
 
         item.connect("activate", on_activate)
         menu.append(item)

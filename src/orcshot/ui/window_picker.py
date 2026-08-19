@@ -292,7 +292,7 @@ def start_window_picker(
         gdk_anchor = anchor_monitor_window.get_window() if anchor_monitor_window is not None else None
         menu = show_destination_picker(
             image, cursor_shape=cursor_shape, anchor_window=gdk_anchor, anchor_local_pos=anchor_local_pos,
-            refresh_image=refresh_image,
+            refresh_image=refresh_image, title=window_info.title,
         )
         if anchor_monitor_window is not None:
             menu.connect("deactivate", lambda _menu: anchor_monitor_window.destroy())

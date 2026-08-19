@@ -43,10 +43,15 @@ def is_available() -> bool:
 def start_window_picker(on_selected, on_cancelled=None) -> None:
     """Asks the Shell extension to run the whole interactive window-
     picker-through-destination-choice flow. Returns immediately -
-    ``on_selected(image, absolute_rect, destination)`` or
+    ``on_selected(image, absolute_rect, destination, title)`` or
     ``on_cancelled()`` fires later, once the user finishes the entire
     interaction (click a window, then pick a destination) or cancels
-    out of it at any point."""
+    out of it at any point.
+
+    ``title`` (task #139) - the picked window's title, straight from
+    extension.js's own Meta.Window.get_title() - fills in
+    core/filename_pattern.py's ``${title}`` token.
+    """
     bus = Gio.bus_get_sync(Gio.BusType.SESSION, None)
 
     def on_reply(connection, result, _user_data=None):
@@ -57,19 +62,19 @@ def start_window_picker(on_selected, on_cancelled=None) -> None:
                 if on_cancelled is not None:
                     on_cancelled()
                 return
-            ok, destination, png_bytes, x, y, width, height = reply.unpack()
+            ok, destination, title, png_bytes, x, y, width, height = reply.unpack()
             if not ok:
                 if on_cancelled is not None:
                     on_cancelled()
                 return
             image = decode_png(bytes(png_bytes))
-            on_selected(image, Rect(x, y, x + width, y + height), destination)
+            on_selected(image, Rect(x, y, x + width, y + height), destination, title)
         except Exception:
             print("[gnome_window_picker] exception in on_reply:", file=sys.stderr, flush=True)
             traceback.print_exc()
 
     bus.call(
         BUS_NAME, OBJECT_PATH, INTERFACE, "StartWindowPicker",
-        None, GLib.VariantType("(bsayiiii)"), Gio.DBusCallFlags.NONE,
+        None, GLib.VariantType("(bssayiiii)"), Gio.DBusCallFlags.NONE,
         GLib.MAXINT, None, on_reply, None,
     )
