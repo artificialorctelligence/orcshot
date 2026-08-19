@@ -6057,7 +6057,90 @@ no orcshot process at all, the `org.orcshot.Orcshot` D-Bus name gone, and `HasTr
 
 Still outstanding: this fix has only been deployed to the per-user extension override and the dev
 checkout, not the actual shippable `.deb` - rebuilding and reinstalling the package (requiring
-direflail's `sudo`) is needed before this is live in the real installed app.
+direflail's `sudo`) is needed before this is live in the real installed app. (Update, same day: a real
+`.deb` containing this fix now exists - see the next section below - but direflail's own attempt to
+install it hit an unrelated snag, described there, and a genuine root install still hasn't happened.)
+
+## A stale leftover instance made a real .deb install look broken (task #151 follow-up, complete 2026-08-18)
+
+direflail rebuilt and reinstalled the `.deb` (`sudo dpkg -r orcshot && sudo dpkg -i ...`) to test the two
+fixes above for real, and reported: "the tray icon remains, and launching orcshot does nothing." Neither
+symptom was actually caused by the reinstall. `dpkg -r`/`dpkg -i` only replace files on disk - they don't
+touch already-running processes - and a leftover instance from this session's own prior verification
+work (started to restore the VM to a normal running state after an earlier test) was still alive and
+still holding the single-instance `org.orcshot.Orcshot` D-Bus name throughout. That explains both
+symptoms directly: the tray button stayed because that old process was still running, and "launching
+orcshot does nothing" is exactly what GApplication's own single-instance activation does by design - a
+second `orcshot` invocation just silently hands off to whatever's already running rather than starting
+fresh or showing anything.
+
+Two real, separate problems worth fixing came out of diagnosing this, both agreed with direflail before
+implementing:
+
+**1. Don't block the package transaction on a GUI response.** direflail's own framing: "could we simply
+cause any open editors to open a 'save as' dialog... THEN we could call `Gtk.Application.quit()` once
+those are closed" - but also asked where a "we can't proceed until you close your stuff" warning should
+live. Decided against having one: `preinst`/`postinst` run as root, non-interactively, and are frequently
+invoked with nobody watching (`unattended-upgrades`, scripted installs, headless CI) - there's no
+reliable place to put a blocking warning that's guaranteed to be seen, and a maintainer script that hangs
+waiting for a GUI response in a logged-in user's session is a real anti-pattern. The agreed compromise:
+best-effort and non-blocking. Replacing files under an already-running process is safe on Linux
+regardless of whether anyone responds - the process just keeps executing the old code already loaded
+into memory until it next exits on its own.
+
+**Fix**: `debian/orcshot.preinst` (new file) runs on `install`/`upgrade`, before files are replaced. For
+every logged-in user with an active D-Bus session (enumerated via `loginctl list-users`, one whose
+`/run/user/<uid>/bus` socket actually exists), it uses `runuser` to invoke, as that user, a new
+`prepare-for-upgrade` GAction over `gdbus call ... org.gtk.Actions.Activate` - the same mechanism the
+Shell-native tray button already uses for every other tray action. Every step is defensively guarded
+(`command -v` checks for `gdbus`/`loginctl`/`runuser`, `|| true` on the D-Bus call itself) so a missing
+tool or an instance that isn't running can never fail the install.
+
+On the Python side, `OrcshotApplication.prepare_for_upgrade` (`app.py`) does what direflail described:
+for each open editor with unsaved changes, calls `EditorWindow.prompt_save_for_upgrade` (new,
+`editor_window.py`) - a direct Save As dialog, retitled to "New install incoming — save your work"
+(`_do_save` gained an optional `title` parameter for this, defaulting to its original "Save Screenshot"
+so its two pre-existing call sites needed no changes), and only closes the window if the save actually
+completed - a cancelled save leaves it open, same as the existing close-confirmation flow does elsewhere.
+Editors with nothing unsaved just close immediately, no prompt needed. Once every open editor is gone
+(tracked via the existing `register_editor_window`/`unregister_editor_window` pair, task #138), the app
+quits via the existing `_quit_and_hide_tray_button` (task #151, above) - including immediately, if there
+were no open editors to begin with. A `_quit_after_editors_close` flag set at the start of
+`prepare_for_upgrade` and checked from `unregister_editor_window` handles the case where the user leaves
+a cancelled window open for a while first: whenever they do eventually close it, for any reason, the app
+quits then - there's no separate timeout or "this offer has expired" logic, matching the actual goal
+(don't run stale code forever) rather than the specific moment the upgrade happened.
+
+**2. Make a second launch attempt visible instead of a silent no-op.** This is what actually explained
+"launching orcshot does nothing" and matters independently of the installer - it'll recur any time
+someone double-clicks the launcher or runs `orcshot` while it's already running, upgrade or not.
+`do_activate` (`app.py`) now tracks `_has_activated_before`; every activation after the first (real
+first-launch stays silent, matching existing behavior) sends a desktop notification via the existing
+`_notify` helper. That helper's `send_notification` id was hardcoded to `"orcshot-update-available"` -
+harmless with one caller, but this is now a second, unrelated caller sharing the same method, and two
+different notification kinds sharing one id could silently replace each other. Gave `_notify` an optional
+`notification_id` parameter, defaulting to the original hardcoded string so the existing update-check
+call site needed no change, with the new call passing its own `"orcshot-already-running"` id.
+
+**Verified live** on the Ubuntu 26.04 VM, all without needing root (this VM's `sudo` password isn't
+known to this session - confirmed by one failed authentication attempt, not guessed at further; the
+`preinst` script's actual execution during a real `dpkg` transaction, and root's ability to reach a
+user's D-Bus session via `runuser`, both remain unverified for exactly this reason). Everything
+verifiable without root was checked directly against the real classes, not mocked: a small standalone
+script constructed a real `OrcshotApplication` and real `EditorWindow` instances (GTK objects, not test
+doubles) and drove `prepare_for_upgrade` through all three paths - cancelled save (window stays open,
+quit-pending flag set), completed save (window destroyed), and zero open editors (quits immediately) -
+confirming each behaved exactly as designed. A second script called `do_activate()` directly multiple
+times on a real `OrcshotApplication`, confirming no notification on the first (real) activation and a
+correctly-titled, correctly-worded, correctly-`notification_id`'d call through the real (not mocked)
+`Gio.Application.send_notification` on every activation after that. (First attempt at this same
+verification produced confusing duplicate results - traced to the test script itself redundantly
+double-registering each editor with the app, on top of `EditorWindow.__init__`'s own existing
+self-registration; not a bug in the feature code, fixed in the test script.)
+
+**Still outstanding**: a real end-to-end test - `sudo dpkg -i` of the rebuilt package while an editor
+with unsaved changes is open, confirming the retitled Save As dialog actually appears and that the app
+genuinely exits afterward - needs direflail's own `sudo` access to this VM.
 
 ## Licensing
 

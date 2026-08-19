@@ -185,6 +185,8 @@ class OrcshotApplication(Gtk.Application):
         self.last_region = None
         self._repeat_item = None
         self._open_editors = []
+        self._has_activated_before = False
+        self._quit_after_editors_close = False
 
     def do_startup(self):
         Gtk.Application.do_startup(self)
@@ -249,6 +251,26 @@ class OrcshotApplication(Gtk.Application):
         # is the only always-visible UI. hold()/release() bracket the
         # app's lifetime independent of any window being open.
         self.hold()
+        # do_activate fires again (via do_command_line -> self.activate())
+        # every time a second `orcshot` invocation gets forwarded to this
+        # already-running instance by GApplication's own single-instance
+        # machinery, rather than spawning a new process - previously a
+        # silent no-op, which direflail hit directly as "launching
+        # orcshot does nothing" (task #151 follow-up) after a leftover
+        # instance from an earlier test was still holding the bus name.
+        # A capture-option or file-open invocation already does
+        # something visible on its own (do_command_line handles those);
+        # this only covers the bare "just open Orcshot" case, which has
+        # no window of its own to show - a notification is the only
+        # always-available way to confirm "yes, it's running" here.
+        if self._has_activated_before:
+            self._notify(
+                "Orcshot is already running",
+                "Look for its icon in the system tray.",
+                notification_id="orcshot-already-running",
+            )
+        else:
+            self._has_activated_before = True
 
     def start_capture(self) -> None:
         """Kept as the default single-click tray action - region
@@ -311,6 +333,7 @@ class OrcshotApplication(Gtk.Application):
     def unregister_editor_window(self, editor) -> None:
         if editor in self._open_editors:
             self._open_editors.remove(editor)
+        self._maybe_quit_after_upgrade_prep()
 
     def _block_if_modal_dialog_open(self) -> bool:
         """True (after presenting the grabbing dialog instead) if a new
@@ -484,6 +507,11 @@ class OrcshotApplication(Gtk.Application):
         quit_action = Gio.SimpleAction.new("tray-quit", None)
         quit_action.connect("activate", lambda *_args: self._quit_and_hide_tray_button())
         self.add_action(quit_action)
+        # Not "tray-*" - never appears in any menu, only ever invoked over
+        # D-Bus by debian/orcshot.postinst (see prepare_for_upgrade below).
+        prepare_for_upgrade_action = Gio.SimpleAction.new("prepare-for-upgrade", None)
+        prepare_for_upgrade_action.connect("activate", lambda *_args: self.prepare_for_upgrade())
+        self.add_action(prepare_for_upgrade_action)
 
     def _quit_and_hide_tray_button(self) -> None:
         """direflail: "when the user selects quit, i want all parts of
@@ -514,6 +542,45 @@ class OrcshotApplication(Gtk.Application):
         except GLib.Error:
             pass
         self.quit()
+
+    def prepare_for_upgrade(self) -> None:
+        """Best-effort package-upgrade hook (task #151 follow-up):
+        debian/orcshot.postinst calls this (via `gdbus call ...
+        org.gtk.Actions.Activate 'prepare-for-upgrade'`, the same
+        mechanism the Shell-native tray button uses to invoke every
+        other action here) on any already-running instance before
+        replacing this package's files on disk, so an open editor with
+        unsaved work doesn't just vanish under the user without a
+        chance to save it.
+
+        Deliberately does NOT block the postinst script that calls
+        it, and postinst does NOT wait for this to finish - a root
+        maintainer script blocking on a GUI action inside a logged-in
+        user's session has no reliable way to know if or when anyone's
+        watching to respond (unattended-upgrades, scripted installs,
+        headless CI all run postinst with nobody there to click
+        anything). Replacing this process's files while it keeps
+        running is safe on Linux regardless - the already-running
+        process just keeps executing the old code it already loaded
+        into memory until it eventually exits on its own, same as any
+        other program upgraded while running. This method is what
+        makes "eventually" arrive promptly for the common case instead
+        of leaving a stale instance silently squatting on the
+        single-instance D-Bus name indefinitely (see do_activate's own
+        "already running" notification for the other half of that same
+        problem).
+        """
+        self._quit_after_editors_close = True
+        for editor in list(self._open_editors):
+            if editor.is_modified:
+                editor.prompt_save_for_upgrade()
+            else:
+                editor.close()
+        self._maybe_quit_after_upgrade_prep()
+
+    def _maybe_quit_after_upgrade_prep(self) -> None:
+        if self._quit_after_editors_close and not self._open_editors:
+            self._quit_and_hide_tray_button()
 
     def _check_shell_extension_health(self) -> None:
         """Surfaces two real, ordinary-but-easy-to-miss states
@@ -908,19 +975,27 @@ class OrcshotApplication(Gtk.Application):
             self._show_up_to_date_dialog(parent)
         return False
 
-    def _notify(self, title: str, body: str, *, uri: str = None) -> None:
+    def _notify(
+        self, title: str, body: str, *, uri: str = None, notification_id: str = "orcshot-update-available"
+    ) -> None:
         """Shared with task #126 (capture-complete notifications,
         still pending) - Gio.Notification works because this app is
         already a registered Gio.Application. A stable id means a
-        second call replaces the first rather than stacking duplicate
-        notifications.
+        second call *with the same id* replaces the first rather than
+        stacking duplicate notifications; notification_id defaults to
+        this method's original single caller's id so that call site
+        didn't need updating when a second, unrelated notification
+        (task #151 follow-up's "already running" one) started sharing
+        this method - the two must use different ids, or an "already
+        running" notification could silently swallow a real pending
+        update notification and vice versa.
         """
         notification = Gio.Notification.new(title)
         notification.set_body(body)
         notification.set_icon(Gio.ThemedIcon.new("orcshot"))
         if uri is not None:
             notification.set_default_action_and_target("app.open-uri", GLib.Variant.new_string(uri))
-        self.send_notification("orcshot-update-available", notification)
+        self.send_notification(notification_id, notification)
 
     def _show_update_check_failed_dialog(self, parent: Gtk.Window) -> None:
         dialog = Gtk.MessageDialog(

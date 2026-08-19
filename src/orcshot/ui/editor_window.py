@@ -2984,7 +2984,7 @@ class EditorWindow(Gtk.Window):
         self._commit_text_editing_if_active()
         self._clipboard.set_image(self._composited_image())
 
-    def _do_save(self) -> bool:
+    def _do_save(self, title: str = "Save Screenshot") -> bool:
         """Save As... - always dialog-driven, with an explicit "Save as
         type" selector (task #95's Output tab work) rather than relying
         on whatever extension the user happens to type, matching real
@@ -2993,11 +2993,14 @@ class EditorWindow(Gtk.Window):
         apart from a cancelled one, matching ImageEditorFormFormClosing's
         own post-BtnSaveClick `if (_surface.Modified)` check
         (ImageEditorForm.cs:1024-1028).
+
+        title is overridable for prompt_save_for_upgrade below, which
+        wants to explain *why* a save dialog appeared unprompted.
         """
         self._commit_text_editing_if_active()
         output_settings = get_output_settings()
         dialog = Gtk.FileChooserDialog(
-            title="Save Screenshot", transient_for=self, action=Gtk.FileChooserAction.SAVE
+            title=title, transient_for=self, action=Gtk.FileChooserAction.SAVE
         )
         dialog.add_buttons(
             Gtk.STOCK_CANCEL, Gtk.ResponseType.CANCEL,
@@ -4672,6 +4675,23 @@ class EditorWindow(Gtk.Window):
         # Cancel, or the dialog's own close button (DELETE_EVENT) - both
         # default to the safe choice: don't close, don't lose anything.
         return True
+
+    def prompt_save_for_upgrade(self) -> None:
+        """Package-upgrade path (task #151 follow-up): OrcshotApplication.
+        prepare_for_upgrade calls this instead of going through the
+        normal close/delete-event flow above - a package install is
+        happening whether or not this window ever closes (see that
+        method's own docstring for why the install itself never
+        blocks on it), so there's no "Cancel" option that means
+        anything here. Goes straight to the Save As dialog, retitled
+        to explain why it appeared unprompted, and only closes the
+        window if the save actually completed - a cancelled save
+        leaves the window open exactly as before, same as this class's
+        own _on_delete_event does for a cancelled save there.
+        """
+        self.present()
+        if self._do_save(title="New install incoming — save your work"):
+            self.destroy()
 
 
 def choose_and_open_orcshot_file(transient_for: Gtk.Window = None) -> None:

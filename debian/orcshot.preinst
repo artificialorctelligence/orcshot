@@ -1,0 +1,38 @@
+#!/bin/sh
+set -e
+
+case "$1" in
+    install|upgrade)
+        # Best-effort (task #151 follow-up): ask any already-running
+        # instance, in any logged-in user's session, to save unsaved
+        # editor work before this package's files get replaced
+        # underneath it. Never blocks and never fails the install -
+        # see OrcshotApplication.prepare_for_upgrade's own docstring
+        # (src/orcshot/app.py) for the full reasoning: a root
+        # maintainer script has no reliable way to know if or when a
+        # GUI prompt in someone else's session gets a response
+        # (unattended-upgrades, scripted installs, and headless CI all
+        # run this with nobody watching to click anything), and
+        # replacing files out from under an already-running process is
+        # safe on Linux regardless - it just keeps executing the old
+        # code already loaded into memory until it next exits on its
+        # own.
+        if command -v gdbus >/dev/null 2>&1 && command -v loginctl >/dev/null 2>&1 \
+                && command -v runuser >/dev/null 2>&1; then
+            for uid in $(loginctl list-users --no-legend 2>/dev/null | awk '{print $1}' || true); do
+                bus="/run/user/$uid/bus"
+                [ -S "$bus" ] || continue
+                user=$(id -nu "$uid" 2>/dev/null) || continue
+                runuser -u "$user" -- env "DBUS_SESSION_BUS_ADDRESS=unix:path=$bus" \
+                    gdbus call --session --dest org.orcshot.Orcshot \
+                    --object-path /org/orcshot/Orcshot \
+                    --method org.gtk.Actions.Activate 'prepare-for-upgrade' '[]' '{}' \
+                    >/dev/null 2>&1 || true
+            done
+        fi
+        ;;
+esac
+
+#DEBHELPER#
+
+exit 0
