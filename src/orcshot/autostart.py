@@ -1,83 +1,82 @@
-"""Autostart-on-login .desktop entry, so the tray icon is always
-present after login - matching the Windows source's "run at startup"
-behavior (REQUIREMENTS.md's Global activation section).
+"""Autostart-on-login, via a systemd --user service (task #141) -
+replaces the previous plain XDG autostart .desktop entry. That
+mechanism only ever launched once at login; if orcshot.app crashed
+later, nothing relaunched it, and since the Wayland tray panel button
+now lives in the Shell extension independently of the Python process
+(task #137 follow-up), a dead process left a seemingly-functional but
+non-responsive tray icon - hovering/opening the menu still worked, but
+clicking anything did nothing, with no error shown anywhere. systemd's
+own Restart=on-failure (debian/orcshot.service) handles automatic
+respawn as a native OS feature, with zero custom watchdog code needed
+here.
 
-Unlike hotkey_setup.py's gsettings/dconf writes (global session state
-with no safe way to test without touching the live system), a
-.desktop autostart entry is just a plain file per the XDG Desktop
-Entry / Autostart specs - install_autostart_entry is real, working
-code, exercised for real in tests (against a temp directory, never the
-real default path). Nothing in this codebase calls it against the
-actual default ~/.config/autostart/ automatically: enabling autostart
-for real is a standing, persistent login-behavior change, the same
-category of action hotkey_setup.py's module docstring explains the
-project's general caution around - the user (or a future session,
-explicitly asked to) should trigger it themselves.
+Unlike the .desktop-writing functions this replaces, debian/
+orcshot.service is a static file shipped by the package itself
+(installed to /usr/lib/systemd/user/ via debhelper's
+dh_installsystemduser, discovered automatically from its
+debian/<package>.service naming - no debian/orcshot.install entry
+needed). There's no exec_command to inject per-install the way the old
+.desktop entry took one; the unit's own ExecStart is fixed at
+packaging time. This module's job is now only to flip the *enabled*
+state of that already-installed unit.
+
+Real, live `systemctl --user` calls - no safe way to test without a
+real systemd user manager and a real installed unit, same category as
+gnome_extension_setup.enable_extension_live and hotkey_setup.py's
+GioSettingsBackend (see either module's own docstring). The same
+standing rule applies: nothing in this codebase calls these
+automatically. Only a real user click (ui/first_run_setup.py, or the
+Preferences "Launch Orcshot on startup" checkbox) is meant to trigger
+a real enable/disable.
 """
 
 from __future__ import annotations
 
-import os
-from pathlib import Path
+import subprocess
 
-from orcshot.resources import LOGO_PATH
-
-DESKTOP_ENTRY_FILENAME = "orcshot.desktop"
+SERVICE_NAME = "orcshot.service"
 
 
-def autostart_desktop_entry(exec_command: str) -> str:
-    """The .desktop file content for autostart-on-login."""
-    return (
-        "[Desktop Entry]\n"
-        "Type=Application\n"
-        "Name=Orcshot\n"
-        "Comment=Screenshot capture and annotation tool\n"
-        f"Exec={exec_command}\n"
-        f"Icon={LOGO_PATH}\n"
-        "Terminal=false\n"
-        "X-GNOME-Autostart-enabled=true\n"
-    )
-
-
-def autostart_file_path(config_home: Path = None) -> Path:
-    """Where the autostart entry belongs, per the XDG Base Directory
-    spec: $XDG_CONFIG_HOME/autostart/, defaulting to ~/.config/autostart/.
+def is_autostart_enabled() -> bool:
+    """Whether the systemd user service is currently enabled. Treats
+    any failure (systemctl missing, unit not installed, no systemd
+    user manager running) as "not enabled" rather than raising -
+    matches this module's own previous file-based "existence alone is
+    the signal" convention, now expressed as "is-enabled alone is the
+    signal" instead. Called unconditionally whenever the Preferences
+    dialog opens (to set the checkbox's initial state), so it must
+    never raise.
     """
-    if config_home is None:
-        config_home = Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config"))
-    return config_home / "autostart" / DESKTOP_ENTRY_FILENAME
+    try:
+        result = subprocess.run(
+            ["systemctl", "--user", "is-enabled", SERVICE_NAME],
+            capture_output=True, text=True,
+        )
+    except (FileNotFoundError, OSError):
+        return False
+    return result.returncode == 0 and result.stdout.strip() == "enabled"
 
 
-def install_autostart_entry(exec_command: str, autostart_dir: Path = None) -> Path:
-    """Writes the autostart entry, creating the directory if needed,
-    and returns the path written. ``autostart_dir`` is injectable (for
-    tests); the default resolves to the real XDG autostart directory.
+def enable_autostart() -> None:
+    """Enables the already-installed orcshot.service unit so it starts
+    at the next login - `--now` also starts it immediately, matching
+    real Windows' own "Launch on startup" checkbox not requiring a
+    restart to take effect. Safe even if an instance is already
+    running: GApplication's own single-instance handling just forwards
+    the new invocation to the existing process and exits (see
+    OrcshotApplication.do_activate's own "already running" handling,
+    task #151 follow-up) rather than starting a genuine second copy.
     """
-    if autostart_dir is None:
-        autostart_dir = autostart_file_path().parent
-    autostart_dir.mkdir(parents=True, exist_ok=True)
-    path = autostart_dir / DESKTOP_ENTRY_FILENAME
-    path.write_text(autostart_desktop_entry(exec_command))
-    return path
+    subprocess.run(["systemctl", "--user", "enable", "--now", SERVICE_NAME], check=True)
 
 
-def is_autostart_enabled(config_home: Path = None) -> bool:
-    """Whether the autostart entry currently exists - added for task
-    #95's Preferences>General tab (real Windows' own "Launch Greenshot
-    on startup" checkbox needs a way to reflect and toggle current
-    state, not just a one-shot write). Existence alone is the signal,
-    matching how install_autostart_entry itself has no separate
-    enabled/disabled flag within the file - this port's autostart
-    entries are only ever fully present or fully absent.
+def disable_autostart() -> None:
+    """Disables the unit so it won't start at the *next* login - does
+    NOT stop whatever's running right now. This checkbox is typically
+    toggled from within the app's own currently-open Preferences
+    dialog; killing that process out from under the user while they're
+    still looking at it would be a real regression from the old
+    .desktop-based mechanism's own behavior (which never affected the
+    current session at all, only future logins).
     """
-    return autostart_file_path(config_home).exists()
-
-
-def remove_autostart_entry(config_home: Path = None) -> None:
-    """Deletes the autostart entry if present - the "deactivate"
-    counterpart to install_autostart_entry, needed for the same
-    Preferences checkbox as is_autostart_enabled above. A no-op if it
-    was never installed, matching this module's own file-based, no-op-
-    safe conventions elsewhere.
-    """
-    autostart_file_path(config_home).unlink(missing_ok=True)
+    subprocess.run(["systemctl", "--user", "disable", SERVICE_NAME], check=True)

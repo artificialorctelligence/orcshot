@@ -18,5 +18,6 @@ debian/files
 debian/orcshot/
 debian/orcshot.debhelper.log
 debian/orcshot.postinst.debhelper
+debian/orcshot.postrm.debhelper
 debian/orcshot.prerm.debhelper
 debian/orcshot.substvars

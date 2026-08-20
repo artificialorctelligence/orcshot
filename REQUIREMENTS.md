@@ -6300,6 +6300,60 @@ this class of "nothing visibly happens" confusion - see task #152's own "stale l
 above) rather than a reproducible bug - three independent successful reproductions since, including the
 real end-to-end one, support that conclusion rather than it being a fluke in the other direction.
 
+## Task #141: autostart switched from a .desktop entry to a systemd --user service (complete 2026-08-20)
+
+The previous autostart mechanism (a plain XDG `~/.config/autostart/orcshot.desktop` entry,
+`autostart.py`) only ever launched once, at login. If `orcshot.app` crashed later, nothing relaunched
+it - and since the Wayland tray panel button now lives in the Shell extension independently of the
+Python process (task #137 follow-up), a dead process left a tray icon that still *looked* functional
+(hovering/opening the menu still worked) but did nothing on click, silently, since nothing was listening
+on `org.orcshot.Orcshot`'s D-Bus name anymore. No error shown anywhere.
+
+**Fix**: `debian/orcshot.user.service`, a systemd `--user` unit with `Restart=on-failure` -
+`ExecStart=/usr/bin/orcshot`, `PartOf=graphical-session.target`/`WantedBy=graphical-session.target` (the
+standard target pulled in by a real graphical login, matching how session-scoped GUI services are
+normally shipped). `autostart.py` was rewritten from file-read/write functions
+(`install_autostart_entry`/`is_autostart_enabled`/`remove_autostart_entry`) to three thin wrappers around
+real `systemctl --user` calls (`enable_autostart`/`is_autostart_enabled`/`disable_autostart`) - real,
+live system calls with no safe way to test without a real systemd user manager, same category as
+`gnome_extension_setup.enable_extension_live` and `hotkey_setup.py`'s `GioSettingsBackend` (see either
+module's own docstring) - `tests/unit/test_autostart.py` removed entirely, nothing pure left to test.
+Both call sites (`ui/first_run_setup.py`'s first-run dialog, `ui/editor_window.py`'s Preferences "Launch
+Orcshot on startup" checkbox) updated to match; `disable_autostart()` deliberately does not stop
+whatever's running right now (only affects the *next* login) - the checkbox is normally toggled from
+inside the app's own currently-open Preferences dialog, and killing that process out from under the user
+while they're still looking at it would be a real regression from the old mechanism's own behavior
+(which never touched the current session at all).
+
+**A real, non-obvious packaging bug caught before it shipped**: the first attempt named the unit file
+`debian/orcshot.service`, following the same naming this project's other `debian/orcshot.<script>`
+maintainer-script files use - wrong for a `--user` systemd unit specifically. debhelper's
+`dh_installsystemd` (the *system*-unit tool, not `dh_installsystemduser`) picked it up instead, installed
+it to `/usr/lib/systemd/system/` (system-wide, root-run, no access to any user's display or session bus
+at all), and auto-generated `postinst`/`prerm` hooks that would `deb-systemd-helper enable` +
+`systemctl --system daemon-reload` + `deb-systemd-invoke start` it **unconditionally on every install** -
+directly violating this project's own standing rule that real system-config writes only ever happen from
+an explicit user click (hotkeys, extension-enabling, and now autostart itself all share this rule - see
+`autostart.py`'s own module docstring). Caught by actually inspecting the built `.deb`'s contents and
+generated maintainer scripts rather than assuming the build succeeding meant it was correct. Fixed by
+renaming to the debhelper-mandated `debian/orcshot.user.service` (confirmed via `man dh_installsystemduser`
+rather than guessed at a second time) and adding a `debian/rules` override
+(`override_dh_installsystemduser: dh_installsystemduser --no-enable`) so the unit ships disabled by
+default regardless - `enable_autostart()` is the only thing that ever flips it on, and only from a real
+button click, exactly matching the old mechanism's own behavior.
+
+**Verified live** on the Ubuntu 26.04 VM, entirely without needing root (the unit file deployed to the
+per-user override path, `~/.config/systemd/user/orcshot.service`, which - like the GNOME Shell
+extension per-user override used throughout this session - takes priority over the system-wide path with
+no `sudo` required): rebuilt `.deb`'s contents confirmed correct (`usr/lib/systemd/user/orcshot.service`,
+`postinst` using `deb-systemd-helper --user` gated on `was-enabled` rather than unconditionally enabling,
+no start/restart hooks at all); `is_autostart_enabled()`/`enable_autostart()`/`disable_autostart()` each
+called for real against the live unit and confirmed correct (`False` → `True` → `False`); and, most
+directly testing the actual point of this task, a running instance was forcibly killed with `SIGKILL`
+(simulating a real crash) and systemd relaunched it automatically within seconds, confirmed via a new
+PID in `systemctl --user status` - no manual intervention, no custom watchdog code, native OS crash
+recovery working exactly as intended.
+
 ## Licensing
 
 **Status: decided — GPLv3.** Greenshot (Windows) is GPLv3; this is a derivative work — same feature

@@ -1,0 +1,11 @@
+[Unit]
+Description=Orcshot screenshot capture and annotation tool
+PartOf=graphical-session.target
+
+[Service]
+ExecStart=/usr/bin/orcshot
+Restart=on-failure
+RestartSec=2
+
+[Install]
+WantedBy=graphical-session.target

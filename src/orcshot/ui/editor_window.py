@@ -130,7 +130,7 @@ gi.require_version("Rsvg", "2.0")
 import numpy as np
 from gi.repository import Gdk, GdkPixbuf, Gio, GLib, Gtk, Pango, Rsvg
 
-from orcshot.autostart import install_autostart_entry, is_autostart_enabled, remove_autostart_entry
+from orcshot.autostart import disable_autostart, enable_autostart, is_autostart_enabled
 from orcshot.capture.clipboard import ClipboardBackend
 from orcshot.core.crop import (
     autocrop_rect, crop_out_horizontal_strip, crop_out_vertical_strip, crop_to_rect,
@@ -4887,12 +4887,23 @@ def _build_general_settings_tab(parent: Gtk.Window) -> Gtk.Box:
     autostart_check.set_active(is_autostart_enabled())
 
     def on_autostart_toggled(btn) -> None:
-        from orcshot.ui.first_run_setup import _default_executable
+        import sys
 
-        if btn.get_active():
-            install_autostart_entry(_default_executable())
-        else:
-            remove_autostart_entry()
+        active = btn.get_active()
+        try:
+            if active:
+                enable_autostart()
+            else:
+                disable_autostart()
+        except subprocess.CalledProcessError as e:
+            # Not reverted here - calling btn.set_active() from inside
+            # its own "toggled" handler would re-fire this same
+            # handler recursively. The checkbox resyncs to whatever's
+            # actually true the next time Preferences opens either way
+            # (see its own set_active(is_autostart_enabled()) call
+            # above), matching that existing "read fresh state on
+            # open" convention.
+            print(f"[orcshot] {'enable' if active else 'disable'}_autostart() failed: {e}", file=sys.stderr)
 
     autostart_check.connect("toggled", on_autostart_toggled)
     app_box.pack_start(autostart_check, False, False, 0)

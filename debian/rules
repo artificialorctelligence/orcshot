@@ -2,3 +2,15 @@
 
 %:
 	dh $@ --with python3 --buildsystem=pybuild
+
+# Task #141: debhelper enables systemd --user units by default on
+# install - would auto-turn-on autostart for every user on this
+# system with no click at all, the exact thing this project's own
+# standing rule (never write real system config automatically - see
+# autostart.py's own module docstring) exists to prevent. Ships the
+# unit file, disabled; src/orcshot/autostart.py's enable_autostart()
+# is the only thing that ever actually enables it, and only from a
+# real button click (ui/first_run_setup.py or the Preferences
+# checkbox).
+override_dh_installsystemduser:
+	dh_installsystemduser --no-enable

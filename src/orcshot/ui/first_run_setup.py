@@ -36,7 +36,7 @@ even hitting "Not Now"), the flag is set either way - there's no
 separate "ask me again later" path, since "one-time" means one-time.
 
 This is the only place in this codebase meant to ever invoke
-hotkey_setup.GioSettingsBackend, autostart.install_autostart_entry, or
+hotkey_setup.GioSettingsBackend, autostart.enable_autostart, or
 gnome_extension_setup.enable_extension against the real live system -
 and only because a human clicked a real confirmation button in their
 own running app, not because anything here does so as a side effect of
@@ -67,6 +67,7 @@ from __future__ import annotations
 
 import os
 import shutil
+import subprocess
 import sys
 
 import gi
@@ -74,7 +75,7 @@ import gi
 gi.require_version("Gtk", "3.0")
 from gi.repository import GLib, Gtk
 
-from orcshot.autostart import install_autostart_entry
+from orcshot.autostart import enable_autostart
 from orcshot.gnome_extension_setup import (
     CLIPBOARD_EXTENSION_UUID,
     WINDOW_CALLS_EXTENSION_UUID,
@@ -246,7 +247,14 @@ def _run_dialog(parent, executable: str, settings_backend) -> None:
 
     if response == Gtk.ResponseType.OK:
         if autostart_check.get_active():
-            install_autostart_entry(executable)
+            # Best-effort, same reasoning as the extension-enable calls
+            # below: hotkeys/gsettings writes should still go through
+            # even if enabling the systemd unit hits a real-system
+            # hiccup (task #141 follow-up).
+            try:
+                enable_autostart()
+            except subprocess.CalledProcessError as e:
+                print(f"[orcshot] enable_autostart() failed: {e}", file=sys.stderr)
 
         if hotkeys_available:
             enabled_names = {name for name, check in binding_checks.items() if check.get_active()}
