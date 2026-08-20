@@ -6221,6 +6221,44 @@ clicking). Code-reviewed and consistent with the verified active-window path's s
 but direflail's own test of an actual window-picker capture (X11 or Wayland, whichever the tray menu is
 set to) is the remaining confirmation needed to close this out fully.
 
+## Task #139 follow-up: strftime-mode default pattern also gets the title (complete 2026-08-19)
+
+Once task #139 made the real window title available, direflail asked whether the *default* filename
+pattern could pick it up too, for window/window-picker captures specifically - matching real Windows
+Greenshot's own default, which appends `-${title}` (this module's own docstring already cited
+ICoreConfiguration.cs:127 for that, and already explained why this port originally dropped it: the
+title wasn't reliably available before task #139 existed to fix that).
+
+The complication: `DEFAULT_FILENAME_PATTERN`/the default mode are both strftime (direflail's own
+earlier call, task #127/#128 feedback - standard Linux convention over Windows' `${TOKEN}` scheme), and
+strftime mode has no `${title}`-equivalent syntax at all - `%` and `${...}` are deliberately never mixed
+in this module (see its own top-of-file docstring for the real corruption case that motivated keeping
+the two modes mutually exclusive). So this couldn't be "just add `${title}` to the default pattern
+string" the way it might be in Windows' single-syntax world.
+
+Two scope questions, both settled with direflail directly rather than assumed: (1) should this be a
+plain, unconditional suffix, or gated so region/full-screen capture (no title) never get a dangling
+`" - "` with nothing after it - gated, confirmed by direflail's own worked example
+(`"...18_31-25.png"` vs `"...18_31-25 - a picture of a moose.png"`); (2) should this only affect the
+untouched factory-default pattern, or *any* strftime-mode pattern including ones already customized -
+the latter, direflail's explicit choice, reasoning being that strftime mode has no other way to express
+this at all regardless of what pattern text is in the field, so there's no real "already opted out of it"
+state to preserve for that mode specifically.
+
+**Fix**: `resolve_filename_pattern`'s own `MODE_STRFTIME` branch (`core/filename_pattern.py`) - the one
+place every strftime-mode caller already funnels through - now appends `" - " + make_filename_safe(title)`
+after the strftime-resolved string, but only when `title` is non-empty. Region/full-screen/last-region
+capture already pass `title=""` (task #139's own design, no single associated window), so they're
+completely unaffected - same output as before this change, not even a trailing separator.
+MODE_GREENSHOT is untouched too - a user there already has full `${title}` control via the token itself,
+so nothing gets auto-appended on top of whatever they chose to write (or not write).
+
+All three existing callers (`destination_picker.py`'s `_quick_save`/`_save_as`,
+`editor_window.py`'s `_do_quick_save`) needed zero changes - they already pass `title=...` through as of
+task #139, so this was a single-function change plus new tests
+(`tests/unit/core/test_filename_pattern.py`: title-appended, no-title-no-separator, and
+title-gets-sanitized-too). Full suite green (1034 passed, three more than task #139's own count).
+
 ## Licensing
 
 **Status: decided — GPLv3.** Greenshot (Windows) is GPLv3; this is a derivative work — same feature

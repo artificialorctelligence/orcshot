@@ -82,12 +82,28 @@ def resolve_filename_pattern(
     rng: random.Random = None, mode: str = MODE_GREENSHOT,
 ) -> str:
     """``rng`` is injectable (for deterministic tests of ${RRR...});
-    a real, unseeded Random is used otherwise. ``counter``/``title``/
-    ``rng`` are unused in MODE_STRFTIME - that mode has no equivalent
-    concepts, pure standard strftime.
+    a real, unseeded Random is used otherwise. ``counter``/``rng`` are
+    unused in MODE_STRFTIME - that mode has no equivalent concepts,
+    pure standard strftime.
+
+    ``title`` is the one exception (task #139 follow-up, direflail's
+    own call): MODE_STRFTIME has no ${title}-equivalent token syntax
+    at all (%/${...} never mix, this module's own docstring above) -
+    the only way a strftime-mode user (the default, task #127/#128)
+    ever gets the captured window's title into their filename is this
+    module appending it as a plain " - <title>" suffix whenever one is
+    given, regardless of what the rest of the pattern looks like.
+    Region/full-screen/last-region capture pass title="" (no single
+    associated window - see ui/capture_modes.py's own docstring), so
+    this is a no-op for them; MODE_GREENSHOT is unaffected either way -
+    a user there already has full ${title} control via the token
+    itself, so nothing is auto-appended on top of their own pattern.
     """
     if mode == MODE_STRFTIME:
-        return when.strftime(pattern)
+        resolved = when.strftime(pattern)
+        if title:
+            resolved += f" - {make_filename_safe(title)}"
+        return resolved
 
     if rng is None:
         rng = random.Random()

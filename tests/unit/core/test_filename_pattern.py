@@ -113,6 +113,31 @@ class TestStrftimeMode:
         result = resolve_filename_pattern(DEFAULT_FILENAME_PATTERN, when, counter=1, mode=MODE_STRFTIME)
         assert result == "2026-07-26 14_23_05"
 
+    def test_a_title_is_appended_as_a_suffix_since_this_mode_has_no_token_for_it(self):
+        # task #139 follow-up, direflail's own call: strftime mode can't
+        # express ${title} at all (%/${...} never mix), so this is the
+        # only way a strftime-mode user (the default) ever gets it -
+        # applies to any strftime pattern, not just the untouched
+        # DEFAULT_FILENAME_PATTERN.
+        when = datetime(2026, 7, 26, 14, 23, 5)
+        result = resolve_filename_pattern(
+            DEFAULT_FILENAME_PATTERN, when, counter=1, title="A Picture of a Moose", mode=MODE_STRFTIME,
+        )
+        assert result == "2026-07-26 14_23_05 - A Picture of a Moose"
+
+    def test_no_title_means_no_suffix_at_all_not_even_a_bare_separator(self):
+        when = datetime(2026, 7, 26, 14, 23, 5)
+        result = resolve_filename_pattern(DEFAULT_FILENAME_PATTERN, when, counter=1, title="", mode=MODE_STRFTIME)
+        assert result == "2026-07-26 14_23_05"
+        assert " - " not in result
+
+    def test_the_appended_title_is_made_filename_safe(self):
+        when = datetime(2026, 7, 26, 14, 23, 5)
+        result = resolve_filename_pattern(
+            DEFAULT_FILENAME_PATTERN, when, counter=1, title="a/b:c", mode=MODE_STRFTIME,
+        )
+        assert result == "2026-07-26 14_23_05 - a_b_c"
+
 
 class TestMakeFilenameSafe:
     def test_strips_forward_slash(self):
