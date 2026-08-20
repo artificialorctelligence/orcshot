@@ -6259,6 +6259,47 @@ task #139, so this was a single-function change plus new tests
 (`tests/unit/core/test_filename_pattern.py`: title-appended, no-title-no-separator, and
 title-gets-sanitized-too). Full suite green (1034 passed, three more than task #139's own count).
 
+## Task #153: preinst's prepare-for-upgrade save prompt, real repro finally succeeded (complete 2026-08-19)
+
+Follow-up to task #152: direflail's first real end-to-end test (`sudo dpkg -r orcshot && sudo dpkg -i
+...` with an editor window open with unsaved changes) reported no visible effect at all - "the editor
+didn't do anything different. it just stayed open." This session has no `sudo` access to the VM (one
+failed authentication attempt, not pursued further), so isolating this meant working backward through
+each piece of the chain individually, asking direflail to run the pieces that genuinely needed root -
+per direflail's own "install some diagnostics before you reimplement a fix" precedent from task #150,
+not guessing at a fix without evidence.
+
+**Isolated and ruled out, in order**:
+
+1. The D-Bus/GAction path itself - confirmed working by triggering `prepare-for-upgrade` via a real
+   `gdbus call` against the actual installed running instance (as the same user, no `runuser` involved):
+   the app quit immediately, matching `prepare_for_upgrade`'s own documented "no open editors" behavior
+   exactly.
+2. `runuser`'s ability to reach the session bus as root - direflail's own first attempt at this hit two
+   real red herrings before landing a clean result: an accidental run against the *host* machine instead
+   of the VM (`ubuntu2604` "does not exist" there, since that user only exists inside the guest - the
+   Claude Code "Run" button executes in the host's own terminal, not inside a VM, something not flagged
+   clearly enough beforehand), and a `/run/users/1000/bus` (plural) vs. the real `/run/user/1000/bus`
+   (singular) path typo from manually retyping the command instead of copy-pasting it. Once run correctly,
+   *inside* the VM, via copy-paste: `()`, and the app quit - `runuser` genuinely works fine as root.
+3. The full `preinst` script, run exactly as dpkg invokes it (`sudo sh
+   /var/lib/dpkg/info/orcshot.preinst install` - dpkg's own cached copy, confirmed byte-identical to this
+   repo's `debian/orcshot.preinst`) - also succeeded, app quit cleanly.
+
+With every individual piece confirmed working, direflail redid the *exact* original repro - a real
+`sudo dpkg -r orcshot && sudo dpkg -i ~/orcshot_0.1.0-2_all.deb` cycle with an editor window open with
+unsaved changes - and this time it worked completely: the editor immediately showed the retitled Save
+As prompt, saved, closed, and orcshot quit cleanly; the freshly-reinstalled package came up working
+normally afterward.
+
+**Conclusion**: no code defect was ever found in `preinst`, `prepare_for_upgrade`, or
+`prompt_save_for_upgrade` - every piece worked correctly every time it was actually tested in isolation.
+The original failure is best explained as transient state specific to that one earlier moment (this same
+VM had a well-established history that same session of stale leftover test processes causing exactly
+this class of "nothing visibly happens" confusion - see task #152's own "stale leftover instance" section
+above) rather than a reproducible bug - three independent successful reproductions since, including the
+real end-to-end one, support that conclusion rather than it being a fluke in the other direction.
+
 ## Licensing
 
 **Status: decided — GPLv3.** Greenshot (Windows) is GPLv3; this is a derivative work — same feature
