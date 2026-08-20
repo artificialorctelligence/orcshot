@@ -6212,14 +6212,14 @@ Text Editor, "New Document (Draft) - Text Editor"), through `active_window_info`
 `2026-08-19 18_31_25 - New Document (Draft) - Text Editor`, confirming the entire chain end-to-end with
 no mocks.
 
-**Not verified live**: the three interactive window-*picker* click paths (X11's `WindowPickerWindow`,
-the Wayland fallback `WaylandWindowPicker`, and the Wayland Shell-native `GnomeShellWindowPicker`) - each
-needs a real hover-then-click gesture over a real window, which has no synthetic-input equivalent
-available this session (same limitation this project has always documented for every interactive
-overlay - region-select, window-picker, eyedropper - "verified by running it," meaning a human actually
-clicking). Code-reviewed and consistent with the verified active-window path's same threading pattern,
-but direflail's own test of an actual window-picker capture (X11 or Wayland, whichever the tray menu is
-set to) is the remaining confirmation needed to close this out fully.
+**Not verified live by this session directly**: the three interactive window-*picker* click paths (X11's
+`WindowPickerWindow`, the Wayland fallback `WaylandWindowPicker`, and the Wayland Shell-native
+`GnomeShellWindowPicker`) - each needs a real hover-then-click gesture over a real window, which has no
+synthetic-input equivalent available this session (same limitation this project has always documented
+for every interactive overlay - region-select, window-picker, eyedropper - "verified by running it,"
+meaning a human actually clicking). direflail did that real testing independently (both this task and
+its strftime-suffix follow-up below), confirming: "i have tested this. it works great." Closes out task
+#139 fully, including the one gap this session couldn't cover itself.
 
 ## Task #139 follow-up: strftime-mode default pattern also gets the title (complete 2026-08-19)
 
