@@ -6422,6 +6422,11 @@ and this needs real `sudo`). direflail's own real `sudo dpkg -r orcshot && sudo 
 ~/orcshot_0.1.0-2_all.deb` test, watching for the debconf prompt and confirming Orcshot actually starts
 on "yes", is the remaining confirmation needed to close this out fully.
 
+**Closed out**: direflail ran the real test - `pgrep -af orcshot` showed the process running immediately
+after install, and `systemctl --user is-enabled orcshot.service` returned `enabled`, confirming both
+previously-unverified pieces together: the debconf prompt was answered, and `runuser` wrapping
+`systemctl --user enable --now` worked correctly for real, not just in each half's own separate test.
+
 ## Licensing
 
 **Status: decided — GPLv3.** Greenshot (Windows) is GPLv3; this is a derivative work — same feature
