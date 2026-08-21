@@ -110,6 +110,24 @@ def _open_editor(image: np.ndarray, cursor_shape: CursorShape = None, title: str
         editor.selected_shape = cursor_shape
         editor.undo_redo.push(AddElementMemento(editor.layer, cursor_shape))
     editor.show_all()
+    # Task #157 follow-up: this "Edit" destination is the one path
+    # reached from a Shell-native capture (region-select/window-picker/
+    # CaptureRect) - the editor gets constructed and shown from an
+    # async D-Bus reply callback, not a direct response to a real
+    # input event in this process. Live-observed on the VM: an editor
+    # opened this way once landed pinned to the screen's top-left
+    # corner (x=0) with focus=false, rather than the normal centered
+    # placement a directly-constructed EditorWindow gets (confirmed
+    # separately, same session - a standalone script's own
+    # show_all()-only EditorWindow positioned normally). Not
+    # reproduced/isolated further (no synthetic input available to
+    # drive the actual Shell-native interaction), but present() -
+    # unlike show_all() alone - is specifically GTK's way of asking the
+    # compositor to actually raise/focus a window, which is plausibly
+    # what a window shown from this kind of indirect trigger is
+    # missing. Cheap and safe to add regardless of whether it's the
+    # full explanation.
+    editor.present()
 
 
 def _quick_save(image: np.ndarray, cursor_shape: CursorShape = None, title: str = "") -> None:

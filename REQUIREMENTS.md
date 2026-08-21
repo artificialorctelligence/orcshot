@@ -6427,6 +6427,46 @@ after install, and `systemctl --user is-enabled orcshot.service` returned `enabl
 previously-unverified pieces together: the debconf prompt was answered, and `runuser` wrapping
 `systemctl --user enable --now` worked correctly for real, not just in each half's own separate test.
 
+## Task #157: editor window opened via a Shell-native capture sometimes lands pinned top-left (in progress 2026-08-20)
+
+direflail's real-world testing after task #141's install-time debconf prompt: "the editor showed up almost
+offscreen to the left" right after a fresh `sudo dpkg -r/-i` reinstall, doing a region-select capture and
+choosing Edit. Confirmed reproducible on demand ("reinstalling orcshot puts it on the far left again
+(normal after)") - not a one-off.
+
+**Investigated live, evidence gathered before touching any code, per this project's own standing rule
+against guessing**:
+
+- Constructing an `EditorWindow` directly (bypassing the entire capture + Shell-native destination-picker
+  round trip - a standalone script, `show_all()` only) positioned normally (`x=185, y=32` on this VM's
+  screen) - real evidence `EditorWindow`'s own construction/resize code (confirmed to have zero
+  `.move()`/`set_position()` calls anywhere) isn't the cause on its own.
+- direflail captured the actual live numbers for the real bug, via `org.gnome.Shell.Extensions.
+  Windows.List` while the misplaced editor was still open: `x=0, y=32, width=650, height=786,
+  focus: false`. Not a garbage/negative coordinate - pinned exactly to the screen's top-left corner, and
+  critically, never actually focused.
+
+That combination - default-corner placement plus no focus - is a recognized Wayland compositor pattern:
+without a legitimate activation context behind a newly-mapped window, compositors commonly skip their
+normal smart/centered placement and skip handing it focus. This flow fits: the editor isn't shown from a
+direct input-event handler in the Python process - it's shown from an async D-Bus reply callback, after
+the GNOME Shell extension (a separate process) resolves the destination-picker interaction and only then
+tells Python which destination was chosen. `_open_editor` (`ui/destination_picker.py`, the single
+function every "Edit" destination reaches, X11 and every Wayland path alike) only ever called
+`show_all()`, never `present()` - and `present()` specifically is GTK's way of asking the compositor to
+actually raise/focus a window, unlike a bare `show_all()`.
+
+**Fix attempted, not yet confirmed**: `editor.present()` added right after `show_all()` in `_open_editor`.
+Explicitly logged as a well-reasoned candidate, not a confirmed root cause - the actual interactive
+Shell-native capture flow (a real mouse drag across the screen, then a real click on the Shell-side
+destination-picker popup) couldn't be reproduced or isolated further this session; no synthetic input is
+available for Mutter's compositor-level input pipeline, the same wall hit for task #139's window-picker
+verification. Full suite green (1022 passed) - no test coverage added, this is GTK/Wayland-interaction
+glue with no meaningful headless test, same as every other file in `ui/`.
+
+**Still needed**: direflail's own test on the next real reinstall, watching specifically whether the
+editor now opens focused and normally-placed after choosing Edit from a region-select capture.
+
 ## Licensing
 
 **Status: decided — GPLv3.** Greenshot (Windows) is GPLv3; this is a derivative work — same feature
