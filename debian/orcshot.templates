@@ -1,0 +1,8 @@
+Template: orcshot/enable-autostart
+Type: boolean
+Default: true
+_Description: Start Orcshot automatically at login?
+ Orcshot can launch automatically whenever you log in, so its tray
+ icon and global capture hotkeys are always available. This also
+ starts it right now, in your current session. You can change this
+ later from Orcshot's own Preferences dialog.

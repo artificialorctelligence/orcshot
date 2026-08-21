@@ -6354,6 +6354,74 @@ directly testing the actual point of this task, a running instance was forcibly 
 PID in `systemctl --user status` - no manual intervention, no custom watchdog code, native OS crash
 recovery working exactly as intended.
 
+## Task #141 follow-up: offer autostart during install itself, via debconf (complete 2026-08-20)
+
+direflail asked whether autostart consent could happen at install time rather than requiring a separate
+first launch, worked through with direflail directly rather than assumed:
+
+1. **A real graphical session (Wayland/X11) at install time**: a debconf `y/n` prompt ("Start Orcshot
+   automatically at login?", default yes) - `debconf`, not a raw shell prompt, specifically because a
+   raw `read` in a maintainer script hangs forever with no TTY (unattended-upgrades, scripted/CI
+   installs) - debconf shows a real prompt when there's someone to answer it and gracefully
+   skips/defaults otherwise. Confirmed with direflail this only needs to cover autostart, not
+   hotkeys/the GNOME Shell extensions - "yes" both enables *and* starts Orcshot immediately
+   (`systemctl --user enable --now`, already `enable_autostart()`'s own existing behavior, task #141
+   above), and launching it for the first time runs `maybe_run_first_run_setup()` exactly the same as
+   any other launch (gated purely on the persistent `first_run_setup_done` flag, not on how the process
+   started) - so hotkeys/extensions still get asked, one step later, in the flow already built for
+   exactly that. Verified live rather than assumed: reset the flag, launched the *real* binary via
+   `systemctl --user start` (not a normal click), and confirmed via `org.gnome.Shell.Extensions.Windows`
+   a real window - `wm_class: "orcshot"`, `title: "Orcshot Setup"`, PID matching the systemd-launched
+   process exactly, `focus: true` - actually rendered on screen with the correct session environment
+   inherited.
+
+2. **No graphical session at install time** (a fresh headless install, or installing from a bare TTY
+   before ever logging into the desktop graphically): falls straight through to the existing plain
+   "open it from your Applications menu" message - no change from before this task.
+
+3. **Bundling into a distro image or fleet deployment, fully unattended**: doesn't need a custom dpkg
+   flag (dpkg doesn't pass arbitrary flags through to a package's own scripts that way) - the standard
+   Debian mechanism already covers it, `debconf-set-selections` pre-seeds the answer before install runs
+   so the question never even appears:
+   ```
+   echo "orcshot orcshot/enable-autostart boolean true" | debconf-set-selections
+   apt install orcshot
+   ```
+
+**Implementation**: `debian/orcshot.templates` declares the boolean question (`Default: true`).
+`debian/orcshot.config` (new) does the detection - loops `loginctl list-users`/`list-sessions` for the
+first session with `Type` of `wayland` or `x11` (narrower than `preinst`'s own existing check, which
+only cares whether *any* D-Bus session bus exists - a plain SSH/tty login gets one too under modern
+systemd, but isn't somewhere a tray icon could ever appear) - and only calls `db_input high` if one is
+found. Only the first graphical session found is acted on; two different users logged in graphically at
+once (fast user switching, multi-seat) is a genuine edge case for this app's actual audience, not worth
+the complexity of asking per-session. debconf's own answer-tracking means a routine upgrade won't
+re-prompt once it's been answered once, whichever way - no extra "already enabled" check needed for
+that specifically.
+
+`debian/orcshot.postinst` re-runs the identical detection (a fresh script invocation, no state shared
+with `config` except debconf's own stored answer), and on a `true` answer, runs
+`runuser -u "$user" -- env DBUS_SESSION_BUS_ADDRESS=... XDG_RUNTIME_DIR=... systemctl --user enable --now
+orcshot.service` - the same `runuser`-wrapping-a-real-system-call pattern `preinst` already uses
+successfully for task #152's `prepare-for-upgrade` D-Bus call, just wrapping `systemctl` instead of
+`gdbus`. `debian/control`'s `debconf (>= 0.5) | debconf-2.0` dependency was added automatically by
+`dh_installdebconf` once it saw `debian/orcshot.templates` exist - no manual `Depends:` edit needed.
+
+**Verified as far as possible without root** (this session still has no `sudo` on the VM): both shell
+scripts pass `sh -n`; the built `.deb`'s `config`/`templates`/`postinst`/`Depends` all inspected directly
+and confirmed correct; and, most concretely, the exact `loginctl`-based detection snippet both scripts
+share was run for real on the VM and correctly identified the live Wayland session (`uid=1000
+session=1 type=wayland` → match).
+
+**Not verified live**: the actual interactive debconf prompt appearing during a real `dpkg -i`/
+`apt install` (needs a genuine TTY, not something `VBoxManage guestcontrol` can drive the same way a real
+terminal can), and the specific combination of `runuser` wrapping `systemctl --user enable --now` (each
+half proven separately live tonight - `runuser` reaching a real D-Bus call for task #152/#153, and
+`systemctl --user enable/disable/is-enabled` working correctly for task #141 above - but not together,
+and this needs real `sudo`). direflail's own real `sudo dpkg -r orcshot && sudo dpkg -i
+~/orcshot_0.1.0-2_all.deb` test, watching for the debconf prompt and confirming Orcshot actually starts
+on "yes", is the remaining confirmation needed to close this out fully.
+
 ## Licensing
 
 **Status: decided — GPLv3.** Greenshot (Windows) is GPLv3; this is a derivative work — same feature

@@ -3,11 +3,47 @@ set -e
 
 case "$1" in
     configure)
-        echo ""
-        echo "Orcshot is installed. Open it from your Applications menu"
-        echo "(or run: orcshot) to finish setup - it will offer to enable"
-        echo "autostart and capture keyboard shortcuts."
-        echo ""
+        # Task #141 follow-up: acts on whatever debconf answered (if
+        # anything - see debian/orcshot.config's own comment for when
+        # it's skipped entirely). Re-finds the same active graphical
+        # session config looked for - a fresh invocation, no state
+        # shared between the two scripts except debconf's own answer.
+        enabled_now=false
+        if command -v loginctl >/dev/null 2>&1 && command -v runuser >/dev/null 2>&1; then
+            for uid in $(loginctl list-users --no-legend 2>/dev/null | awk '{print $1}' || true); do
+                session=$(loginctl list-sessions --no-legend 2>/dev/null | awk -v u="$uid" '$2 == u {print $1; exit}')
+                [ -n "$session" ] || continue
+                type=$(loginctl show-session "$session" -p Type --value 2>/dev/null || echo "")
+                if [ "$type" = "wayland" ] || [ "$type" = "x11" ]; then
+                    user=$(id -nu "$uid" 2>/dev/null) || continue
+                    bus="/run/user/$uid/bus"
+                    [ -S "$bus" ] || break
+
+                    . /usr/share/debconf/confmodule
+                    db_get orcshot/enable-autostart || true
+                    if [ "$RET" = "true" ]; then
+                        if runuser -u "$user" -- env "DBUS_SESSION_BUS_ADDRESS=unix:path=$bus" \
+                                "XDG_RUNTIME_DIR=/run/user/$uid" \
+                                systemctl --user enable --now orcshot.service >/dev/null 2>&1; then
+                            enabled_now=true
+                        fi
+                    fi
+                    break
+                fi
+            done
+        fi
+
+        if [ "$enabled_now" = "true" ]; then
+            echo ""
+            echo "Orcshot is installed and starting now."
+            echo ""
+        else
+            echo ""
+            echo "Orcshot is installed. Open it from your Applications menu"
+            echo "(or run: orcshot) to finish setup - it will offer to enable"
+            echo "autostart and capture keyboard shortcuts."
+            echo ""
+        fi
         ;;
 esac
 
