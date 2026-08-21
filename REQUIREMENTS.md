@@ -6427,7 +6427,7 @@ after install, and `systemctl --user is-enabled orcshot.service` returned `enabl
 previously-unverified pieces together: the debconf prompt was answered, and `runuser` wrapping
 `systemctl --user enable --now` worked correctly for real, not just in each half's own separate test.
 
-## Task #157: editor window opened via a Shell-native capture sometimes lands pinned top-left (in progress 2026-08-20)
+## Task #157: editor window opened via a Shell-native capture sometimes lands pinned top-left (fixed, verified live 2026-08-20)
 
 direflail's real-world testing after task #141's install-time debconf prompt: "the editor showed up almost
 offscreen to the left" right after a fresh `sudo dpkg -r/-i` reinstall, doing a region-select capture and
@@ -6499,6 +6499,75 @@ which one turns out to matter, or whether both do).
 
 **Still needed**: another real reinstall + region-select-then-Edit test from direflail, to see whether
 placement is now correct too.
+
+**Update, same day - direflail suggested real diagnostics instead of more guess-and-check**: "can you
+log the coordinates of the window when it starts? this seems like it would go easier." Added a temporary
+`configure-event` handler (logs every geometry the compositor actually assigns, timestamped, to stderr -
+visible via `journalctl --user -u orcshot.service` since the app runs as the systemd `--user` service)
+plus a log line immediately before `_resize_canvas_and_window`'s own `self.resize()` call (requested
+size + monitor work area). Full suite green (1022 passed), rebuilt, reinstalled by direflail.
+
+Real data immediately falsified the `_resize_canvas_and_window`-race hypothesis: the window's *first*
+`configure-event`, before the deferred resize ever ran, already reported `size=(2239,749)` - wider than
+the monitor's entire 1366px work area. Root cause #1 found: `EditorWindow.__init__` called
+`self._drawing_area.set_size_request(width, height)` with the *raw captured-image dimensions* (`width,
+height = image.shape[:2]`) directly, before `show_all()` - forcing the drawing area, and therefore the
+window's very first natural-size computation, to the full image size on the initial map, before
+`_resize_canvas_and_window`'s own (correct, zoom-aware, work-area-clamped) sizing ever got a chance to
+run. Removed the eager call entirely (dead/redundant - `_resize_canvas_and_window` already recomputes
+and sets the same drawing area size correctly, from real post-layout measurements). Rebuilt, reinstalled,
+retested.
+
+Still wrong - but with new, decisive evidence: the first `configure-event`'s size was now *constant*
+(`2239,749` again) across two different captures in the same run that settled at two different final
+sizes (`650,747` and `1312,768`). A size that doesn't vary with the captured image can't be driven by the
+canvas at all. Root cause #2 found by reading `_build_style_panel` and the `show_all()` override
+together: the style panel builds ~14 field cells (line/fill color, thickness, shadow, obfuscate
+mode/fill/text/amount, highlight mode/fill/brightness/blur/magnification), and `_refresh_style_panel`
+normally hides all but the active tool's fields. But `show_all()`'s override called `super().show_all()`
+*first* - which, on a `Gtk.Window`, both shows every descendant (including every hidden style-panel cell)
+*and* synchronously realizes/maps the window using whatever child visibility is current at that instant -
+before `self._refresh_style_panel()` (called immediately after, but too late) ever got to hide the extra
+cells. The window's real first commit to the Wayland compositor reflected every style-panel field visible
+at once, ballooning its natural width past the whole screen. Mutter has no way to center something wider
+than the work area, so it clamped the window near a corner to place it at all - and Wayland gives clients
+no way to reposition a window after that initial placement (the same constraint that makes
+`CENTER_ALWAYS` a no-op there), so it stayed pinned even once `_resize_canvas_and_window` shrank it back
+down moments later.
+
+**Real fix**: reordered `show_all()` to show the window's content (and correct the style-panel visibility)
+*before* realizing the window itself, not after - `self.get_child().show_all()`, then
+`self._refresh_style_panel()`, then `super().show()` (not `show_all()`, since the child's visibility is
+already final). The window's first-ever size negotiation now happens only once every descendant already
+has its correct, final visibility. Full suite green (1022 passed), rebuilt, reinstalled, retested.
+
+**Confirmed live**: the first `configure-event` now reports `size=(507,749)` - a normal chrome-driven
+size, not the screen-exceeding `2239` from before - across every capture in the retest, including a large
+region-select. The severe, originally-reported symptom (window pinned hard against the corner, "almost
+off-screen") is gone. Position still lands at a consistent `(26,23)` rather than dead-center; per direflail
+("not exactly the middle... mostly where it used to show up") this reads as the normal, expected Wayland
+placement rather than the bug - consistent with this session's own earlier, separately-confirmed finding
+that Wayland's xdg-shell protocol gives clients no way to request or query an absolute window position at
+all (initial placement is entirely the compositor's own decision; `CENTER_ALWAYS`/`.move()` cannot
+influence it). `(26,23)` is most likely simply Mutter's own default new-toplevel placement on this VM,
+not something orcshot's own code can change via GTK APIs - kept `CENTER_ALWAYS` in place regardless since
+it's genuinely effective on X11 (Mint/Cinnamon), where `.move()` is not a no-op.
+
+Removed both temporary diagnostics (`configure-event` handler + pre-resize log line) once the fix was
+confirmed; not meant to ship. Final clean rebuild (1022 passed) with no diagnostic logging, reinstalled
+and copied to the VM.
+
+**Separately noticed, not investigated further**: a same-version reinstall (`0.1.0-2` over the identical
+`0.1.0-2`, this session's own rapid dev-iteration pattern) now also logs a harmless
+`debconf: Unknown template field '_description', in stanza #1 of /var/lib/dpkg/info/orcshot.templates`
+warning during `postinst`. Traced to debconf's own template parser
+(`/usr/share/perl5/Debconf/Template.pm:141-152`): it lowercases each field name but never strips the
+leading underscore i18n marker before comparing against its known-field set, so `_Description:` (the
+correct, standard Debian Policy syntax this project's `debian/orcshot.templates` already uses -
+confirmed byte-for-byte via hexdump, no typo) can never match. Doesn't block `postinst` (completed
+successfully) and didn't appear during task #156's own real `dpkg -r`/`dpkg -i` verification, so it looks
+specific to reinstalling the identical version rather than a genuine packaging defect - not chased
+further since it's cosmetic and off this task's critical path.
 
 ## Licensing
 

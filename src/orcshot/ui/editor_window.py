@@ -625,19 +625,17 @@ class EditorWindow(Gtk.Window):
         window_title: str = "",
     ):
         super().__init__(title="Orcshot image editor")
-        # Task #157: CENTER_ALWAYS (not plain CENTER) specifically
-        # because this window's real size isn't known at first show -
-        # show_all() maps it at a default toolbar-only size, then
-        # _resize_canvas_and_window grows it to fit the actual
-        # captured image from a GLib.idle_add callback shortly after
-        # (see that method's own docstring for why it can't happen any
-        # earlier - it needs real post-layout chrome measurements that
-        # don't exist before the first show). Live-observed on the VM
-        # (task #157): a window opened via the Shell-native capture
-        # path landed pinned to the screen's top-left corner with no
-        # explicit position hint set anywhere in this class before -
-        # CENTER_ALWAYS re-centers on every resize, not just the
-        # initial placement, unlike plain CENTER.
+        # Task #157: CENTER_ALWAYS (not plain CENTER) so this re-centers
+        # on every resize, not just the initial placement - relevant on
+        # X11 (Mint/Cinnamon, this project's other packaging target),
+        # where Gtk.Window.move() genuinely repositions the window. On
+        # Wayland it's a no-op in practice: xdg-shell gives clients no
+        # way to request or query an absolute position at all, initial
+        # placement is entirely the compositor's own decision. The real
+        # task #157 bug (window pinned hard against the top-left,
+        # sometimes mostly off-screen) turned out to be a separate,
+        # fixable issue in show_all() below, not something this
+        # set_position() call could address on its own.
         self.set_position(Gtk.WindowPosition.CENTER_ALWAYS)
         self._base_image = image
         # The captured window's title (task #139, active-window/window-
@@ -647,7 +645,6 @@ class EditorWindow(Gtk.Window):
         # above, which is always the fixed "Orcshot image editor".
         self._window_title = window_title
         self._surface = numpy_to_cairo_surface(image)
-        height, width = image.shape[:2]
 
         if clipboard_backend is None:
             from orcshot.capture.backend_select import default_clipboard_backend
@@ -866,7 +863,30 @@ class EditorWindow(Gtk.Window):
         self._editing_original_shape = None
 
         self._drawing_area = Gtk.DrawingArea()
-        self._drawing_area.set_size_request(width, height)
+        # Task #157: deliberately NOT sized to the captured image here.
+        # _resize_canvas_and_window (run via show_all()'s deferred
+        # idle_add, once real post-layout chrome measurements exist -
+        # see that method's own docstring) sets this drawing area's
+        # real size, zoom-aware and clamped to the monitor's work area.
+        # Sizing it eagerly here to the raw image dimensions instead
+        # made the window's very first map (before that deferred call
+        # ever runs) request the FULL captured-image size - confirmed
+        # live via configure-event logging: a region-select capture
+        # wider than the monitor's work area produced a first
+        # configure-event already reporting the oversized size, before
+        # the deferred resize's own log line. Wayland/Mutter has to
+        # clamp a too-wide-for-the-screen window to fit, pinning it
+        # near the top-left corner to place it at all; the deferred
+        # resize then shrinks it to the correct size moments later,
+        # but Wayland gives clients no way to reposition a window
+        # after that initial placement (also why CENTER_ALWAYS, set
+        # above, doesn't help - GTK's underlying move() is a
+        # documented no-op under Wayland) - so it stays pinned exactly
+        # where the oversized first map landed. Leaving this at GTK's
+        # own small default lets the first map/placement always fit
+        # comfortably within the screen, and the deferred call grows
+        # or shrinks it correctly on the same initial layout pass,
+        # before the compositor's placement decision is ever made.
         self._drawing_area.set_can_focus(True)
         self._drawing_area.add_events(
             Gdk.EventMask.BUTTON_PRESS_MASK
@@ -972,8 +992,35 @@ class EditorWindow(Gtk.Window):
         editor.show_all() to actually display the window. Confirmed
         live: without this override, every style-panel control showed
         at once regardless of active tool/selection, silently defeating
-        tasks #57/#58's whole point. Re-running _refresh_style_panel
-        after the real show_all() re-applies the correct hidden set.
+        tasks #57/#58's whole point.
+
+        Task #157: shows the *content* (self's one child, the outer
+        vertical box) and re-applies the correct style-panel visibility
+        BEFORE showing the window itself, not after. The previous order
+        called super().show_all() first - which, on a toplevel window,
+        both shows every descendant AND synchronously realizes/maps the
+        window using whatever child visibility is current at that exact
+        moment. With every style-panel cell momentarily visible (all
+        ~14 of them: line/fill color, thickness, shadow, obfuscate
+        mode/fill/text/amount, highlight mode/fill/brightness/blur/
+        magnification, etc.), that first real size negotiation - and
+        the first commit to the Wayland compositor - reflected a much
+        wider natural size than the correct one, before
+        _refresh_style_panel() ever got a chance to hide the extra
+        cells. Live-confirmed via configure-event logging: the
+        window's first configure-event reported an identical, oversized
+        size (2239 wide - wider than the whole monitor) across two
+        different captures with different final target sizes, ruling
+        out the canvas (which does vary between captures) as the
+        driver and pointing at this fixed chrome instead. Mutter has to
+        clamp a too-wide-for-the-screen window to fit, pinning it near
+        a corner to place it at all - and Wayland gives clients no way
+        to reposition a window after that initial placement, so it
+        stayed pinned there even once later reflows (including
+        _resize_canvas_and_window below) shrank it back down.
+        Realizing the window only once its descendants already have
+        their final correct visibility avoids the bad first commit
+        entirely, rather than trying to recover from it afterward.
 
         Also the hook for the initial GetOptimalWindowSize-equivalent
         resize (task #97) - Windows fires this from SurfaceSizeChanged
@@ -984,17 +1031,20 @@ class EditorWindow(Gtk.Window):
         exists until the window is shown). _canvas_scroller (a
         Gtk.ScrolledWindow) doesn't propagate the canvas's size_request
         to the top-level window the way Windows' own panel1 does, so
-        without this the window opened at a fixed toolbar/menu-driven
-        size regardless of the captured image's dimensions - confirmed
-        live, a 3000x2000 and a 40x40 capture produced the identical
-        initial window size. GLib.idle_add defers past GTK's own
-        pending resize queue (GTK_PRIORITY_RESIZE runs before default-
-        priority idle), so the allocations _resize_canvas_and_window
-        reads are real ones from the just-completed initial layout,
-        not stale pre-realize zeros.
+        without this the window opened at a fixed chrome-driven size
+        regardless of the captured image's dimensions - confirmed live,
+        a 3000x2000 and a 40x40 capture produced the identical initial
+        window size. GLib.idle_add defers past GTK's own pending resize
+        queue (GTK_PRIORITY_RESIZE runs before default-priority idle),
+        so the allocations _resize_canvas_and_window reads are real
+        ones from the just-completed initial layout, not stale
+        pre-realize zeros.
         """
-        super().show_all()
+        content = self.get_child()
+        if content is not None:
+            content.show_all()
         self._refresh_style_panel()
+        super().show()
         GLib.idle_add(self._resize_canvas_and_window)
 
     @property
