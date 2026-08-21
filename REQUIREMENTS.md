@@ -6467,6 +6467,39 @@ glue with no meaningful headless test, same as every other file in `ui/`.
 **Still needed**: direflail's own test on the next real reinstall, watching specifically whether the
 editor now opens focused and normally-placed after choosing Edit from a region-select capture.
 
+**Update, same day - `present()` fixed focus but not placement**: direflail retested. Focus is now
+correct (confirmed: the editor had focus immediately, no click needed) - `present()` genuinely helped,
+ruling out a missing-activation-context explanation as the *whole* story. Placement is still wrong
+(pinned top-left again). This is real, useful data: whatever activation gate a compositor checks before
+granting focus, this window is now passing it - the remaining bug is specifically in *where* Mutter
+places it, not whether it's treated as legitimate.
+
+That redirected the investigation to `_resize_canvas_and_window` (the same method cited in the `show_all`
+override's own docstring): the window is first mapped at a default, toolbar-chrome-only size, then grown
+via `self.resize()` to fit the actual captured image from a `GLib.idle_add` callback - deliberately
+deferred, since it needs real post-layout chrome measurements (`get_allocation()` on the toolbar/menu
+bar/canvas scroller) that don't exist before the first show. If Mutter's placement decision is made using
+the window's size *at that initial small-size map*, and the later `resize()` grows it from a fixed
+top-left anchor rather than re-centering, a large final image would visually end up shifted toward the
+top-left relative to where a correctly-centered final-size window would sit. This also explains the
+timing sensitivity cleanly: a freshly-started ("cold") process has more competing startup work (first-run
+setup, extension-enable D-Bus calls, general first-realize costs), making it more likely the deferred
+resize loses whatever race decides Mutter's placement window, while an already-warm process (ordinary
+later captures) or a script with nothing else running (this session's own earlier isolated `EditorWindow`
+test, which showed normal placement) resolves it fast enough to not matter.
+
+**Second candidate fix**: `self.set_position(Gtk.WindowPosition.CENTER_ALWAYS)` added in
+`EditorWindow.__init__`, right after `super().__init__()`. `CENTER_ALWAYS` specifically (not plain
+`CENTER`) because its own documented behavior is to re-center the window on every resize, not just the
+initial placement - exactly the gap `_resize_canvas_and_window`'s post-map resize creates. No existing
+position hint was set anywhere in this class before (confirmed via grep - zero prior
+`.move()`/`set_position()`/`WindowPosition` references). Full suite still green (1022 passed) after
+adding this alongside the earlier `present()` fix (both are cheap enough to keep together regardless of
+which one turns out to matter, or whether both do).
+
+**Still needed**: another real reinstall + region-select-then-Edit test from direflail, to see whether
+placement is now correct too.
+
 ## Licensing
 
 **Status: decided — GPLv3.** Greenshot (Windows) is GPLv3; this is a derivative work — same feature

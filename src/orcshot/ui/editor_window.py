@@ -625,6 +625,20 @@ class EditorWindow(Gtk.Window):
         window_title: str = "",
     ):
         super().__init__(title="Orcshot image editor")
+        # Task #157: CENTER_ALWAYS (not plain CENTER) specifically
+        # because this window's real size isn't known at first show -
+        # show_all() maps it at a default toolbar-only size, then
+        # _resize_canvas_and_window grows it to fit the actual
+        # captured image from a GLib.idle_add callback shortly after
+        # (see that method's own docstring for why it can't happen any
+        # earlier - it needs real post-layout chrome measurements that
+        # don't exist before the first show). Live-observed on the VM
+        # (task #157): a window opened via the Shell-native capture
+        # path landed pinned to the screen's top-left corner with no
+        # explicit position hint set anywhere in this class before -
+        # CENTER_ALWAYS re-centers on every resize, not just the
+        # initial placement, unlike plain CENTER.
+        self.set_position(Gtk.WindowPosition.CENTER_ALWAYS)
         self._base_image = image
         # The captured window's title (task #139, active-window/window-
         # picker capture only - "" otherwise), remembered for
