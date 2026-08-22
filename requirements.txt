@@ -1,0 +1,21 @@
+# Pinned dependency versions for SCA/vulnerability scanning (Aikido) -
+# not this project's actual install mechanism, which is Debian
+# packaging (debian/control's Depends, apt-provided system packages),
+# not pip. Generated via `pip freeze` from the dev venv (pyproject.toml's
+# own loose `>=` ranges), so this reflects real versions in current use
+# rather than a hypothetical range. Regenerate the same way after
+# updating deps.
+hypothesis==6.165.10
+iniconfig==2.3.0
+numpy==2.5.2
+packaging==26.3
+pluggy==1.6.0
+pycairo==1.29.1
+Pygments==2.21.0
+PyGObject==3.56.3
+pytest==9.1.1
+python-xlib==0.33
+scipy==1.18.1
+shapely==2.1.2
+six==1.17.0
+sortedcontainers==2.4.0
