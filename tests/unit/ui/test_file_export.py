@@ -85,6 +85,31 @@ def test_jpeg_quality_affects_output_file_size(tmp_path):
     assert (tmp_path / "low.jpg").stat().st_size < (tmp_path / "high.jpg").stat().st_size
 
 
+def test_jpeg_export_flattens_transparency_to_a_genuine_rgb_pixbuf(tmp_path):
+    """JPEG has no alpha channel - a naive RGBA-flagged pixbuf (even
+    with every alpha byte set to 255) is accepted by this dev
+    machine's own GdkPixbuf JPEG backend, but rejected outright by
+    Ubuntu 26.04's newer glycin-based one ("does not support the color
+    type Rgba8"), confirmed live via a real Launchpad PPA build
+    failure. A regression here wouldn't be caught by this machine's
+    own backend, so this asserts the *saved file itself* has no alpha
+    channel at all, not just that saving didn't raise.
+    """
+    image = solid_image(color=(200, 50, 50, 128))  # half-transparent red
+    path = tmp_path / "shot.jpg"
+
+    save_image_to_file(image, path)
+
+    loaded = GdkPixbuf.Pixbuf.new_from_file(str(path))
+    assert loaded.get_n_channels() == 3
+    assert not loaded.get_has_alpha()
+    # Composited onto white at 50% alpha: red 200 -> ~228, green/blue
+    # 50 -> ~152 - loose bounds since JPEG is lossy.
+    pixel = pixbuf_to_numpy(loaded)[0, 0]
+    assert 210 <= pixel[0] <= 245
+    assert 135 <= pixel[1] <= 170
+
+
 def test_jpeg_quality_is_ignored_for_non_jpeg_formats(tmp_path):
     image = solid_image()
     path = tmp_path / "shot.png"

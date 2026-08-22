@@ -10,6 +10,11 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
+import gi
+
+gi.require_version("GdkPixbuf", "2.0")
+from gi.repository import GdkPixbuf, GLib
+
 import numpy as np
 
 from orcshot.ui.gdk_convert import numpy_to_pixbuf
@@ -25,6 +30,35 @@ _EXTENSION_TO_TYPE = {
 }
 
 
+def _flatten_to_rgb_pixbuf(image: np.ndarray) -> GdkPixbuf.Pixbuf:
+    """JPEG has no alpha channel at all - real Windows' own JPEG
+    encoder (System.Drawing) has the same constraint, so this isn't a
+    new design question, just one this port hadn't hit yet. Composites
+    onto white first (matching every other major image editor's
+    default flatten background - GIMP, Photoshop, etc. - when
+    exporting to a non-alpha format), then builds a genuine 3-channel,
+    has_alpha=False pixbuf.
+
+    Confirmed live (task #149-adjacent, PPA build failure on Ubuntu
+    26.04/"resolute"): just zeroing the array's alpha channel while
+    keeping it 4-channel via numpy_to_pixbuf isn't enough - Ubuntu
+    24.04's older GdkPixbuf JPEG backend silently discarded alpha, but
+    26.04's newer glycin-based one rejects an RGBA-flagged pixbuf
+    outright ("does not support the color type Rgba8"), evidently
+    checking the pixbuf's own declared color type rather than the
+    actual alpha values.
+    """
+    rgb = image[:, :, :3].astype(np.float64)
+    alpha = image[:, :, 3:4].astype(np.float64) / 255.0
+    flattened = np.round(rgb * alpha + 255.0 * (1.0 - alpha)).astype(np.uint8)
+    height, width = flattened.shape[:2]
+    rowstride = width * 3
+    data = np.ascontiguousarray(flattened).tobytes()
+    return GdkPixbuf.Pixbuf.new_from_bytes(
+        GLib.Bytes.new(data), GdkPixbuf.Colorspace.RGB, False, 8, width, height, rowstride
+    )
+
+
 def save_image_to_file(image: np.ndarray, path, jpeg_quality: int = None) -> None:
     """``jpeg_quality`` (0-100, faithful port of Windows' own
     OutputFileJpegQuality - task #95's Output tab, settings.
@@ -38,6 +72,9 @@ def save_image_to_file(image: np.ndarray, path, jpeg_quality: int = None) -> Non
     option_keys, option_values = [], []
     if jpeg_quality is not None and file_type == "jpeg":
         option_keys, option_values = ["quality"], [str(jpeg_quality)]
+    if file_type == "jpeg":
+        _flatten_to_rgb_pixbuf(image).savev(str(path), file_type, option_keys, option_values)
+        return
     numpy_to_pixbuf(image).savev(str(path), file_type, option_keys, option_values)
 
 
