@@ -1,4 +1,19 @@
-orcshot (0.1.0-3) noble; urgency=medium
+orcshot (0.1.0-4) noble; urgency=medium
+
+  * Add gir1.2-gsound-1.0 to Build-Depends. Missing since task #158 added
+    it as a runtime Depends only - the test suite (run during the build
+    via dh_auto_test) imports capture/capture_feedback.py, which calls
+    gi.require_version("GSound", "1.0") at module load time, so a clean
+    build chroot without this typelib fails to even collect
+    tests/unit/capture/test_capture_feedback.py. Confirmed as the exact
+    cause of 0.1.0-3's real build failure on Launchpad's amd64 builder
+    (buildlog: "ValueError: Namespace GSound not available"). Not caught
+    locally because this dev machine already had gir1.2-gsound-1.0
+    installed from earlier testing.
+
+ -- Orcshot <314918217+artificialorctelligence@users.noreply.github.com>  Sat, 22 Aug 2026 12:51:23 -0500
+
+orcshot (0.1.0-3) resolute; urgency=medium
 
   * Task #149/#157/#162/#158-161: tool-palette overflow, editor window
     placement/resize fixes, capture sound/notification
