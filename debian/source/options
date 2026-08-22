@@ -1,0 +1,18 @@
+# dpkg-source's own default -I exclusions (VCS dirs, backups, swap files,
+# Libtool build output) don't cover Python's own local dev/build artifacts -
+# confirmed live: a `debuild -S -sa` run with a local .venv/ present swept
+# the entire virtualenv (including compiled numpy/scipy/shapely .so files
+# and Windows pip-vendored .exe files) into the source tarball, caught by
+# lintian's source-is-missing/source-contains-prebuilt-windows-binary
+# checks. Mirrors this repo's own .gitignore - format 3.0 (native) builds
+# straight from the working tree, not from git, so .gitignore itself has
+# no effect here.
+tar-ignore = ".venv"
+tar-ignore = "__pycache__"
+tar-ignore = "*.pyc"
+tar-ignore = ".pytest_cache"
+tar-ignore = "*.egg-info"
+tar-ignore = "build"
+tar-ignore = "dist"
+tar-ignore = ".coverage"
+tar-ignore = "htmlcov"

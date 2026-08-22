@@ -1,3 +1,10 @@
+orcshot (0.1.0-3) noble; urgency=medium
+
+  * Task #149/#157/#162/#158-161: tool-palette overflow, editor window
+    placement/resize fixes, capture sound/notification
+
+ -- Orcshot <314918217+artificialorctelligence@users.noreply.github.com>  Sat, 22 Aug 2026 00:02:24 -0500
+
 orcshot (0.1.0-2) noble; urgency=medium
 
   * Fix a test-only build failure on Launchpad's build farm: a StepLabel
