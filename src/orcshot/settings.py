@@ -41,6 +41,8 @@ _LAST_UPDATE_CHECK_KEY = "last_update_check"
 _OUTPUT_SETTINGS_KEY = "output_settings"
 _EXCLUDED_DESTINATIONS_KEY = "excluded_destinations"
 _SHOW_MAGNIFIER_WHILE_SELECTING_KEY = "show_magnifier_while_selecting"
+_PLAY_CAPTURE_SOUND_KEY = "play_capture_sound"
+_SHOW_CAPTURE_NOTIFICATION_KEY = "show_capture_notification"
 _DEFAULT_OUTPUT_DIRNAME = "Screenshots"
 _DEFAULT_FOOTER_PATTERN = "%B %d, %Y %I:%M %p"
 _DEFAULT_ICON_SIZE = 24
@@ -55,6 +57,48 @@ def config_file_path(config_home: Path = None) -> Path:
     if config_home is None:
         config_home = Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config"))
     return config_home / "orcshot" / CONFIG_FILENAME
+
+
+def quit_marker_path(config_home: Path = None) -> Path:
+    """Task #150 follow-up: a real, explicit "the user just quit"
+    marker, next to config.json. Global capture hotkeys (hotkey_setup.py)
+    are registered as OS-level "run this command" keybindings
+    (Cinnamon/GNOME custom-keybindings), independent of whether an
+    Orcshot process is currently running - direflail's own stated
+    requirement ("when the user selects quit... it should not be
+    running anymore... it should remain this way until the user
+    restarts") can't be honored just by the process actually exiting
+    (confirmed it already does, live, nothing left in `ps aux`), since
+    the very next hotkey press launches a brand new instance from
+    scratch regardless - live-reported: "pressing prtscr starts a
+    capture in orcshot and then brings the icon back" after quitting.
+    This marker is app.py's main()'s way of telling a hotkey-triggered
+    relaunch apart from a real, intentional reopen (the two are
+    otherwise indistinguishable from argv alone) - see main()'s own
+    comment for the actual check.
+    """
+    if config_home is None:
+        config_home = Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config"))
+    return config_home / "orcshot" / "quit.marker"
+
+
+def write_quit_marker(path: Path = None) -> None:
+    if path is None:
+        path = quit_marker_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.touch()
+
+
+def clear_quit_marker(path: Path = None) -> None:
+    if path is None:
+        path = quit_marker_path()
+    path.unlink(missing_ok=True)
+
+
+def is_quit_marker_set(path: Path = None) -> bool:
+    if path is None:
+        path = quit_marker_path()
+    return path.exists()
 
 
 def default_output_directory() -> Path:
@@ -129,6 +173,56 @@ def set_capture_mouse_cursor(enabled: bool, path: Path = None) -> None:
         path = config_file_path()
     settings = _load(path)
     settings[_CAPTURE_MOUSE_CURSOR_KEY] = enabled
+    _save(settings, path)
+
+
+def get_play_capture_sound(path: Path = None) -> bool:
+    """Faithful port of Windows' "Play camera sound" Capture-tab
+    checkbox (ICoreConfiguration.cs's PlayCameraSound) - see
+    capture/capture_feedback.py for where this is actually applied (a
+    themed system sound played once a capture completes, right before
+    the destination-choosing UI appears - matching CaptureHelper.cs's
+    own DoCaptureFeedback timing). Default False - a deliberate
+    divergence from Windows' own default True, direflail's explicit
+    call after noticing the sound audibly lags the picker's own
+    appearance by a beat (GSound/canberra's first PulseAudio
+    connection of the session, not a bug - see this port's own
+    REQUIREMENTS.md for the full context)."""
+    if path is None:
+        path = config_file_path()
+    return _load(path).get(_PLAY_CAPTURE_SOUND_KEY, False)
+
+
+def set_play_capture_sound(enabled: bool, path: Path = None) -> None:
+    if path is None:
+        path = config_file_path()
+    settings = _load(path)
+    settings[_PLAY_CAPTURE_SOUND_KEY] = enabled
+    _save(settings, path)
+
+
+def get_show_capture_notification(path: Path = None) -> bool:
+    """Faithful port of Windows' "Show notification" Capture-tab
+    checkbox (ICoreConfiguration.cs's ShowTrayNotification) - see
+    capture/capture_feedback.py for where this is actually applied.
+    Default False - a deliberate divergence from Windows' own default
+    True, same reasoning as get_play_capture_sound's own default:
+    direflail's explicit call after live-testing it fires the same
+    system notification.oga sound already tracked down and defaulted
+    off for the camera-shutter sound, and unlike Windows' own version
+    (a real per-destination outcome message, "Saved to X") this port's
+    simplified notification just says a capture happened - lower
+    value, same noise, live-reported as unwanted at that price."""
+    if path is None:
+        path = config_file_path()
+    return _load(path).get(_SHOW_CAPTURE_NOTIFICATION_KEY, False)
+
+
+def set_show_capture_notification(enabled: bool, path: Path = None) -> None:
+    if path is None:
+        path = config_file_path()
+    settings = _load(path)
+    settings[_SHOW_CAPTURE_NOTIFICATION_KEY] = enabled
     _save(settings, path)
 
 

@@ -2636,9 +2636,12 @@ attempting, since a screenshot call is itself a point-in-time query most likely 
 frame has already settled by the time it executes, the same fundamental limitation as the "capture after
 the drag" tests in item 1 above, which is why this wasn't tried as a fifth iteration.
 
-Left **open** (task #84) rather than closed, per direflail's explicit direction, with root cause
-recorded as identical to task #83 - revisit both together if a genuinely different rendering approach is
-ever undertaken, rather than continuing to chase incremental app-side mitigations on this one alone.
+Left **open** for a time per direflail's explicit direction, with root cause recorded as identical to
+task #83 - revisit both together if a genuinely different rendering approach is ever undertaken, rather
+than continuing to chase incremental app-side mitigations on this one alone.
+
+**Update, 2026-08-21 - closed.** direflail: "close this one, if it comes up again ill reopen." No new
+work done; the analysis and four attempts above still stand as the record if this needs revisiting.
 
 #### Extending Shell-native capture to Full Screen/Active Window/Last Region Repeat (task #73, complete 2026-08-09)
 
@@ -6568,6 +6571,260 @@ confirmed byte-for-byte via hexdump, no typo) can never match. Doesn't block `po
 successfully) and didn't appear during task #156's own real `dpkg -r`/`dpkg -i` verification, so it looks
 specific to reinstalling the identical version rather than a genuine packaging defect - not chased
 further since it's cosmetic and off this task's critical path.
+
+## Task #159: unwanted audible tone on two Wayland dialogs (fixed, verified live 2026-08-21)
+
+direflail, live: "wayland version, i am not hearing a 'camera' noise when i take the screenshot (I was
+yesterday) but i am hearing a tone when the save as screen appears" - the task #73 shutter-sound fix still
+held (confirmed separately), but a new, real, unrelated tone showed up on two different Wayland dialogs.
+Two genuinely different root causes, found and fixed independently:
+
+**Save As dialog (`ui/destination_picker.py`'s `_save_as`) - fixed.** A full-codebase grep of every
+`Gtk.Dialog`/`Gtk.FileChooserDialog`/`Gtk.MessageDialog` construction site (`app.py`, `editor_window.py`,
+`printing.py`, `color_dialog.py`, `external_commands.py`, `first_run_setup.py`, `text_obfuscation_dialog.py`)
+found this was the *only* one missing `transient_for` - every other dialog already sets it. A parentless
+modal `.run()` dialog failing to establish a proper Wayland compositor grab is a known trigger for GDK's
+own fallback beep. Fixed by adding `app.py`'s new `topmost_editor()` accessor (extracted from two
+duplicated inline lookups already in `show_preferences`/`open_file_from_tray`) and wiring `_save_as`
+through it, matching the same "topmost open editor, else None" pattern every other tray/hotkey-reachable
+dialog already uses. Confirmed live: tone gone.
+
+**Close-with-unsaved-changes dialog (`ui/editor_window.py`'s `_on_delete_event`) - fixed, took three
+attempts.** This dialog already had `transient_for=self` set correctly, so the Save As fix's own theory
+didn't apply here - real, useful evidence that ruled out one explanation while the actual one was still
+unknown, rather than assuming the same fix would cover both.
+
+1. First attempt: removed a `self.present()` call sitting directly before `dialog.run()` (present since
+   the method's original commit, not added to fix any specific prior bug) - theorized as a modal grab
+   racing an in-flight present() request. direflail retested: **"the tone remains."** Real negative
+   result.
+2. Investigated whether the bundled GNOME Shell extension was responsible - genuine Clutter/GJS errors
+   (`clutter_actor_set_allocation_internal: assertion ... failed`, `Actor 'unnamed [StDrawingArea]' tried
+   to allocate a size of -2147483648.00 x -2147483648.00`, a disposed `PopupBaseMenuItem` access) showed up
+   in `journalctl` at roughly the same moment as a reproduction, which looked like a serious lead. Rather
+   than assume causation from proximity, added a temporary diagnostic: named every actor `extension.js`'s
+   `_buildDrawnMenuItem`/`_buildTrayButton`/`pickDestinationAsync` create (all were previously
+   GNOME-Shell-default "unnamed") plus a repaint-time log. Rebuilt, full logout/login (required for a
+   `.js` reload - a `.deb` reinstall alone doesn't pick it up), reproduced again. Real result: the crash
+   *still* said "unnamed" for both actors, and **no `[orcshot][task159]` log line appeared at all** -
+   meaning none of this extension's own code even ran while closing an already-open editor (the
+   destination picker only shows after a *new* capture). Conclusively ruled out this extension as the
+   cause - the earlier journal proximity was coincidence, not causation. The temporary `console.log` calls
+   were removed afterward; the actor names were kept (cheap, real diagnostic value for whatever the next
+   Shell-side crash investigation turns out to be, added no matter how this particular one resolved).
+3. Real fix: `message_type=Gtk.MessageType.QUESTION` → `Gtk.MessageType.OTHER`. GTK's own
+   `libcanberra-gtk-module`, when active, plays a themed system sound keyed directly to a
+   `GtkMessageDialog`'s `message_type` (dialog-question/warning/error) the moment it's realized -
+   independent of `transient_for`, independent of any Shell extension. This also explains why the Save As
+   fix didn't touch this dialog and vice versa: `Gtk.FileChooserDialog` has no `message_type` concept at
+   all, so it was never eligible for this specific mechanism in the first place - two dialogs, two
+   unrelated bugs, not one bug with two symptoms. `OTHER` shows no icon (appropriate anyway - this is a
+   routine "want to save first?" prompt, not a warning) and isn't wired to any canberra sound event.
+   direflail, after retest: **"no more tone."**
+
+Full suite green (1028 passed) after every change; each build deployed and tested live before moving to
+the next hypothesis, per this project's own systematic-debugging discipline - guessing was avoided in
+favor of gathering real evidence (a full dialog-site grep, temporary Shell-extension diagnostics) at each
+step where the next cause wasn't already obvious.
+
+**Separately found and fixed during this same investigation - task #160 (see below):** while testing
+whether the close-dialog tone happened with Orcshot not running at all, direflail discovered Quit didn't
+actually stay quit against the global capture hotkeys. Different bug, different mechanism, fixed
+separately - not folded into this write-up beyond this cross-reference.
+
+**Separate platform, resolved separately as task #161:** direflail also reported a distinct
+"xylophone"-sounding tone on every Print Screen press on the *real X11 Mint/Cinnamon machine* (not the
+Wayland VM) - confirmed not a Cinnamon-native keybinding conflict and not any beep/sound call anywhere in
+this codebase's own Python source. Not the same bug as either dialog fix above - see task #161's own
+write-up for the real root cause (the "already running" notification firing on every hotkey press) and
+resolution.
+
+## Task #160: Quit didn't actually stay quit against global capture hotkeys (fixed, verified live 2026-08-21)
+
+Found serendipitously while isolating task #159's tone: asked direflail to fully quit Orcshot and retest
+PrtScr with it dead, to rule out whether the process needed to be running at all. Live-reported: "selecting
+quit in the tray icon makes the icon go away, but pressing prtscr starts a capture in orcshot and then
+brings the icon back."
+
+Root cause: `hotkey_setup.py`'s global capture hotkeys are registered as Cinnamon/GNOME's own
+`custom-keybinding` GSettings entries, which run `/usr/bin/orcshot --capture-*` as an OS-level command -
+completely independent of whether an Orcshot process is currently alive. `self.quit()` genuinely already
+terminated the process fully (confirmed via `ps aux`, going back to task #150's own original verification)
+- the missing piece was never that, it was that the very next hotkey press launches a brand-new instance
+from scratch regardless, contradicting direflail's own task #150 requirement verbatim: "it should not be
+running anymore... it should remain this way until the user restarts." Worth noting: real Windows
+Greenshot's own hotkeys are an in-process `RegisterHotKey` call that dies with the process, so on Windows
+quitting *does* silently disable the hotkeys too - this Linux port's prior behavior (hotkey silently
+relaunching the app) was an unintentional divergence from that, not a deliberate design choice.
+
+Asked direflail directly how quit-vs-hotkey should behave (AskUserQuestion) rather than assume: chose "the
+hotkey should do nothing after quit," matching both real Greenshot's own behavior and task #150's literal
+wording.
+
+**Fix**: a real on-disk marker (`settings.py`'s `quit_marker_path()`/`write_quit_marker()`/
+`clear_quit_marker()`/`is_quit_marker_set()`, `~/.config/orcshot/quit.marker`, same XDG-path convention as
+`config_file_path()`), checked in `app.py`'s `main()` *before* the `Gio.Application` is even constructed -
+a hotkey-triggered relaunch never gets far enough to build a tray icon or do anything visible. The
+distinguishing signal: a capture-flag invocation (`--capture-region` etc.) while the marker is set can
+only be a hotkey relaunch, since every genuine manual reopen (Applications menu, a bare `orcshot` from a
+terminal, a `.orcshot` file double-click) never carries one of those flags, matching
+`hotkey_setup.py`'s own `HotkeyBinding` table exactly - so a manual reopen instead clears the marker and
+proceeds normally, which is what "restarts" (task #150's own wording) means here.
+
+Two related bugs caught and fixed in the same pass, both real correctness gaps against the same
+requirement:
+- The X11/AppIndicator3 local tray menu's own "Quit" item called bare `self.quit` directly, bypassing
+  `_quit_and_hide_tray_button()` (the Shell-native panel button's own D-Bus "tray-quit" action already
+  routed through it correctly) - meaning the new marker-write would have silently never applied on X11,
+  the very platform this was reported on. Fixed to call `_quit_and_hide_tray_button` like every other quit
+  path.
+- `_maybe_quit_after_upgrade_prep` (task #151/#152's package-upgrade handling) also routes through
+  `_quit_and_hide_tray_button()` - which would have *also* written the marker on every package upgrade,
+  incorrectly suppressing the very next capture hotkey even though the user never actually quit. Added a
+  `write_marker: bool = True` parameter, with the upgrade path passing `False` - that quit is involuntary
+  (systemd/the next login is supposed to bring it back), not the user asking to stay quit.
+
+Six new unit tests (`TestQuitMarker` in `tests/unit/test_settings.py`) cover the pure marker logic - path
+resolution, write/is-set/clear round trips, directory auto-creation, clear-when-never-written as a no-op -
+same testing approach as every other settings.py function (real file I/O against a temp path). `main()`'s
+own check and the app.py quit-path wiring are GTK/GApplication glue with no meaningful headless test, same
+precedent as the rest of this project's UI code - verified live instead. Full suite green (1028 passed).
+
+Confirmed live by direflail on the real X11 machine: **"quit stays quit now."**
+
+## Task #161: "already running" notification fired on every capture hotkey press (fixed, verified live 2026-08-21)
+
+Follow-up to task #159's own "still unresolved, separate platform" note: a distinct "xylophone"-sounding
+tone on every Print Screen press on the real X11 Mint/Cinnamon machine, confirmed not a Cinnamon-native
+keybinding conflict and not any explicit beep/sound call anywhere in this codebase's own Python source.
+direflail identified the sound precisely on request: "it's the same noise as Showing Notifications plays -
+notification.oga" - a real desktop notification, not a generic system bell, immediately reframing the
+whole investigation from "what's ringing a bell" to "what's showing a notification on every hotkey press."
+
+Root cause, found by reading `app.py`'s own `do_command_line`/`do_activate` rather than guessing:
+`do_command_line` calls `self.activate()` **unconditionally** at its very top, before the
+if/elif/else chain that checks which capture option (if any) was actually given. `do_activate` shows
+"Orcshot is already running" (with its own notification sound) whenever `self._has_activated_before` is
+already `True` - which, after the very first activation of a session, is true for literally every
+subsequent invocation, including every single capture-hotkey press. The existing code comment claimed "A
+capture-option or file-open invocation already does something visible on its own... this only covers the
+bare 'just open Orcshot' case" - but the actual code never implemented that distinction; the comment
+described the *intended* behavior, not what the code did. Confirmed `Gio.ApplicationFlags.
+HANDLES_COMMAND_LINE` (set in `__init__`) means GApplication itself never emits `activate` on its own for
+this app - `do_activate` is *only* ever reached via `do_command_line`'s own explicit call, so there was no
+separate direct-launcher path to account for, fully de-risking the fix. Also matches the "wasn't sure when
+it started" symptom exactly: silent on the very first activation of a session (before
+`_has_activated_before` flips true), firing on every one after that.
+
+**Fix**: snapshot `was_already_running` before `self.activate()` mutates the flag, and move the
+notification out of `do_activate` (now just `self.hold()`) into `do_command_line`'s own bare-invocation
+`else` branch - the one branch that genuinely doesn't already show something visible of its own (every
+capture option opens an overlay/picker; a `.orcshot` file-open opens the editor). Full suite green (1028
+passed). Built, deployed, direflail retested on the real X11 machine with several Print Screen presses in
+a row: **"it is gone."**
+
+## Task #158: Play Camera Sound / Show Notification after capture (fixed, verified live 2026-08-21)
+
+Real Windows Greenshot's Capture tab has two settings this port never had: "Play camera sound"
+(`PlayCameraSound`, `SoundHelper.Play()`, called from `CaptureHelper.cs`'s `DoCaptureFeedback()` right
+after a capture completes) and "Show notification" (`ShowTrayNotification`, a tray balloon with the
+chosen destination's own outcome message - "Saved to X", not a generic "capture happened" message).
+Neither existed in this port at all before this task - `_build_capture_settings_tab`'s own docstring
+used to list them under "deliberately not here... no capture-complete notify/sound feature exists in this
+port at all to attach them to."
+
+**Implementation**: two new settings (`settings.py`'s `get_play_capture_sound`/`get_show_capture_notification`
++ setters), a new module (`capture/capture_feedback.py`) with `play_capture_sound()` (GSound,
+`gir1.2-gsound-1.0` - a small freedesktop library for themed system sounds by event ID; `"camera-shutter"`
+is the same event GNOME's own Screenshot tool uses) and `show_capture_complete_notification()`
+(`Gio.Notification`, this app's existing `_notify()`-adjacent mechanism), plus two new checkboxes in the
+Preferences Capture tab. `gir1.2-gsound-1.0` added to `debian/control`'s Depends.
+
+**Timing turned out to need two different wiring points, not one**, discovered directly from live
+feedback rather than assumed up front:
+
+- X11's classic `Gtk.Menu` picker (`ui/destination_picker.py`'s `show_destination_picker`) calls both
+  functions together, once, right at its own top - before the picker is shown, matching
+  `DoCaptureFeedback`'s real timing. direflail confirmed this is the correct behavior on X11.
+- The Wayland Shell-native path is architecturally different: the *entire* capture-then-show-picker
+  round trip happens inside the bundled GNOME Shell extension's own JS code
+  (`extension.js`'s `pickDestinationAsync`, shared by `CaptureRect`/`RegionSelectOverlay`/
+  `WindowPickerOverlay`) as one opaque D-Bus call - Python's `dispatch_destination` only ever learns of a
+  capture *after* the user has already picked a destination inside that JS-side menu. Calling the sound
+  from `dispatch_destination` (the natural-looking place) fired it a beat late, direflail catching the
+  asymmetry directly: "x11 plays the shutter sound when the popup window... comes up. wayland plays it
+  after you select an option. the x11 way is how it should be." Fixed by registering a new
+  `"play-capture-sound"` GAction (`app.py`'s `_register_tray_actions`) and having `pickDestinationAsync`
+  invoke it, right before its own `menu.open(true)`, via the same `Gio.DBusActionGroup.activate_action`
+  mechanism the tray button's own clicks already use (extracted into a shared `_activateOrcshotAction`
+  helper, `extension.js`) - JS only signals *when*, Python still owns the actual on/off preference and
+  the GSound call. `dispatch_destination` was correspondingly changed to call only
+  `show_capture_complete_notification()`, not the sound half, avoiding a double-fire.
+
+**A real, unrelated bug found and fixed along the way**: `ui/destination_picker.py`'s own internal
+`show_destination_picker` → `dispatch_destination` delegation for its own menu-item clicks was refactored
+to call the destination's `handler` directly instead, both to avoid double-firing feedback and because it
+was doing a redundant second `_all_destinations()` lookup.
+
+**A long, genuinely difficult diagnostic detour**: for most of this task's live-testing, the sound simply
+never played at all, on Wayland, regardless of the preference - and neither of the temporary diagnostic
+log lines added to trace it (first `console.log`, then the plain `log()` global, on the theory that
+`console.log` might not route to journald the same way `logError`/`g_warning` reliably do - both already
+used elsewhere in this file) ever appeared, across many rebuild-relogin-retest cycles. Also chased and
+conclusively ruled out along the way: a real, reproducible Clutter/GJS crash
+(`clutter_actor_set_allocation_internal` assertion failure, an actor trying to allocate
+`-2147483648.00 x -2147483648.00`, a disposed `PopupBaseMenuItem`) that kept showing up nearby in the
+journal - every `St.DrawingArea` this extension creates (region-select overlay, window-picker overlay,
+eyedropper overlay, the tray/picker menu icons) was explicitly named (previously all "unnamed", GNOME
+Shell's own default) specifically to settle this, and the crash *still* said "unnamed" every time,
+including right after an actual capture - conclusively someone else's actor, not orcshot's, and later
+confirmed to fire automatically ~15-20s after every login regardless of anything orcshot does. Root
+cause of the real "no sound" mystery, found only after checking `journalctl --user -b 0 | grep -i
+'orcshot\|extension'` for the *full* boot log rather than just a live `-f` tail: a **stale copy of the
+extension in `~/.local/share/gnome-shell/extensions/orcshot-clipboard@orcshot.org`**, left over from
+earlier per-user-override dev-testing (a legitimate, faster way to iterate on JS without a full package
+reinstall), silently shadowing the
+system-wide, `.deb`-installed copy at `/usr/share/gnome-shell/extensions/` on *every single login for the
+entire session* - "Extension orcshot-clipboard@orcshot.org already installed in
+/home/ubuntu2604/.local/share/gnome-shell/extensions/orcshot-clipboard@orcshot.org. /usr/share/gnome-shell/
+extensions/orcshot-clipboard@orcshot.org will not be loaded" was sitting right there in the journal the
+whole time, unnoticed. No amount of `sudo dpkg -i` + full logout/login was ever going to surface new JS
+changes while that stale local copy existed - not a gap in the established "full logout/login reloads
+`.js`" discipline, but a different failure mode entirely (a *local override* permanently beating the
+*real* install, regardless of how many times the real one gets reinstalled or the session restarted).
+Removing the stale copy (`rm -rf ~/.local/share/gnome-shell/extensions/orcshot-clipboard@orcshot.org`)
+immediately fixed it - confirmed live, the very next test: **"camera sound works when enabled, does not
+play when disabled."** All temporary diagnostics (the `print()`/`log()` calls, not the permanent actor
+naming, which stays - cheap, real value for whatever the next Shell-side crash investigation turns out to
+be) removed once confirmed.
+
+**Defaults - both False, diverging from Windows' own True default for each, both per direflail's explicit
+live-tested call, not assumed**:
+- Play Camera Sound: the sound audibly lags the destination picker's own appearance by a beat on its
+  first play of a session (GSound/canberra's first PulseAudio connection) - not a bug, but not a good
+  enough first impression to default on.
+- Show Notification: plays the same system `notification.oga` sound, but - unlike Windows' own version,
+  a real per-destination outcome message - this port's simplified version just confirms a capture
+  happened, information the user already has by definition. direflail, on realizing what the noise
+  actually was: "did i ask for that? i don't want it."
+
+**A real, adjacent bug found and fixed on the way to diagnosing this one - task #161** (see that task's
+own write-up): while narrowing down whether the Wayland sound delay was capture-related at all,
+direflail discovered Quit didn't actually stay quit against the global capture hotkeys. Cross-referenced
+here since it surfaced mid-investigation, not folded into this write-up otherwise.
+
+Note for anyone (including direflail, across either the VM or the real X11 machine) who explicitly
+toggled either checkbox on during earlier testing, before these defaults were changed to False: `dpkg`
+never touches `~/.config/orcshot/config.json`, so that earlier explicit choice persists across every
+reinstall - the new False default only applies where the setting was never touched at all. If either
+checkbox looks "on" after installing this build despite the new default, that's an earlier real choice
+being correctly honored, not a bug.
+
+Full suite green (1045 passed - 11 new tests in `tests/unit/capture/test_capture_feedback.py` covering
+the settings-gating logic for both functions, individually and combined; 12 new tests in
+`tests/unit/test_settings.py` for the two new settings' defaults/round-trips). The GTK/GApplication/GJS
+wiring itself has no meaningful headless test, same precedent as the rest of this project's UI and
+Shell-extension code - verified live instead, extensively, per this write-up above.
 
 ## Licensing
 

@@ -172,7 +172,9 @@ from orcshot.settings import (
     get_icon_size,
     get_output_directory,
     get_output_settings,
+    get_play_capture_sound,
     get_print_options,
+    get_show_capture_notification,
     get_show_magnifier_while_selecting,
     get_suppress_save_dialog_at_close,
     get_update_check_interval_days,
@@ -185,7 +187,9 @@ from orcshot.settings import (
     set_icon_size,
     set_output_directory,
     set_output_settings,
+    set_play_capture_sound,
     set_print_options,
+    set_show_capture_notification,
     set_show_magnifier_while_selecting,
     set_suppress_save_dialog_at_close,
     set_update_check_interval_days,
@@ -4728,9 +4732,40 @@ class EditorWindow(Gtk.Window):
         if not self.is_modified or get_suppress_save_dialog_at_close():
             return False
 
-        self.present()
+        # Task #159: no self.present() here (removed) - this handler only
+        # ever fires from a genuine interactive close (the window
+        # manager's own close button, or File > Close), both of which
+        # require this window to already be focused to receive them, so
+        # asking the compositor to (re-)focus it immediately before
+        # requesting a brand new modal grab for the dialog below was
+        # unnecessary. Live-reported on Wayland: an audible tone played
+        # right as this dialog appeared, even with transient_for already
+        # correctly set (ruling out task #159's other fix, a missing
+        # transient_for, as the cause here) - removing present() alone
+        # didn't help either. A follow-up investigation into the
+        # bundled GNOME Shell extension (real Clutter/GJS errors
+        # showing up in the journal at roughly the same moment) turned
+        # out to be a dead end too - confirmed live via named actors
+        # and repaint-time logging that none of this extension's own
+        # code even runs while closing an already-open editor, and the
+        # crashing actors were never ours to begin with.
+        #
+        # message_type=OTHER (not QUESTION) instead: GTK's own
+        # libcanberra-gtk-module, if active, plays a themed system
+        # sound keyed directly to a GtkMessageDialog's message-type
+        # (dialog-question/warning/error) the moment it's realized -
+        # independent of transient_for, independent of any Shell
+        # extension. _save_as (Gtk.FileChooserDialog, no message-type
+        # concept at all) was never eligible for this in the first
+        # place, which fits why fixing its actual bug (a missing
+        # transient_for) silenced it while the same fix here changed
+        # nothing - two different dialogs, two different mechanisms.
+        # OTHER shows no icon at all (there's no severity here worth
+        # signalling anyway - this is a routine "want to save first?"
+        # prompt, not a warning), and isn't wired to any canberra sound
+        # event.
         dialog = Gtk.MessageDialog(
-            transient_for=self, modal=True, message_type=Gtk.MessageType.QUESTION,
+            transient_for=self, modal=True, message_type=Gtk.MessageType.OTHER,
             buttons=Gtk.ButtonsType.NONE, text="Do you want to save the screenshot?",
         )
         dialog.set_title("Save image?")
@@ -5058,13 +5093,33 @@ def _build_general_settings_tab(parent: Gtk.Window) -> Gtk.Box:
 def _build_capture_settings_tab() -> Gtk.Box:
     """Matches real Windows' Capture tab (groupbox_capture) as far
     as this port can - "Capture mouse cursor" (moved here
-    unchanged from the old flat dialog) plus the "zoomer" (region-
-    select magnifier) toggle, new this pass.
+    unchanged from the old flat dialog), the "zoomer" (region-
+    select magnifier) toggle, and Play Camera Sound/Show Notification
+    (task #158/#126 - checkbox_playsound/checkbox_notifications,
+    SettingsForm.Designer.cs, PropertyName PlayCameraSound/
+    ShowTrayNotification - Windows defaults both True, this port
+    defaults both False, per direflail's own explicit call after
+    live-testing each: the sound audibly lags the destination
+    picker's own appearance by a beat (GSound/canberra's first
+    PulseAudio connection of the session, not a bug, but not a good
+    enough first impression to default on); the notification plays
+    the same system notification.oga sound while showing meaningfully
+    less than Windows' own version (a real per-destination outcome
+    message, e.g. "Saved to X" - this port's own simplified version
+    just confirms a capture happened, which the user already knows).
+    See get_play_capture_sound/get_show_capture_notification's own
+    docstrings.
+
+    Real Windows also exposes these two from a tray-icon right-click
+    quick-toggle - deliberately not replicated here: direflail's own
+    call, since the Wayland Shell-native tray button (a separate GJS
+    process, extension.js) has no equivalent arbitrary-checkbox
+    mechanism the way a WinForms ContextMenuStrip does, and X11-only
+    parity would be worse than no shortcut at all. Preferences is the
+    one place both platforms already share.
 
     Deliberately NOT here, each for its own real reason rather than
-    an oversight: Notifications/Play Sound (task #126 - no capture-
-    complete notify/sound feature exists in this port at all to
-    attach them to). The Window Capture group (groupbox_
+    an oversight: the Window Capture group (groupbox_
     windowscapture's Screen/GDI/Aero/AeroTransparent/Auto capture-
     technique selector, interactive-capture radio, background
     color) - entirely about which Windows graphics API grabs a
@@ -5113,6 +5168,19 @@ def _build_capture_settings_tab() -> Gtk.Box:
     )
     magnifier_check.connect("toggled", lambda btn: set_show_magnifier_while_selecting(btn.get_active()))
     inner.pack_start(magnifier_check, False, False, 0)
+
+    # Task #158/#126 - see capture/capture_feedback.py's own docstring
+    # for where/how these are actually applied (once per capture,
+    # right before the destination-choosing UI appears).
+    sound_check = Gtk.CheckButton(label="Play camera sound")
+    sound_check.set_active(get_play_capture_sound())
+    sound_check.connect("toggled", lambda btn: set_play_capture_sound(btn.get_active()))
+    inner.pack_start(sound_check, False, False, 0)
+
+    notification_check = Gtk.CheckButton(label="Show notification after capture")
+    notification_check.set_active(get_show_capture_notification())
+    notification_check.connect("toggled", lambda btn: set_show_capture_notification(btn.get_active()))
+    inner.pack_start(notification_check, False, False, 0)
 
     box.pack_start(frame, False, False, 0)
     return box

@@ -29,14 +29,19 @@ from orcshot.settings import (
     get_last_update_check,
     get_output_directory,
     get_output_settings,
+    get_play_capture_sound,
     get_print_options,
     get_recent_colors,
+    get_show_capture_notification,
     get_suppress_save_dialog_at_close,
     get_update_check_interval_days,
     get_use_default_proxy,
+    clear_quit_marker,
     is_first_run_setup_done,
+    is_quit_marker_set,
     mark_first_run_setup_done,
     quick_save_filename,
+    quit_marker_path,
     set_capture_mouse_cursor,
     set_excluded_destinations,
     set_external_commands,
@@ -48,11 +53,14 @@ from orcshot.settings import (
     set_last_update_check,
     set_output_directory,
     set_output_settings,
+    set_play_capture_sound,
     set_print_options,
     set_recent_colors,
+    set_show_capture_notification,
     set_suppress_save_dialog_at_close,
     set_update_check_interval_days,
     set_use_default_proxy,
+    write_quit_marker,
 )
 
 
@@ -65,6 +73,38 @@ class TestConfigFilePath:
         path = config_file_path()
         assert path.name == CONFIG_FILENAME
         assert path.parent.name == "orcshot"
+
+
+class TestQuitMarker:
+    def test_uses_xdg_config_home_when_given(self, tmp_path):
+        path = quit_marker_path(config_home=tmp_path)
+        assert path == tmp_path / "orcshot" / "quit.marker"
+
+    def test_not_set_by_default(self, tmp_path):
+        path = quit_marker_path(config_home=tmp_path)
+        assert not is_quit_marker_set(path)
+
+    def test_write_then_is_set(self, tmp_path):
+        path = quit_marker_path(config_home=tmp_path)
+        write_quit_marker(path)
+        assert is_quit_marker_set(path)
+
+    def test_write_creates_the_config_directory(self, tmp_path):
+        path = quit_marker_path(config_home=tmp_path)
+        assert not path.parent.exists()
+        write_quit_marker(path)
+        assert path.exists()
+
+    def test_clear_after_write(self, tmp_path):
+        path = quit_marker_path(config_home=tmp_path)
+        write_quit_marker(path)
+        clear_quit_marker(path)
+        assert not is_quit_marker_set(path)
+
+    def test_clear_when_never_written_is_a_no_op(self, tmp_path):
+        path = quit_marker_path(config_home=tmp_path)
+        clear_quit_marker(path)
+        assert not is_quit_marker_set(path)
 
 
 class TestDefaultOutputDirectory:
@@ -145,6 +185,52 @@ class TestCaptureMouseCursor:
         set_capture_mouse_cursor(True, path=path)
 
         assert get_capture_mouse_cursor(path=path) is True
+
+
+class TestPlayCaptureSound:
+    def test_defaults_to_false(self, tmp_path):
+        # deliberate divergence from Windows' own PlayCameraSound default (True) -
+        # direflail's explicit call, see get_play_capture_sound's own docstring
+        path = tmp_path / "config.json"
+        assert get_play_capture_sound(path=path) is False
+
+    def test_set_false_then_get_round_trips(self, tmp_path):
+        path = tmp_path / "config.json"
+
+        set_play_capture_sound(False, path=path)
+
+        assert get_play_capture_sound(path=path) is False
+
+    def test_set_true_then_get_round_trips(self, tmp_path):
+        path = tmp_path / "config.json"
+        set_play_capture_sound(False, path=path)
+
+        set_play_capture_sound(True, path=path)
+
+        assert get_play_capture_sound(path=path) is True
+
+
+class TestShowCaptureNotification:
+    def test_defaults_to_false(self, tmp_path):
+        # deliberate divergence from Windows' own ShowTrayNotification default (True) -
+        # direflail's explicit call, see get_show_capture_notification's own docstring
+        path = tmp_path / "config.json"
+        assert get_show_capture_notification(path=path) is False
+
+    def test_set_false_then_get_round_trips(self, tmp_path):
+        path = tmp_path / "config.json"
+
+        set_show_capture_notification(False, path=path)
+
+        assert get_show_capture_notification(path=path) is False
+
+    def test_set_true_then_get_round_trips(self, tmp_path):
+        path = tmp_path / "config.json"
+        set_show_capture_notification(False, path=path)
+
+        set_show_capture_notification(True, path=path)
+
+        assert get_show_capture_notification(path=path) is True
 
 
 class TestExternalEditorPreference:

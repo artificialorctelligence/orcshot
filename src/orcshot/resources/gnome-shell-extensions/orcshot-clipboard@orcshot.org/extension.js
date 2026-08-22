@@ -276,6 +276,21 @@ const DESTINATIONS = [
   ['print', 'Print', 'document-print-symbolic'],
 ];
 
+// App.py registers each of these as a GAction (see its own
+// _register_tray_actions) - GApplication exports its action group
+// automatically over D-Bus at /org/orcshot/Orcshot, no custom
+// interface needed on that side. Fire-and-forget: activate_action has
+// no return value, and there's nothing useful to do here if Orcshot
+// isn't running to receive it. Module-level (not Extension.prototype.
+// _activateTrayAction, despite doing the exact same thing) because
+// pickDestinationAsync below is also module-level, with no `this` of
+// its own to call a method through - both now share this one
+// implementation rather than duplicating the D-Bus lookup.
+function _activateOrcshotAction(name) {
+  const actionGroup = Gio.DBusActionGroup.get(Gio.DBus.session, 'org.orcshot.Orcshot', '/org/orcshot/Orcshot');
+  actionGroup.activate_action(name, null);
+}
+
 // Shows a native Shell popup menu (PopupMenu.PopupMenu - the same
 // class Shell's own top-bar menus use) at stage coordinates (x, y),
 // resolving with whichever destination id was chosen, or null if
@@ -290,10 +305,13 @@ const DESTINATIONS = [
 // used purely as that anchor.
 function pickDestinationAsync(x, y) {
   return new Promise(resolve => {
-    const anchor = new St.Widget({ x, y, width: 1, height: 1, opacity: 0, reactive: false });
+    const anchor = new St.Widget({
+      name: 'orcshot-picker-anchor', x, y, width: 1, height: 1, opacity: 0, reactive: false,
+    });
     Main.uiGroup.add_child(anchor);
 
     const menu = new PopupMenu.PopupMenu(anchor, 0, St.Side.TOP);
+    menu.actor.name = 'orcshot-picker-menu';
     Main.uiGroup.add_child(menu.actor);
 
     const manager = new PopupMenu.PopupMenuManager(anchor);
@@ -324,6 +342,18 @@ function pickDestinationAsync(x, y) {
       resolve(chosen);
     });
 
+    // Task #158 follow-up: fires the capture-complete sound right as
+    // this picker itself appears, not once a destination is chosen -
+    // dispatch_destination (app.py/ui/destination_picker.py) only
+    // ever learns of this capture *after* the user has already picked
+    // something above, which live-testing showed as an audible,
+    // noticeably-late sound compared to X11's own classic Gtk.Menu
+    // path (that one fires at the equivalent moment already, in
+    // Python, since nothing else is in the way there). Python still
+    // owns the actual on/off preference and GSound call
+    // (capture/capture_feedback.py) - this only tells it *when*.
+    // Confirmed live, verified working both on and off.
+    _activateOrcshotAction('play-capture-sound');
     menu.open(true);
   });
 }
@@ -621,6 +651,7 @@ class RegionSelectOverlay extends St.Widget {
     // GObject.signal_query() against the live St typelib, not assumed
     // from an older recollection.
     this._drawing = new St.DrawingArea();
+    this._drawing.set_name('orcshot-region-select-drawing');
     this._drawing.connect('repaint', this._onRepaint.bind(this));
     this.add_child(this._drawing);
 
@@ -1036,6 +1067,7 @@ class WindowPickerOverlay extends St.Widget {
     this.add_child(this._backdrop);
 
     this._drawing = new St.DrawingArea();
+    this._drawing.set_name('orcshot-window-picker-drawing');
     this._drawing.connect('repaint', this._onRepaint.bind(this));
     this.add_child(this._drawing);
 
@@ -1267,6 +1299,7 @@ class EyedropperOverlay extends St.Widget {
     this.add_child(this._backdrop);
 
     this._drawing = new St.DrawingArea();
+    this._drawing.set_name('orcshot-eyedropper-drawing');
     this._drawing.connect('repaint', this._onRepaint.bind(this));
     this.add_child(this._drawing);
 
@@ -1697,7 +1730,18 @@ function _loadIconGeometry() {
 // substitution.
 function _buildDrawnMenuItem(iconGeometry, geometryKey, label, size = _TRAY_ICON_SIZE) {
   const item = new PopupMenu.PopupBaseMenuItem();
+  // Task #159: named (not left as GNOME Shell's own "unnamed" default)
+  // - a real Clutter allocation-assertion crash turned up live in the
+  // journal while investigating an unrelated audible-tone bug, and
+  // every actor it named was "unnamed", making it impossible to tell
+  // whether it was one of this extension's own drawn menu icons or a
+  // GNOME Shell-internal container. Confirmed (via a since-removed
+  // temporary diagnostic build) that crash wasn't this extension's own
+  // doing at all - but the actors stayed named regardless, cheap
+  // insurance for whatever the next Shell-side crash investigation is.
+  item.name = `orcshot-menu-item-${geometryKey}`;
   const iconArea = new St.DrawingArea({
+    name: `orcshot-menu-icon-${geometryKey}`,
     style_class: 'popup-menu-icon',
     // `icon-size` (the CSS property giving a stock-name St.Icon its
     // size) is icon-specific - confirmed live it does nothing for a
@@ -1882,16 +1926,12 @@ export default class Extension extends ShellExtension {
     this._repeatIconArea?.queue_repaint();
   }
 
-  // App.py registers each of these as a GAction (see its own
-  // _register_tray_actions) - GApplication exports its action group
-  // automatically over D-Bus at /org/orcshot/Orcshot, no custom
-  // interface needed on that side. Fire-and-forget: activate_action has
-  // no return value, and there's nothing useful to do here if Orcshot
-  // isn't running to receive it (same as any other tray-icon click
-  // landing on a dead app).
+  // See _activateOrcshotAction's own comment (module-level, above
+  // pickDestinationAsync) for the full reasoning - same call, kept as
+  // a method here too since every existing call site already reaches
+  // it as this._activateTrayAction(...).
   _activateTrayAction(name) {
-    const actionGroup = Gio.DBusActionGroup.get(Gio.DBus.session, 'org.orcshot.Orcshot', '/org/orcshot/Orcshot');
-    actionGroup.activate_action(name, null);
+    _activateOrcshotAction(name);
   }
 
   _trayIconPath(name) {
@@ -1901,6 +1941,13 @@ export default class Extension extends ShellExtension {
   _buildTrayButton() {
     const iconGeometry = _loadIconGeometry();
     const button = new PanelMenu.Button(0.0, 'Orcshot', false);
+    // Task #159: see _buildDrawnMenuItem's own comment on why this
+    // extension's actors are explicitly named. PanelMenu.Button's
+    // second constructor arg above is an accessible-name string, not
+    // necessarily this actor's own `.name` (the property Clutter's
+    // crash logs actually print) - set explicitly to remove that
+    // ambiguity too.
+    button.name = 'orcshot-tray-button';
     // Matches _setAppAvailable's own reactive toggle - starts in sync
     // with this._appAvailable (already forced pessimistic-false in
     // enable() before this method runs) rather than defaulting

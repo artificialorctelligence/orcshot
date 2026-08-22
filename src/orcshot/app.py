@@ -45,7 +45,10 @@ gi.require_version("Gdk", "3.0")
 from gi.repository import Gdk, Gio, GLib, Gtk
 
 from orcshot.core.update_check import is_newer_version, should_check_now
-from orcshot.settings import get_last_update_check, get_update_check_interval_days, set_last_update_check
+from orcshot.settings import (
+    clear_quit_marker, get_last_update_check, get_update_check_interval_days,
+    is_quit_marker_set, set_last_update_check, write_quit_marker,
+)
 from orcshot.ui.capture_modes import (
     start_active_window_capture,
     start_full_screen_capture,
@@ -211,6 +214,13 @@ class OrcshotApplication(Gtk.Application):
         GLib.timeout_add_seconds(_UPDATE_CHECK_STARTUP_DELAY_SECONDS, self._start_periodic_update_checks)
 
     def do_command_line(self, command_line):
+        # Task #161: snapshotted before self.activate() below (which
+        # unconditionally sets it True every time, via do_activate) -
+        # this is what lets the bare-invocation branch further down
+        # tell "already running before this exact call" apart from
+        # "just started running because of this exact call".
+        was_already_running = self._has_activated_before
+        self._has_activated_before = True
         self.activate()
         options = command_line.get_options_dict()
         if options.contains(CAPTURE_REGION_OPTION):
@@ -234,9 +244,22 @@ class OrcshotApplication(Gtk.Application):
             # uses, so opening a file while Orcshot is already running
             # reaches this same running instance rather than spawning
             # a second one.
+            opened_a_file = False
             for arg in command_line.get_arguments()[1:]:
                 if not arg.startswith("-"):
                     self.open_file(arg)
+                    opened_a_file = True
+            # Task #161: the ONLY branch of this whole method that
+            # doesn't already do something visible of its own - see
+            # do_activate's own docstring for why this notification
+            # exists and where it used to live (unconditionally, for
+            # every branch above too - the actual bug).
+            if not opened_a_file and was_already_running:
+                self._notify(
+                    "Orcshot is already running",
+                    "Look for its icon in the system tray.",
+                    notification_id="orcshot-already-running",
+                )
         return 0
 
     def open_file(self, path_or_uri: str) -> None:
@@ -249,28 +272,28 @@ class OrcshotApplication(Gtk.Application):
     def do_activate(self):
         # Keeps the app alive with no window of its own; the tray icon
         # is the only always-visible UI. hold()/release() bracket the
-        # app's lifetime independent of any window being open.
+        # app's lifetime independent of any window being open. Only
+        # ever reached via do_command_line's own self.activate() call
+        # above - Gio.ApplicationFlags.HANDLES_COMMAND_LINE (set in
+        # __init__) means GApplication itself never emits 'activate'
+        # automatically, so there's no separate direct-launcher path
+        # that skips do_command_line here to account for.
+        #
+        # Task #161: the "already running" notification that used to
+        # live here fired completely unconditionally, on literally
+        # every do_command_line invocation once this had already run
+        # once - including every capture-hotkey press, since
+        # do_command_line calls self.activate() before even checking
+        # which option was given. Live-reported and precisely
+        # diagnosed by direflail: "it's the same noise as Showing
+        # Notifications plays - notification.oga", on every single
+        # Print Screen press, "not sure when it started" (exactly
+        # matching this bug's own shape: silent on the very first
+        # activation of a session, firing on every one after that).
+        # Moved to do_command_line's own bare-invocation branch, the
+        # one case that doesn't already show something visible on its
+        # own - see that method's own comment.
         self.hold()
-        # do_activate fires again (via do_command_line -> self.activate())
-        # every time a second `orcshot` invocation gets forwarded to this
-        # already-running instance by GApplication's own single-instance
-        # machinery, rather than spawning a new process - previously a
-        # silent no-op, which direflail hit directly as "launching
-        # orcshot does nothing" (task #151 follow-up) after a leftover
-        # instance from an earlier test was still holding the bus name.
-        # A capture-option or file-open invocation already does
-        # something visible on its own (do_command_line handles those);
-        # this only covers the bare "just open Orcshot" case, which has
-        # no window of its own to show - a notification is the only
-        # always-available way to confirm "yes, it's running" here.
-        if self._has_activated_before:
-            self._notify(
-                "Orcshot is already running",
-                "Look for its icon in the system tray.",
-                notification_id="orcshot-already-running",
-            )
-        else:
-            self._has_activated_before = True
 
     def start_capture(self) -> None:
         """Kept as the default single-click tray action - region
@@ -300,6 +323,14 @@ class OrcshotApplication(Gtk.Application):
 
         notify_repeat_available(True)
 
+    def topmost_editor(self):
+        """The most-recently-opened still-open editor, or None - the
+        transient parent every dialog reachable with no editor
+        necessarily open (tray icon, hotkey) should use: nicer window
+        stacking when one exists, no parent at all when none are open,
+        rather than each such call site duplicating this lookup."""
+        return self._open_editors[-1] if self._open_editors else None
+
     def show_preferences(self) -> None:
         """Task #119: the tray icon's own "Preferences..." item. Uses
         the topmost open editor as the dialog's transient parent when
@@ -311,8 +342,7 @@ class OrcshotApplication(Gtk.Application):
         """
         from orcshot.ui.editor_window import show_preferences_dialog
 
-        parent = self._open_editors[-1] if self._open_editors else None
-        show_preferences_dialog(parent)
+        show_preferences_dialog(self.topmost_editor())
 
     def open_file_from_tray(self) -> None:
         """The tray icon's own "Open File..." (task #140) - faithful to
@@ -324,8 +354,7 @@ class OrcshotApplication(Gtk.Application):
         """
         from orcshot.ui.editor_window import choose_and_open_orcshot_file
 
-        parent = self._open_editors[-1] if self._open_editors else None
-        choose_and_open_orcshot_file(transient_for=parent)
+        choose_and_open_orcshot_file(transient_for=self.topmost_editor())
 
     def register_editor_window(self, editor) -> None:
         self._open_editors.append(editor)
@@ -512,8 +541,23 @@ class OrcshotApplication(Gtk.Application):
         prepare_for_upgrade_action = Gio.SimpleAction.new("prepare-for-upgrade", None)
         prepare_for_upgrade_action.connect("activate", lambda *_args: self.prepare_for_upgrade())
         self.add_action(prepare_for_upgrade_action)
+        # Not "tray-*" either - task #158 follow-up. Invoked by the
+        # bundled Shell extension's own pickDestinationAsync, right
+        # before its destination-choosing menu opens, the same
+        # Gio.DBusActionGroup.activate_action mechanism
+        # _activateTrayAction already uses for tray clicks - see
+        # capture/capture_feedback.py's own module docstring for why
+        # the sound needs to fire from there instead of from Python's
+        # own dispatch_destination (which only learns of a capture
+        # *after* the Shell-native picker's own choice is already
+        # made, too late to match X11's correct timing).
+        from orcshot.capture.capture_feedback import play_capture_sound
 
-    def _quit_and_hide_tray_button(self) -> None:
+        play_capture_sound_action = Gio.SimpleAction.new("play-capture-sound", None)
+        play_capture_sound_action.connect("activate", lambda *_args: play_capture_sound())
+        self.add_action(play_capture_sound_action)
+
+    def _quit_and_hide_tray_button(self, write_marker: bool = True) -> None:
         """direflail: "when the user selects quit, i want all parts of
         the program to quit and vanish. it should not be running
         anymore... it should remain this way until the user
@@ -531,7 +575,21 @@ class OrcshotApplication(Gtk.Application):
         be the active tray at all (X11, or Wayland before it's ever
         been enabled), and quitting must never be blocked by a Shell
         extension call failing.
+
+        Task #150 follow-up (round 2): also writes the quit marker
+        main() checks before ever constructing a new instance - the
+        process itself terminating fully was never the missing piece,
+        the global capture hotkeys relaunching a fresh one regardless
+        was (see main()'s own comment). ``write_marker=False`` is for
+        _maybe_quit_after_upgrade_prep's own call below: a package
+        upgrade quitting this process is not the user asking to stay
+        quit "until the user restarts" - the whole point there is that
+        it comes back (via systemd's own Restart=on-failure, or the
+        next login) - so it must not leave the marker behind to
+        incorrectly swallow the very next capture hotkey.
         """
+        if write_marker:
+            write_quit_marker()
         try:
             proxy = Gio.DBusProxy.new_for_bus_sync(
                 Gio.BusType.SESSION, Gio.DBusProxyFlags.NONE, None,
@@ -580,7 +638,7 @@ class OrcshotApplication(Gtk.Application):
 
     def _maybe_quit_after_upgrade_prep(self) -> None:
         if self._quit_after_editors_close and not self._open_editors:
-            self._quit_and_hide_tray_button()
+            self._quit_and_hide_tray_button(write_marker=False)
 
     def _check_shell_extension_health(self) -> None:
         """Surfaces two real, ordinary-but-easy-to-miss states
@@ -912,7 +970,13 @@ class OrcshotApplication(Gtk.Application):
 
         menu.append(Gtk.SeparatorMenuItem())
 
-        quit_item = menu_item("Quit", self.quit, icon_name="application-exit-symbolic")
+        # _quit_and_hide_tray_button, not bare self.quit - task #150
+        # follow-up's quit marker (main()'s own comment) has to be
+        # written on every quit path, and this local X11/AppIndicator3
+        # menu item was the one path that bypassed it (the Shell-native
+        # panel button's own "tray-quit" GAction already routes through
+        # it correctly).
+        quit_item = menu_item("Quit", self._quit_and_hide_tray_button, icon_name="application-exit-symbolic")
         menu.append(quit_item)
         menu.show_all()
         return menu
@@ -1016,6 +1080,14 @@ class OrcshotApplication(Gtk.Application):
         dialog.destroy()
 
 
+_CAPTURE_CLI_FLAGS = tuple(
+    f"--{opt}" for opt in (
+        CAPTURE_REGION_OPTION, CAPTURE_FULL_SCREEN_OPTION, CAPTURE_ACTIVE_WINDOW_OPTION,
+        CAPTURE_WINDOW_PICKER_OPTION, CAPTURE_LAST_REGION_OPTION,
+    )
+)
+
+
 def main() -> int:
     # Explicit rather than relying on argv[0]-basename inference (GTK/
     # GLib's default): keeps WM_CLASS ("orcshot") matching the
@@ -1024,6 +1096,34 @@ def main() -> int:
     # absolute path, a symlink, etc.) - a real gotcha for interpreted-
     # language GTK apps, confirmed via research before packaging.
     GLib.set_prgname("orcshot")
+
+    # Task #150 follow-up: the global capture hotkeys (hotkey_setup.py)
+    # are OS-level "run this command" keybindings, independent of
+    # whether an Orcshot process is currently alive - so the very next
+    # hotkey press after an explicit Quit launches a brand new instance
+    # from scratch regardless, contradicting direflail's own stated
+    # requirement ("it should not be running anymore... it should
+    # remain this way until the user restarts") - live-reported:
+    # pressing a capture hotkey after quitting both did the capture and
+    # brought the tray icon back. Checked here, before the
+    # Gio.Application is even constructed, so a hotkey-triggered
+    # relaunch never gets far enough to build a tray icon or do
+    # anything visible. A capture-flag invocation while the marker is
+    # still set can only BE a hotkey-triggered relaunch - every genuine
+    # manual reopen (Applications menu, a bare `orcshot` from a
+    # terminal, a .orcshot file double-click) never carries one of
+    # these flags, matching hotkey_setup.py's own HotkeyBinding table -
+    # so that's the one unambiguous signal available from argv alone.
+    # A manual reopen instead clears the marker and proceeds normally,
+    # which is what "restarts" (task #150's own wording) means here.
+    # Deliberately not touched when the marker isn't set at all (the
+    # overwhelmingly common case): quit_marker_path() would otherwise
+    # do a real filesystem stat on every single launch for no reason.
+    if is_quit_marker_set():
+        if sys.argv[1:] and any(flag in sys.argv[1:] for flag in _CAPTURE_CLI_FLAGS):
+            return 0
+        clear_quit_marker()
+
     app = OrcshotApplication()
     return app.run(sys.argv)
 

@@ -67,7 +67,7 @@ import gi
 
 gi.require_version("Gtk", "3.0")
 gi.require_version("Gdk", "3.0")
-from gi.repository import Gdk, Gtk
+from gi.repository import Gdk, Gio, Gtk
 
 from orcshot.capture.clipboard import ClipboardBackend
 from orcshot.core.drawing import Layer
@@ -163,9 +163,24 @@ def _save_as(image: np.ndarray, cursor_shape: CursorShape = None, title: str = "
     """See _quick_save's own note - same drift, same fix (primary
     format now drives the suggested extension, JPEG quality is
     applied, path-to-clipboard is honored). ``title`` - see
-    _quick_save's own docstring."""
+    _quick_save's own docstring.
+
+    Task #159: this dialog was the only ``Gtk.Dialog``-family
+    construction anywhere in this codebase missing ``transient_for``
+    (confirmed via a full-codebase grep of every other dialog site,
+    all of which set it - the topmost-open-editor-or-None pattern
+    app.py's own topmost_editor() already centralizes for tray/hotkey-
+    reachable dialogs like this one). Live-reported: an audible tone
+    played the instant this dialog appeared on Wayland - a parentless
+    modal ``.run()`` dialog failing to establish a proper compositor
+    grab is a known trigger for GDK's own fallback beep
+    (``gdk_display_beep()``), and this is the one dialog in the
+    codebase that could have hit it.
+    """
     output_settings = get_output_settings()
-    dialog = Gtk.FileChooserDialog(title="Save Screenshot As", action=Gtk.FileChooserAction.SAVE)
+    app = Gio.Application.get_default()
+    parent = app.topmost_editor() if app is not None else None
+    dialog = Gtk.FileChooserDialog(title="Save Screenshot As", transient_for=parent, action=Gtk.FileChooserAction.SAVE)
     dialog.add_buttons(
         Gtk.STOCK_CANCEL, Gtk.ResponseType.CANCEL,
         Gtk.STOCK_SAVE, Gtk.ResponseType.OK,
@@ -307,7 +322,22 @@ def dispatch_destination(
     through to whichever handler cares (_quick_save/_save_as/
     _open_editor); every other handler accepts and ignores it, one
     shared calling convention for every destination.
+
+    Task #158: shows the capture-complete notification right here, at
+    the top - this function's own callers (see its docstring above)
+    are exclusively the Wayland Shell-native path (region-select,
+    window-picker, full-screen/active-window/last-region), reached
+    only once a destination has already been chosen inside the
+    bundled Shell extension's own JS-side picker. The *sound* half is
+    deliberately NOT played here - see capture/capture_feedback.py's
+    own module docstring for why (it's triggered earlier, from inside
+    the extension itself, to match X11's correct timing rather than
+    firing a beat late here).
     """
+    from orcshot.capture.capture_feedback import show_capture_complete_notification
+
+    show_capture_complete_notification()
+
     if clipboard_backend is None:
         from orcshot.capture.backend_select import default_clipboard_backend
 
@@ -353,7 +383,20 @@ def show_destination_picker(
     resolving the real pixels only once an item is chosen - itself a
     fresh, non-nested dispatch by the time it fires - satisfies both
     constraints at once.
+
+    Task #158: plays the capture-complete sound AND shows the
+    notification right here, at the top, once per capture, right as
+    the destination-choosing UI is about to appear - the X11 classic
+    picker (and the Wayland portal-fallback path) has no separate
+    Shell-side extension already running the interaction, so unlike
+    dispatch_destination's own version of this comment, both halves
+    belong here together - direflail's own explicit confirmation this
+    is the correct timing for the sound specifically.
     """
+    from orcshot.capture.capture_feedback import play_capture_feedback
+
+    play_capture_feedback()
+
     if clipboard_backend is None:
         from orcshot.capture.backend_select import default_clipboard_backend
 
@@ -371,16 +414,22 @@ def show_destination_picker(
     # editor's own, since this picker is also reachable with no
     # editor window open at all (tray icon, hotkey).
     icon_color = _rgba_to_color(Gtk.Window().get_style_context().get_color(Gtk.StateFlags.NORMAL))
-    for item_id, label, _handler in _all_destinations():
+    for item_id, label, handler in _all_destinations():
         item = Gtk.MenuItem()
         box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
         box.pack_start(destination_icon_image(item_id, icon_color), False, False, 0)
         box.pack_start(Gtk.Label(label=label), False, False, 0)
         item.add(box)
 
-        def on_activate(_item, item_id=item_id) -> None:
+        # Task #158: calls handler directly, not dispatch_destination(
+        # item_id, ...) - that would fire play_capture_feedback() a
+        # second time (this function's own top already fires it once,
+        # right when the picker itself appears, matching Windows' own
+        # DoCaptureFeedback timing) and re-does the _all_destinations()
+        # lookup this loop already has the answer to.
+        def on_activate(_item, handler=handler) -> None:
             final_image = refresh_image() if refresh_image is not None else image
-            dispatch_destination(item_id, final_image, cursor_shape, clipboard_backend, title=title)
+            handler(final_image, cursor_shape, clipboard_backend, title)
 
         item.connect("activate", on_activate)
         menu.append(item)
