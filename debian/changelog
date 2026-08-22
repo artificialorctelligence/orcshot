@@ -1,4 +1,18 @@
-orcshot (0.1.0-4) noble; urgency=medium
+orcshot (0.1.0-5) noble; urgency=medium
+
+  * Fix save_image_to_file always building an RGBA (has_alpha=True)
+    pixbuf regardless of target format. JPEG has no alpha channel -
+    Ubuntu 24.04's older GdkPixbuf JPEG backend silently discarded it,
+    but 26.04's newer glycin-based one rejects an RGBA-flagged pixbuf
+    outright ("does not support the color type Rgba8"). Confirmed as
+    the real cause of 0.1.0-4's resolute build failure via the actual
+    Launchpad buildlog. save_image_to_file now composites onto white
+    and builds a genuine 3-channel, has_alpha=False pixbuf for JPEG
+    specifically.
+
+ -- Orcshot <314918217+artificialorctelligence@users.noreply.github.com>  Sat, 22 Aug 2026 13:45:05 -0500
+
+orcshot (0.1.0-4) resolute; urgency=medium
 
   * Add gir1.2-gsound-1.0 to Build-Depends. Missing since task #158 added
     it as a runtime Depends only - the test suite (run during the build
