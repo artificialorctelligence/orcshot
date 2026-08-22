@@ -323,7 +323,7 @@ _OBFUSCATE_GROUP = "obfuscate_group"
 
 # Task #89: the Effects toolbar dropdown - not a drawing tool at all
 # (no Tool enum member, doesn't touch self.tool), so it isn't part of
-# the Gtk.RadioButton group the other _TOOL_LABELS entries build -
+# the Gtk.RadioToolButton group the other _TOOL_LABELS entries build -
 # see _build_tool_palette's handling of this sentinel and
 # _build_effects_control.
 _EFFECTS_GROUP = "effects_group"
@@ -571,6 +571,74 @@ def _with_shortcut(label: str, shortcut: str | None) -> str:
     return f"{label} ({shortcut})" if shortcut else label
 
 
+def _icon_menu_item(label: str, icon_image: Gtk.Image, handler) -> Gtk.MenuItem:
+    """An icon+label Gtk.MenuItem, matching _build_menu_bar's own
+    ``menu_item`` nested helper exactly (a Gtk.Box wrapping the icon
+    and a Gtk.Label, not the deprecated Gtk.ImageMenuItem - see
+    app.py's own tray-menu comment for the one place this codebase
+    does use ImageMenuItem, and why that's a special case).
+
+    Used by _build_tool_palette's overflow-menu proxies (task #149
+    follow-up) - Gtk.ToolButton/Gtk.RadioToolButton's own default
+    auto-generated overflow proxy is text-only, confirmed live on both
+    X11 and Wayland (no icon at all), unlike real Windows' own
+    ToolStripMenuItem overflow entries, which do carry the tool's
+    icon. See _connect_overflow_icon_proxy's own docstring for how
+    this gets attached - a plain Gtk.ToolItem.set_proxy_menu_item call
+    alone (which _build_effects_control's bare Gtk.ToolItem still uses
+    directly, correctly) turned out NOT to be enough for an actual
+    Gtk.ToolButton/RadioToolButton. ``icon_image`` must be a fresh
+    Gtk.Image instance, not the same one already assigned to the
+    toolbar button's own set_icon_widget() - a widget can only have
+    one parent (the same reason _build_effects_control builds its
+    overflow proxy's own independent Gtk.Menu instead of reusing the
+    main dropdown's).
+    """
+    item = Gtk.MenuItem()
+    box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+    box.pack_start(icon_image, False, False, 0)
+    box.pack_start(Gtk.Label(label=label), False, False, 0)
+    item.add(box)
+    item.connect("activate", lambda _i: handler())
+    item.show_all()
+    return item
+
+
+def _connect_overflow_icon_proxy(tool_item: Gtk.ToolItem, menu_item_id: str, label: str, icon_factory, handler) -> None:
+    """Wires an icon-carrying overflow-menu proxy onto an actual
+    Gtk.ToolButton/Gtk.RadioToolButton (task #149 follow-up) -
+    NOT via a plain Gtk.ToolItem.set_proxy_menu_item() call up front,
+    which turned out to be silently ignored for these two classes
+    specifically. Confirmed live via a standalone diagnostic
+    (constructing several RadioToolButtons and a plain ToolButton,
+    pre-setting a proxy on each via set_proxy_menu_item, then reading
+    back tool_item.retrieve_proxy_menu_item()'s result once the
+    toolbar had laid out): every one came back as a *different*,
+    freshly-built GtkCheckMenuItem/GtkImageMenuItem, not the object
+    that was set - id mismatch, wrong type. Gtk.ToolButton's own
+    "create-menu-proxy" default class handler apparently always
+    (re)builds its own proxy rather than checking for one already set
+    first. The base Gtk.ToolItem class (used bare, e.g. this file's
+    own Effects wrapper) has no such default handler, so a bare
+    set_proxy_menu_item call there is never fought over and works as
+    documented - only ToolButton/RadioToolButton need this.
+
+    The fix, confirmed by the same diagnostic: connect to the
+    "create-menu-proxy" signal instead and build+register the proxy
+    from inside the handler, returning True - GTK signal convention
+    for "handled, don't also run the default class handler", which
+    here means "don't let ToolButton build its own text-only one".
+    Deferred like this (icon_factory, a callable, not a pre-built
+    Gtk.Image) also means the icon is only ever actually constructed
+    if the item genuinely overflows - most tools never do.
+    """
+    def on_create_menu_proxy(item):
+        item.set_proxy_menu_item(menu_item_id, _icon_menu_item(label, icon_factory(), handler))
+        return True
+
+    tool_item.connect("create-menu-proxy", on_create_menu_proxy)
+
+
 _HANDLE_SIZE = 6
 _HANDLE_FILL = (1.0, 1.0, 1.0)
 _HANDLE_STROKE = (0.1, 0.4, 0.9)
@@ -629,18 +697,28 @@ class EditorWindow(Gtk.Window):
         window_title: str = "",
     ):
         super().__init__(title="Orcshot image editor")
-        # Task #157: CENTER_ALWAYS (not plain CENTER) so this re-centers
-        # on every resize, not just the initial placement - relevant on
-        # X11 (Mint/Cinnamon, this project's other packaging target),
-        # where Gtk.Window.move() genuinely repositions the window. On
-        # Wayland it's a no-op in practice: xdg-shell gives clients no
-        # way to request or query an absolute position at all, initial
-        # placement is entirely the compositor's own decision. The real
-        # task #157 bug (window pinned hard against the top-left,
-        # sometimes mostly off-screen) turned out to be a separate,
-        # fixable issue in show_all() below, not something this
-        # set_position() call could address on its own.
-        self.set_position(Gtk.WindowPosition.CENTER_ALWAYS)
+        # Task #157: a position hint for the very first, small (pre-
+        # _resize_canvas_and_window) map, so it doesn't flash somewhere
+        # odd for the brief instant before that deferred call grows and
+        # (task #162) explicitly re-centers it - relevant on X11
+        # (Mint/Cinnamon), where Gtk.Window.move()/set_position()
+        # genuinely affect placement; a no-op in practice on Wayland,
+        # where xdg-shell gives clients no way to request or query an
+        # absolute position at all. The real #157 bug (window pinned
+        # hard against the top-left, sometimes mostly off-screen) was a
+        # separate, fixable issue in show_all() below, not something
+        # this call addresses on its own.
+        #
+        # Plain CENTER, not CENTER_ALWAYS (task #162) - CENTER_ALWAYS
+        # re-centers on *every* size-changing event GTK sees, with no
+        # way to tell "our own code just called resize()" apart from
+        # "the user is interactively dragging an edge to resize" -
+        # confirmed live (direflail, X11/Mint) that the latter made the
+        # window fight the drag and head for a screen corner instead of
+        # resizing normally. _resize_canvas_and_window now does its own
+        # explicit, one-shot recentering right after its own resize()
+        # call instead - see that method's own comment.
+        self.set_position(Gtk.WindowPosition.CENTER)
         self._base_image = image
         # The captured window's title (task #139, active-window/window-
         # picker capture only - "" otherwise), remembered for
@@ -883,11 +961,13 @@ class EditorWindow(Gtk.Window):
         # near the top-left corner to place it at all; the deferred
         # resize then shrinks it to the correct size moments later,
         # but Wayland gives clients no way to reposition a window
-        # after that initial placement (also why CENTER_ALWAYS, set
-        # above, doesn't help - GTK's underlying move() is a
-        # documented no-op under Wayland) - so it stays pinned exactly
-        # where the oversized first map landed. Leaving this at GTK's
-        # own small default lets the first map/placement always fit
+        # after that initial placement (also why explicit repositioning
+        # - the position hint set above, or _resize_canvas_and_window's
+        # own move() call - doesn't help there either: GTK's underlying
+        # move() is a documented no-op under Wayland) - so it stays
+        # pinned exactly where the oversized first map landed. Leaving
+        # this at GTK's own small default lets the first map/placement
+        # always fit
         # comfortably within the screen, and the deferred call grows
         # or shrinks it correctly on the same initial layout pass,
         # before the compositor's placement decision is ever made.
@@ -1639,26 +1719,42 @@ class EditorWindow(Gtk.Window):
         dialog.run()
         dialog.destroy()
 
-    def _build_tool_palette(self) -> Gtk.Box:
+    def _build_tool_palette(self) -> Gtk.Toolbar:
         """The drawing tools, in a vertical column on the left -
         matching Windows Greenshot's editor layout, and separate from
         _build_action_toolbar's horizontal row of document/edit
         actions (Windows keeps those distinct too).
 
-        Plain Gtk.RadioButtons in a Gtk.Box, not Gtk.RadioToolButton in
-        a Gtk.Toolbar(orientation=VERTICAL) - the more common pattern
-        for a vertical icon palette anyway (same idea as GIMP/
-        Inkscape's toolbox). This wasn't chasing a real bug: a first
-        pass looked clipped in a screenshot (the last of 10 buttons
-        seemed to be missing), but per-button allocation checks showed
-        every one correctly sized and mapped - it was just flush
-        against the window's bottom edge with zero padding, easy to
-        miss at a glance. The border_width below is the actual fix;
-        the widget swap just happened first and turned out harmless,
-        so it stayed.
+        Gtk.RadioToolButton in a real Gtk.Toolbar(orientation=VERTICAL)
+        (task #149) - a deliberate change from an earlier plain
+        Gtk.Box+Gtk.RadioButton version, made specifically to pick up
+        GTK's native overflow-arrow mechanism (set_show_arrow, on by
+        default), the direct equivalent of real Windows' own
+        toolsToolStrip.OverflowButton: when the palette doesn't fit
+        the window's height, the tail items that don't fit collapse
+        into a "»" button that opens a menu of the rest, rather than a
+        curated fixed "More tools" list. Confirmed live in isolation
+        first (a standalone Gtk.Toolbar(VERTICAL) test script) before
+        this rewrite, including two non-obvious findings:
+        - Gtk.ToolButton's default overflow-menu auto-proxy is built
+          from set_label() text, not the tooltip - a button with only
+          a tooltip produces a blank, item-less overflow menu (this
+          was live-reproduced: the popup opened but had zero visible
+          rows). Every button below sets both.
+        - set_is_important() does NOT prioritize which items stay
+          visible - overflow is purely insertion-order + available
+          space (first N that fit stay, the rest overflow in order),
+          confirmed by items deliberately marked important still
+          overflowing in the live test. So _TOOL_LABELS' order alone
+          decides what shows up in the overflow menu on a short
+          screen, same as this file's own real-Windows-order citation
+          two constants up.
         """
-        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
-        box.set_border_width(4)
+        toolbar = Gtk.Toolbar()
+        toolbar.set_orientation(Gtk.Orientation.VERTICAL)
+        toolbar.set_style(Gtk.ToolbarStyle.ICONS)
+        toolbar.set_show_arrow(True)
+        toolbar.set_border_width(4)
 
         # Hand-drawn icons don't get theme colors for free the way the
         # standard "-symbolic" icon names below do - query the window's
@@ -1670,50 +1766,57 @@ class EditorWindow(Gtk.Window):
         group_leader = None
         for entry in _TOOL_LABELS:
             if entry is None:
-                box.pack_start(Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL), False, False, 2)
+                toolbar.insert(Gtk.SeparatorToolItem(), -1)
                 continue
             if entry is _OBFUSCATE_GROUP:
-                group_leader = self._build_obfuscate_control(box, group_leader, icon_color)
+                group_leader = self._build_obfuscate_control(toolbar, group_leader, icon_color)
                 continue
             if entry is _HIGHLIGHT_GROUP:
-                group_leader = self._build_highlight_control(box, group_leader, icon_color)
+                group_leader = self._build_highlight_control(toolbar, group_leader, icon_color)
                 continue
             if entry is _EFFECTS_GROUP:
-                self._build_effects_control(box, icon_color)
+                self._build_effects_control(toolbar, icon_color)
                 continue
             if entry is _CROP_GROUP:
-                group_leader = self._build_crop_control(box, group_leader, icon_color)
+                group_leader = self._build_crop_control(toolbar, group_leader, icon_color)
                 continue
             if entry is _ROTATE_CW_ACTION:
                 self._build_action_button(
-                    box, rotate_cw_icon_image(icon_color), "Rotate Clockwise (Ctrl+.)", self._do_rotate_cw,
+                    toolbar, lambda: rotate_cw_icon_image(icon_color), "Rotate CW",
+                    "Rotate Clockwise (Ctrl+.)", self._do_rotate_cw,
                 )
                 continue
             if entry is _ROTATE_CCW_ACTION:
                 self._build_action_button(
-                    box, rotate_ccw_icon_image(icon_color), "Rotate Counterclockwise (Ctrl+,)",
-                    self._do_rotate_ccw,
+                    toolbar, lambda: rotate_ccw_icon_image(icon_color), "Rotate CCW",
+                    "Rotate Counterclockwise (Ctrl+,)", self._do_rotate_ccw,
                 )
                 continue
             if entry is _RESIZE_ACTION:
-                self._build_action_button(box, resize_icon_image(icon_color), "Resize... (Z)", self._do_resize)
+                self._build_action_button(
+                    toolbar, lambda: resize_icon_image(icon_color), "Resize", "Resize... (Z)", self._do_resize,
+                )
                 continue
             tool, label = entry
-            button = Gtk.RadioButton.new_from_widget(group_leader)
+            button = Gtk.RadioToolButton.new_from_widget(group_leader)
             if group_leader is None:
                 group_leader = button
-            button.set_mode(False)  # flat icon toggle, not a radio-circle-plus-label
-            button.set_relief(Gtk.ReliefStyle.NONE)
-            button.set_image(tool_icon_image(tool, color=icon_color, size=get_icon_size()))
+            button.set_icon_widget(tool_icon_image(tool, color=icon_color, size=get_icon_size()))
+            button.set_label(label)
             button.set_tooltip_text(_with_shortcut(label, _TOOL_TOOLTIP_SHORTCUTS.get(label)))
             button.set_active(tool is self.tool)
             button.connect("toggled", self._on_tool_button_toggled, tool)
-            box.pack_start(button, False, False, 0)
+            toolbar.insert(button, -1)
             self._tool_buttons[tool] = button
+            _connect_overflow_icon_proxy(
+                button, f"orcshot-tool-{tool.name}-proxy", label,
+                lambda t=tool: tool_icon_image(t, color=icon_color, size=get_icon_size()),
+                lambda b=button: b.set_active(True),
+            )
 
-        return box
+        return toolbar
 
-    def _build_obfuscate_control(self, box: Gtk.Box, group_leader, icon_color) -> Gtk.RadioButton:
+    def _build_obfuscate_control(self, toolbar: Gtk.Toolbar, group_leader, icon_color) -> Gtk.RadioToolButton:
         """The single "Obfuscate" palette entry: a plain radio-toggle
         button, just like every other tool button, that activates
         whichever mode is currently prepared (self._default_obfuscate_mode)
@@ -1743,44 +1846,56 @@ class EditorWindow(Gtk.Window):
         Returns the (possibly newly-established) group leader, same
         contract as the main loop in _build_tool_palette.
         """
-        button = Gtk.RadioButton.new_from_widget(group_leader)
+        button = Gtk.RadioToolButton.new_from_widget(group_leader)
         if group_leader is None:
             group_leader = button
-        button.set_mode(False)
-        button.set_relief(Gtk.ReliefStyle.NONE)
-        button.set_image(obfuscate_icon_image(icon_color))
+        button.set_icon_widget(obfuscate_icon_image(icon_color))
+        button.set_label("Obfuscate")
         button.set_tooltip_text("Obfuscate (O)")
         button.set_active(self.tool in _OBFUSCATE_MODE_ORDER)
         button.connect("toggled", self._on_obfuscate_button_toggled)
-        box.pack_start(button, False, False, 0)
+        toolbar.insert(button, -1)
         self._obfuscate_button = button
         for mode in _OBFUSCATE_MODE_ORDER:
             self._tool_buttons[mode] = button
+        # _activate_obfuscate_tool, not button.set_active(True) - this
+        # button may already be the active tool with a *different*
+        # mode freshly picked from the style panel's dropdown, which
+        # set_active(True) alone wouldn't apply (GTK doesn't refire
+        # "toggled" when already active) - see that method's own
+        # docstring, same reasoning the H/O/C keyboard shortcuts follow.
+        _connect_overflow_icon_proxy(
+            button, "orcshot-tool-obfuscate-proxy", "Obfuscate",
+            lambda: obfuscate_icon_image(icon_color), self._activate_obfuscate_tool,
+        )
         return group_leader
 
     @staticmethod
     def _obfuscate_mode_label(mode: Tool) -> str:
         return _OBFUSCATE_MODE_LABELS[mode]
 
-    def _build_highlight_control(self, box: Gtk.Box, group_leader, icon_color) -> Gtk.RadioButton:
+    def _build_highlight_control(self, toolbar: Gtk.Toolbar, group_leader, icon_color) -> Gtk.RadioToolButton:
         """The single "Highlight" palette entry - mirrors
         _build_obfuscate_control exactly, see its own docstring for
         the full reasoning (same real-Windows layout: highlightModeButton
         lives in propertiesToolStrip, not attached to btnHighlight).
         """
-        button = Gtk.RadioButton.new_from_widget(group_leader)
+        button = Gtk.RadioToolButton.new_from_widget(group_leader)
         if group_leader is None:
             group_leader = button
-        button.set_mode(False)
-        button.set_relief(Gtk.ReliefStyle.NONE)
-        button.set_image(highlight_icon_image(icon_color))
+        button.set_icon_widget(highlight_icon_image(icon_color))
+        button.set_label("Highlight")
         button.set_tooltip_text("Highlight (H)")
         button.set_active(self.tool in _HIGHLIGHT_MODE_ORDER)
         button.connect("toggled", self._on_highlight_button_toggled)
-        box.pack_start(button, False, False, 0)
+        toolbar.insert(button, -1)
         self._highlight_button = button
         for mode in _HIGHLIGHT_MODE_ORDER:
             self._tool_buttons[mode] = button
+        _connect_overflow_icon_proxy(
+            button, "orcshot-tool-highlight-proxy", "Highlight",
+            lambda: highlight_icon_image(icon_color), self._activate_highlight_tool,
+        )
         return group_leader
 
     @staticmethod
@@ -1804,7 +1919,7 @@ class EditorWindow(Gtk.Window):
         menu.show_all()
         return menu
 
-    def _on_obfuscate_button_toggled(self, button: Gtk.RadioButton) -> None:
+    def _on_obfuscate_button_toggled(self, button: Gtk.RadioToolButton) -> None:
         if button.get_active():
             self.tool = self._default_obfuscate_mode
             self._refresh_style_panel()
@@ -1900,7 +2015,7 @@ class EditorWindow(Gtk.Window):
         menu.show_all()
         return menu
 
-    def _on_highlight_button_toggled(self, button: Gtk.RadioButton) -> None:
+    def _on_highlight_button_toggled(self, button: Gtk.RadioToolButton) -> None:
         if button.get_active():
             self.tool = self._default_highlight_mode
             self._refresh_style_panel()
@@ -1947,7 +2062,7 @@ class EditorWindow(Gtk.Window):
         else:
             self._highlight_button.set_active(True)  # fires "toggled" -> _on_highlight_button_toggled
 
-    def _build_crop_control(self, box: Gtk.Box, group_leader, icon_color) -> Gtk.RadioButton:
+    def _build_crop_control(self, toolbar: Gtk.Toolbar, group_leader, icon_color) -> Gtk.RadioToolButton:
         """The single "Crop" palette entry - mirrors _build_highlight_
         control's shape exactly (one button standing in for three Tool
         values, real cropModeButton lives in propertiesToolStrip, not
@@ -1955,19 +2070,22 @@ class EditorWindow(Gtk.Window):
         there's no shape.mode field to retroactively update in
         _set_crop_mode below, unlike Highlight/Obfuscate.
         """
-        button = Gtk.RadioButton.new_from_widget(group_leader)
+        button = Gtk.RadioToolButton.new_from_widget(group_leader)
         if group_leader is None:
             group_leader = button
-        button.set_mode(False)
-        button.set_relief(Gtk.ReliefStyle.NONE)
-        button.set_image(crop_icon_image(icon_color))
+        button.set_icon_widget(crop_icon_image(icon_color))
+        button.set_label("Crop")
         button.set_tooltip_text("Crop (C)")
         button.set_active(self.tool in _CROP_MODE_ORDER)
         button.connect("toggled", self._on_crop_button_toggled)
-        box.pack_start(button, False, False, 0)
+        toolbar.insert(button, -1)
         self._crop_button = button
         for mode in _CROP_MODE_ORDER:
             self._tool_buttons[mode] = button
+        _connect_overflow_icon_proxy(
+            button, "orcshot-tool-crop-proxy", "Crop",
+            lambda: crop_icon_image(icon_color), self._activate_crop_tool,
+        )
         return group_leader
 
     def _build_crop_mode_menu(self) -> Gtk.Menu:
@@ -2000,7 +2118,7 @@ class EditorWindow(Gtk.Window):
         menu.show_all()
         return menu
 
-    def _on_crop_button_toggled(self, button: Gtk.RadioButton) -> None:
+    def _on_crop_button_toggled(self, button: Gtk.RadioToolButton) -> None:
         if button.get_active():
             self.tool = self._default_crop_mode
             self._refresh_style_panel()
@@ -2172,7 +2290,7 @@ class EditorWindow(Gtk.Window):
         self._refresh_style_panel()
         self._drawing_area.queue_draw()
 
-    def _build_effects_control(self, box: Gtk.Box, icon_color) -> None:
+    def _build_effects_control(self, toolbar: Gtk.Toolbar, icon_color) -> None:
         """The single "Effects" toolbar entry (task #89) - a plain
         dropdown button, not a drawing tool: no Gtk.RadioButton
         membership, never touches self.tool, doesn't take a
@@ -2193,14 +2311,53 @@ class EditorWindow(Gtk.Window):
         docstring) but always available here, since this port has no
         equivalent "beta tester" concept to gate it behind and the
         feature is fully implemented, not experimental.
+
+        A Gtk.MenuButton isn't itself a Gtk.ToolItem, so it's wrapped
+        in a bare one to live in the Gtk.Toolbar (task #149) - and
+        unlike the plain Gtk.RadioToolButton/Gtk.ToolButton entries
+        elsewhere in this palette, a generic Gtk.ToolItem gets no
+        automatic overflow-menu proxy at all (confirmed against GTK's
+        own default create-menu-proxy handling, which only auto-builds
+        a proxy for actual ToolButton subclasses), so this button
+        would simply vanish with no menu entry at all if it ever
+        landed in the overflow region on a short screen. Given a
+        working proxy from set_proxy_menu_item is required either way,
+        it points at its own independent Gtk.Menu built with a second
+        _build_effects_menu() call rather than reusing the toolbar
+        button's menu instance - GtkMenu is only ever attached to one
+        widget at a time (gtk_menu_attach_to_widget), so handing the
+        same Gtk.Menu to both set_popup() here and set_submenu() below
+        would silently break whichever one attached second rather than
+        actually showing both. _build_effects_menu's own
+        _remove_transparency_item tracking below accounts for there
+        now being two independent instances of that menu.
         """
+        self._remove_transparency_items = []
+
         button = Gtk.MenuButton()
         button.set_relief(Gtk.ReliefStyle.NONE)
         button.set_image(effects_icon_image(icon_color))
         button.set_tooltip_text("Effects")
         button.set_popup(self._build_effects_menu())
-        box.pack_start(button, False, False, 0)
+
+        item = Gtk.ToolItem()
+        item.add(button)
+        toolbar.insert(item, -1)
         self._effects_button = button
+
+        # Built directly rather than via _icon_menu_item - that helper
+        # wires an "activate" handler for a leaf action, but this is a
+        # submenu parent (clicking it opens the submenu, nothing else
+        # to handle) - mirrors _build_menu_bar's own add_submenu
+        # nested helper instead.
+        proxy = Gtk.MenuItem()
+        proxy_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        proxy_box.pack_start(effects_icon_image(icon_color), False, False, 0)
+        proxy_box.pack_start(Gtk.Label(label="Effects"), False, False, 0)
+        proxy.add(proxy_box)
+        proxy.set_submenu(self._build_effects_menu())
+        proxy.show_all()
+        item.set_proxy_menu_item("orcshot-effects-overflow-proxy", proxy)
 
     def _build_effects_menu(self) -> Gtk.Menu:
         """Real Windows dropdown order (toolStripSplitButton1.
@@ -2255,7 +2412,9 @@ class EditorWindow(Gtk.Window):
         add_item("Torn Edge Settings...", self._do_torn_edge_settings)
         add_item("Grayscale", self._do_grayscale)
         add_item("Invert", self._do_invert)
-        self._remove_transparency_item = add_item("Remove Transparency...", self._do_remove_transparency)
+        self._remove_transparency_items.append(
+            add_item("Remove Transparency...", self._do_remove_transparency),
+        )
         # "Find & Redact Text...", not Windows' own "Obfuscate Text" -
         # see ui/text_obfuscation_dialog.py's module docstring for why
         # (collides with the separate manual Obfuscate tool, and
@@ -2272,9 +2431,12 @@ class EditorWindow(Gtk.Window):
         RGBA.
         """
         has_transparency = bool((self._base_image[:, :, 3] < 255).any())
-        self._remove_transparency_item.set_visible(has_transparency)
+        for item in self._remove_transparency_items:
+            item.set_visible(has_transparency)
 
-    def _build_action_button(self, box: Gtk.Box, image: Gtk.Image, tooltip: str, handler) -> None:
+    def _build_action_button(
+        self, toolbar: Gtk.Toolbar, icon_factory, label: str, tooltip: str, handler,
+    ) -> None:
         """A plain one-shot toolbar icon button (task #90's Rotate CW/
         Rotate CCW/Resize) - not a drawing tool (no RadioButton
         membership, no self.tool involvement) and not a dropdown (no
@@ -2282,13 +2444,28 @@ class EditorWindow(Gtk.Window):
         run, matching Windows' own separate rotateCwToolstripButton/
         rotateCcwToolstripButton/btnResize rather than a grouped
         split-button.
+
+        ``icon_factory`` (task #149, a callable building a fresh
+        Gtk.Image rather than a pre-built one) - this button and its
+        overflow-menu proxy (see _icon_menu_item's own docstring for
+        why a custom proxy is built at all) each need their own
+        independent Gtk.Image instance, since a widget can only have
+        one parent.
+
+        ``label`` is separate from ``tooltip`` - a short name for both
+        the proxy and set_label() (kept for accessibility even though
+        the explicit proxy no longer depends on it), while ``tooltip``
+        keeps its existing full "Action (Shortcut)" text for the
+        on-canvas hover case.
         """
-        button = Gtk.Button()
-        button.set_relief(Gtk.ReliefStyle.NONE)
-        button.set_image(image)
+        button = Gtk.ToolButton(icon_widget=icon_factory())
+        button.set_label(label)
         button.set_tooltip_text(tooltip)
         button.connect("clicked", lambda _b: handler())
-        box.pack_start(button, False, False, 0)
+        toolbar.insert(button, -1)
+        _connect_overflow_icon_proxy(
+            button, f"orcshot-tool-{label.lower().replace(' ', '-')}-proxy", label, icon_factory, handler,
+        )
 
     def _build_action_toolbar(self) -> Gtk.Toolbar:
         """Matches the real Windows order (confirmed from
@@ -3869,6 +4046,33 @@ class EditorWindow(Gtk.Window):
             _MIN_WINDOW_WIDTH, _MIN_WINDOW_HEIGHT, work_area.width, work_area.height,
         )
         self.resize(total_w, total_h)
+        # Task #162: explicit, one-shot re-centering on this specific
+        # resize - not Gtk.WindowPosition.CENTER_ALWAYS (task #157's
+        # original mechanism for this, see __init__'s own comment),
+        # which re-centers on *every* size-changing event GTK sees,
+        # including a user's own interactive resize-drag via the
+        # window manager - confirmed live (direflail, X11/Mint): with
+        # CENTER_ALWAYS active, dragging an edge to resize made the
+        # window fight the drag and head for a screen corner instead,
+        # only "sticking" once it got there. That's a real, different
+        # bug from #157's own off-screen-on-first-map one (confirmed
+        # via git diff/log: #157's actual fix was reordering show_all,
+        # not this set_position call - see that method's own
+        # docstring), just sharing the same CENTER_ALWAYS mechanism.
+        # resize() itself always grows/shrinks from a fixed top-left
+        # anchor regardless of any WindowPosition hint (confirmed by
+        # #157's own original investigation - a WindowPosition hint
+        # only ever affects the very first placement decision), so
+        # *some* recentering is still genuinely needed right here -
+        # this is the one call site that resizes the window out from
+        # under the user, whether that's the deferred initial grow-to-
+        # fit-the-capture (show_all's own idle_add) or a later zoom/
+        # whole-image-effect resize - just no longer piggybacking on a
+        # blanket mechanism that can't tell "our own resize() call"
+        # apart from "the user dragging an edge". No-op on Wayland
+        # (move() is a documented no-op there, same as CENTER_ALWAYS
+        # already was) - harmless to call unconditionally.
+        self.move(work_area.x + (work_area.width - total_w) // 2, work_area.y + (work_area.height - total_h) // 2)
         self._drawing_area.queue_draw()
 
     def _set_zoom(self, new_zoom: Fraction) -> None:

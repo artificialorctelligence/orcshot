@@ -6826,6 +6826,161 @@ the settings-gating logic for both functions, individually and combined; 12 new 
 wiring itself has no meaningful headless test, same precedent as the rest of this project's UI and
 Shell-extension code - verified live instead, extensively, per this write-up above.
 
+## Task #149: tool-palette overflow when the window is too short for the screen (fixed, verified live 2026-08-21)
+
+Real Windows' `toolsToolStrip` (`ImageEditorForm.Designer.cs`) is a WinForms `ToolStrip`, which has a
+built-in `OverflowButton`: when the strip's own tools don't all fit its available length, the ones that
+don't fit collapse into a "»" dropdown automatically - Windows never has to think about which specific
+tools to hide. This port's palette had no equivalent at all, so on a short screen (1366×768 was the
+concrete case that surfaced it) the bottom few tools could run off the window entirely with no way to
+reach them.
+
+**Design detour, worth recording since it changed direction mid-implementation**: the first plan was a
+curated fixed "More tools" button, moving four specific tools (direflail's own picks: Speech Bubble,
+Effects, Obfuscate, Highlight) into a dedicated overflow menu, sized against a live measurement of the
+real palette's per-row heights at 1366×768. That design was fully reasoned through - and then abandoned
+before implementation, once direflail asked to revisit it: "can we replicate greenshot's behavior
+without having things look weird" - i.e. dynamic, order-and-space-driven overflow like the real
+`ToolStrip.OverflowButton`, not a hand-picked list that has to be re-curated by hand every time the
+palette's own contents change. `Gtk.Toolbar`'s own native overflow mechanism
+(`set_show_arrow`, on by default) turned out to be the direct GTK equivalent, so the palette was
+rewritten from a plain `Gtk.Box` + `Gtk.RadioButton` (a deliberate earlier choice, made incidentally while
+fixing an unrelated padding bug - see that method's own git history) to a real
+`Gtk.Toolbar(orientation=VERTICAL)` + `Gtk.RadioToolButton`/`Gtk.ToolButton`, current work committed as a
+rollback checkpoint (`37070db`) before starting, per direflail's own explicit request, in case the
+architecture change didn't pan out.
+
+**Verified live in isolation before touching the real palette**, via small standalone `Gtk.Toolbar(VERTICAL)`
+test scripts run by direflail on both X11 (Mint/Cinnamon) and the Ubuntu 26.04 Wayland VM, rather than
+assumed from GTK's docs:
+
+- The overflow arrow does render and work correctly in vertical orientation, not just the far more common
+  horizontal case.
+- `set_is_important()` does **not** prioritize which items stay visible when space runs out - overflow is
+  purely insertion-order + available space (the first N items that fit stay, the rest overflow in the same
+  order), confirmed by items deliberately marked important still overflowing. So `_TOOL_LABELS`' own
+  existing order (already citing real Windows' `toolsToolStrip.Items` order) is what decides what ends up
+  in the overflow menu on a short screen - no separate curation needed.
+- `Gtk.ToolButton`'s default auto-generated overflow-menu proxy is built from `set_label()` text, not the
+  tooltip - a button with only a tooltip set produces a blank, item-less overflow menu when opened (live-
+  reproduced: the popup appeared but had zero visible rows). Every palette button now sets both.
+- Clicking an auto-generated proxy for a `Gtk.RadioToolButton` does correctly activate the real button
+  (confirmed via a title-bar readout in the test script) - GTK's default proxy wiring is otherwise sound.
+
+**A second, much more expensive round of live misdiagnosis, once the real palette was rewritten**: direflail
+reported "x11 has some radio buttons on the left for some and icons for others... wayland does not have
+this" while testing with a deliberately short window (to exercise the new overflow arrow). This was
+initially - wrongly - diagnosed as Mint-Y's theme drawing a literal radio-dot indicator on
+`Gtk.RadioToolButton`'s own CSS `radio` subnode in the *main toolbar*, and "fixed" twice with a screen-wide
+`Gtk.CssProvider` targeting `.orcshot-tool-palette radio` - the first attempt (zeroing `min-width`/
+`min-height`/padding/margin/`-gtk-icon-source`) blanked the tool icons entirely instead of removing a dot,
+direflail's report ("the ones that had radio buttons now have nothing") immediately proving the whole
+`radio`-subnode theory wrong rather than just imprecise. Per this project's own systematic-debugging
+discipline, a third blind CSS guess was correctly refused - two failed fixes on the same hypothesis is the
+threshold for stopping and re-establishing ground truth, not trying a third variant. A follow-up screenshot
+with the window resized *tall enough that nothing overflowed at all* settled it conclusively: the main
+toolbar had never been broken - every button showed a clean icon, no dot, on both platforms, unaffected by
+either CSS attempt (which, in hindsight, couldn't possibly have reached the real cause anyway: a popped-up
+`Gtk.Menu` isn't a descendant of the toolbar in the GTK widget tree, so a `.orcshot-tool-palette radio`
+descendant-combinator selector was never going to match anything inside it). Both CSS attempts were removed
+entirely once this was confirmed. The actual, correct target the whole time was the *auto-generated overflow
+menu proxy items* - GTK's default text-only proxy for a checkable tool renders as a `GtkCheckMenuItem`,
+which draws its own radio/check glyph (completely normal, expected menu chrome for any checkable row - not
+a bug at all), while the equivalent proxy for a non-checkable one (Rotate CW/CCW/Resize) renders as a plain
+row, explaining "these are the only ones with icons" on a theme that shows menu icons at all.
+
+**That led to a genuine, separately-scoped follow-up** (direflail explicitly opted in via `AskUserQuestion`
+once the actual gap was correctly identified): real Windows' own `ToolStripMenuItem` overflow entries do
+carry the owning tool's icon; this port's overflow menu, on both platforms, showed text only, confirmed via
+a from-scratch (X11) and Wayland screenshot with the window short enough to force overflow. Fixing this
+required building an *explicit* icon-carrying proxy for every palette entry (`_icon_menu_item`, matching
+`_build_menu_bar`'s own existing icon+label `Gtk.Box` pattern rather than the deprecated
+`Gtk.ImageMenuItem`) instead of relying on GTK's own default. This surfaced one more real, non-obvious GTK
+behavior, again only found by writing a small diagnostic script rather than guessing a third time: a plain
+`Gtk.ToolItem.set_proxy_menu_item()` call made *before* the toolbar is ever shown is silently ignored for an
+actual `Gtk.ToolButton`/`Gtk.RadioToolButton` - `retrieve_proxy_menu_item()` still returns a freshly
+GTK-built `GtkCheckMenuItem`/`GtkImageMenuItem`, confirmed live by comparing object identity
+(`id(set_proxy) != id(retrieved_proxy)`, wrong type too) across every button tested. `Gtk.ToolButton`'s own
+default `"create-menu-proxy"` class handler evidently rebuilds its own proxy unconditionally rather than
+checking whether one was already set. The base `Gtk.ToolItem` class (this file's own `Effects` wrapper,
+`_build_effects_control`) has no such default handler at all, so a bare `set_proxy_menu_item()` call there
+was never being fought over and worked correctly the whole time, unmodified. The fix for every actual
+`ToolButton`/`RadioToolButton`, confirmed by the same diagnostic script (side-by-side `[MATCH]` vs
+`[MISMATCH]` comparison): connect to the `"create-menu-proxy"` **signal** instead, build the icon-carrying
+proxy from inside the handler, and return `True` - standard GTK signal convention for "handled, don't also
+run the class default." Extracted into a shared `_connect_overflow_icon_proxy` helper, used by every plain
+tool button, the Obfuscate/Highlight/Crop group buttons, and the Rotate CW/CCW/Resize action buttons.
+
+**Also spun off, not part of this task**: while testing #149's overflow arrow specifically required manually
+drag-resizing the editor window for what may be the first time since task #157 shipped
+`Gtk.WindowPosition.CENTER_ALWAYS`, direflail hit a separate pre-existing bug (the window fighting an
+interactive resize-drag, heading toward a screen corner on X11 only, never on Wayland) - confirmed via `git
+diff` against this task's own starting commit that nothing in this task's changes touches window
+positioning at all. Filed as its own task (#162) rather than folded in here.
+
+Full suite green (1045 passed, 3 skipped, no new failures - `PYTHONPATH=src` needed to run against this
+checkout rather than the system-installed `.deb` copy at `/usr/lib/python3/dist-packages/orcshot`, a
+reminder this project has hit before, same underlying "the edited source isn't necessarily the one that's
+actually running" lesson as task #158's stale-extension-copy investigation). No new automated tests -
+`_build_tool_palette` and its overflow wiring have no meaningful headless test, same precedent as the rest
+of this project's GTK UI code; verified live instead, on both X11 (Mint/Cinnamon, this dev machine) and the
+Ubuntu 26.04 Wayland VM, including: full palette at normal size, keyboard shortcuts, Effects' own dropdown,
+Rotate CW/CCW/Resize, and - on a deliberately shrunk window on both platforms - the overflow arrow
+appearing, every entry (including Highlight/Obfuscate/Crop and Effects' own submenu) showing a correct
+icon, and every overflow entry correctly activating its tool when clicked.
+
+## Task #162: editor window fought a manual X11 resize-drag, heading for a screen corner (fixed, verified live 2026-08-21)
+
+Surfaced as a side effect of testing #149's new overflow arrow, which - for maybe the first time since
+task #157 shipped `Gtk.WindowPosition.CENTER_ALWAYS` - required direflail to manually drag-resize the
+editor window rather than just opening it and leaving it alone. On X11 (Mint/Cinnamon) only, dragging an
+edge to resize (either growing or shrinking) made the window head toward a screen corner instead of
+resizing normally, only letting the drag "stick" once it got there. Confirmed via `git diff`/`git log`
+that this was pre-existing, not introduced by #149's palette rewrite - nothing in that task's own diff
+touches window positioning at all.
+
+**Root cause, confirmed by reading #157's own git history (`b3428dc`, `f8ffa33`) rather than guessed**:
+`CENTER_ALWAYS` was added specifically because `_resize_canvas_and_window` (a `GLib.idle_add` callback
+that grows the window from its default small map to fit the actual captured image, shortly after first
+show) calls `self.resize()`, and `resize()` always grows/shrinks a window from a fixed top-left anchor
+regardless of any `WindowPosition` hint - a `WindowPosition` hint only ever affects the very first
+placement decision, not later explicit `resize()` calls. Without re-centering after that one deferred
+resize, a large captured image could end up visibly shifted toward the top-left. `CENTER_ALWAYS` was the
+blunt instrument reached for at the time: it re-centers on *every* size-changing event GTK sees, which
+turned out to include the window manager's own interactive-resize-drag configure-events, not just this
+port's own explicit `resize()` calls - GTK has no way to distinguish the two once subscribed to
+`CENTER_ALWAYS`'s blanket mechanism. (Also confirmed via that same history: `CENTER_ALWAYS` was never
+actually necessary for #157's own real bug, a genuinely separate issue in `show_all()`'s ordering - see
+that task's own write-up.)
+
+**Fix**: `Gtk.WindowPosition.CENTER` (initial placement only, not continuous) instead of `CENTER_ALWAYS`,
+plus an explicit, one-shot `self.move()` call added directly inside `_resize_canvas_and_window`, right
+after its own `self.resize()` - computed from the same `work_area` that method already fetches for
+clamping. This keeps re-centering exactly where it's actually needed (every place this port's own code
+resizes the window: the deferred initial grow-to-fit, zoom changes, whole-image effects) while never
+touching a resize the window manager itself is driving on the user's behalf. No-op on Wayland either way
+(`move()` is a documented no-op there), matching `CENTER_ALWAYS`'s own prior Wayland behavior exactly -
+this only changes anything on X11.
+
+Confirmed live (direflail, X11/Mint): dragging an edge now resizes normally in both directions, and a
+freshly-opened editor still lands centered on screen. Full suite still green (1045 passed, 3 skipped).
+
+## Task #149 follow-up: confirm a real capture doesn't open oversized on Wayland (verified 2026-08-21)
+
+direflail asked to specifically double-check editor windows aren't opening too tall for the screen on
+the Wayland VM, since #149's overflow work is a good moment to revisit it (a Wayland "too tall" symptom
+had been observed there "for a while"). A synthetic test (`EditorWindow` opened directly with an image
+taller than the monitor's own full geometry, run via the dev source tree rather than an installed
+package) showed correct clamping and canvas-scrolling fallback on both X11 and the Wayland VM - no
+overflow in either case. direflail then flagged that the dev-source testing path this whole task's live
+verification had used doesn't reflect what's actually *installed* on the VM, which turned out to be the
+real explanation: rebuilding a fresh `.deb` from the current tree (`dpkg-buildpackage -us -uc -b`,
+running the full suite as part of the build) and installing it on the VM via `sudo dpkg -i` (direflail's
+own terminal, since the VM has no GUI package installer available the way Mint's does) confirmed a real
+capture opens correctly sized, with the new overflow button present. The earlier "too tall" observation
+was against a stale previously-installed build, not a live bug in the current code - no fix needed here,
+just confirmation.
+
 ## Licensing
 
 **Status: decided — GPLv3.** Greenshot (Windows) is GPLv3; this is a derivative work — same feature
