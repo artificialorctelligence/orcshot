@@ -84,7 +84,7 @@ from orcshot.settings import (
 from orcshot.ui.composite import composite_to_numpy
 from orcshot.ui.external_commands import run_external_command
 from orcshot.ui.file_export import save_image_to_file
-from orcshot.ui.icons import destination_icon_image
+from orcshot.ui.icons import destination_icon_geometry_key, destination_icon_image
 from orcshot.ui.printing import print_image
 
 
@@ -304,6 +304,24 @@ def _all_destinations(include_excluded: bool = False) -> list:
         return entries
     excluded = get_excluded_destinations()
     return [entry for entry in entries if entry[0] not in excluded]
+
+
+def destinations_for_shell(include_excluded: bool = False) -> list[tuple[str, str, str]]:
+    """(id, label, geometry_key) triples for every destination
+    _all_destinations() would show - task #113: the Wayland Shell-
+    native picker (extension.js's pickDestinationAsync) fetches this
+    over D-Bus (app.py's OrcshotApplication.do_dbus_register) instead
+    of hardcoding its own destination list, so ExternalCommand entries
+    (and any future built-in) show up there exactly like they already
+    do in the X11 Gtk.Menu, with no second list to keep in sync by
+    hand. Drops each entry's handler (Python-only, meaningless once
+    serialized to JS - the Shell picker only ever needs to report back
+    *which* id was chosen, via dispatch_destination above).
+    """
+    return [
+        (item_id, label, destination_icon_geometry_key(item_id))
+        for item_id, label, _handler in _all_destinations(include_excluded)
+    ]
 
 
 def dispatch_destination(

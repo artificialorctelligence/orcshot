@@ -6981,6 +6981,74 @@ capture opens correctly sized, with the new overflow button present. The earlier
 was against a stale previously-installed build, not a live bug in the current code - no fix needed here,
 just confirmation.
 
+## Task #113: Wayland Shell-native picker now shows ExternalCommand entries (fixed, verified live 2026-08-22)
+
+The Wayland Shell-native destination picker (`extension.js`'s `pickDestinationAsync`, used for
+region-select/window-picker/active-window/last-region capture) had its own hardcoded copy of just the
+five built-in destinations (`clipboard`/`save`/`save_as`/`edit`/`print`) - it never showed the "Office"
+destination or any configured ExternalCommand entry (task #110), both of which the X11 classic
+`Gtk.Menu` path (`destination_picker.py`'s own `show_destination_picker`) already handles correctly via
+`_all_destinations()`.
+
+**Fix**: `destination_picker.py` gets a new `destinations_for_shell()` - `(id, label, geometry_key)`
+triples built from the same, already-filtered `_all_destinations()` every other path already uses, with
+each entry's handler dropped (Python-only, meaningless once serialized to JS). `app.py`'s
+`OrcshotApplication` gets a `do_dbus_register` override exposing this as a real D-Bus method call
+(`org.orcshot.Orcshot.Destinations.GetDestinations`) - a GAction wouldn't work here since
+`activate_action()` is fire-and-forget with no return value (confirmed against `_activateOrcshotAction`'s
+own docstring). `extension.js`'s `pickDestinationAsync` now calls this via
+`Gio.DBusProxy.call_sync`/`GetDestinations` instead of iterating a hardcoded `DESTINATIONS` array, which
+is deleted entirely - JS is now a pure renderer with no destination list or icon-mapping of its own left
+to drift out of sync with Python.
+
+**The one real design gap, closed properly rather than worked around**: X11's `destination_icon_image`
+already fell back to a generic hand-drawn "terminal prompt" glyph (`_external_command_icon`) for both
+"office" and any `external:*` id (neither has one fixed action to depict) - but that fallback was a
+one-off Cairo function, never added to `icon_geometry.json` (task #143's shared-icon-data mechanism), so
+`extension.js` had no way to draw it. Added a new `"external-command-symbolic"` geometry key (hand-derived
+from `_external_command_icon`'s own simple Cairo calls: a rounded-rect stroke + two line-segment
+strokes), verified byte-identical to the original function's output the same way task #143 verified every
+other shared icon - a pixel-diff against the pre-change render. `_external_command_icon` is now dead code
+and deleted; `destination_icon_image`/the new `destination_icon_geometry_key` both go through the
+geometry-JSON path uniformly, no more special-casing.
+
+**A real, non-obvious bug caught by that pixel-diff, not assumed away**: the first geometry attempt set
+`line_width`/`line_cap`/`line_join` *before* the rounded-rect stroke, reasoning this was "safer" than
+relying on Cairo's implicit defaults - which introduced a genuine 1-value-per-channel diff at the shape's
+anti-aliased edges. Checked live (`ctx.get_line_cap()`/`get_line_join()` on a fresh context) rather than
+recalled from memory: Cairo's real defaults are `BUTT`/`MITER`, not `ROUND`/`ROUND` - the original
+hand-drawn function relied on exactly that default for its first stroke, and explicitly forcing
+round/round early changed the rendering. Reordering the ops to match the original's exact sequence
+(style-setting only *after* the first stroke) produced true byte-identical output, confirmed by comparing
+both renders through the *same* Cairo-surface-to-numpy conversion path (an earlier comparison attempt
+that mixed two different conversion paths - raw `cairo_surface_to_numpy` vs. the `Gdk.Pixbuf`-mediated
+route the new code actually uses - produced a misleading ±1 diff that was a comparison-methodology
+artifact, not a real rendering difference; re-verified through one consistent path before trusting the
+"identical" conclusion).
+
+**TDD throughout** (both `destination_picker.py` and `icons.py` had zero prior direct test coverage for
+the touched functions - added tests for the existing untested behavior too, not just the new code):
+`tests/unit/ui/test_icons.py` (2 new tests, one deliberately watched RED first via the missing geometry
+key's `KeyError`), `tests/unit/ui/test_destination_picker.py` (new file, 4 tests for
+`destinations_for_shell` - including one that had to explicitly mock out `_find_office_command`, since
+this dev machine has `soffice` installed and would otherwise silently add a real 6th "Office" entry,
+making the test depend on what's installed on whatever machine runs it rather than on the function's own
+behavior).
+
+**Verified live end-to-end**, not just unit-tested: built a full binary `.deb` from the working tree and
+installed it fresh on the Ubuntu 26.04 VM (matching how every other Shell-extension change in this
+project gets verified - no automated test framework covers GJS/Shell code here). Confirmed via a real
+region-select capture: the Wayland picker now shows a configured ExternalCommand entry
+("krita") dynamically, with the correct icon, and clicking it correctly launches the command (the actual
+D-Bus round-trip and destination dispatch both work) - though that same test surfaced two real, separate,
+pre-existing bugs unrelated to this task's own change (filed as their own tasks rather than folded in
+here): a Snap-confined target app (Krita via `/snap/bin/krita`, not Flatpak) apparently can't read the
+exported handoff file, and copying a capture to clipboard doesn't cross the VM's guest→host clipboard
+boundary at all (no error, no output) - the latter looking more like a VirtualBox shared-clipboard
+platform limitation than an Orcshot bug, not yet confirmed either way.
+
+Full suite green (1052 passed, 3 skipped - 6 new tests, 1046 pre-existing).
+
 ## Licensing
 
 **Status: decided — GPLv3.** Greenshot (Windows) is GPLv3; this is a derivative work — same feature

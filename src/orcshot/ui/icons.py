@@ -878,33 +878,6 @@ def crop_icon_image(color: Color = _DEFAULT_COLOR) -> Gtk.Image:
 
 # --- destination-picker icons (task #96) ---------------------------------
 
-def _external_command_icon(color: Color) -> cairo.ImageSurface:
-    """Generic icon for any configured ExternalCommand destination
-    (task #110) - a terminal-prompt glyph, since these can run
-    anything, not one specific action to depict. Kept as its own
-    hand-drawn function (not geometry.json-backed like everything else
-    below) - there's no matching stock icon name this needs to stay
-    consistent with, since it never had one to begin with.
-    """
-    surface = _blank_surface()
-    ctx = cairo.Context(surface)
-    r, g, b, a = color
-    ctx.set_source_rgba(r / 255, g / 255, b / 255, a / 255)
-    _rounded_rect_path(ctx, _MARGIN, _MARGIN, ICON_SIZE - 2 * _MARGIN, ICON_SIZE - 2 * _MARGIN, 2)
-    ctx.stroke()
-    ctx.set_line_width(2)
-    ctx.set_line_cap(cairo.LINE_CAP_ROUND)
-    ctx.set_line_join(cairo.LINE_JOIN_ROUND)
-    ctx.move_to(ICON_SIZE * 0.3, ICON_SIZE * 0.35)
-    ctx.line_to(ICON_SIZE * 0.46, ICON_SIZE * 0.5)
-    ctx.line_to(ICON_SIZE * 0.3, ICON_SIZE * 0.65)
-    ctx.stroke()
-    ctx.move_to(ICON_SIZE * 0.52, ICON_SIZE * 0.68)
-    ctx.line_to(ICON_SIZE * 0.72, ICON_SIZE * 0.68)
-    ctx.stroke()
-    return surface
-
-
 # Maps a destination id to the same geometry.json key used for the
 # equivalent stock-icon-replacement action elsewhere in the app (task
 # #146) - "Copy to Clipboard" is genuinely the same icon as generic
@@ -951,18 +924,30 @@ def capture_mode_icon_image(mode: str, color: Color = _DEFAULT_COLOR) -> Gtk.Ima
     return _drawn_icon_image(mode, color, ICON_SIZE)
 
 
-def destination_icon_image(destination_id: str, color: Color = _DEFAULT_COLOR) -> Gtk.Image:
-    """Icon for a destination-picker menu item (task #96) - falls back
-    to the generic command glyph for dynamically-configured
-    ExternalCommand destinations (ids like "external:My Command"),
-    which have no fixed action to depict.
+_EXTERNAL_COMMAND_ICON_KEY = "external-command-symbolic"
+
+
+def destination_icon_geometry_key(destination_id: str) -> str:
+    """The geometry.json key destination_icon_image below would draw
+    for this id - falls back to the generic command glyph for
+    "office" and any dynamically-configured ExternalCommand
+    destination (ids like "external:My Command"), neither of which
+    has one fixed action to depict. Exposed as its own function (task
+    #113), not just inlined into destination_icon_image, so
+    ui/destination_picker.py's own destinations_for_shell can tell the
+    Wayland Shell-native picker which icon to draw without needing a
+    live Gtk.Image render - GJS reads icon_geometry.json directly
+    rather than through this Python module at all.
     """
-    geometry_key = _DESTINATION_ICON_KEYS.get(destination_id)
-    if geometry_key is None:
-        surface = _external_command_icon(color)
-        pixbuf = Gdk.pixbuf_get_from_surface(surface, 0, 0, surface.get_width(), surface.get_height())
-        return Gtk.Image.new_from_pixbuf(pixbuf)
-    return _drawn_icon_image(geometry_key, color, ICON_SIZE)
+    return _DESTINATION_ICON_KEYS.get(destination_id, _EXTERNAL_COMMAND_ICON_KEY)
+
+
+def destination_icon_image(destination_id: str, color: Color = _DEFAULT_COLOR) -> Gtk.Image:
+    """Icon for a destination-picker menu item (task #96) - see
+    destination_icon_geometry_key's own docstring for the fallback
+    reasoning.
+    """
+    return _drawn_icon_image(destination_icon_geometry_key(destination_id), color, ICON_SIZE)
 
 
 def stock_icon_image(name: str, color: Color = _DEFAULT_COLOR, size: int = 16) -> Gtk.Image:

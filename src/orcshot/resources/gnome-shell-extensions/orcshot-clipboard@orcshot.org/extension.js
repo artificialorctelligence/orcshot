@@ -249,32 +249,48 @@ const VERSION_IFACE = `
 const _SELECTION_BORDER = [0.1, 0.6, 1.0];
 const _DIM_ALPHA = 0.5;
 
-// Matches ui/destination_picker.py's own item order/labels - see that
-// module's docstring for the Windows-destination-priority citation
-// these were traced from. destination_picker.py's own Gtk.Menu is no
-// longer used for the Wayland/Shell-native flow at all (see
-// pickDestinationAsync below for why) - Python only ever *dispatches*
-// on whichever of these ids comes back, it doesn't build any menu UI
-// of its own for this path anymore.
+// Task #113: fetches the real, current destination list from
+// destination_picker.py's own destinations_for_shell() (id, label,
+// geometry_key) over D-Bus (app.py's OrcshotApplication.
+// do_dbus_register), rather than a hardcoded copy of the five
+// built-ins - a fixed list here could never show ExternalCommand
+// entries (task #110) or reflect Preferences' excluded-destinations
+// checklist without an extension update every time either changed.
+// destination_picker.py's own Gtk.Menu is no longer used for the
+// Wayland/Shell-native flow at all (see pickDestinationAsync below
+// for why) - Python only ever *dispatches* on whichever of these ids
+// comes back, it doesn't build any menu UI of its own for this path
+// anymore.
+//
+// No fallback if this call fails - confirmed with direflail: the
+// entire Wayland Shell-native capture flow only exists because
+// Python's already running (it's what registers the hotkey that
+// triggers this in the first place), so an unreachable D-Bus service
+// here means something far more broken than a missing picker.
 //
 // Geometry keys (task #146) match ui/editor_window.py's own File/Edit
 // menu items for the same actions exactly (document-save-symbolic,
-// edit-copy-symbolic, etc.) - and icons.py's own destination_icon_image
-// maps these same destination ids to the same keys, so this picker
-// and destination_picker.py's own X11 Gtk.Menu draw identical icons.
+// edit-copy-symbolic, etc.), plus a shared fallback ("external-
+// command-symbolic", task #113) for "office" and any ExternalCommand
+// entry, neither of which has one fixed action to depict - and
+// icons.py's own destination_icon_image maps the same ids to the same
+// keys, so this picker and destination_picker.py's own X11 Gtk.Menu
+// always draw identical icons, whatever destinations are configured.
 // Previously themed icon names looked up via St.Icon (simpler, no
 // drawing code needed) - reverted per direflail: "I don't want
 // default icon sets... every icon in the wayland version [must] look
 // like the x11 version, no exceptions" (a theme-name lookup only
 // guarantees a consistent *name*, not a consistent *look*, across
 // machines with different icon themes installed).
-const DESTINATIONS = [
-  ['clipboard', 'Copy to Clipboard', 'edit-copy-symbolic'],
-  ['save', 'Save', 'document-save-symbolic'],
-  ['save_as', 'Save As...', 'document-save-as-symbolic'],
-  ['edit', 'Edit', 'applications-graphics-symbolic'],
-  ['print', 'Print', 'document-print-symbolic'],
-];
+function _fetchDestinations() {
+  const proxy = Gio.DBusProxy.new_for_bus_sync(
+    Gio.BusType.SESSION, Gio.DBusProxyFlags.NONE, null,
+    'org.orcshot.Orcshot', '/org/orcshot/Orcshot', 'org.orcshot.Orcshot.Destinations', null,
+  );
+  const result = proxy.call_sync('GetDestinations', null, Gio.DBusCallFlags.NONE, -1, null);
+  const [destinations] = result.deep_unpack();
+  return destinations;
+}
 
 // App.py registers each of these as a GAction (see its own
 // _register_tray_actions) - GApplication exports its action group
@@ -305,6 +321,11 @@ function _activateOrcshotAction(name) {
 // used purely as that anchor.
 function pickDestinationAsync(x, y) {
   return new Promise(resolve => {
+    // Fetched before any actor exists (not inside the try/build below)
+    // so a D-Bus failure just means nothing gets shown, rather than
+    // leaving a half-built anchor/menu orphaned on screen.
+    const destinations = _fetchDestinations();
+
     const anchor = new St.Widget({
       name: 'orcshot-picker-anchor', x, y, width: 1, height: 1, opacity: 0, reactive: false,
     });
@@ -319,7 +340,7 @@ function pickDestinationAsync(x, y) {
 
     const iconGeometry = _loadIconGeometry();
     let chosen = null;
-    for (const [id, label, geometryKey] of DESTINATIONS) {
+    for (const [id, label, geometryKey] of destinations) {
       // size=24 matches icons.py's own destination_icon_image, which
       // always renders at its module ICON_SIZE constant (24) - not
       // the tray menu's 16px default, a real, different size class.

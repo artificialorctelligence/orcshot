@@ -4446,6 +4446,62 @@
       "op": "fill"
     }
   ],
+  "external-command-symbolic": [
+    {
+      "h": 0.6666666666666666,
+      "op": "rounded_rectangle",
+      "radius": 2,
+      "w": 0.6666666666666666,
+      "x": 0.16666666666666666,
+      "y": 0.16666666666666666
+    },
+    {
+      "op": "stroke"
+    },
+    {
+      "op": "set_line_width",
+      "width": 2
+    },
+    {
+      "cap": "round",
+      "op": "set_line_cap"
+    },
+    {
+      "join": "round",
+      "op": "set_line_join"
+    },
+    {
+      "op": "move_to",
+      "x": 0.3,
+      "y": 0.35
+    },
+    {
+      "op": "line_to",
+      "x": 0.46,
+      "y": 0.5
+    },
+    {
+      "op": "line_to",
+      "x": 0.3,
+      "y": 0.65
+    },
+    {
+      "op": "stroke"
+    },
+    {
+      "op": "move_to",
+      "x": 0.52,
+      "y": 0.68
+    },
+    {
+      "op": "line_to",
+      "x": 0.72,
+      "y": 0.68
+    },
+    {
+      "op": "stroke"
+    }
+  ],
   "folder-symbolic": [
     {
       "op": "move_to",

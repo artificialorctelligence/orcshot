@@ -45,6 +45,7 @@ gi.require_version("Gdk", "3.0")
 from gi.repository import Gdk, Gio, GLib, Gtk
 
 from orcshot.core.update_check import is_newer_version, should_check_now
+from orcshot.ui.destination_picker import destinations_for_shell
 from orcshot.settings import (
     clear_quit_marker, get_last_update_check, get_update_check_interval_days,
     is_quit_marker_set, set_last_update_check, write_quit_marker,
@@ -212,6 +213,49 @@ class OrcshotApplication(Gtk.Application):
         self.add_action(open_uri_action)
 
         GLib.timeout_add_seconds(_UPDATE_CHECK_STARTUP_DELAY_SECONDS, self._start_periodic_update_checks)
+
+    _DESTINATIONS_IFACE_XML = """
+    <node>
+      <interface name="org.orcshot.Orcshot.Destinations">
+        <method name="GetDestinations">
+          <arg type="a(sss)" name="destinations" direction="out"/>
+        </method>
+      </interface>
+    </node>
+    """
+
+    def do_dbus_register(self, connection, object_path):
+        """Task #113: exposes destination_picker.py's own
+        destinations_for_shell() as a real D-Bus method call (id,
+        label, geometry_key) triples - not a GAction like
+        _register_tray_actions above, since GAction.activate() is
+        fire-and-forget with no return value (confirmed against
+        extension.js's own _activateOrcshotAction docstring), and this
+        needs an actual response. The Wayland Shell-native picker
+        (pickDestinationAsync, orcshot-clipboard@orcshot.org) calls
+        this instead of hardcoding its own destination list, so
+        ExternalCommand entries show up there exactly like they
+        already do in the X11 Gtk.Menu - confirmed live via a
+        standalone GJS/Python D-Bus proof-of-concept before wiring
+        this in for real.
+
+        Must call the superclass implementation first - GApplication's
+        own do_dbus_register is what exports every registered GAction
+        at this same object_path via org.gtk.Actions (see
+        _register_tray_actions's own docstring); skipping this would
+        silently break every existing tray/capture action.
+        """
+        if not Gtk.Application.do_dbus_register(self, connection, object_path):
+            return False
+        node_info = Gio.DBusNodeInfo.new_for_xml(self._DESTINATIONS_IFACE_XML)
+        interface_info = node_info.interfaces[0]
+
+        def handle_method_call(connection, sender, path, iface, method, params, invocation):
+            if method == "GetDestinations":
+                invocation.return_value(GLib.Variant("(a(sss))", (destinations_for_shell(),)))
+
+        connection.register_object(object_path, interface_info, handle_method_call)
+        return True
 
     def do_command_line(self, command_line):
         # Task #161: snapshotted before self.activate() below (which
