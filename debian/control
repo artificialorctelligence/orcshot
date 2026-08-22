@@ -53,8 +53,3 @@ Description: Screenshot capture and annotation tool
  application itself runs on any GTK3 desktop environment under X11;
  on non-Cinnamon desktops, hotkeys can still be bound manually to the
  same command-line capture options this package provides.
- .
- The editor's Obfuscate Text effect (Effects > Obfuscate Text...) uses
- Tesseract OCR (tesseract-ocr, Recommends above) to find and redact text
- in a capture; without it installed, that one menu item shows an
- explanatory message instead of running.
