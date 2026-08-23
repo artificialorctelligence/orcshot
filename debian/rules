@@ -14,3 +14,29 @@
 # checkbox).
 override_dh_installsystemduser:
 	dh_installsystemduser --no-enable
+
+# GTK 3.24.41 hard-aborts (Trace/breakpoint trap, not a catchable
+# GLib-CRITICAL) when a Gtk.Image is built from a pixbuf with no
+# display connection at all - confirmed live via the failed 0.1.1-1
+# noble build (icons.py's destination_icon_image -> Gtk.Image.
+# new_from_pixbuf -> "Can't create a GtkStyleContext without a display
+# connection"), reproduced locally with DISPLAY/WAYLAND_DISPLAY unset.
+# Launchpad's build chroot has no display at all; every real install
+# of this app always does (it's a screenshot tool), so a virtual one
+# here matches production far more closely than a genuinely-headless
+# test run does - not a workaround for a test gap, the standard fix
+# for a GTK app's test suite needing a real (if virtual) display.
+#
+# PYBUILD_TEST_ARGS deselects the x11/wayland-marked tests (pyproject.
+# toml's own markers: "needs a running X server"/"needs a running
+# Wayland session") - those exist to run on a developer's real desktop
+# and skip automatically when DISPLAY/WAYLAND_DISPLAY is unset (see
+# their own marker docstrings), which is exactly what happened on
+# every build before this one. Xvfb sets DISPLAY but is a bare X
+# server with no window manager, so leaving them enabled here doesn't
+# restore the skip - it makes them newly-eligible to run and then fail
+# for a different reason (confirmed live: 6 real errors, "the window
+# manager does not support _NET_CLIENT_LIST (EWMH)") - a genuinely new
+# problem this virtual display would introduce, not the one it fixes.
+override_dh_auto_test:
+	PYBUILD_TEST_ARGS='tests -m "not x11 and not wayland"' xvfb-run -a dh_auto_test

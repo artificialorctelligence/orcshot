@@ -1,3 +1,35 @@
+orcshot (0.1.1-2) noble; urgency=medium
+
+  * No functional change - fixes the 0.1.1-1 noble build itself, which
+    failed on Launchpad's build farm. GTK 3.24.41 hard-aborts building a
+    Gtk.Image from a pixbuf with no display connection at all, and the
+    build chroot has none; fixed by running the test step under a
+    virtual display (xvfb-run), scoped to exclude the x11/wayland-marked
+    tests that need a real desktop window manager rather than just a
+    display, which Xvfb alone doesn't provide.
+
+ -- Orcshot <314918217+artificialorctelligence@users.noreply.github.com>  Sun, 23 Aug 2026 01:10:00 -0500
+
+orcshot (0.1.1-1) noble; urgency=medium
+
+  * Adding an External Command now offers a "Find App" search mode
+    alongside the existing form - searches installed Snap, Flatpak, and
+    natively-installed apps and fills in the command for you.
+  * LibreOffice, OpenOffice, Krita, and GIMP are now auto-detected and
+    added as destinations the first time the app starts, if installed.
+  * Preferences' Destinations tab is now split into "Default" (the five
+    built-ins) and "External" (your configured commands, with
+    Add/Edit/Delete inline) - the separate "Manage..." dialog is gone.
+  * Fixed: an external command confined by Snap (e.g. Krita) could fail
+    to read the screenshot handed to it.
+  * Fixed: Quit did nothing if Preferences or an Add/Edit External
+    Command dialog was still open.
+  * Fixed: the editor window could open on the wrong monitor, resize
+    incorrectly, or (on Wayland, for a capture taller than the screen)
+    overflow the screen entirely.
+
+ -- Orcshot <314918217+artificialorctelligence@users.noreply.github.com>  Sun, 23 Aug 2026 00:15:00 -0500
+
 orcshot (0.1.0-21) noble; urgency=medium
 
   * Fix the editor window overflowing the screen vertically on Wayland

@@ -2959,7 +2959,20 @@ packaged.
   auto-generates one anyway (routine bytecode compilation on install/removal, nothing this project
   authored), so no hotkey/autostart writes happen at install time - consistent with this project's
   standing policy that only a human clicking through the in-app first-run dialog may ever write
-  those for real.
+  those for real. (Superseded by task #141's later systemd `--user` service migration - `debian/
+  orcshot.postinst` is now a real, project-authored script; see the two new `lintian` warnings
+  below.)
+- **Two more `lintian` warnings, both understood, both harmless (0.1.1)**: `maintainer-script-
+  calls-systemctl` - expected, task #141's own `debian/orcshot.postinst` genuinely needs to
+  `systemctl --user enable --now orcshot.service` for the "enable autostart" debconf answer to take
+  effect at install time, the whole point of that migration. `malformed-question-in-templates
+  orcshot/enable-autostart` - traced into `lintian`'s own source
+  (`Lintian::Check::Debian::Debconf`, the `$short !~ /\?/` check on a `boolean`-type template) rather
+  than dismissed: the short description ("Start Orcshot automatically at login?") plainly does
+  contain a `?`, confirmed byte-for-byte in both `debian/orcshot.templates` and the same file
+  re-extracted from the actual built `.deb` - a `lintian` parsing edge case with this specific
+  template shape, not a real formatting defect. The debconf question itself was already confirmed
+  working correctly in earlier testing.
 - **Full local build/lint/install verified live**: `dpkg-buildpackage -us -uc -b` (all 656 tests ran
   for real during the build via `dh_auto_test`/pybuild, not just the dev venv's own suite) produced
   `orcshot_0.1.0-1_all.deb`; `lintian` on it found zero errors, three harmless warnings (the
