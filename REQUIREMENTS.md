@@ -7186,6 +7186,42 @@ written into the real module). Full suite green (1119 passed, 3 skipped). Verifi
 installed `.deb`, not just unit tests: rebuilt, reinstalled, opened the real Preferences dialog
 (screenshotted), confirmed the mode dropdown is gone and the Default/`?` buttons both work as designed.
 
+## Task #172: Primary output format observed as TIFF instead of PNG - investigated, closed unreproduced
+(2026-08-23)
+
+Live-reported (direflail): Preferences -> Output tab's "Primary format" was set to TIFF, not PNG, causing
+quick-saves to write `.tiff` files. Fixed manually (switched back to PNG) before it could be inspected
+live, so direct evidence of *how* it happened doesn't exist - this entry records the investigation that
+followed, not a fix, since none was needed once nothing wrong could be found.
+
+**Checked and ruled out, not just read past**: `OutputSettings.primary_format`'s dataclass default
+confirmed `"png"` via a genuinely fresh config (no prior `output_settings` key at all) - `get_
+output_settings(path=<fresh temp path>)` returns `primary_format="png"` every time, ruling out a
+first-run-path bug specifically. Every real write path (`editor_window.py`'s handful of `update_output_
+settings`/`set_output_settings` call sites) goes through `dataclass_replace(get_output_settings(), **
+changes)` - always reading current settings first and replacing only the one changed field - never
+reconstructing a fresh `OutputSettings()` from scratch, so there's no path where writing one field could
+silently clobber another back to a wrong value. The format combo box's own `set_active_id()` call runs
+before `.connect("changed", ...)` is attached, so loading the saved value into the widget can't itself
+spuriously fire a write back to disk. Also checked whether this was the same *class* of bug as task #171
+(a coded default that changed value over time, with an old config never migrated) - git history rules
+this out too: `primary_format`'s default has always been `"png"`, never anything else, in every commit
+that touches it.
+
+**Closed as unreproduced**, direflail's own call - genuinely doesn't understand how it happened, hasn't
+seen it before or since, and a real investigation found nothing wrong in the code paths that could cause
+it. Documented here rather than just dropped, specifically so a recurrence doesn't require re-deriving
+this same investigation from scratch - if it happens again, this write-up is the starting point, and the
+fact that a first pass found nothing is itself useful information (points toward something environmental,
+a one-off manual selection, or a trigger this investigation didn't think to check, rather than a repeat
+of an already-understood mechanism).
+
+**Aside, found while investigating, not itself the cause**: `editor_window.py`'s `_SAVE_AS_FORMATS`
+includes `("gif", "GIF")` as a selectable primary format, but `file_export.py`'s `_EXTENSION_TO_TYPE` has
+no `".gif"` entry - picking GIF as the primary format would silently save as PNG instead
+(`_EXTENSION_TO_TYPE.get(path.suffix.lower(), "png")`'s own fallback). A real, separate, minor latent bug,
+left unfixed here since it's unrelated to what was actually reported.
+
 ## Licensing
 
 **Status: decided — GPLv3.** Greenshot (Windows) is GPLv3; this is a derivative work — same feature

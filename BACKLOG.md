@@ -4,30 +4,6 @@ Open items not yet scheduled into a task. Each entry keeps the context that
 led to it - not just "what," but "why this matters" - so picking it up later
 doesn't require re-deriving the reasoning from scratch.
 
-## #172: Primary output format defaulted to TIFF instead of PNG for a pre-existing config
-
-Live-reported (direflail, 2026-08-23): Preferences -> Output tab's "Primary format" was set to TIFF,
-not PNG, causing quick-saves to write `.tiff` files. direflail changed it back to PNG manually before
-this could be inspected live, so the evidence of *how* it became TIFF is gone - `settings.py`'s
-`OutputSettings.primary_format` dataclass default is genuinely `"png"`, and `editor_window.py`'s format
-combo box (`_SAVE_AS_FORMATS`, `"png"` first in the list) correctly selects whatever
-`get_output_settings().primary_format` returns, so a truly fresh config should not be able to show this
-- nothing found in a source read that would produce TIFF out of the box.
-
-Not root-caused (evidence overwritten before investigation). **Ruled out** as the same class of bug as
-the former #171 (filename pattern, since fixed - see REQUIREMENTS.md's task #171 write-up): git history
-confirms `primary_format`'s own default has always been `"png"`, never changed, so there's no "old
-default vs. new default" drift for this field the way there genuinely was for filename_pattern_mode.
-Most likely a one-off manual selection (direflail picking TIFF via the dropdown at some point and not
-recalling it), not a code bug - but not confirmed either way, so still open. Worth confirming on a
-genuinely fresh config (no prior `output_settings` key at all) to rule out a first-run-path bug
-specifically.
-
-Aside, found while investigating: `_SAVE_AS_FORMATS` includes `("gif", "GIF")`, but
-`file_export.py`'s `_EXTENSION_TO_TYPE` has no `".gif"` entry - picking GIF as the primary format would
-silently save as PNG instead (`_EXTENSION_TO_TYPE.get(path.suffix.lower(), "png")`'s own fallback), a
-small separate latent bug worth fixing alongside this one if picked up.
-
 ## #167: VM clipboard doesn't carry images across the host/guest boundary
 
 Surfaced live (direflail, 2026-08-22), same testing session as #166. Text
