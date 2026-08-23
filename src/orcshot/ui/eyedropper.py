@@ -45,11 +45,13 @@ from gi.repository import Gdk, Gtk
 
 from orcshot.capture.backend import CaptureBackend
 from orcshot.core.geometry import Rect
+from orcshot.core.magnifier import magnifier_constants
 from orcshot.ui.magnifier import draw_magnifier
 
-_PATCH_SIZE = 25  # matches region_select.py's magnifier source_size default
-_LOUPE_DIAMETER = 80
-_LOUPE_OFFSET = (18, 18)
+_constants = magnifier_constants()
+_PATCH_SIZE = _constants["patch_size"]  # matches region_select.py's magnifier source_size default
+_LOUPE_DIAMETER = _constants["eyedropper_diameter"]
+_LOUPE_OFFSET = (_constants["eyedropper_offset_x"], _constants["eyedropper_offset_y"])
 
 
 def _clamped_patch_rect(cursor_x: int, cursor_y: int, size: int, bounds: Rect):

@@ -1,0 +1,17 @@
+{
+  "patch_size": 25,
+  "loupe_ring_width": 2,
+  "loupe_crosshair_gap": 6,
+  "loupe_crosshair_thickness": 2,
+  "region_select_gap": 20,
+  "region_select_diameter_divisor": 5,
+  "region_select_diameter_round_to": 4,
+  "eyedropper_diameter": 80,
+  "eyedropper_offset_x": 18,
+  "eyedropper_offset_y": 18,
+  "dim_alpha": 0.5,
+  "selection_border": [0.1, 0.6, 1.0],
+  "crosshair_color_255": [32, 178, 170],
+  "coord_tooltip_border_255": [46, 139, 87],
+  "coord_tooltip_bg_255": [217, 240, 227, 200]
+}

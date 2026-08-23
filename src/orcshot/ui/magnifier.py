@@ -26,14 +26,10 @@ from typing import Tuple
 import cairo
 import numpy as np
 
-from orcshot.core.magnifier import magnifier_source_rect
+from orcshot.core.magnifier import magnifier_constants, magnifier_source_rect
 from orcshot.ui.cairo_convert import numpy_to_cairo_surface
 
 Point = Tuple[int, int]
-
-_RING_WIDTH = 2
-_CROSSHAIR_GAP = 6
-_CROSSHAIR_THICKNESS = 2
 
 
 def _clamped_crop(image: np.ndarray, cursor: Point, size: int) -> Tuple[np.ndarray, Point]:
@@ -56,7 +52,7 @@ def _clamped_crop(image: np.ndarray, cursor: Point, size: int) -> Tuple[np.ndarr
 
 def draw_magnifier(
     ctx: cairo.Context, frozen_image: np.ndarray, cursor: Point, offset: Point, diameter: int,
-    source_size: int = 25, dest_pos: Point = None,
+    source_size: int = None, dest_pos: Point = None,
 ) -> None:
     """Draws the loupe at ``dest_pos`` (or ``cursor`` if not given) +
     ``offset`` (top-left corner), ``diameter`` pixels across,
@@ -80,6 +76,13 @@ def draw_magnifier(
     loupe always render pinned near the drawing context's own origin,
     regardless of the real cursor position.
     """
+    constants = magnifier_constants()
+    if source_size is None:
+        source_size = constants["patch_size"]
+    ring_width = constants["loupe_ring_width"]
+    crosshair_gap = constants["loupe_crosshair_gap"]
+    crosshair_thickness = constants["loupe_crosshair_thickness"]
+
     crop, cursor_in_crop = _clamped_crop(frozen_image, cursor, source_size)
     crop_h, crop_w = crop.shape[:2]
     if crop_h == 0 or crop_w == 0:
@@ -106,9 +109,9 @@ def draw_magnifier(
     ctx.restore()
 
     ctx.save()
-    ctx.set_line_width(_RING_WIDTH)
+    ctx.set_line_width(ring_width)
     ctx.set_source_rgb(1, 1, 1)
-    ctx.arc(center_x, center_y, radius - _RING_WIDTH / 2, 0, 2 * math.pi)
+    ctx.arc(center_x, center_y, radius - ring_width / 2, 0, 2 * math.pi)
     ctx.stroke()
     ctx.restore()
 
@@ -119,11 +122,11 @@ def draw_magnifier(
     cross_x = dest_x + (cursor_in_crop[0] + 0.5) * scale_x
     cross_y = dest_y + (cursor_in_crop[1] + 0.5) * scale_y
     arm = radius * 0.7
-    gap = _CROSSHAIR_GAP
+    gap = crosshair_gap
     ctx.save()
-    ctx.arc(center_x, center_y, radius - _RING_WIDTH, 0, 2 * math.pi)
+    ctx.arc(center_x, center_y, radius - ring_width, 0, 2 * math.pi)
     ctx.clip()
-    for outline, width, color in ((True, _CROSSHAIR_THICKNESS + 2, (1, 1, 1)), (False, _CROSSHAIR_THICKNESS, (0, 0, 0))):
+    for outline, width, color in ((True, crosshair_thickness + 2, (1, 1, 1)), (False, crosshair_thickness, (0, 0, 0))):
         ctx.set_line_width(width)
         ctx.set_source_rgb(*color)
         ctx.move_to(cross_x, cross_y - arm)

@@ -243,11 +243,37 @@ const VERSION_IFACE = `
    </interface>
 </node>`;
 
-// Matches ui/region_select.py's own constants (_SELECTION_BORDER,
-// _DIM_ALPHA) - see that module for the Windows-source citation these
-// were originally traced from.
-const _SELECTION_BORDER = [0.1, 0.6, 1.0];
-const _DIM_ALPHA = 0.5;
+// magnifier_constants.json (task #168 follow-up) - the shared source
+// of truth for every magnifier/eyedropper/selection-overlay number in
+// this file, matching core/magnifier.py's own magnifier_constants()
+// and its four Python consumers (ui/magnifier.py, ui/eyedropper.py,
+// ui/region_select.py) exactly - kept in sync only by a human
+// remembering to update all five files before this, the same
+// class of bug icon_geometry.json (task #143) already fixed for the
+// tray icons. GJS can't import those Python modules at all (a
+// completely separate process, see icon_geometry.json's own citation
+// trail below) - only the *values* are shareable, not the actual
+// offset-search/draw algorithms, which stay independently
+// implemented here.
+//
+// Loaded once into a module-level object, unlike _loadIconGeometry
+// further down (deliberately re-read on every call): these values are
+// read on every mouse-motion event during an active drag, not just
+// when a menu happens to be rebuilt, so re-parsing the file that
+// often would be wasted work - a fresh extension enable() (the only
+// time this module is re-instantiated at all) already picks up any
+// edit to the file regardless.
+function _loadMagnifierConstants() {
+  const [path] = GLib.filename_from_uri(import.meta.url);
+  const constantsPath = GLib.build_filenamev([GLib.path_get_dirname(path), 'magnifier_constants.json']);
+  const [, bytes] = GLib.file_get_contents(constantsPath);
+  return JSON.parse(new TextDecoder().decode(bytes));
+}
+
+const _magnifierConstants = _loadMagnifierConstants();
+
+const _SELECTION_BORDER = _magnifierConstants.selection_border;
+const _DIM_ALPHA = _magnifierConstants.dim_alpha;
 
 // Task #113: fetches the real, current destination list from
 // destination_picker.py's own destinations_for_shell() (id, label,
@@ -394,29 +420,32 @@ function pickDestinationAsync(x, y) {
 // core/magnifier.py's real algorithm rather than reusing the
 // eyedropper's fixed-size approach and reintroducing that bug a third
 // time.
-const _PATCH_SIZE = 25;
-const _LOUPE_DIAMETER = 80;
-const _LOUPE_OFFSET_X = 18;
-const _LOUPE_OFFSET_Y = 18;
-const _LOUPE_GAP = 20;
-const _RING_WIDTH = 2;
-const _CROSSHAIR_GAP = 6;
-const _CROSSHAIR_THICKNESS = 2;
+const _PATCH_SIZE = _magnifierConstants.patch_size;
+const _LOUPE_DIAMETER = _magnifierConstants.eyedropper_diameter;
+const _LOUPE_OFFSET_X = _magnifierConstants.eyedropper_offset_x;
+const _LOUPE_OFFSET_Y = _magnifierConstants.eyedropper_offset_y;
+const _LOUPE_GAP = _magnifierConstants.region_select_gap;
+const _RING_WIDTH = _magnifierConstants.loupe_ring_width;
+const _CROSSHAIR_GAP = _magnifierConstants.loupe_crosshair_gap;
+const _CROSSHAIR_THICKNESS = _magnifierConstants.loupe_crosshair_thickness;
 
 // Matches ui/region_select.py's own _CROSSHAIR_COLOR/_COORD_TOOLTIP_
 // BORDER/_COORD_TOOLTIP_BG exactly - see that module's docstring for
 // the CaptureForm.cs:1154-1182 citation (LightSeaGreen dotted
 // crosshair lines, a SeaGreen-bordered light-mint coordinate tooltip).
-const _CROSSHAIR_COLOR = [32 / 255, 178 / 255, 170 / 255];
-const _COORD_TOOLTIP_BORDER = [46 / 255, 139 / 255, 87 / 255];
-const _COORD_TOOLTIP_BG = [217 / 255, 240 / 255, 227 / 255, 200 / 255];
+// Stored as raw 0-255 values in magnifier_constants.json (that's how
+// they were originally chosen - named CSS colors), divided by 255
+// here same as this file always did.
+const _CROSSHAIR_COLOR = _magnifierConstants.crosshair_color_255.map((c) => c / 255);
+const _COORD_TOOLTIP_BORDER = _magnifierConstants.coord_tooltip_border_255.map((c) => c / 255);
+const _COORD_TOOLTIP_BG = _magnifierConstants.coord_tooltip_bg_255.map((c) => c / 255);
 
 // Ported from core/magnifier.py's magnifier_diameter - see that
 // module's docstring (CaptureForm.cs's VerifyZoomAnimation) for why
 // min(w,h)//5 rounded down to a multiple of 4.
 function _magnifierDiameter(width, height) {
-  const size = Math.floor(Math.min(width, height) / 5);
-  return size - (size % 4);
+  const size = Math.floor(Math.min(width, height) / _magnifierConstants.region_select_diameter_divisor);
+  return size - (size % _magnifierConstants.region_select_diameter_round_to);
 }
 
 function _rectContains(outer, inner) {

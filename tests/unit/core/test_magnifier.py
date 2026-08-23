@@ -5,7 +5,24 @@ docstring for the exact line references this was traced from.
 """
 
 from orcshot.core.geometry import Rect
-from orcshot.core.magnifier import magnifier_diameter, magnifier_offset, magnifier_source_rect
+from orcshot.core.magnifier import magnifier_constants, magnifier_diameter, magnifier_offset, magnifier_source_rect
+
+
+class TestMagnifierConstants:
+    def test_reads_the_shared_json_file_used_by_the_gnome_shell_extension_too(self):
+        # Task #168 follow-up: these constants used to be hardcoded
+        # separately in core/magnifier.py, ui/magnifier.py, ui/
+        # eyedropper.py, ui/region_select.py, AND independently
+        # re-typed in extension.js - kept in sync only by a human
+        # remembering to update all five. Sharing the *values* (not
+        # the algorithm - GJS can't import this module at all, a
+        # completely separate process, same constraint icon_geometry
+        # .json already documents) closes the drift risk for the part
+        # that actually can be shared.
+        constants = magnifier_constants()
+        assert constants["patch_size"] == 25
+        assert constants["region_select_gap"] == 20
+        assert constants["eyedropper_diameter"] == 80
 
 
 class TestMagnifierDiameter:
@@ -72,3 +89,7 @@ class TestMagnifierOffset:
         # rather than nothing.
         offset = magnifier_offset((500, 400), SCREEN, avoid_rect=SCREEN, diameter=160, gap=20)
         assert offset == (20, 20)
+
+    def test_default_gap_matches_the_shared_constants_file(self):
+        offset = magnifier_offset((500, 400), SCREEN, avoid_rect=None, diameter=160)
+        assert offset == (magnifier_constants()["region_select_gap"],) * 2

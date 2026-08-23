@@ -61,24 +61,27 @@ from orcshot.capture.backend import CaptureBackend
 from orcshot.capture.cursor import CursorBackend
 from orcshot.core.cursor_capture import cursor_shape_for_capture
 from orcshot.core.geometry import Rect
-from orcshot.core.magnifier import magnifier_diameter, magnifier_offset
+from orcshot.core.magnifier import magnifier_constants, magnifier_diameter, magnifier_offset
 from orcshot.settings import get_show_magnifier_while_selecting
 from orcshot.ui.cairo_convert import numpy_to_cairo_surface
 from orcshot.ui.capture_modes import should_capture_cursor
 from orcshot.ui.magnifier import draw_magnifier
 from orcshot.ui.render import render_cursor
 
-_SELECTION_BORDER = (0.1, 0.6, 1.0)
-_DIM_ALPHA = 0.5
+_constants = magnifier_constants()
+_SELECTION_BORDER = tuple(_constants["selection_border"])
+_DIM_ALPHA = _constants["dim_alpha"]
 
 # CaptureForm.cs:1154-1182's aiming-crosshair colors, converted from
 # System.Drawing's named colors to 0-1 RGB: LightSeaGreen (#20B2AA)
 # for the crosshair lines, SeaGreen (#2E8B57) for the coordinate
 # tooltip's border/text, and its light-mint background
-# (FromArgb(200, 217, 240, 227), alpha included).
-_CROSSHAIR_COLOR = (32 / 255, 178 / 255, 170 / 255)
-_COORD_TOOLTIP_BORDER = (46 / 255, 139 / 255, 87 / 255)
-_COORD_TOOLTIP_BG = (217 / 255, 240 / 255, 227 / 255, 200 / 255)
+# (FromArgb(200, 217, 240, 227), alpha included). Shared with
+# extension.js via magnifier_constants.json as the raw 0-255 values -
+# divided by 255 here, same as this module always did.
+_CROSSHAIR_COLOR = tuple(c / 255 for c in _constants["crosshair_color_255"])
+_COORD_TOOLTIP_BORDER = tuple(c / 255 for c in _constants["coord_tooltip_border_255"])
+_COORD_TOOLTIP_BG = tuple(c / 255 for c in _constants["coord_tooltip_bg_255"])
 
 
 class RegionSelectWindow(Gtk.Window):
