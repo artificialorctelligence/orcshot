@@ -7222,6 +7222,63 @@ no `".gif"` entry - picking GIF as the primary format would silently save as PNG
 (`_EXTENSION_TO_TYPE.get(path.suffix.lower(), "png")`'s own fallback). A real, separate, minor latent bug,
 left unfixed here since it's unrelated to what was actually reported.
 
+## Task #168: audit for unintentional X11/Wayland backend divergence - one real fix shipped, findings sorted
+(2026-08-23)
+
+direflail's own request (2026-08-22), prompted by confirming task #166 (Snap-confined external commands)
+affects both platforms identically since `run_external_command` is genuinely shared code: "honestly that
+should go for everything in this project. make a task to audit that." Scope: a systematic review of every
+feature existing on both X11 and Wayland, checking whether each one shares one backend implementation
+versus having quietly grown two separate, potentially-drifting ones - and, the opposite failure shape, a
+single shared code path that behaves correctly on one platform and incorrectly on the other.
+
+**Audit covered** `capture/`, `ui/`, and the bundled GNOME Shell extension (`extension.js`, 2227 lines,
+read in full). **Confirmed correctly unified**, worth naming as good examples, not just non-findings:
+`backend_select.py`'s single X11/Wayland decision point; `icon_geometry.json`'s shared-data pattern (task
+#143), still paying off for more than its original 5 tray icons; `capture/gdk_screen_layout.py`'s
+monitor-geometry code, shared verbatim; the window-capturability filter (`capture/window.py`); capture-
+feedback sound/notification (task #158, already fixed); and three `ui/*_wayland.py` files that correctly
+import their constants from the X11 sibling rather than copying them (`eyedropper_wayland.py`,
+`window_picker_wayland.py`, `region_select_wayland.py`).
+
+**Real divergence found and fixed this same pass**: the magnifier/eyedropper/selection-overlay numbers
+(patch size, gap, diameter divisor/rounding, ring/crosshair sizes, the eyedropper's fixed loupe size, every
+overlay color) were independently hardcoded a fifth time in `extension.js` - the exact #143 shape, never
+given the `icon_geometry.json` treatment. Fixed via a new `magnifier_constants.json`, shared the same way -
+see this same file's "Task #168: share magnifier/eyedropper/selection-overlay constants with extension.js"
+commit (also documented in `BACKLOG.md`'s former #168 entry, now closed) for the full write-up, including
+why only the *values* could be shared, not the offset-search algorithm itself (GJS can't import Python -
+a completely separate process).
+
+**Real divergence found, not fixed here** - spun off as `BACKLOG.md` #174: `settings.
+get_show_magnifier_while_selecting()` is honored by both X11 and the Wayland portal-fallback path, but
+never read at all by the Wayland Shell-native `RegionSelectOverlay` - already self-documented as a known
+gap elsewhere, confirmed still live.
+
+**Two genuine "needs live hardware" gaps investigated, not just re-flagged** - `capture/gnome_window_calls.
+py`'s `Meta.WindowType` index-to-name mapping was one of three items initially filed as "uncertain," but
+turned out fully resolvable *without* live hardware: Muffin (Cinnamon's own Mutter fork) ships the same
+public enum via local GI introspection data, and a direct index-by-index comparison confirmed correct - all
+16 indices match. **Closed, not a gap.** The other two - `capture/wayland.py`'s crop-offset origin
+assumption (spun off as `BACKLOG.md` #175, also independently found restated repeatedly elsewhere in this
+file, going back to task #49) and cross-monitor drag continuity across separate per-monitor `MonitorWindow`
+instances (spun off as `BACKLOG.md` #176, narrowed from the original vague "cross-monitor handoff" framing
+to the specific unanswered question - does an *in-progress drag* survive crossing a monitor boundary, not
+just ordinary event routing, which is sound and universal) - remain genuinely open, needing real
+multi-monitor Wayland hardware neither the code nor this project's single-monitor VM can settle.
+
+**A second, separate audit pass** swept `REQUIREMENTS.md` itself (this file) for other cases of the #93/
+i18n shape - real deferred work sitting undiscovered inside an entry tagged as complete. Found six more:
+task #111 ("Reuse Editor" setting, assigned a number, never built, referenced as still-missing days later,
+then never mentioned again), the same multi-monitor crop-offset gap independently rediscovered (confirming
+#175 above rather than adding a new item), the GIF-primary-format bug (already captured in this file's own
+task #172 entry above), the same Wayland-magnifier-setting gap independently rediscovered (confirming #174
+above), the "Online Help" menu item linking to a bare GitHub repo instead of real help content (a
+content-writing follow-up that was promised and never happened), and Insert Window never getting the nicer
+Wayland Shell-native picker overlay (`force_plain_overlay=True`, a known, deliberately-scoped gap never
+revisited). Not yet triaged into `BACKLOG.md` - direflail's own call pending on which are worth tracking
+formally versus letting go.
+
 ## Licensing
 
 **Status: decided — GPLv3.** Greenshot (Windows) is GPLv3; this is a derivative work — same feature

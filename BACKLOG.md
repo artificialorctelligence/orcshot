@@ -26,48 +26,51 @@ testing specifically - real Wayland hardware, or a non-VM Wayland session,
 wouldn't hit this at all, so it may only ever matter for this project's own
 dev-testing setup, not real users.
 
-## #168: Audit for unintentional X11/Wayland backend divergence
+## #174: "Show magnifier while selecting" preference ignored by the Wayland Shell-native overlay
 
-direflail's own request (2026-08-22), prompted by confirming #166
-(Snap-confined external commands) affects both platforms identically since
-`run_external_command` is genuinely shared code: "honestly that should go
-for everything in this project. make a task to audit that."
+Found during task #168's audit (2026-08-23). `settings.get_show_magnifier_while_selecting()` is honored by
+both `RegionSelectWindow` (X11) and `WaylandRegionSelect` (the portal-fallback path) - but the *preferred*
+Wayland path, `extension.js`'s own `RegionSelectOverlay`, never reads it at all: the magnifier always shows
+there regardless of the user's preference. Already self-documented as a known gap in `settings.py`'s own
+docstring ("a real, documented platform gap, not a silent one") and in the Capture tab's own checkbox
+tooltip - but still live, and easy to forget now that the surrounding code (task #168's constant-sharing
+fix) has moved on.
 
-Scope: a systematic review of every feature that exists on both X11 and
-Wayland, checking whether each one actually shares one backend
-implementation (correct - the two platforms should never diverge except
-where a real, unavoidable platform capability difference forces it, e.g.
-Wayland's lack of global screen-coordinate APIs) versus having quietly
-grown two separate, potentially-drifting implementations for no real
-platform-forced reason. This project has already hit this exact class of
-bug more than once:
+direflail's own call: this needs fixing, not just documenting. Likely direction: thread the setting's
+value into the D-Bus call that starts `RegionSelectOverlay` (`region_select_gnome_shell.py`'s own call
+into the extension), the same kind of channel task #113 already built for destination-picker data - there's
+currently no such channel from `settings.json` into that D-Bus call at all, which is the actual gap, not
+the overlay code itself.
 
-- Task #143: the five tray capture-mode icons were hand-ported into
-  `extension.js` as a second, independent copy of `icons.py`'s own drawing
-  logic, "kept in sync by hand" until unified via the shared
-  `icon_geometry.json`.
-- Task #158: a capture-sound Wayland-vs-X11 timing asymmetry - different
-  code paths for when the sound fires, not the same bug as #143 but the
-  same *category*: the two platforms disagreeing because they weren't
-  actually going through one shared mechanism.
-- Task #166: same backend, confirmed *not* diverged this time - a genuine
-  platform-sandboxing bug (Snap's `home` interface), not an X11/Wayland
-  split - but only confirmed as such because someone actually checked.
-- Task #169 (2026-08-22/23): the dialog-blocks-quit fix
-  (`_close_open_modal_dialogs`) is shared code, unaffected by platform.
-  The editor window placement fixes, on the other hand, turned out to be
-  three genuinely separate bugs, two X11-specific (`Gtk.WindowPosition
-  .CENTER` handling, a racy `get_position()` read) and one Wayland-specific
-  (the compositor overriding `resize()`, fixed with `set_geometry_hints`)
-  - a real example of the *opposite* problem #168 is looking for: not
-    quiet duplication, but a single code path that behaves correctly on
-    one platform and incorrectly on the other, found only through actual
-    live testing on both.
+## #175: Multi-monitor Wayland capture - crop-offset origin assumption never verified against real hardware
 
-Not scoped to fix anything found - a review/inventory pass, producing a
-list of genuine divergences (each probably becoming its own follow-up
-task) versus a confirmation that a given feature is already correctly
-unified. Never started.
+Long-standing, not new: found independently by both task #168's code audit and a separate sweep of
+`REQUIREMENTS.md` (2026-08-23), which turned up the same concern restated at least five times across
+weeks of entries (`## Task #49 ("Add Wayland support") status`'s own "Known, deliberately non-blocking
+gaps" section, and referenced again in at least four earlier entries) - always "untested," never closed,
+because this project's only Wayland test rig is a single-monitor VM.
+
+`capture/wayland.py`'s `_crop_to_rect` assumes the portal's screenshot image starts at the virtual screen's
+own origin (`bounds.left`, `bounds.top`). Checked directly (2026-08-23, not just re-read): the crop
+*arithmetic itself* is sound for negative-origin monitors - traced through concrete numbers (a monitor at
+x=-1920) and confirmed it maps to the correct pixels, no sign bug. The genuine unknown isn't the math, it's
+the *assumption* - whether the portal's actual real-world output on real multi-monitor Wayland hardware
+really does start exactly where this code expects. Needs a real multi-monitor Wayland session to close;
+nothing in this project's current test setup can settle it.
+
+## #176: Cross-monitor drag continuity (region-select/eyedropper/window-picker) never verified on real Wayland hardware
+
+Found during task #168's audit (2026-08-23), narrower than it first looked once actually read: `ui/
+monitor_window.py`'s own docstring already makes a sound claim that ordinary event-to-window routing (motion/
+button events going to whichever window is physically under the cursor) is universal windowing behavior, not
+something Wayland-specific needing verification - true on every desktop, X11 included. The real open question
+is more specific and wasn't previously named this precisely: does an *in-progress drag* (a region-select
+rectangle, an eyedropper follow) that starts on one monitor's own top-level `MonitorWindow` correctly
+continue once the cursor crosses onto a second monitor's separate window, or does it break/reset at the
+boundary? Wayland's per-monitor-TOPLEVEL architecture (necessary here since Wayland forbids absolute window
+positioning - see that module's own docstring) makes this a real, monitor-boundary-specific question X11's
+single spanning `POPUP` window never has to answer. Only ever tested on this project's single-monitor VM;
+needs real multi-monitor Wayland hardware to settle.
 
 ## #173: No i18n/translation infrastructure - every string is a hardcoded English literal
 
