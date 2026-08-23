@@ -21,7 +21,7 @@ from dataclasses import asdict, dataclass
 from datetime import datetime
 from pathlib import Path
 
-from orcshot.core.filename_pattern import DEFAULT_FILENAME_PATTERN, MODE_STRFTIME
+from orcshot.core.filename_pattern import DEFAULT_FILENAME_PATTERN
 
 CONFIG_FILENAME = "config.json"
 _OUTPUT_DIRECTORY_KEY = "output_directory"
@@ -298,15 +298,13 @@ class OutputSettings:
     separate get_x/set_x pairs, matching PrintOptions' own rationale:
     always edited together in one Preferences tab.
 
-    ``filename_pattern`` uses core/filename_pattern.py's token subset
-    (Windows-style, not the full thing) or standard strftime codes,
-    depending on ``filename_pattern_mode`` - the two are mutually
-    exclusive by explicit choice, not composed in one pattern (see
-    core/filename_pattern.py's own module docstring for why - a bare
-    "%" prefix next to ordinary text is inherently self-ambiguous,
-    confirmed live). Not a Windows setting at all - Windows' own
-    OutputFileFilenamePattern has no such mode concept, this port's
-    own addition.
+    ``filename_pattern`` uses core/filename_pattern.py's own unified
+    token language (task #171) - Greenshot-style ``${TOKEN}``
+    substitution and standard strftime ``%`` directives are both
+    always active in the same pattern, not a mode-gated choice between
+    them (see that module's own docstring for the full reasoning, and
+    for why an earlier ``filename_pattern_mode`` field - since removed
+    - could drift out of sync with the pattern text on its own).
 
     ``reduce_colors`` is persisted but not yet applied to a save - see
     _do_quick_save/_do_save's own notes; a real, documented gap rather
@@ -314,7 +312,6 @@ class OutputSettings:
     """
 
     filename_pattern: str = DEFAULT_FILENAME_PATTERN  # OutputFileFilenamePattern (this port's own default, see the module docstring)
-    filename_pattern_mode: str = MODE_STRFTIME  # this port's own addition, see the docstring above - direflail's own call (task #127/#128 feedback): standard strftime by default, not Windows' own ${TOKEN} scheme
     primary_format: str = "png"  # OutputFileFormat
     copy_path_to_clipboard: bool = True  # OutputFileCopyPathToClipboard
     reduce_colors: bool = False  # OutputFileReduceColors

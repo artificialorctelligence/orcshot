@@ -4,32 +4,6 @@ Open items not yet scheduled into a task. Each entry keeps the context that
 led to it - not just "what," but "why this matters" - so picking it up later
 doesn't require re-deriving the reasoning from scratch.
 
-## #171: Filename pattern defaults to literal, unresolved `${...}` tokens for pre-existing configs
-
-Live-reported (direflail, 2026-08-23): a real screenshot saved with the literal filename
-`${YYYY}-${MM}-${DD} ${hh}_${mm}_${ss}.png`, not an actual timestamp. Confirmed via direflail's own
-`~/.config/orcshot/config.json`: `"filename_pattern": "${YYYY}-${MM}-${DD} ${hh}_${mm}_${ss}"` with
-`"filename_pattern_mode": "strftime"` - a genuine mismatch. Those `${...}` tokens are the Windows/
-Greenshot-style syntax (`core/filename_pattern.py`'s `MODE_GREENSHOT`); strftime mode only understands
-`%Y`/`%m`/etc. codes and has no `${...}` concept at all, so `resolve_filename_pattern` passes the whole
-string through as inert literal text - matching `filename_pattern.py`'s own already-documented, one-way
-hazard ("MODE_GREENSHOT's own `${...}` tokens read literally as strftime text").
-
-Root cause, not yet fixed: `core/filename_pattern.py` documents that `strftime` became the actual
-default mode at some point (task #127/#128, "live-verification"), implying an earlier default used
-Greenshot-style `${...}` tokens instead. direflail's config (`last_update_check` dated 2026-08-15,
-predating this session) still carries that older pattern *text*, but `filename_pattern_mode` alone
-apparently got updated/defaulted to `"strftime"` somewhere along the way - the two fields drifted out
-of sync for any config that predates the mode-default change, with nothing to migrate the stale text
-to match. Likely affects every upgrading user whose config was ever written before task #127/#128, not
-just this one install.
-
-Likely direction: a one-time settings migration (same shape as `is_default_external_commands_seeded`'s
-own once-only pattern) that detects a `${...}`-shaped `filename_pattern` paired with
-`filename_pattern_mode == "strftime"` and either converts the text to real strftime codes or resets it
-to `DEFAULT_FILENAME_PATTERN` outright. See also #172 below - likely the same underlying *class* of bug
-(a stale pre-existing value from before a later default changed, never migrated), just a different field.
-
 ## #172: Primary output format defaulted to TIFF instead of PNG for a pre-existing config
 
 Live-reported (direflail, 2026-08-23): Preferences -> Output tab's "Primary format" was set to TIFF,
@@ -40,12 +14,14 @@ combo box (`_SAVE_AS_FORMATS`, `"png"` first in the list) correctly selects what
 `get_output_settings().primary_format` returns, so a truly fresh config should not be able to show this
 - nothing found in a source read that would produce TIFF out of the box.
 
-Not root-caused (evidence overwritten before investigation) - suspected same class of bug as #171: a
-value that was correct under an *older* coded default, now stale relative to a *later* default change,
-with no migration path for existing configs. Worth confirming on a genuinely fresh config (no prior
-`output_settings` key at all) to rule out a first-run-path bug specifically, and worth checking git
-history for whether `primary_format`'s own default value ever changed from something else to `"png"` at
-some point, the way `filename_pattern_mode` apparently did for #171.
+Not root-caused (evidence overwritten before investigation). **Ruled out** as the same class of bug as
+the former #171 (filename pattern, since fixed - see REQUIREMENTS.md's task #171 write-up): git history
+confirms `primary_format`'s own default has always been `"png"`, never changed, so there's no "old
+default vs. new default" drift for this field the way there genuinely was for filename_pattern_mode.
+Most likely a one-off manual selection (direflail picking TIFF via the dropdown at some point and not
+recalling it), not a code bug - but not confirmed either way, so still open. Worth confirming on a
+genuinely fresh config (no prior `output_settings` key at all) to rule out a first-run-path bug
+specifically.
 
 Aside, found while investigating: `_SAVE_AS_FORMATS` includes `("gif", "GIF")`, but
 `file_export.py`'s `_EXTENSION_TO_TYPE` has no `".gif"` entry - picking GIF as the primary format would

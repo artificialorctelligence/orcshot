@@ -136,7 +136,7 @@ from orcshot.core.crop import (
     autocrop_rect, crop_out_horizontal_strip, crop_out_vertical_strip, crop_to_rect,
 )
 from orcshot.core.drawing import Layer
-from orcshot.core.filename_pattern import MODE_GREENSHOT, MODE_STRFTIME, resolve_filename_pattern
+from orcshot.core.filename_pattern import DEFAULT_FILENAME_PATTERN, resolve_filename_pattern
 from orcshot.core.geometry import Rect
 from orcshot.core.effects import (
     add_border_image,
@@ -1734,8 +1734,7 @@ class EditorWindow(Gtk.Window):
         counter = consume_filename_counter()
         filename = (
             resolve_filename_pattern(
-                settings.filename_pattern, datetime.now(), counter,
-                title=self._window_title, mode=settings.filename_pattern_mode,
+                settings.filename_pattern, datetime.now(), counter, title=self._window_title,
             )
             + "." + settings.primary_format
         )
@@ -5626,62 +5625,45 @@ def _build_output_settings_tab(parent: Gtk.Window) -> Gtk.Box:
     file_box.set_border_width(8)
     file_frame.add(file_box)
 
-    # Pattern style is a real dropdown, not composed with the other
-    # - direflail's own call, after live testing showed why a bare
-    # "%" prefix next to ordinary text is inherently self-
-    # ambiguous with itself (confirmed live: even a curated "safe"
-    # strftime whitelist still let %d eat the "d" out of an
-    # ordinary word "done"). One delimiter convention active at a
-    # time removes the ambiguity entirely - see
-    # core/filename_pattern.py's own module docstring.
-    mode_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
-    mode_row.pack_start(Gtk.Label(label="Pattern style:"), False, False, 0)
-    mode_combo = Gtk.ComboBoxText()
-    mode_combo.append(MODE_GREENSHOT, "Greenshot-style (${YYYY})")
-    mode_combo.append(MODE_STRFTIME, "strftime (%Y)")
-    mode_combo.set_active_id(get_output_settings().filename_pattern_mode)
-    mode_combo.connect("changed", lambda combo: update_output_settings(filename_pattern_mode=combo.get_active_id()))
-    mode_row.pack_start(mode_combo, False, False, 0)
-    file_box.pack_start(mode_row, False, False, 0)
-
+    # Task #171: no more "Pattern style" mode dropdown - Greenshot-
+    # style ${TOKEN} substitution and strftime's own %-directives are
+    # both always active in the same pattern now (core/filename_
+    # pattern.py's own module docstring has the full reasoning for why
+    # this is safe, not a reopening of the ambiguity a mode setting
+    # used to guard against). A stale, out-of-sync mode field was
+    # exactly what caused task #171's own bug in the first place - an
+    # old config's saved pattern *text* silently outliving a later
+    # default change to the *mode*, with nothing to keep the two in
+    # sync; removing the field removes the thing that could drift.
     pattern_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
     pattern_row.pack_start(Gtk.Label(label="Filename pattern:"), False, False, 0)
     pattern_entry = Gtk.Entry()
     pattern_entry.set_text(get_output_settings().filename_pattern)
     pattern_entry.set_tooltip_text(
-        "Uses whichever style is selected above - the other style's own special characters "
-        "are left as plain literal text. Click ? for the token/code list."
+        "Both ${...} placeholders and %-codes work in the same pattern. Click ? for the full list."
     )
     pattern_entry.connect("changed", lambda entry: update_output_settings(filename_pattern=entry.get_text()))
     pattern_row.pack_start(pattern_entry, True, True, 0)
+
+    def on_pattern_default(_button) -> None:
+        pattern_entry.set_text(DEFAULT_FILENAME_PATTERN)
+
+    pattern_default_button = Gtk.Button(label="Default")
+    pattern_default_button.connect("clicked", on_pattern_default)
+    pattern_row.pack_start(pattern_default_button, False, False, 0)
+
     pattern_help_button = Gtk.Button(label="?")
 
     def on_pattern_help(_button) -> None:
-        if get_output_settings().filename_pattern_mode == MODE_STRFTIME:
-            # Standard library strftime - no Windows/Greenshot
-            # equivalent to cite, this mode is this port's own
-            # addition for Linux/Python users who'd rather use the
-            # convention they already know.
-            text, secondary = "strftime codes", (
-                "Standard Python/C strftime codes, e.g.:\n"
-                "%Y year, %y year (2 digits)\n"
-                "%m month, %d day\n"
-                "%H hour (24h), %I hour (12h), %p AM/PM\n"
-                "%M minute, %S second\n"
-                "%A/%a weekday name, %B/%b month name\n"
-                "%% a literal percent sign\n"
-                "\n"
-                "No ${...} placeholders in this mode - switch \"Pattern style\" above to use those instead."
-            )
-        else:
-            # Verbatim text real Windows' own "?" button shows
-            # (Greenshot/Languages/language-en-US.xml:252-269,
-            # settings_message_filenamepattern), adapted for what
-            # this port actually supports: ${domain}/${user}/
-            # ${hostname} dropped (see this module's own docstring
-            # for why).
-            text, secondary = "Filename pattern tokens", (
-                "The following placeholders are replaced automatically:\n"
+        # Merges the two previously mode-gated help texts into one -
+        # both are always available now. ${domain}/${user}/${hostname}
+        # dropped from real Windows' own equivalent text (Greenshot/
+        # Languages/language-en-US.xml:252-269) - see this module's
+        # own module docstring for why.
+        info = Gtk.MessageDialog(
+            transient_for=parent, message_type=Gtk.MessageType.INFO, buttons=Gtk.ButtonsType.OK,
+            text="Filename pattern placeholders and codes",
+            secondary_text=(
                 "${YYYY} year, 4 digits\n"
                 "${MM} month, 2 digits\n"
                 "${DD} day, 2 digits\n"
@@ -5691,12 +5673,16 @@ def _build_output_settings_tab(parent: Gtk.Window) -> Gtk.Box:
                 "${NUM} incrementing number, 6 digits (see Counter below)\n"
                 "${RRR...} random alphanumerics, same length as the number of R's\n"
                 "${title} capture title, when available\n"
+                "${\"affix\"?TOKEN} renders affix+value only when TOKEN has one, e.g. "
+                '${" - "?title} for " - My Window" - or nothing at all if there\'s no title\n'
                 "\n"
-                "No %-codes in this mode - switch \"Pattern style\" above to use those instead."
-            )
-        info = Gtk.MessageDialog(
-            transient_for=parent, message_type=Gtk.MessageType.INFO, buttons=Gtk.ButtonsType.OK,
-            text=text, secondary_text=secondary,
+                "%Y year, %y year (2 digits)\n"
+                "%m month, %d day\n"
+                "%H hour (24h), %I hour (12h), %p AM/PM\n"
+                "%M minute, %S second\n"
+                "%A/%a weekday name, %B/%b month name\n"
+                "%% a literal percent sign"
+            ),
         )
         info.run()
         info.destroy()

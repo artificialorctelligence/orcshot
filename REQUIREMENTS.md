@@ -7120,6 +7120,72 @@ Wayland (or here, "any sandboxed target") might have quietly diverged the way th
 looked like it had, before confirming `run_external_command` is genuinely shared, unforked code and the
 real story was Snap confinement instead.
 
+## Task #171: filename pattern saved a literal, unresolved `${...}` filename - redesigned to one unified
+pattern language instead of patched (fixed, verified live 2026-08-23)
+
+Live-reported (direflail): a real screenshot saved with the literal filename
+`${YYYY}-${MM}-${DD} ${hh}_${mm}_${ss}.png`, not an actual timestamp. Root-caused against direflail's own
+`~/.config/orcshot/config.json`: `filename_pattern` still held the old Greenshot-style `${...}` text while
+`filename_pattern_mode` had drifted to `"strftime"` - a combination that was never valid under either mode
+as designed (strftime mode never parses `${...}` at all). Confirmed via git history, not assumed: task
+#127/#128 changed `DEFAULT_FILENAME_PATTERN`'s own *value* (Greenshot-style → strftime-style) in the same
+commit that changed `filename_pattern_mode`'s default - but `get_output_settings()`'s save-merge logic
+(`{k: v for k, v in saved.items() if k in defaults}`) has no versioning concept at all, so any config
+written before that commit kept its old pattern *text* forever while silently inheriting the new mode
+default the next time the app ran. Cross-checked orcshot's own token catalog against the real Greenshot
+reference source (`FilenameHelper.cs`) before designing a fix, not just this port's own comments about
+it: `${YYYY}`/`${MM}`/`${DD}`/`${hh}`/`${mm}`/`${ss}` and their exact zero-pad widths (4/2/2/2/2/2) are
+genuine, faithfully-ported Greenshot tokens (`case "YYYY":`, etc.) - the old default wasn't a mistake or
+an invention, just a value nothing ever migrated.
+
+**direflail's own call, once the actual root cause was understood**: rather than detecting and repairing
+the stale combination (a translator between the two syntaxes was designed and prototyped first, then
+discarded), retire the `mode` concept entirely. `${TOKEN}` substitution and strftime's own `%` directives
+are now both always active in the same pattern, resolved in that order - `${...}` first, then the result
+handed to `datetime.strftime()`. This doesn't just fix the reported bug, it makes the underlying bug class
+structurally impossible: there's no longer a separately-persisted mode field that can drift out of sync
+with the pattern text, so an old Greenshot-style pattern just resolves correctly under the new unified
+resolver regardless of what a since-deleted mode field used to say next to it.
+
+**The corruption risk the original two-mode split existed to prevent, re-examined rather than assumed
+gone**: strftime's own `%` is genuinely ambiguous next to arbitrary text (confirmed live in an earlier
+session: `strftime("a%screenshot.png")` silently ate the "s"), which is exactly why `${...}` and `%` were
+kept mutually exclusive in the first place. Verified live (via a real Python prototype, not just reasoned
+about) that unifying them doesn't reopen this: every *substituted* token value is percent-escaped before
+strftime ever sees it - the only new "%" that could reach strftime from this module's own substitution is
+inside a value the user doesn't directly type (a captured window's title, in particular), and that's
+exactly what gets escaped. The user's own raw "%" directives in the pattern text are untouched and behave
+exactly as documented, standard strftime always has.
+
+**A second, real feature added alongside the fix, not scope creep**: direflail proposed a new
+`${"affix"?TOKEN}` conditional form - renders nothing at all if TOKEN has no value, or the literal affix
+text immediately followed by TOKEN's value if it does (e.g. `${" - "?title}` renders " - My Window", or
+nothing at all with no title). This replaces the previous strftime-mode-only special case that
+unconditionally auto-appended " - {title}" whenever a title existed, with no way to opt out or reposition
+it - checked against the real Greenshot source first: `FilenameHelper.cs`'s own `case "title":` is a
+plain, unconditional token with no special-casing at all (`replaceValue = title`), and real Greenshot's
+actual default pattern (`${capturetime:d"..."}-${title}`) just accepts a dangling "-" before the extension
+on a title-less capture as a result. The new conditional form gets the best of both: `${title}` is now a
+fully ordinary, explicit, positionable token like any other (faithful to the real app, no resolver-level
+magic), while `DEFAULT_FILENAME_PATTERN` itself
+(`'%Y-%m-%d %H_%M_%S${" - "?title}'`) avoids that dangling-separator wart structurally, via pattern text
+alone.
+
+**Cleanup, not just the fix**: `MODE_GREENSHOT`/`MODE_STRFTIME` constants, the `OutputSettings.
+filename_pattern_mode` field, the "Pattern style" combo box in Preferences, and `resolve_filename_
+pattern`'s own `mode` parameter are all deleted outright, not deprecated. Removing the field from the
+dataclass is itself the entire migration for old configs - the existing saved-keys-filtered-by-known-
+fields merge logic already silently drops a now-unrecognized `filename_pattern_mode` key with no explicit
+migration code needed. The Preferences Output tab gained a "Default" button next to the pattern field
+(direflail's own request) that fills in `DEFAULT_FILENAME_PATTERN` directly.
+
+TDD throughout, including a live-verified regex/resolver design (a small standalone Python prototype
+proved the `${"affix"?TOKEN}` grammar, the percent-escaping, and the exact worked example direflail gave -
+`%Y${" - "?title}` renders "2026" with no title, "2026 - test title" with one - before any of it was
+written into the real module). Full suite green (1119 passed, 3 skipped). Verified live against the real
+installed `.deb`, not just unit tests: rebuilt, reinstalled, opened the real Preferences dialog
+(screenshotted), confirmed the mode dropdown is gone and the Default/`?` buttons both work as designed.
+
 ## Licensing
 
 **Status: decided — GPLv3.** Greenshot (Windows) is GPLv3; this is a derivative work — same feature

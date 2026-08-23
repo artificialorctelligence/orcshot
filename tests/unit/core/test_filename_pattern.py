@@ -1,10 +1,12 @@
-"""Two mutually exclusive filename-pattern modes - see
-core/filename_pattern.py's own module docstring for why they're
-never mixed (a bare "%" prefix next to ordinary text is inherently
-self-ambiguous, confirmed live: even a curated "safe" strftime
-whitelist still let %d eat the "d" out of an otherwise ordinary word
-"done"). One delimiter convention active at a time removes the
-ambiguity entirely.
+"""One unified filename-pattern language, not two mutually exclusive
+ones - see core/filename_pattern.py's own module docstring for the
+full reasoning (task #171). ``${TOKEN}`` substitution and strftime's
+``%`` directives are both always active in the same pattern; every
+substituted token value is percent-escaped before the result reaches
+strftime, so a value the user doesn't control (a captured window's
+title, in particular) can never be misread as a strftime directive -
+the exact class of corruption the old two-mode split was originally
+built to prevent, closed here at the substitution boundary instead.
 """
 
 import random
@@ -12,13 +14,12 @@ from datetime import datetime
 
 from orcshot.core.filename_pattern import (
     DEFAULT_FILENAME_PATTERN,
-    MODE_STRFTIME,
     make_filename_safe,
     resolve_filename_pattern,
 )
 
 
-class TestGreenshotMode:
+class TestBareTokens:
     def test_substitutes_date_and_time_tokens_zero_padded(self):
         when = datetime(2026, 3, 5, 9, 7, 2)
         result = resolve_filename_pattern("${YYYY}-${MM}-${DD} ${hh}_${mm}_${ss}", when, counter=1)
@@ -76,66 +77,104 @@ class TestGreenshotMode:
         b = resolve_filename_pattern("${RRRR}", when, counter=1, rng=random.Random(42))
         assert a == b
 
-    def test_a_percent_character_is_left_completely_literal(self):
-        # % is never parsed in Greenshot mode at all - matches real
-        # Windows' own behavior exactly (it only ever understands
-        # ${...}).
-        when = datetime(2026, 1, 1, 0, 0, 0)
-        assert resolve_filename_pattern("100%done", when, counter=1) == "100%done"
 
-
-class TestStrftimeMode:
+class TestStrftimeDirectives:
     def test_strftime_codes_are_substituted(self):
         when = datetime(2026, 3, 5, 9, 7, 2)
-        result = resolve_filename_pattern("%Y-%m-%d", when, counter=1, mode=MODE_STRFTIME)
-        assert result == "2026-03-05"
-
-    def test_dollar_tokens_are_left_completely_literal(self):
-        # ${...} is never parsed in strftime mode at all - modes are
-        # mutually exclusive, not composed.
-        when = datetime(2026, 3, 5, 9, 7, 2)
-        result = resolve_filename_pattern("%Y-${NUM}", when, counter=7, mode=MODE_STRFTIME)
-        assert result == "2026-${NUM}"
+        assert resolve_filename_pattern("%Y-%m-%d", when, counter=1) == "2026-03-05"
 
     def test_double_percent_is_the_standard_escape_for_a_literal_percent(self):
-        # Real, full strftime() - this mode is an explicit opt-in, so
-        # the standard "%%" escape convention is expected/documented
-        # behavior for anyone choosing it, not a silent footgun.
+        # Untouched, native strftime behavior for the user's own raw
+        # pattern text - only *substituted token values* get escaped
+        # automatically (TestPercentEscaping below); this is the
+        # existing, documented convention for what the user types
+        # directly, unchanged by the unification.
         when = datetime(2026, 3, 5, 9, 7, 2)
-        assert resolve_filename_pattern("100%%done", when, counter=1, mode=MODE_STRFTIME) == "100%done"
+        assert resolve_filename_pattern("100%%done", when, counter=1) == "100%done"
 
-    def test_default_pattern_matches_the_previous_hardcoded_quick_save_format(self):
-        # quick_save_filename's own pre-existing default, now expressed
-        # as a pattern instead of a hardcoded strftime call - and, as
-        # of task #127/#128 feedback, DEFAULT_FILENAME_PATTERN/the
-        # default mode are both strftime now, not Greenshot ${TOKEN}.
-        when = datetime(2026, 7, 26, 14, 23, 5)
-        result = resolve_filename_pattern(DEFAULT_FILENAME_PATTERN, when, counter=1, mode=MODE_STRFTIME)
-        assert result == "2026-07-26 14_23_05"
+    def test_dollar_tokens_and_percent_directives_work_together_in_one_pattern(self):
+        # The whole point of task #171's fix - both syntaxes are
+        # always active together now, not a mutually exclusive choice
+        # gated by a mode setting that can drift out of sync with the
+        # pattern text.
+        when = datetime(2026, 3, 5, 9, 7, 2)
+        result = resolve_filename_pattern("${YYYY}-%m-%d", when, counter=1)
+        assert result == "2026-03-05"
 
-    def test_a_title_is_appended_as_a_suffix_since_this_mode_has_no_token_for_it(self):
-        # task #139 follow-up, direflail's own call: strftime mode can't
-        # express ${title} at all (%/${...} never mix), so this is the
-        # only way a strftime-mode user (the default) ever gets it -
-        # applies to any strftime pattern, not just the untouched
-        # DEFAULT_FILENAME_PATTERN.
-        when = datetime(2026, 7, 26, 14, 23, 5)
-        result = resolve_filename_pattern(
-            DEFAULT_FILENAME_PATTERN, when, counter=1, title="A Picture of a Moose", mode=MODE_STRFTIME,
-        )
-        assert result == "2026-07-26 14_23_05 - A Picture of a Moose"
 
-    def test_no_title_means_no_suffix_at_all_not_even_a_bare_separator(self):
+class TestConditionalTokens:
+    def test_renders_nothing_when_the_referenced_token_has_no_value(self):
+        when = datetime(2026, 1, 1, 0, 0, 0)
+        result = resolve_filename_pattern('${" - "?title}', when, counter=1, title="")
+        assert result == ""
+
+    def test_renders_the_affix_then_the_value_when_present(self):
+        when = datetime(2026, 1, 1, 0, 0, 0)
+        result = resolve_filename_pattern('${" - "?title}', when, counter=1, title="My Window")
+        assert result == " - My Window"
+
+    def test_the_direflail_example_with_no_title(self):
+        when = datetime(2026, 1, 1, 0, 0, 0)
+        result = resolve_filename_pattern('%Y${" - "?title}', when, counter=1, title="")
+        assert result == "2026"
+
+    def test_the_direflail_example_with_a_title(self):
+        when = datetime(2026, 1, 1, 0, 0, 0)
+        result = resolve_filename_pattern('%Y${" - "?title}', when, counter=1, title="test title")
+        assert result == "2026 - test title"
+
+    def test_conditional_value_is_made_filename_safe(self):
+        when = datetime(2026, 1, 1, 0, 0, 0)
+        result = resolve_filename_pattern('${"-"?title}', when, counter=1, title="a/b:c")
+        assert "/" not in result and ":" not in result
+
+    def test_unknown_referenced_token_is_left_as_is(self):
+        when = datetime(2026, 1, 1, 0, 0, 0)
+        result = resolve_filename_pattern('${"-"?nonsense}', when, counter=1)
+        assert result == '${"-"?nonsense}'
+
+    def test_a_present_num_conditional_renders_affix_and_the_counter(self):
+        # NUM always has a value (the counter always resolves to
+        # something) - included for completeness, not just title.
+        when = datetime(2026, 1, 1, 0, 0, 0)
+        result = resolve_filename_pattern('${"#"?NUM}', when, counter=7)
+        assert result == "#000007"
+
+
+class TestPercentEscaping:
+    def test_a_percent_sign_inside_a_substituted_title_survives_intact(self):
+        # The corruption case the old two-mode split existed to
+        # prevent, reproduced here on purpose: a captured window's
+        # title (never under the user's control) containing a literal
+        # "%" must not be misread as a strftime directive once the
+        # whole pattern reaches strftime().
+        when = datetime(2026, 3, 5, 9, 7, 2)
+        result = resolve_filename_pattern("%Y${title}", when, counter=1, title="50% off - Firefox")
+        assert result == "202650% off - Firefox"
+
+    def test_a_percent_sign_inside_a_conditional_titles_value_survives_intact(self):
+        when = datetime(2026, 3, 5, 9, 7, 2)
+        result = resolve_filename_pattern('%Y${" - "?title}', when, counter=1, title="50% off")
+        assert result == "2026 - 50% off"
+
+
+class TestDefaultPattern:
+    def test_matches_the_previous_hardcoded_quick_save_format_with_no_title(self):
         when = datetime(2026, 7, 26, 14, 23, 5)
-        result = resolve_filename_pattern(DEFAULT_FILENAME_PATTERN, when, counter=1, title="", mode=MODE_STRFTIME)
+        result = resolve_filename_pattern(DEFAULT_FILENAME_PATTERN, when, counter=1, title="")
         assert result == "2026-07-26 14_23_05"
         assert " - " not in result
 
-    def test_the_appended_title_is_made_filename_safe(self):
+    def test_includes_the_title_when_one_is_given(self):
         when = datetime(2026, 7, 26, 14, 23, 5)
         result = resolve_filename_pattern(
-            DEFAULT_FILENAME_PATTERN, when, counter=1, title="a/b:c", mode=MODE_STRFTIME,
+            DEFAULT_FILENAME_PATTERN, when, counter=1, title="A Picture of a Moose",
         )
+        assert result == "2026-07-26 14_23_05 - A Picture of a Moose"
+
+    def test_the_included_title_is_made_filename_safe(self):
+        when = datetime(2026, 7, 26, 14, 23, 5)
+        result = resolve_filename_pattern(DEFAULT_FILENAME_PATTERN, when, counter=1, title="a/b:c")
         assert result == "2026-07-26 14_23_05 - a_b_c"
 
 

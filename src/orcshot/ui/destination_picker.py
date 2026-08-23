@@ -149,7 +149,7 @@ def _quick_save(image: np.ndarray, cursor_shape: CursorShape = None, title: str 
     counter = consume_filename_counter()
     filename = (
         resolve_filename_pattern(
-            output_settings.filename_pattern, datetime.now(), counter, title=title, mode=output_settings.filename_pattern_mode,
+            output_settings.filename_pattern, datetime.now(), counter, title=title,
         )
         + "." + output_settings.primary_format
     )
@@ -190,8 +190,7 @@ def _save_as(image: np.ndarray, cursor_shape: CursorShape = None, title: str = "
     # actually happens (below), not just because a dialog with a
     # suggested name was shown and possibly cancelled.
     suggested = resolve_filename_pattern(
-        output_settings.filename_pattern, datetime.now(), get_filename_counter(),
-        title=title, mode=output_settings.filename_pattern_mode,
+        output_settings.filename_pattern, datetime.now(), get_filename_counter(), title=title,
     )
     dialog.set_current_name(f"{suggested}.{output_settings.primary_format}")
     dialog.set_do_overwrite_confirmation(True)

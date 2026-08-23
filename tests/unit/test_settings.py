@@ -326,14 +326,15 @@ class TestPrintOptions:
 
 class TestOutputSettings:
     def test_defaults_match_windows(self, tmp_path):
-        # ICoreConfiguration.cs:126-160, except filename_pattern/
-        # filename_pattern_mode - this port's own deliberate departure
-        # from Windows' ${TOKEN} default, per direflail's own call
-        # (task #127/#128 feedback): standard strftime by default.
+        # ICoreConfiguration.cs:126-160, except filename_pattern - this
+        # port's own deliberate departure from Windows' ${TOKEN}
+        # default, per direflail's own call (task #127/#128 feedback):
+        # standard strftime by default (plus task #171's "${ - "?title}
+        # conditional for the title suffix).
         path = tmp_path / "config.json"
         settings = get_output_settings(path=path)
         assert settings == OutputSettings(
-            filename_pattern="%Y-%m-%d %H_%M_%S", filename_pattern_mode="strftime",
+            filename_pattern='%Y-%m-%d %H_%M_%S${" - "?title}',
             primary_format="png", copy_path_to_clipboard=True, reduce_colors=False,
             always_show_quality_dialog=False, jpeg_quality=80,
         )
@@ -341,13 +342,32 @@ class TestOutputSettings:
     def test_set_then_get_round_trips(self, tmp_path):
         path = tmp_path / "config.json"
         settings = OutputSettings(
-            filename_pattern="${title}", filename_pattern_mode="strftime", primary_format="jpg",
+            filename_pattern="${title}", primary_format="jpg",
             copy_path_to_clipboard=False, reduce_colors=True, always_show_quality_dialog=True, jpeg_quality=50,
         )
 
         set_output_settings(settings, path=path)
 
         assert get_output_settings(path=path) == settings
+
+    def test_a_stale_filename_pattern_mode_key_from_an_old_config_is_silently_ignored(self, tmp_path):
+        # Task #171: filename_pattern_mode no longer exists as a field
+        # at all - an old config that still has it saved (from before
+        # the two-mode system was retired) shouldn't error or leak it
+        # back out; get_output_settings' own existing saved-keys-
+        # filtered-by-known-fields merge already handles this for free,
+        # with no explicit migration code needed.
+        import json
+
+        path = tmp_path / "config.json"
+        path.write_text(json.dumps({
+            "output_settings": {"filename_pattern": "${YYYY}-${MM}-${DD}", "filename_pattern_mode": "strftime"},
+        }))
+
+        settings = get_output_settings(path=path)
+
+        assert not hasattr(settings, "filename_pattern_mode")
+        assert settings.filename_pattern == "${YYYY}-${MM}-${DD}"
 
     def test_set_preserves_other_settings_already_present(self, tmp_path):
         path = tmp_path / "config.json"

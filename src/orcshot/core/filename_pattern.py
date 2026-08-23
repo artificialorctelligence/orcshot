@@ -1,37 +1,62 @@
 """Filename pattern resolution - task #95's Output tab "preferred file
-settings". Two mutually exclusive modes, chosen explicitly (a dropdown
-next to the pattern field, settings.OutputSettings.filename_pattern_mode)
-rather than mixed in one pattern - direflail's own call, after live
-testing showed why: a bare "%" prefix immediately followed by an
-ordinary letter is inherently ambiguous with itself in free text (see
-git history/REQUIREMENTS.md for the concrete corruption case -
-``strftime("a%screenshot.png")`` silently eats the "s", and even a
-curated "safe" whitelist doesn't fix it - %d ate the "d" out of an
-otherwise ordinary word "done"). One delimiter convention active at a
-time removes the ambiguity entirely, since the mode that ISN'T
-selected is simply never parsed at all - its own special characters
-are just literal text.
+settings", redesigned under task #171 into one unified pattern
+language instead of two mutually exclusive ones.
 
-MODE_GREENSHOT: faithful-in-spirit port of FilenameHelper.cs's
-${TOKEN} substitution (FillPattern, FilenameHelper.cs:344-441) - a
-subset of Windows' real token set (date/time components, ${NUM} - the
-save counter, settings.consume_filename_counter -, ${RRR...} - random
-alphanumerics, length = number of R's, FilenameHelper.cs:197,319's own
-charset -, and ${title}), not the full thing (no ${domain}/${user}/
-${hostname}/environment-folder tokens - low value here, storage
-location is already its own separate setting; no ${now}/${capturetime}
-- redundant with the individual date tokens for this port's simpler
-no-culture-mode design). "%" is never parsed in this mode at all - pure
-literal text, matching real Windows' own behavior exactly (it only
-ever understands ${...}).
+The original design (see git history for the pre-task-#171 version of
+this module) picked one delimiter convention at a time - Greenshot's
+own ``${TOKEN}`` substitution (FilenameHelper.cs's FillPattern) or
+real strftime's ``%`` directives - specifically to avoid a bare "%"
+prefix next to ordinary text being ambiguous with itself (confirmed
+live: ``strftime("a%screenshot.png")`` silently ate the "s", and even
+a curated "safe" whitelist didn't fix it - %d ate the "d" out of an
+otherwise ordinary word "done"). That mode setting (``filename_pattern
+_mode``, since removed) was a genuine, separately-persisted field from
+the pattern *text* itself - and nothing ever migrated an existing
+config when the coded default for one changed without the other
+(task #127/#128 flipped the default mode to strftime while the
+default pattern *text* for anyone who'd never touched it stayed
+Greenshot-style until that same commit): a real, live-caught bug
+(task #171) where an old config carried mismatched mode+text forever,
+saving files literally named "${YYYY}-${MM}-${DD}...".
 
-MODE_STRFTIME: real Linux/Python users' actual standard convention
-(cron, `date`, systemd timestamps all use it) - the genuine, full
-datetime.strftime(), not a restricted subset, since this is now an
-explicit opt-in and the standard "%%" escapes a literal percent" is
-expected, documented behavior for anyone choosing this mode
-deliberately, not a silent footgun. ${...} is never parsed in this
-mode - pure literal text.
+Unifying removes the field that could drift out of sync with the
+pattern text, not just the symptom: ``${TOKEN}`` substitution and
+strftime's own ``%`` directives are BOTH always active in the same
+pattern now, resolved in that order - ``${...}`` first, then the
+result handed to ``datetime.strftime()``. This works safely (without
+reopening the exact ambiguity the original two-mode split existed to
+prevent) because every *substituted* token value is percent-escaped
+before strftime ever sees it - the only new "%" that could reach
+strftime from this module's own substitution is inside a value the
+user doesn't directly type (a captured window's title, in
+particular), and that's exactly what gets escaped. The user's own raw
+"%" directives in the pattern text are untouched and behave exactly
+as documented, standard strftime always has (including needing "%%"
+for a literal percent) - that was already true, and already an
+accepted, opt-in tradeoff, before this module ever existed.
+
+Two substitution forms inside ``${...}``:
+- ``${TOKEN}`` - a bare token (date/time components, ``${NUM}`` - the
+  save counter, ``${RRR...}`` - random alphanumerics, length = number
+  of R's, and ``${title}``). An unrecognized token name is left
+  completely as literal text, matching FilenameHelper.cs's own
+  fallback for a parameter it doesn't understand.
+- ``${"affix"?TOKEN}`` - renders nothing at all if TOKEN has no value
+  (unset/empty), or the literal ``affix`` text immediately followed by
+  TOKEN's value if it does. direflail's own addition, replacing the
+  previous strftime-mode-only special case that auto-appended
+  " - {title}" whenever a title existed (unconditionally, with no way
+  to opt out or reposition it) - real Greenshot's own ${title} has no
+  such special-casing at all (FilenameHelper.cs's own `case "title":
+  replaceValue = title;`, unconditional), and its real default pattern
+  bakes title in as a plain trailing token
+  (``${capturetime:d"..."}-${title}``), accepting a dangling "-"
+  before the extension on a title-less capture as a result. This
+  conditional form gets the best of both: ``${title}`` is a fully
+  ordinary, explicit, positionable token like any other (faithful to
+  the real app, no resolver-level magic), while the *default* pattern
+  below uses ``${" - "?title}`` to avoid that dangling-separator wart
+  structurally, via pattern text alone - not a hardcoded special case.
 """
 
 from __future__ import annotations
@@ -41,29 +66,19 @@ import re
 import string
 from datetime import datetime
 
-MODE_GREENSHOT = "greenshot"
-MODE_STRFTIME = "strftime"
-
-# strftime-syntax by default (settings.OutputSettings.filename_pattern_mode
-# defaults to MODE_STRFTIME too, task #127/#128 live-verification
-# feedback - direflail's own call: standard Linux/Python convention over
-# Windows' own ${TOKEN} scheme for a fresh install). Same date/time
-# layout as quick_save_filename's own pre-existing default format
-# (settings.py) and MODE_GREENSHOT's own equivalent below - Windows'
-# real default additionally appends "-${title}" (ICoreConfiguration.cs
-# :127), dropped here for the same reason quick_save_filename already
-# documented: not every capture mode has a single associated window
-# title (region/full-screen capture don't). Switching the mode dropdown
-# without also editing this pattern text produces a mismatched result
-# (MODE_GREENSHOT's own ${...} tokens read literally as strftime text,
-# or vice versa) - a known, accepted limitation of two mutually
-# exclusive syntaxes sharing one text field, not something this default
-# alone can prevent.
-DEFAULT_FILENAME_PATTERN = "%Y-%m-%d %H_%M_%S"
-
 _TOKEN_WIDTHS = {"YYYY": 4, "MM": 2, "DD": 2, "hh": 2, "mm": 2, "ss": 2, "NUM": 6}
-_TOKEN_RE = re.compile(r"\$\{(\w+)\}")
+_TOKEN_RE = re.compile(r'\$\{(?:"(?P<affix>[^"]*)"\?(?P<condtoken>\w+)|(?P<token>\w+))\}')
 _RANDOM_CHARS = string.digits + string.ascii_uppercase + string.ascii_lowercase
+
+# strftime-syntax by default (task #127/#128 live-verification feedback -
+# direflail's own call: standard Linux/Python convention over Windows' own
+# ${TOKEN} scheme for a fresh install) plus the title conditional (task
+# #171) - matches quick_save_filename's own pre-existing default date/time
+# layout, with title included exactly when there is one, no dangling
+# separator when there isn't. Windows' real default additionally wraps the
+# date/time in its own ${capturetime:d"..."} token rather than plain "%"
+# directives; functionally identical output, this module's own syntax.
+DEFAULT_FILENAME_PATTERN = '%Y-%m-%d %H_%M_%S${" - "?title}'
 
 # Path.GetInvalidFileNameChars() on Windows - broader than Linux
 # actually requires (only "/" and NUL are unsafe here), kept this wide
@@ -78,33 +93,19 @@ def make_filename_safe(text: str) -> str:
 
 
 def resolve_filename_pattern(
-    pattern: str, when: datetime, counter: int, title: str = "",
-    rng: random.Random = None, mode: str = MODE_GREENSHOT,
+    pattern: str, when: datetime, counter: int, title: str = "", rng: random.Random = None,
 ) -> str:
-    """``rng`` is injectable (for deterministic tests of ${RRR...});
-    a real, unseeded Random is used otherwise. ``counter``/``rng`` are
-    unused in MODE_STRFTIME - that mode has no equivalent concepts,
-    pure standard strftime.
+    """``rng`` is injectable (for deterministic tests of ${RRR...}); a
+    real, unseeded Random is used otherwise.
 
-    ``title`` is the one exception (task #139 follow-up, direflail's
-    own call): MODE_STRFTIME has no ${title}-equivalent token syntax
-    at all (%/${...} never mix, this module's own docstring above) -
-    the only way a strftime-mode user (the default, task #127/#128)
-    ever gets the captured window's title into their filename is this
-    module appending it as a plain " - <title>" suffix whenever one is
-    given, regardless of what the rest of the pattern looks like.
-    Region/full-screen/last-region capture pass title="" (no single
-    associated window - see ui/capture_modes.py's own docstring), so
-    this is a no-op for them; MODE_GREENSHOT is unaffected either way -
-    a user there already has full ${title} control via the token
-    itself, so nothing is auto-appended on top of their own pattern.
+    ``${...}`` tokens are substituted first, then the result is passed
+    through ``when.strftime()`` for any "%" directives - see this
+    module's own docstring for why that order is safe (every
+    substituted value is percent-escaped first, so nothing from a
+    token's *value* can be misread as a strftime directive; the user's
+    own raw "%" text is untouched and reaches strftime exactly as
+    written).
     """
-    if mode == MODE_STRFTIME:
-        resolved = when.strftime(pattern)
-        if title:
-            resolved += f" - {make_filename_safe(title)}"
-        return resolved
-
     if rng is None:
         rng = random.Random()
 
@@ -119,14 +120,25 @@ def resolve_filename_pattern(
         "title": make_filename_safe(title),
     }
 
-    def replace(match: re.Match) -> str:
-        token = match.group(1)
-        if token and set(token) == {"R"}:
-            return "".join(rng.choice(_RANDOM_CHARS) for _ in range(len(token)))
-        if token not in values:
-            return match.group(0)
-        value = values[token]
-        width = _TOKEN_WIDTHS.get(token)
-        return value.zfill(width) if width else value
+    def resolve_token(name: str) -> tuple[bool, str] | tuple[bool, None]:
+        if name and set(name) == {"R"}:
+            return True, "".join(rng.choice(_RANDOM_CHARS) for _ in range(len(name)))
+        if name not in values:
+            return False, None
+        value = values[name]
+        width = _TOKEN_WIDTHS.get(name)
+        return True, (value.zfill(width) if width else value)
 
-    return _TOKEN_RE.sub(replace, pattern)
+    def replace(match: re.Match) -> str:
+        if match.group("condtoken") is not None:
+            found, value = resolve_token(match.group("condtoken"))
+            if not found:
+                return match.group(0)
+            if not value:
+                return ""
+            return (match.group("affix") + value).replace("%", "%%")
+        found, value = resolve_token(match.group("token"))
+        return value.replace("%", "%%") if found else match.group(0)
+
+    substituted = _TOKEN_RE.sub(replace, pattern)
+    return when.strftime(substituted)
