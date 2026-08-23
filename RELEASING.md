@@ -34,9 +34,48 @@ match, or the built `.deb`'s own version won't line up with the source tree that
 ```
 
 Must be fully green before building - the package build itself re-runs the whole suite for real via
-`dh_auto_test`/pybuild (see step 3), so a failure here just means finding out later instead of now.
+`dh_auto_test`/pybuild (see step 4), so a failure here just means finding out later instead of now.
 
-## 3. Build the `.deb`
+## 3. Security check
+
+Surfaced as a real gap during the 0.1.1 release (direflail, 2026-08-23): the release went to the
+PPA without ever running a security scan, and `requirements.txt` (kept for SCA scanning, see its own
+header comment) turned out to still be accurate but had never actually been checked against the dev
+venv. This step exists so that stops being ad-hoc.
+
+**One-time setup**, once per machine - Semgrep's CLI needs its own login, separate from the Aikido
+MCP session:
+
+```bash
+python3 -m venv ~/.venvs/semgrep && ~/.venvs/semgrep/bin/pip install semgrep
+~/.venvs/semgrep/bin/semgrep login   # interactive - opens a browser to authorize
+```
+
+Not tracked in this repo or `pyproject.toml` - release tooling, not an app dependency, same as
+`dpkg-buildpackage`/`gpg`/`dput` below being assumed-present rather than project state.
+
+**Every release:**
+
+```bash
+~/.venvs/semgrep/bin/semgrep ci
+diff <(.venv/bin/pip freeze | grep -iE "^(hypothesis|iniconfig|numpy|packaging|pluggy|pycairo|Pygments|PyGObject|pytest|python-xlib|scipy|shapely|six|sortedcontainers)==" | sort) <(grep -v '^#' requirements.txt | grep -v '^$' | sort)
+```
+
+`semgrep ci` covers both SAST and Supply Chain (dependency/lockfile) findings in one run, uploaded to
+the Semgrep dashboard - Aikido's own local scan (`aikido_full_scan`, run on the changed files) covers
+SAST and secrets, but its Supply Chain/SCA feed is a paid-tier-only feature this project doesn't have
+(confirmed live, 2026-08-23: `aikido_issues_list` returns "only available for paying customers"), so
+Semgrep is what actually covers dependency vulnerabilities here, not belt-and-suspenders duplication
+of Aikido. The `diff` regenerates `requirements.txt` (see its own header) if it's gone stale - empty
+output means it's still accurate.
+
+Any new high/critical finding from either tool gets flagged and understood before continuing, the
+same standard step 5's `lintian` warnings already get - not silently waved through, but not
+necessarily a blocker either (a finding can be a confirmed false positive, same as `update_check.py`'s
+own dynamic-`urllib` finding turned out to be: `_RELEASES_LATEST_URL` is a hardcoded module-level
+constant, never influenced by user or network input).
+
+## 4. Build the `.deb`
 
 ```bash
 dpkg-buildpackage -us -uc -b
@@ -46,7 +85,7 @@ Produces `../orcshot_X.Y.Z-1_all.deb` (and a `.buildinfo`/`.changes` alongside i
 test suite again as part of the build - a real build failure here (not just a test failure) means
 something's wrong with `debian/control`'s dependency list or `pyproject.toml` itself, not the code.
 
-## 4. Lint it
+## 5. Lint it
 
 ```bash
 lintian ../orcshot_X.Y.Z-1_all.deb
@@ -56,10 +95,10 @@ Zero errors expected. A few harmless warnings are already documented in REQUIREM
 Packaging section (e.g. the icon-size mismatch) - anything new should be understood, not just
 dismissed.
 
-## 5. Upload to the PPA (task #102)
+## 6. Upload to the PPA (task #102)
 
 `ppa:artificialorctelligence/orcshot` on Launchpad. PPAs build from a *source* upload, not the
-binary `.deb` from step 3 - Launchpad's own build farm compiles/assembles the package itself.
+binary `.deb` from step 4 - Launchpad's own build farm compiles/assembles the package itself.
 
 ```bash
 dpkg-buildpackage -us -uc -S -sa
@@ -94,7 +133,7 @@ build succeeds, use the PPA's own "Copy packages" page (Launchpad web UI) to cop
 to `resolute` (26.04) rather than uploading source a second time. Check build status/logs at
 `https://launchpad.net/~artificialorctelligence/+archive/ubuntu/orcshot/+packages`.
 
-## 6. Install-test on every target
+## 7. Install-test on every target
 
 This is the actual point of tasks #37/#38/#50 - the `.deb` itself never changes per target
 (`Architecture: all`, no compiled code), but whether each target's own repos carry every declared
@@ -117,7 +156,7 @@ appears and a capture round-trips.
 RPM-based distros (Fedora/openSUSE) and Arch/AUR are a separate, later effort (task #132) - a
 different package format entirely, not another entry on this list.
 
-## 7. Commit, tag, push
+## 8. Commit, tag, push
 
 ```bash
 git add pyproject.toml debian/changelog
@@ -127,13 +166,13 @@ git push origin main
 git push origin vX.Y.Z
 ```
 
-## 8. Publish the GitHub Release
+## 9. Publish the GitHub Release
 
 Create a release for the `vX.Y.Z` tag (web UI or `gh release create vX.Y.Z`) and attach the built
 `.deb` as a release asset. This is the step task #103 actually depends on - `releases/latest` only
 returns something once a real, non-draft, non-prerelease release exists.
 
-## 9. Sanity-check the update checker
+## 10. Sanity-check the update checker
 
 Once published, confirm task #103 actually sees it: Help > Check for Updates... on a build one
 version behind should report the new release; on the just-built version itself, "up to date."
