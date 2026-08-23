@@ -4,6 +4,48 @@ Open items not yet scheduled into a task. Each entry keeps the context that
 led to it - not just "what," but "why this matters" - so picking it up later
 doesn't require re-deriving the reasoning from scratch.
 
+## #177: "Online Help" menu item opens the bare repo instead of the wiki it could now use
+
+Found by a REQUIREMENTS.md sweep (2026-08-23), then re-checked against current code before filing (not
+just trusted as still accurate) - and the situation has genuinely changed since it was originally written.
+`editor_window.py`'s `_do_open_online_help` (task #95 part 1) still opens
+`https://github.com/artificialorctelligence/orcshot` - its own docstring says why: "real help-page
+content... doesn't exist yet... tracked separately... since it's content-writing, not code." True when
+written. Not true anymore: the wiki now has real content (the "Destinations" page added earlier this same
+session), and this exact file already has a working `_WIKI_URL` constant
+(`https://github.com/artificialorctelligence/orcshot/wiki`, task #142) - just used by a *different* help
+dialog (the tool-shortcuts reference), never wired to this menu item.
+
+Concretely actionable now, not just "someday, once content exists": point `_do_open_online_help` at
+`self._WIKI_URL` instead of the bare repo root. A one-line fix, no content-writing blocker left.
+
+## #178: Insert Window never uses the nicer Wayland Shell-native window-picker overlay
+
+Found by a REQUIREMENTS.md sweep (2026-08-23, task #99's own original write-up), re-checked against current
+code: `editor_window.py`'s `_do_insert_window` still passes `force_plain_overlay=True` to
+`start_window_picker`. Understood, not mysterious - the Shell-native fast path (`window_picker.py`'s own
+docstring) has no hook to hand a captured image back without routing it through the standard destination
+picker (save/clipboard/edit/print/external-command), but Insert Window needs the raw image placed directly
+into the *current* editor's own layer stack instead, a fundamentally different use case the Shell-native
+path was never built to support.
+
+Not a bug, a real architectural gap - revisit only if `GnomeShellWindowPicker` (or whatever backs the
+Shell-native path) grows a way to hand back an image directly instead of always dispatching to a
+destination.
+
+## #179: "Reuse Editor" setting (task #111) - assigned a number, never built
+
+Found by a REQUIREMENTS.md sweep (2026-08-23), re-checked against current code: `editor_window.py`'s
+`_do_open` (task #129, File > Open) still says in its own docstring "task #111's 'Reuse Editor' setting
+doesn't exist yet" - confirming the setting genuinely was never built, not just historically noted as
+missing once. Every capture and every opened `.orcshot` file becomes its own new `EditorWindow`
+unconditionally; there's no way to configure "open into the existing window instead."
+
+Original context (task #93, 2026-08-10): "confirmed portable... but not built this round - left as an open
+decision, not yet implemented, pending confirmation it's wanted." That confirmation never happened.
+Whoever picks this up should start by asking direflail whether it's actually wanted at all before
+implementing - task #93's own framing was explicitly conditional on that, not a settled "yes, build this."
+
 ## #167: VM clipboard doesn't carry images across the host/guest boundary
 
 Surfaced live (direflail, 2026-08-22), same testing session as #166. Text
