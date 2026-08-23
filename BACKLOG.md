@@ -4,20 +4,53 @@ Open items not yet scheduled into a task. Each entry keeps the context that
 led to it - not just "what," but "why this matters" - so picking it up later
 doesn't require re-deriving the reasoning from scratch.
 
-## #165: Non-interactive GPG signing for PPA releases
+## #171: Filename pattern defaults to literal, unresolved `${...}` tokens for pre-existing configs
 
-direflail's own call (2026-08-22): the `debsign`/`debuild` GPG passphrase
-prompt is a GUI pinentry popup that doesn't reliably take focus during a
-release, and interactive passphrase entry isn't worth the friction for a
-zero-profit open source project - there's no commercial stakes that would
-justify keeping the private key passphrase-protected against, e.g., another
-process on the same machine.
+Live-reported (direflail, 2026-08-23): a real screenshot saved with the literal filename
+`${YYYY}-${MM}-${DD} ${hh}_${mm}_${ss}.png`, not an actual timestamp. Confirmed via direflail's own
+`~/.config/orcshot/config.json`: `"filename_pattern": "${YYYY}-${MM}-${DD} ${hh}_${mm}_${ss}"` with
+`"filename_pattern_mode": "strftime"` - a genuine mismatch. Those `${...}` tokens are the Windows/
+Greenshot-style syntax (`core/filename_pattern.py`'s `MODE_GREENSHOT`); strftime mode only understands
+`%Y`/`%m`/etc. codes and has no `${...}` concept at all, so `resolve_filename_pattern` passes the whole
+string through as inert literal text - matching `filename_pattern.py`'s own already-documented, one-way
+hazard ("MODE_GREENSHOT's own `${...}` tokens read literally as strftime text").
 
-Not started. Likely direction: either a passphrase-less GPG key dedicated to
-signing this project's releases, or a `gpg-agent` configuration that caches
-the passphrase for a long-enough session that `debsign` never needs to
-prompt mid-release. Whichever approach, keep the release doc (`RELEASING.md`)
-in sync once this is actually built.
+Root cause, not yet fixed: `core/filename_pattern.py` documents that `strftime` became the actual
+default mode at some point (task #127/#128, "live-verification"), implying an earlier default used
+Greenshot-style `${...}` tokens instead. direflail's config (`last_update_check` dated 2026-08-15,
+predating this session) still carries that older pattern *text*, but `filename_pattern_mode` alone
+apparently got updated/defaulted to `"strftime"` somewhere along the way - the two fields drifted out
+of sync for any config that predates the mode-default change, with nothing to migrate the stale text
+to match. Likely affects every upgrading user whose config was ever written before task #127/#128, not
+just this one install.
+
+Likely direction: a one-time settings migration (same shape as `is_default_external_commands_seeded`'s
+own once-only pattern) that detects a `${...}`-shaped `filename_pattern` paired with
+`filename_pattern_mode == "strftime"` and either converts the text to real strftime codes or resets it
+to `DEFAULT_FILENAME_PATTERN` outright. See also #172 below - likely the same underlying *class* of bug
+(a stale pre-existing value from before a later default changed, never migrated), just a different field.
+
+## #172: Primary output format defaulted to TIFF instead of PNG for a pre-existing config
+
+Live-reported (direflail, 2026-08-23): Preferences -> Output tab's "Primary format" was set to TIFF,
+not PNG, causing quick-saves to write `.tiff` files. direflail changed it back to PNG manually before
+this could be inspected live, so the evidence of *how* it became TIFF is gone - `settings.py`'s
+`OutputSettings.primary_format` dataclass default is genuinely `"png"`, and `editor_window.py`'s format
+combo box (`_SAVE_AS_FORMATS`, `"png"` first in the list) correctly selects whatever
+`get_output_settings().primary_format` returns, so a truly fresh config should not be able to show this
+- nothing found in a source read that would produce TIFF out of the box.
+
+Not root-caused (evidence overwritten before investigation) - suspected same class of bug as #171: a
+value that was correct under an *older* coded default, now stale relative to a *later* default change,
+with no migration path for existing configs. Worth confirming on a genuinely fresh config (no prior
+`output_settings` key at all) to rule out a first-run-path bug specifically, and worth checking git
+history for whether `primary_format`'s own default value ever changed from something else to `"png"` at
+some point, the way `filename_pattern_mode` apparently did for #171.
+
+Aside, found while investigating: `_SAVE_AS_FORMATS` includes `("gif", "GIF")`, but
+`file_export.py`'s `_EXTENSION_TO_TYPE` has no `".gif"` entry - picking GIF as the primary format would
+silently save as PNG instead (`_EXTENSION_TO_TYPE.get(path.suffix.lower(), "png")`'s own fallback), a
+small separate latent bug worth fixing alongside this one if picked up.
 
 ## #167: VM clipboard doesn't carry images across the host/guest boundary
 
@@ -83,35 +116,3 @@ Not scoped to fix anything found - a review/inventory pass, producing a
 list of genuine divergences (each probably becoming its own follow-up
 task) versus a confirmation that a given feature is already correctly
 unified. Never started.
-
-## #170: Orphaned `orcshot` processes silently escape systemd's tracking
-
-Found live (direflail, 2026-08-22/23) while chasing task #169 on both X11
-and Wayland: whenever the systemd `--user`-tracked instance quits (e.g. via
-the tray's Quit action) and a hotkey- or autostart-launched instance takes
-over instead, `Gio.Application`'s own single-instance handling makes that
-replacement process the real, running application *without systemd ever
-knowing it happened*. `systemctl --user status orcshot.service` reports
-`inactive`/`dead` (`MainPID=0`) while a genuinely working process sits
-outside its cgroup, indistinguishable from the outside except by comparing
-`ps aux` against `systemctl ... -p MainPID`.
-
-Concretely lost tonight, both platforms, more than once: no `Restart=
-on-failure` coverage for that orphaned process (a crash there just
-vanishes silently, nothing respawns it), and its `stderr` never reaches
-`journalctl --user -u orcshot.service` - real diagnostic logging added to
-chase the editor-placement bug produced zero output for several rounds
-before the orphaning itself was identified as the actual cause, not a
-logging-pipeline bug.
-
-Not yet fixed. Likely direction: something in `do_activate`'s single-
-instance handling (`app.py`) that notices it's *becoming* the primary
-instance outside of systemd's own `ExecStart`, and either re-registers
-itself with systemd somehow, or - more simply - has `_quit_and_hide_tray_
-button` (or the hotkey/autostart entry points) check whether the systemd
-unit is running before letting a bare invocation become the primary
-instance, so a quit-then-relaunch always ends up back under systemd's
-tracking rather than silently drifting out of it. Worth a repro *without*
-today's specific circumstances (repeated quit-testing) to confirm how
-easily an ordinary user hits this in normal use, not just aggressive same-
-session testing.

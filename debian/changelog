@@ -1,3 +1,25 @@
+orcshot (0.1.1-3) noble; urgency=medium
+
+  * No functional change - fixes a debconf warning during install
+    ("Unknown template field '_description'"), live-caught on Ubuntu
+    26.04's newer debconf (1.5.92) during 0.1.1-2's own install-test.
+    debian/orcshot.templates used the po-debconf "_Description:"
+    translatable-field marker with no debian/po/ directory ever set up
+    to actually strip it at build time, so the raw underscore-prefixed
+    field name shipped into the binary package - debconf's stricter
+    field-name check (traced into Debconf::Template.pm's known_field
+    list, which only recognizes the bare "description") flagged it,
+    though older debconf (1.5.86, this project's other real targets)
+    stayed silent about it. This is also almost certainly the real
+    cause of the "malformed-question-in-templates" lintian warning
+    documented as an understood-harmless quirk during 0.1.1's own
+    release - not a lintian parsing edge case after all, since dropping
+    the leading underscore (there being no translations to justify it)
+    makes both warnings disappear together, confirmed via a real
+    rebuild and a real lintian run.
+
+ -- Orcshot <314918217+artificialorctelligence@users.noreply.github.com>  Sun, 23 Aug 2026 14:45:00 -0500
+
 orcshot (0.1.1-2) noble; urgency=medium
 
   * No functional change - fixes the 0.1.1-1 noble build itself, which

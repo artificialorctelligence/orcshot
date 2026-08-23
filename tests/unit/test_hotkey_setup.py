@@ -272,10 +272,10 @@ class TestConfigureAllHotkeys:
             path = CUSTOM_KEYBINDING_PATH_TEMPLATE.format(slot=slot)
             commands.add(backend.get_string(CUSTOM_KEYBINDING_SCHEMA, path, "command"))
         assert commands == {
-            "/opt/orcshot/bin/orcshot --capture-region",
-            "/opt/orcshot/bin/orcshot --capture-active-window",
-            "/opt/orcshot/bin/orcshot --capture-full-screen",
-            "/opt/orcshot/bin/orcshot --capture-last-region",
+            "sh -c 'systemctl --user start orcshot.service; exec /opt/orcshot/bin/orcshot --capture-region'",
+            "sh -c 'systemctl --user start orcshot.service; exec /opt/orcshot/bin/orcshot --capture-active-window'",
+            "sh -c 'systemctl --user start orcshot.service; exec /opt/orcshot/bin/orcshot --capture-full-screen'",
+            "sh -c 'systemctl --user start orcshot.service; exec /opt/orcshot/bin/orcshot --capture-last-region'",
         }
 
     def test_skips_bindings_whose_binding_is_in_skip(self):

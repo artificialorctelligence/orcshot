@@ -2,7 +2,7 @@
 Type=Application
 Name=Orcshot
 Comment=Screenshot capture and annotation tool
-Exec=orcshot %u
+Exec=sh -c 'systemctl --user start orcshot.service; exec /usr/bin/orcshot "$@"' sh %u
 Icon=orcshot
 Terminal=false
 StartupNotify=false

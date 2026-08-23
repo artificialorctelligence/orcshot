@@ -429,8 +429,22 @@ def configure_all_hotkeys(
         if hb.binding in skip:
             results[hb.name] = False
             continue
+        # Task #170: `systemctl --user start orcshot.service` first, not
+        # instead of the direct exec - closes the race where a hotkey
+        # fired while Orcshot isn't running would bare-exec it directly
+        # and become an untracked "orphan" primary instance outside
+        # systemd's own bookkeeping (confirmed live: Type=dbus, set on
+        # the unit itself, makes this `start` block until the app has
+        # actually acquired its D-Bus name, not just forked - see
+        # debian/orcshot.user.service's own comment for the full
+        # writeup). Wrapped in `sh -c` since the "command" GSettings
+        # value is a single string the desktop's keybinding daemon
+        # tokenizes itself (GLib's shell-word-splitting, not a real
+        # shell) - it never interprets `;` as a command separator on
+        # its own, only a real shell does that.
+        command = f"sh -c 'systemctl --user start orcshot.service; exec {executable} {hb.cli_flag}'"
         results[hb.name] = configure_hotkey(
-            backend, hb.name, hb.binding, f"{executable} {hb.cli_flag}", profile=profile,
+            backend, hb.name, hb.binding, command, profile=profile,
         )
     return results
 

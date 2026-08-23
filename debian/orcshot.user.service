@@ -2,7 +2,22 @@
 Description=Orcshot screenshot capture and annotation tool
 PartOf=graphical-session.target
 
+# Task #170: Type=dbus + BusName makes `systemctl --user start orcshot.service`
+# block until this app has actually acquired its own D-Bus name (Gio.
+# Application's own single-instance mechanism), not just until the process
+# forks - confirmed live (direflail, 2026-08-23) that plain Type=simple
+# returns in ~0.02s with the name still unowned, a real race window where a
+# second, bare-exec'd `orcshot` invocation (the .desktop launcher, a hotkey)
+# could win ownership itself and become an untracked "orphan" primary
+# instance - exactly what left `systemctl status` showing inactive/dead
+# while a real process ran outside its cgroup. Every entry point that isn't
+# already `systemctl start`-ing this unit (orcshot.desktop's Exec=, every
+# hotkey's own command) now does so first, so whichever bare exec runs after
+# always finds the name already owned and just forwards its argv, never
+# races to become primary itself.
 [Service]
+Type=dbus
+BusName=org.orcshot.Orcshot
 ExecStart=/usr/bin/orcshot
 Restart=on-failure
 RestartSec=2
