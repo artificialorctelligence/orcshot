@@ -7049,6 +7049,64 @@ platform limitation than an Orcshot bug, not yet confirmed either way.
 
 Full suite green (1052 passed, 3 skipped - 6 new tests, 1046 pre-existing).
 
+## Task #166: Snap-confined external commands couldn't read their handoff file (fixed, verified live 2026-08-22)
+
+Surfaced live while testing task #113's new dynamic destination picker: a Krita ExternalCommand entry
+(`/snap/bin/krita`) showed up correctly in the Wayland picker and launched, but Krita immediately threw
+"Cannot open file for reading" against the exported screenshot. `run_external_command`
+(`ui/external_commands.py`) writes that handoff file via `orcshot_cache_dir()` - `~/.cache/orcshot/`,
+already fixed once (Flatpak's `/tmp` being a private, invisible tmpfs to a sandboxed app) but never tested
+against a *Snap*-confined target before now.
+
+**Root cause, confirmed live rather than assumed**: Snap's `home` interface (the permission that grants a
+confined snap filesystem access to the user's home directory) explicitly excludes any path with a hidden,
+dot-prefixed ancestor - and every XDG convention (`~/.cache`, `~/.config`, `~/.local`) is hidden by
+definition, the opposite of Flatpak's more commonly-granted `xdg-cache` permission that made
+`orcshot_cache_dir()` work for Flatpak targets in the first place. Confirmed with a real, standalone
+repro (not assumed from Snap's general documented behavior): running `/snap/bin/krita` directly against a
+manually-placed file at that exact path, entirely outside Orcshot's own code, reproduced the identical
+error - ruling out any race/timing theory. The same run's stderr also independently confirmed active
+AppArmor enforcement (`label="snap.krita.krita (enforce)"`).
+
+**Fix**: `_is_snap_command()` (`external_commands.py`) detects a Snap target by checking whether its
+resolved commandline lives under `/snap/` - Snap always installs its own CLI entry points at
+`/snap/bin/<name>`, no need to shell out to `snap` itself. `run_external_command` routes to a new
+`orcshot_visible_temp_dir()` (`file_export.py`) - a plain, non-hidden `~/Orcshot` folder - instead of
+`orcshot_cache_dir()` when a Snap target is detected. Either way, the handoff file is now deleted once the
+command finishes (success, failure, or timeout - `subprocess.run`'s own timeout already blocks until one
+of those happens either way), so the new visible folder doesn't accumulate temp screenshots the way the
+hidden `.cache` one silently already had been.
+
+**A real bug in the first attempt, caught by live testing rather than assumed away**: the initial
+`_is_snap_command` used `os.path.realpath()` to resolve the commandline before checking the `/snap/`
+prefix - which turned out to defeat the whole check. Confirmed live: `/snap/bin/krita` is itself a
+symlink to `/usr/bin/snap` (snapd's own generic launcher, which inspects the symlink's own name to decide
+which snap to actually run), so `realpath` resolved straight past the one signal being checked, to a
+target that's never under `/snap/` at all. Fixed by using `os.path.abspath()` instead (normalizes the
+path string without following symlinks), with a regression test that mocks `realpath` to lie about where
+the path "really" points, proving detection no longer depends on it.
+
+**A second, separate false lead before finding the real problem**: after the `realpath`→`abspath` fix,
+a rebuilt-and-reinstalled `.deb` still showed the identical old error. Restarting the systemd `--user`
+service didn't help either. Root cause: the local build and the VM's installed package had ended up on
+the *same* version number (`0.1.0-5`) across two separate rebuilds in the same session, reusing that
+version for a `dpkg -i` reinstall - the installed files on the VM never actually updated, confirmed
+directly (`grep` on the VM's own installed file still showed the old `realpath` code, while the same grep
+against the freshly-built `.deb`'s own extracted contents showed the fix was genuinely there). Bumping to
+a new version number (`0.1.0-6`) for the next rebuild resolved it immediately - worth remembering for any
+future same-session iterative VM testing, not just real releases.
+
+**Verified live end-to-end** on the Ubuntu 26.04 VM: a real capture sent to the Krita external command now
+opens directly in Krita with no error, from the new `~/Orcshot` folder.
+
+TDD throughout (`_is_snap_command`, `orcshot_visible_temp_dir`, and `run_external_command`'s
+directory-routing/cleanup logic all test-first). Full suite green (1062 passed, 3 skipped).
+
+**Spun off, not done here**: task #168, auditing the rest of the project for other places X11 and
+Wayland (or here, "any sandboxed target") might have quietly diverged the way this one very nearly
+looked like it had, before confirming `run_external_command` is genuinely shared, unforked code and the
+real story was Snap confinement instead.
+
 ## Licensing
 
 **Status: decided — GPLv3.** Greenshot (Windows) is GPLv3; this is a derivative work — same feature

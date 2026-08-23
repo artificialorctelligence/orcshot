@@ -10,12 +10,6 @@ from orcshot.ui.destination_picker import destinations_for_shell
 
 
 def test_includes_the_five_built_in_destinations(monkeypatch):
-    # _find_office_command mocked out too - this dev machine (and any
-    # CI runner that happens to have soffice installed) would
-    # otherwise add a 6th "office" entry, making this test depend on
-    # what's installed on whatever machine runs it rather than on
-    # destinations_for_shell's own behavior.
-    monkeypatch.setattr("orcshot.ui.destination_picker._find_office_command", lambda: None)
     monkeypatch.setattr("orcshot.ui.destination_picker.get_external_commands", lambda: [])
     monkeypatch.setattr("orcshot.ui.destination_picker.get_excluded_destinations", lambda: set())
 

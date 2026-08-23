@@ -37,8 +37,10 @@ from orcshot.settings import (
     get_update_check_interval_days,
     get_use_default_proxy,
     clear_quit_marker,
+    is_default_external_commands_seeded,
     is_first_run_setup_done,
     is_quit_marker_set,
+    mark_default_external_commands_seeded,
     mark_first_run_setup_done,
     quick_save_filename,
     quit_marker_path,
@@ -578,3 +580,25 @@ class TestFirstRunSetupFlag:
         mark_first_run_setup_done(path=path)
 
         assert get_output_directory(path=path) == tmp_path / "shots"
+
+
+class TestDefaultExternalCommandsSeededFlag:
+    """Task #166 follow-up: whether the one-time LibreOffice/Krita
+    auto-detection has run yet - a separate flag from
+    first_run_setup_done, since seeding needs to happen on every very
+    first app start (direflail's own explicit call: the user may
+    never open Preferences at all) regardless of whether that
+    person also says yes/no to the first-run wizard's own unrelated
+    autostart/hotkeys offer.
+    """
+
+    def test_defaults_to_false(self, tmp_path):
+        path = tmp_path / "config.json"
+        assert is_default_external_commands_seeded(path=path) is False
+
+    def test_mark_then_check_round_trips(self, tmp_path):
+        path = tmp_path / "config.json"
+
+        mark_default_external_commands_seeded(path=path)
+
+        assert is_default_external_commands_seeded(path=path) is True

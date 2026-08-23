@@ -26,6 +26,7 @@ from orcshot.core.filename_pattern import DEFAULT_FILENAME_PATTERN, MODE_STRFTIM
 CONFIG_FILENAME = "config.json"
 _OUTPUT_DIRECTORY_KEY = "output_directory"
 _FIRST_RUN_SETUP_DONE_KEY = "first_run_setup_done"
+_DEFAULT_EXTERNAL_COMMANDS_SEEDED_KEY = "default_external_commands_seeded"
 _CAPTURE_MOUSE_CURSOR_KEY = "capture_mouse_cursor"
 _PRINT_OPTIONS_KEY = "print_options"
 _RECENT_COLORS_KEY = "recent_colors"
@@ -637,4 +638,18 @@ def mark_first_run_setup_done(path: Path = None) -> None:
         path = config_file_path()
     settings = _load(path)
     settings[_FIRST_RUN_SETUP_DONE_KEY] = True
+    _save(settings, path)
+
+
+def is_default_external_commands_seeded(path: Path = None) -> bool:
+    if path is None:
+        path = config_file_path()
+    return _load(path).get(_DEFAULT_EXTERNAL_COMMANDS_SEEDED_KEY, False)
+
+
+def mark_default_external_commands_seeded(path: Path = None) -> None:
+    if path is None:
+        path = config_file_path()
+    settings = _load(path)
+    settings[_DEFAULT_EXTERNAL_COMMANDS_SEEDED_KEY] = True
     _save(settings, path)

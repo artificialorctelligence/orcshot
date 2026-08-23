@@ -929,10 +929,10 @@ _EXTERNAL_COMMAND_ICON_KEY = "external-command-symbolic"
 
 def destination_icon_geometry_key(destination_id: str) -> str:
     """The geometry.json key destination_icon_image below would draw
-    for this id - falls back to the generic command glyph for
-    "office" and any dynamically-configured ExternalCommand
-    destination (ids like "external:My Command"), neither of which
-    has one fixed action to depict. Exposed as its own function (task
+    for this id - falls back to the generic command glyph for any
+    dynamically-configured ExternalCommand destination (ids like
+    "external:My Command"), which has no one fixed action to depict.
+    Exposed as its own function (task
     #113), not just inlined into destination_icon_image, so
     ui/destination_picker.py's own destinations_for_shell can tell the
     Wayland Shell-native picker which icon to draw without needing a

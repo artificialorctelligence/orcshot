@@ -162,10 +162,12 @@ from orcshot.core.shapes import (
 )
 from orcshot.settings import (
     EXTERNAL_EDITOR_AUTO,
+    ExternalCommand,
     OutputSettings,
     consume_filename_counter,
     get_capture_mouse_cursor,
     get_excluded_destinations,
+    get_external_commands,
     get_external_editor_preference,
     get_filename_counter,
     get_footer_pattern,
@@ -181,6 +183,7 @@ from orcshot.settings import (
     get_use_default_proxy,
     set_capture_mouse_cursor,
     set_excluded_destinations,
+    set_external_commands,
     set_external_editor_preference,
     set_filename_counter,
     set_footer_pattern,
@@ -697,17 +700,38 @@ class EditorWindow(Gtk.Window):
         window_title: str = "",
     ):
         super().__init__(title="Orcshot image editor")
-        # Task #157: a position hint for the very first, small (pre-
-        # _resize_canvas_and_window) map, so it doesn't flash somewhere
-        # odd for the brief instant before that deferred call grows and
-        # (task #162) explicitly re-centers it - relevant on X11
-        # (Mint/Cinnamon), where Gtk.Window.move()/set_position()
-        # genuinely affect placement; a no-op in practice on Wayland,
-        # where xdg-shell gives clients no way to request or query an
-        # absolute position at all. The real #157 bug (window pinned
-        # hard against the top-left, sometimes mostly off-screen) was a
-        # separate, fixable issue in show_all() below, not something
-        # this call addresses on its own.
+        # Task #169, round 4 - direflail's own correction after three
+        # earlier attempts each made things worse ("we never had this
+        # issue before today"): restored, not removed. Earlier
+        # attempts this session assumed CENTER itself was the bug
+        # (following the *mouse pointer's* monitor rather than the
+        # primary one or wherever the capture/Edit click happened) and
+        # tried first no hint at all, then an explicit move() to the
+        # primary monitor - but that "proof" came from an artificial
+        # test (a script run with the mouse sitting on an unrelated
+        # monitor), not a real capture-then-edit flow, where the mouse
+        # is naturally right where the destination picker just was.
+        # Decisive live comparison (direflail, 2026-08-22, dual
+        # monitor: 2560x1440 primary + 1920x1080 secondary), same
+        # configure-event diagnostic logging on both sides: *without*
+        # this hint, Cinnamon/Muffin's placement-mode=automatic policy
+        # runs its own multi-step negotiation for a brand-new window
+        # with no position request at all - a real, visible sequence
+        # of ConfigureNotify events moving the window before it
+        # settles, sometimes onto a genuinely different monitor. *With*
+        # this hint restored, the exact same window (same session, same
+        # diagnostic logging, everything else unchanged) settles in one
+        # step and stays there. CENTER isn't just "a hint the WM might
+        # ignore" here - it appears to signal that a position has
+        # already been requested, which measurably skips Muffin's own
+        # placement negotiation entirely rather than merely
+        # influencing its outcome. This is likely the real, original
+        # explanation for the very first report of this bug too - not
+        # a wrong-monitor problem at all, but this same negotiation
+        # dance becoming visible once the window is already big enough
+        # to notice mid-negotiation (see _resize_canvas_and_window's
+        # own docstring for why it's chrome-heavy-large even before
+        # its own explicit resize() call runs).
         #
         # Plain CENTER, not CENTER_ALWAYS (task #162) - CENTER_ALWAYS
         # re-centers on *every* size-changing event GTK sees, with no
@@ -715,10 +739,31 @@ class EditorWindow(Gtk.Window):
         # "the user is interactively dragging an edge to resize" -
         # confirmed live (direflail, X11/Mint) that the latter made the
         # window fight the drag and head for a screen corner instead of
-        # resizing normally. _resize_canvas_and_window now does its own
-        # explicit, one-shot recentering right after its own resize()
-        # call instead - see that method's own comment.
+        # resizing normally. _resize_canvas_and_window does its own
+        # explicit, one-shot position clamp right after its own
+        # resize() call instead - see that method's own comment.
         self.set_position(Gtk.WindowPosition.CENTER)
+        # Kept as defense-in-depth even with CENTER restored - a real,
+        # if now much rarer, WM-driven monitor change after the fact
+        # (see _on_configure_event's own docstring) is still something
+        # only this can react to; _last_known_monitor_origin is what
+        # keeps it from recursively re-triggering on our own
+        # resize()/move() calls once the monitor's already correct.
+        self._last_known_monitor_origin = None
+        # Task #169 round 5: the window's last real, configure-event-
+        # reported position - None until the first one arrives. Used
+        # instead of self.get_position() in _resize_canvas_and_window,
+        # which is confirmed live to race against this exact signal
+        # (see _on_configure_event's own comment for the direct
+        # evidence: get_position() returned a stale (0,0) in 4 of 5
+        # live runs).
+        self._known_position = None
+        # Task #169 follow-up (Wayland): bounds how many times
+        # _on_configure_event will re-assert a clamped resize() when
+        # the window is still bigger than the screen - see that
+        # method's own comment.
+        self._oversize_correction_attempts = 0
+        self.connect("configure-event", self._on_configure_event)
         self._base_image = image
         # The captured window's title (task #139, active-window/window-
         # picker capture only - "" otherwise), remembered for
@@ -1026,6 +1071,50 @@ class EditorWindow(Gtk.Window):
         # the window instead of relying on it.
         self._canvas_scroller = Gtk.ScrolledWindow()
         self._canvas_scroller.add(self._canvas_overlay)
+        # Task #169 follow-up (Wayland): live-confirmed (direflail,
+        # 2026-08-22, Ubuntu 26.04 VM) that a tall capture makes the
+        # whole window overflow the screen on Wayland specifically -
+        # the exact same scenario stays correctly clamped on X11.
+        # Root cause, confirmed with real evidence, not assumed: a
+        # bounded-retry self-correction (see _on_configure_event)
+        # tried calling resize() to a clamped size up to 3 times after
+        # the window came up oversized, and it stayed at the exact
+        # same oversized allocation every time (attempts capped out,
+        # allocation never changed) - the compositor genuinely will
+        # not shrink an already-mapped xdg-shell surface back down
+        # from whatever size it first negotiated, no matter how many
+        # times a client asks afterward. That first negotiation
+        # happens as soon as this window is first shown - by the time
+        # _resize_canvas_and_window's own deferred (show()'s idle_add)
+        # call runs and tries to bound things, it's already too late,
+        # even though the exact same ordering works fine on X11.
+        #
+        # Fix: bound the scroller *here*, in __init__, before this
+        # window is ever shown at all - not a final, precise answer
+        # (the real chrome size isn't known yet this early), just
+        # something in the right ballpark (the primary monitor's own
+        # work area) so the very first negotiation the compositor ever
+        # sees is already reasonable instead of the canvas's full,
+        # unclamped natural size. _resize_canvas_and_window's own
+        # later, precise set_max_content_width/height call then only
+        # needs to make a small adjustment from an already-sane
+        # starting point, not ask the compositor for a drastic shrink
+        # after the fact - confirmed live this is what actually lets
+        # it stick. propagate_natural_width/height is what makes GTK
+        # respect max-content as a real ceiling instead of ignoring it
+        # - set once here since it never changes; the max-content
+        # values themselves get refined every time
+        # _resize_canvas_and_window runs (initial open, zoom, effects).
+        self._canvas_scroller.set_propagate_natural_width(True)
+        self._canvas_scroller.set_propagate_natural_height(True)
+        display = Gdk.Display.get_default()
+        monitor = None
+        if display is not None:
+            monitor = display.get_primary_monitor() or display.get_monitor(0)
+        if monitor is not None:
+            work_area = monitor.get_workarea()
+            self._canvas_scroller.set_max_content_width(max(1, work_area.width))
+            self._canvas_scroller.set_max_content_height(max(1, work_area.height))
 
         content_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL)
         content_row.pack_start(self._build_tool_palette(), False, False, 0)
@@ -4040,40 +4129,167 @@ class EditorWindow(Gtk.Window):
         if monitor is None:
             monitor = display.get_primary_monitor() or display.get_monitor(0)
         work_area = monitor.get_workarea()
+        # Task #169: recorded so _on_configure_event above can tell "the
+        # window manager moved us to a genuinely different monitor" (do
+        # this again) apart from "our own resize()/move() calls below
+        # generated a configure-event for the monitor we already sized
+        # for" (don't).
+        self._last_known_monitor_origin = (work_area.x, work_area.y)
+
+        # Task #169 round 5: self.get_position() here (instead of
+        # self._known_position, tracked from the authoritative
+        # configure-event itself) is confirmed live to be racy - see
+        # _on_configure_event's own comment. self._known_position is
+        # None only before this window has ever received a single real
+        # configure-event, which is exactly the state where we have no
+        # trustworthy "current position" to clamp *from* at all - see
+        # the move() call below, which skips repositioning entirely in
+        # that case rather than guess.
+        current_position = self._known_position
 
         total_w, total_h = optimal_window_size(
             chrome_w, chrome_h, canvas_w, canvas_h,
             _MIN_WINDOW_WIDTH, _MIN_WINDOW_HEIGHT, work_area.width, work_area.height,
         )
+        # Task #169 follow-up (Wayland) - see _canvas_scroller's own
+        # construction comment for why this is needed at all. Bounds
+        # the scroller to whatever's actually left over for canvas
+        # after chrome, in the already screen-clamped total_w/total_h
+        # - not canvas_w/canvas_h themselves, which is exactly the
+        # (correctly oversized, for real scrolling) size that caused
+        # the overflow in the first place.
+        self._canvas_scroller.set_max_content_width(max(1, total_w - chrome_w))
+        self._canvas_scroller.set_max_content_height(max(1, total_h - chrome_h))
+        # Task #169 follow-up (Wayland), round 2: live evidence (see
+        # this method's own diagnostic log) showed resize() itself
+        # destabilizing an otherwise-correctly-bounded layout - the
+        # window's *natural* size (before any resize() call at all)
+        # was already correctly capped at the screen height thanks to
+        # the scroller's own max-content constraint, but the explicit
+        # resize() call that follows made it grow *past* even its own
+        # requested target, not just fail to shrink to it. geometry
+        # hints are a stronger, protocol-level constraint than a
+        # widget's own preferred-size computation - MAX_SIZE maps
+        # directly to xdg-shell's own set_max_size(), which the
+        # Wayland compositor is required by the protocol to respect
+        # when it negotiates a configure size, unlike GTK's internal
+        # widget-tree sizing (which resize() apparently doesn't fully
+        # constrain here). Reasserted every call since work_area can
+        # change (a different monitor).
+        geometry = Gdk.Geometry()
+        geometry.max_width = work_area.width
+        geometry.max_height = work_area.height
+        self.set_geometry_hints(None, geometry, Gdk.WindowHints.MAX_SIZE)
         self.resize(total_w, total_h)
-        # Task #162: explicit, one-shot re-centering on this specific
-        # resize - not Gtk.WindowPosition.CENTER_ALWAYS (task #157's
-        # original mechanism for this, see __init__'s own comment),
-        # which re-centers on *every* size-changing event GTK sees,
-        # including a user's own interactive resize-drag via the
-        # window manager - confirmed live (direflail, X11/Mint): with
-        # CENTER_ALWAYS active, dragging an edge to resize made the
-        # window fight the drag and head for a screen corner instead,
-        # only "sticking" once it got there. That's a real, different
-        # bug from #157's own off-screen-on-first-map one (confirmed
-        # via git diff/log: #157's actual fix was reordering show_all,
-        # not this set_position call - see that method's own
-        # docstring), just sharing the same CENTER_ALWAYS mechanism.
-        # resize() itself always grows/shrinks from a fixed top-left
-        # anchor regardless of any WindowPosition hint (confirmed by
-        # #157's own original investigation - a WindowPosition hint
-        # only ever affects the very first placement decision), so
-        # *some* recentering is still genuinely needed right here -
-        # this is the one call site that resizes the window out from
-        # under the user, whether that's the deferred initial grow-to-
-        # fit-the-capture (show_all's own idle_add) or a later zoom/
-        # whole-image-effect resize - just no longer piggybacking on a
-        # blanket mechanism that can't tell "our own resize() call"
-        # apart from "the user dragging an edge". No-op on Wayland
-        # (move() is a documented no-op there, same as CENTER_ALWAYS
-        # already was) - harmless to call unconditionally.
-        self.move(work_area.x + (work_area.width - total_w) // 2, work_area.y + (work_area.height - total_h) // 2)
+        # Task #169: clamp position to stay within work_area, growing
+        # in place otherwise - not the dead-center recompute this used
+        # to do. Checked what real Windows Greenshot does here
+        # (ImageEditorForm.cs's GetOptimalWindowSize/
+        # GetAvailableScreenSpace): it only ever sets Size, never
+        # Location - WinForms grows/shrinks from the form's existing
+        # top-left corner, and GetAvailableScreenSpace's own upper
+        # bound is explicitly measured from *that* corner to the
+        # screen edge ("workingArea.Right - Left"), not the screen's
+        # own center. Direflail live-confirmed (2026-08-22) that
+        # unconditionally recentering caused a real, visible "opens,
+        # then jumps to a different spot on the same monitor" - the
+        # destination picker shows up at the current pointer position
+        # (see destination_picker.py's own show_destination_picker),
+        # so wherever Cinnamon/Muffin's placement-mode=automatic put
+        # the new editor window (usually near that same point) rarely
+        # already sat at the *exact* geometric center this used to
+        # force it to.
+        #
+        # Task #162's own original reason for recentering here (not
+        # Gtk.WindowPosition.CENTER_ALWAYS - see __init__'s own
+        # comment) still holds: CENTER_ALWAYS re-centers on *every*
+        # size-changing event, including a user's own interactive
+        # resize-drag, and confirmed live to fight that drag toward a
+        # screen corner instead of resizing normally. Clamping instead
+        # of centering keeps that same one-shot-not-continuous
+        # property (this call site is the only place that can move the
+        # window, drag-resize never reaches here) while also matching
+        # Greenshot's own "grow in place" behavior instead of
+        # forcing dead-center - the window only actually moves when it
+        # would otherwise grow past the work area's edge, and even
+        # then only as far as needed to stay fully on-screen.
+        #
+        # Task #169 round 5: skipped entirely when current_position is
+        # still None - this is the very first call, before this window
+        # has ever received a real configure-event, so there is no
+        # trustworthy position to clamp *from* yet (self.get_position()
+        # here is confirmed live to be racy - see _on_configure_event's
+        # own comment). Gtk.WindowPosition.CENTER has already requested
+        # a placement at this point; moving to an unknown/guessed
+        # position would only fight it, exactly the bug this is fixing.
+        # No-op on Wayland either way (move() is a documented no-op
+        # there) - harmless to call unconditionally once a real
+        # position is known.
+        if current_position is not None:
+            current_x, current_y = current_position
+            new_x = max(work_area.x, min(current_x, work_area.x + work_area.width - total_w))
+            new_y = max(work_area.y, min(current_y, work_area.y + work_area.height - total_h))
+            self.move(new_x, new_y)
         self._drawing_area.queue_draw()
+
+    def _on_configure_event(self, _widget, _event) -> bool:
+        """Task #169: re-adapts _resize_canvas_and_window's own sizing/
+        centering whenever the window's actual monitor changes, not
+        just once right after show() - see __init__'s own comment for
+        why a single one-shot check isn't reliably enough against a
+        window manager (Cinnamon/Muffin here) that can take more than
+        one main-loop iteration to settle on where a just-mapped window
+        actually belongs. Returns False (never stops other handlers) -
+        this only ever *reads* geometry and conditionally calls
+        _resize_canvas_and_window, it's not the thing deciding whether
+        this configure-event itself gets handled normally.
+        """
+        # Task #169 round 5: recorded here, from the event itself, not
+        # read via self.get_position() at resize time - direct evidence
+        # (direflail, 2026-08-22) that get_position() from an idle_add
+        # callback is genuinely racy against this exact signal: 4 of 5
+        # live runs returned a stale (0,0) because the real
+        # configure-event hadn't been processed yet when the idle
+        # callback ran. _resize_canvas_and_window's own position-clamp
+        # trusted that stale read and explicitly moved the window
+        # there - overwriting wherever Gtk.WindowPosition.CENTER had
+        # *already* correctly placed it a moment earlier, intermittently
+        # (exactly matching direflail's own report: "still has issue
+        # intermittently"). configure-event's own event.x/event.y are
+        # never stale - they're the geometry that just genuinely
+        # happened, not a cached/queried snapshot.
+        self._known_position = (_event.x, _event.y)
+
+        display = Gdk.Display.get_default()
+        gdk_window = self.get_window()
+        monitor = display.get_monitor_at_window(gdk_window) if gdk_window is not None else None
+        if monitor is None:
+            return False
+        work_area = monitor.get_workarea()
+        if (work_area.x, work_area.y) != self._last_known_monitor_origin:
+            self._resize_canvas_and_window()
+        elif _event.width > work_area.width or _event.height > work_area.height:
+            # Task #169 follow-up (Wayland): live-confirmed (direflail,
+            # 2026-08-22, Ubuntu 26.04 VM) that a tall capture can still
+            # leave the window bigger than the screen even with
+            # _resize_canvas_and_window's own clamped resize() already
+            # called - a real, observed case of resize() being honored
+            # as a *request* rather than a guarantee (same class of
+            # thing move() already turned out to be for position, see
+            # this window's own configure-event handling above). Same
+            # fix: react to what actually happened and re-assert,
+            # rather than trust a single resize() call took full
+            # effect. Bounded retries - if the compositor genuinely
+            # won't shrink it, repeating the identical call forever
+            # would just spin instead of helping; reset once back in
+            # bounds so a later, real oversize (e.g. zooming in past
+            # available space) still gets corrected.
+            if self._oversize_correction_attempts < 3:
+                self._oversize_correction_attempts += 1
+                self._resize_canvas_and_window()
+        else:
+            self._oversize_correction_attempts = 0
+        return False
 
     def _set_zoom(self, new_zoom: Fraction) -> None:
         """Every zoom action (menu/dropdown pick, keyboard shortcut,
@@ -5566,67 +5782,145 @@ def _build_output_settings_tab(parent: Gtk.Window) -> Gtk.Box:
 
 def _build_destinations_settings_tab(dialog: Gtk.Dialog) -> Gtk.Box:
     """Matches real Windows' Destinations tab (groupbox_destination:
-    checkbox_picker + listview_destinations). The checked listview
-    is real now - every destination show_destination_picker would
-    offer (ui/destination_picker.py's _all_destinations, including
-    the Office destination if LibreOffice/OpenOffice is detected
-    and any configured ExternalCommands), toggled against
-    settings.get_excluded_destinations()/set_excluded_destinations().
-    checkbox_picker itself (Windows' "always show the picker,
+    checkbox_picker + listview_destinations), split into two sections
+    (direflail's own scope-crept request while building "Find App" -
+    the single unified checklist was confusing about which entries
+    could be added/edited/deleted and which couldn't):
+
+    - "Default": the five built-in destinations (ui/destination_picker
+      .py's _DESTINATION_TABLE) - enable/disable only, can't be added,
+      edited, or removed.
+    - "External": configured ExternalCommands (task #110) - the same
+      enable/disable checkbox, plus inline Add/Edit/Delete (moved
+      in from the old separate "Manage..." dialog, which no longer
+      exists - one section, not a second window to open).
+
+    Both sections toggle the same settings.get_excluded_destinations()/
+    set_excluded_destinations() - "external:" is _external_command_
+    entry's own id prefix (destination_picker.py), the one signal that
+    distinguishes the two groups within _all_destinations()'s single
+    list. checkbox_picker itself (Windows' "always show the picker,
     rather than going straight to a single preferred destination")
-    has no equivalent here - this port's hotkeys/tray always open
-    the picker already, there's no "skip the picker" mode to
-    toggle in the first place.
+    has no equivalent here - this port's hotkeys/tray always open the
+    picker already, there's no "skip the picker" mode to toggle.
     """
+    from orcshot.ui.destination_picker import _all_destinations
+    from orcshot.ui.external_commands import show_command_detail_dialog
+
     box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
     box.set_border_width(12)
 
-    frame = Gtk.Frame(label="Destinations")
-    inner = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
-    inner.set_border_width(8)
-    frame.add(inner)
+    default_store = Gtk.ListStore(bool, str, str)  # enabled, label, id
+    external_store = Gtk.ListStore(bool, str, str)  # enabled, label, id
 
-    from orcshot.ui.destination_picker import _all_destinations
+    def refresh_stores() -> None:
+        default_store.clear()
+        external_store.clear()
+        excluded = get_excluded_destinations()
+        # include_excluded=True - otherwise an unchecked/excluded
+        # destination would disappear from its own checklist (the
+        # normal, filtered _all_destinations() already hides it).
+        for destination_id, label, _handler in _all_destinations(include_excluded=True):
+            row = [destination_id not in excluded, label, destination_id]
+            if destination_id.startswith("external:"):
+                external_store.append(row)
+            else:
+                default_store.append(row)
 
-    store = Gtk.ListStore(bool, str, str)  # enabled, label, id
-    excluded = get_excluded_destinations()
-    # include_excluded=True - otherwise an unchecked/excluded
-    # destination would disappear from its own checklist (the
-    # normal, filtered _all_destinations() already hides it).
-    for destination_id, label, _handler in _all_destinations(include_excluded=True):
-        store.append([destination_id not in excluded, label, destination_id])
+    refresh_stores()
 
-    tree_view = Gtk.TreeView(model=store)
-    toggle_renderer = Gtk.CellRendererToggle()
-
-    def on_toggled(_renderer, path) -> None:
+    def on_toggled(store, path) -> None:
         store[path][0] = not store[path][0]
-        currently_excluded = {row[2] for row in store if not row[0]}
+        currently_excluded = {row[2] for row in default_store if not row[0]}
+        currently_excluded |= {row[2] for row in external_store if not row[0]}
         set_excluded_destinations(currently_excluded)
 
-    toggle_renderer.connect("toggled", on_toggled)
-    tree_view.append_column(Gtk.TreeViewColumn("Enabled", toggle_renderer, active=0))
-    tree_view.append_column(Gtk.TreeViewColumn("Destination", Gtk.CellRendererText(), text=1))
-    scroller = Gtk.ScrolledWindow()
-    scroller.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
-    scroller.set_min_content_height(140)
-    scroller.add(tree_view)
-    inner.pack_start(scroller, True, True, 0)
+    def build_checklist(store: Gtk.ListStore, column_label: str) -> Gtk.TreeView:
+        tree_view = Gtk.TreeView(model=store)
+        toggle_renderer = Gtk.CellRendererToggle()
+        toggle_renderer.connect("toggled", lambda _renderer, path: on_toggled(store, path))
+        tree_view.append_column(Gtk.TreeViewColumn("Enabled", toggle_renderer, active=0))
+        tree_view.append_column(Gtk.TreeViewColumn(column_label, Gtk.CellRendererText(), text=1))
+        return tree_view
 
-    external_commands_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
-    external_commands_row.pack_start(Gtk.Label(label="External Commands:"), False, False, 0)
-    manage_commands_button = Gtk.Button(label="Manage...")
+    default_frame = Gtk.Frame(label="Default")
+    default_inner = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+    default_inner.set_border_width(8)
+    # No ScrolledWindow here, deliberately - Default is always exactly
+    # the five built-ins (direflail's own feedback: it should be tall
+    # enough to show all of them with no scrollbar), so the tree just
+    # takes its natural size instead of guessing a min-content-height
+    # tall enough to fit a row count that never actually changes.
+    _default_tree = build_checklist(default_store, "Destination")
+    default_inner.pack_start(_default_tree, False, False, 0)
+    default_frame.add(default_inner)
+    box.pack_start(default_frame, False, False, 0)
 
-    def on_manage_external_commands(_button) -> None:
-        from orcshot.ui.external_commands import show_manage_external_commands_dialog
+    external_frame = Gtk.Frame(label="External")
+    external_inner = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+    external_inner.set_border_width(8)
+    # External's row count is unbounded (however many commands the
+    # user has configured), so this one keeps scrolling.
+    external_tree = build_checklist(external_store, "Command")
+    external_scroller = Gtk.ScrolledWindow()
+    external_scroller.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+    external_scroller.set_min_content_height(110)
+    external_scroller.add(external_tree)
+    external_inner.pack_start(external_scroller, True, True, 0)
 
-        show_manage_external_commands_dialog(dialog)
+    def selected_external_command() -> ExternalCommand | None:
+        model, tree_iter = external_tree.get_selection().get_selected()
+        if tree_iter is None:
+            return None
+        name = model[tree_iter][2].removeprefix("external:")
+        return next((c for c in get_external_commands() if c.name == name), None)
 
-    manage_commands_button.connect("clicked", on_manage_external_commands)
-    external_commands_row.pack_start(manage_commands_button, False, False, 0)
-    inner.pack_start(external_commands_row, False, False, 0)
+    button_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+    add_button = Gtk.Button(label="Add...")
+    edit_button = Gtk.Button(label="Edit...")
+    delete_button = Gtk.Button(label="Delete")
+    edit_button.set_sensitive(False)
+    delete_button.set_sensitive(False)
+    for button in (add_button, edit_button, delete_button):
+        button_row.pack_start(button, False, False, 0)
+    external_inner.pack_start(button_row, False, False, 0)
 
-    box.pack_start(frame, False, False, 0)
+    def on_external_selection_changed(_selection) -> None:
+        has_selection = selected_external_command() is not None
+        edit_button.set_sensitive(has_selection)
+        delete_button.set_sensitive(has_selection)
+
+    external_tree.get_selection().connect("changed", on_external_selection_changed)
+
+    def on_add(_button) -> None:
+        result = show_command_detail_dialog(dialog, None)
+        if result is not None:
+            set_external_commands(get_external_commands() + [result])
+            refresh_stores()
+
+    def on_edit(_button) -> None:
+        current = selected_external_command()
+        if current is None:
+            return
+        result = show_command_detail_dialog(dialog, current)
+        if result is not None:
+            commands = [result if c.name == current.name else c for c in get_external_commands()]
+            set_external_commands(commands)
+            refresh_stores()
+
+    def on_delete(_button) -> None:
+        current = selected_external_command()
+        if current is None:
+            return
+        set_external_commands([c for c in get_external_commands() if c.name != current.name])
+        refresh_stores()
+
+    add_button.connect("clicked", on_add)
+    edit_button.connect("clicked", on_edit)
+    delete_button.connect("clicked", on_delete)
+
+    external_frame.add(external_inner)
+    box.pack_start(external_frame, True, True, 0)
     return box
 
 def _build_printer_settings_tab() -> Gtk.Box:

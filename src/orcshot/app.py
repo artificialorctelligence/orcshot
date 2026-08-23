@@ -56,6 +56,7 @@ from orcshot.ui.capture_modes import (
     start_last_region_capture,
 )
 from orcshot.resources import LOGO_PATH
+from orcshot.ui.external_commands import maybe_seed_default_external_commands
 from orcshot.ui.first_run_setup import maybe_run_first_run_setup
 from orcshot.ui.region_select import start_region_capture
 from orcshot.ui.update_check import fetch_latest_release
@@ -200,6 +201,11 @@ class OrcshotApplication(Gtk.Application):
         self._tray_icon = self._build_tray_icon()
         self._check_shell_extension_health()
         maybe_run_first_run_setup()
+        # Separate from maybe_run_first_run_setup's own flag - this
+        # must run on every very first app start regardless of
+        # whether the user ever engages with the first-run wizard at
+        # all (direflail's own explicit call).
+        maybe_seed_default_external_commands()
         self._recheck_tray_icon_after_extension_change()
 
         # "app.open-uri" backs every notification's default (click)
@@ -606,10 +612,11 @@ class OrcshotApplication(Gtk.Application):
         the program to quit and vanish. it should not be running
         anymore... it should remain this way until the user
         restarts." (task #150 follow-up). self.quit() alone already
-        fully terminates this process - confirmed live, nothing was
-        left in `ps aux` after a plain quit - but the Shell-native tray
-        panel button is owned by the extension, a separate process,
-        and only ever *dims* on its own when this process's D-Bus name
+        fully terminates this process when nothing else is running a
+        nested main loop - confirmed live, nothing was left in
+        `ps aux` after a plain quit - but the Shell-native tray panel
+        button is owned by the extension, a separate process, and
+        only ever *dims* on its own when this process's D-Bus name
         vanishes (the same reaction a crash gets, since the extension
         can't otherwise tell a deliberate quit apart from one). Calling
         the extension's own Quitting() method first, best-effort, is
@@ -619,6 +626,26 @@ class OrcshotApplication(Gtk.Application):
         be the active tray at all (X11, or Wayland before it's ever
         been enabled), and quitting must never be blocked by a Shell
         extension call failing.
+
+        Task #169: live-confirmed (direflail, 2026-08-22) that Quit did
+        nothing at all with Preferences open - root-caused via a
+        minimal isolated repro (not a guess): Gtk.Dialog.run() runs
+        its own nested GLib main loop, and Gio.Application.quit() only
+        causes g_application_run()'s *outermost* loop to return once
+        control actually gets back to it - it does not preempt an
+        already-running nested one. With Preferences (or any other
+        dialog.run()-based dialog in this codebase) open, self.quit()
+        was requesting a return to a main loop that was never going to
+        run again until that dialog closed on its own, which nothing
+        was asking it to do - so nothing happened, forever, exactly
+        matching the report. _close_open_modal_dialogs forces every
+        currently-open Gtk.Dialog to respond before self.quit() runs,
+        confirmed live to actually unwind the nested loop and let the
+        real quit proceed. Every dialog.run() dialog reachable from
+        the tray only ever has Close/Cancel-shaped responses that
+        discard nothing (Preferences persists each field's setting
+        immediately on change, not on close) - forcing a response is
+        never a data-loss risk, just an early, deliberate close.
 
         Task #150 follow-up (round 2): also writes the quit marker
         main() checks before ever constructing a new instance - the
@@ -634,6 +661,7 @@ class OrcshotApplication(Gtk.Application):
         """
         if write_marker:
             write_quit_marker()
+        self._close_open_modal_dialogs()
         try:
             proxy = Gio.DBusProxy.new_for_bus_sync(
                 Gio.BusType.SESSION, Gio.DBusProxyFlags.NONE, None,
@@ -644,6 +672,20 @@ class OrcshotApplication(Gtk.Application):
         except GLib.Error:
             pass
         self.quit()
+
+    def _close_open_modal_dialogs(self) -> None:
+        """Forces every currently-visible Gtk.Dialog to respond (as if
+        Cancel/Close had been clicked) - task #169. Gtk.Window.
+        list_toplevels() is GTK's own registry of every realized
+        top-level window, Dialogs included, so this reaches Preferences
+        and every Add/Edit External Command dialog alike without this
+        app needing to separately track each one - see
+        _quit_and_hide_tray_button's own docstring for why this has to
+        run before self.quit() rather than relying on it.
+        """
+        for window in Gtk.Window.list_toplevels():
+            if isinstance(window, Gtk.Dialog) and window.get_visible():
+                window.response(Gtk.ResponseType.CANCEL)
 
     def prepare_for_upgrade(self) -> None:
         """Best-effort package-upgrade hook (task #151 follow-up):

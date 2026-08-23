@@ -67,7 +67,7 @@ import gi
 
 gi.require_version("Gtk", "3.0")
 gi.require_version("Gdk", "3.0")
-from gi.repository import Gdk, Gio, Gtk
+from gi.repository import Gdk, Gio, GLib, Gtk
 
 from orcshot.capture.clipboard import ClipboardBackend
 from orcshot.core.drawing import Layer
@@ -228,64 +228,25 @@ def _external_command_entry(command):
     return (f"external:{command.name}", command.name, handler)
 
 
-# Real Windows' actual Office destination inserts the image straight
-# into a document via COM automation - a Windows-only mechanism with
-# no Linux equivalent. This is a new addition, not a port (task #95's
-# Destinations tab, direflail's own request), scoped to the nearest
-# faithful-in-spirit equivalent available here: open the image in
-# LibreOffice/OpenOffice Draw, the same "hand it to the office suite
-# and let the user work with it" outcome. soffice checked first -
-# virtually every modern install (including ones still branded
-# "OpenOffice" via a LibreOffice-based fork) uses that binary name;
-# ooffice/openoffice.org are the legacy Apache OpenOffice ones, kept
-# as a fallback for the rare install that still has one.
-_OFFICE_CANDIDATES = (("LibreOffice Draw", "soffice"), ("OpenOffice Draw", "ooffice"), ("OpenOffice Draw", "openoffice.org"))
-
-
-def _find_office_command():
-    import shutil
-
-    for name, path_command in _OFFICE_CANDIDATES:
-        if shutil.which(path_command):
-            return name, path_command
-    return None
-
-
-def _office_entry():
-    found = _find_office_command()
-    if found is None:
-        return None
-    name, path_command = found
-
-    def handler(img, cs, _clipboard_backend, _title, path_command=path_command):
-        import os
-        import subprocess
-        import tempfile
-        from pathlib import Path
-
-        from orcshot.ui.file_export import orcshot_cache_dir
-
-        fd, path_str = tempfile.mkstemp(suffix=".png", prefix="orcshot-office-", dir=str(orcshot_cache_dir()))
-        os.close(fd)
-        path = Path(path_str)
-        save_image_to_file(_flattened(img, cs), path)
-        subprocess.Popen([path_command, "--draw", str(path)])
-
-    return ("office", name, handler)
-
-
 def _all_destinations(include_excluded: bool = False) -> list:
-    """_DESTINATION_TABLE plus the Office destination (if LibreOffice/
-    OpenOffice is installed) plus one entry per configured external
+    """_DESTINATION_TABLE plus one entry per configured external
     command (task #110, ui/external_commands.py) - computed fresh on
     every call (not cached at import time) so a command added/removed/
-    renamed via Preferences (or LibreOffice getting installed/removed)
-    shows up immediately without an app restart, the same way Windows'
-    own Destinations() re-enumerates ExternalCommandConfig.Commands
-    each time the picker is built (ExternalCommandPlugin.cs:69-75).
-    User-added/detected entries appended after the five built-ins
-    rather than interleaved by Windows' own priority ordering - they
-    read naturally as "extra stuff" tacked onto the end.
+    renamed via Preferences shows up immediately without an app
+    restart, the same way Windows' own Destinations() re-enumerates
+    ExternalCommandConfig.Commands each time the picker is built
+    (ExternalCommandPlugin.cs:69-75). User-added/detected entries
+    appended after the five built-ins rather than interleaved by
+    Windows' own priority ordering - they read naturally as "extra
+    stuff" tacked onto the end.
+
+    LibreOffice/OpenOffice used to be its own bespoke entry here (a
+    Windows-only COM-automation-into-a-document destination has no
+    Linux equivalent, so direflail's own original request was scoped
+    to "open the image in LibreOffice/OpenOffice Draw" instead) - now
+    just a regular external command, auto-seeded once on first app
+    start if found (see external_commands.default_external_commands
+    and maybe_seed_default_external_commands), same as Krita and GIMP.
 
     Filtered by settings.get_excluded_destinations() (task #95's
     Destinations tab checklist) unless ``include_excluded`` is set - an
@@ -296,9 +257,6 @@ def _all_destinations(include_excluded: bool = False) -> list:
     would vanish from its own settings UI with no way to re-enable it.
     """
     entries = list(_DESTINATION_TABLE)
-    office = _office_entry()
-    if office is not None:
-        entries.append(office)
     entries += [_external_command_entry(command) for command in get_external_commands()]
     if include_excluded:
         return entries
@@ -445,9 +403,38 @@ def show_destination_picker(
         # right when the picker itself appears, matching Windows' own
         # DoCaptureFeedback timing) and re-does the _all_destinations()
         # lookup this loop already has the answer to.
+        #
+        # Task #169: handler() itself runs one main-loop iteration
+        # later (GLib.idle_add), not synchronously from inside this
+        # "activate" signal - live-confirmed (direflail, 2026-08-22,
+        # dual monitor) as the same class of race app.py's own
+        # _defer() was already built to fix for tray captures (see its
+        # docstring): this menu's popdown/hide is itself just a
+        # request queued during this same signal emission, not
+        # something guaranteed to have reached the display server yet.
+        # For "Edit" specifically, starting a brand new top-level
+        # window (EditorWindow) while this menu's own X11 grab/focus
+        # state hadn't actually been released confused Cinnamon/
+        # Muffin's placement-mode=automatic + focus-new-windows=smart
+        # window-manager policy into a visible double-placement - the
+        # editor opened on one monitor, then jumped to another a
+        # moment later once the popdown actually finished landing.
+        # Not reusing app.py's own _defer() directly (this module is
+        # imported *by* app.py already - a module-level import back
+        # would be circular); same fix, inlined, since it's three
+        # lines. final_image is still resolved eagerly, outside the
+        # deferred call - see refresh_image's own docstring above for
+        # why *that* particular ordering is its own separate,
+        # already-reasoned-through constraint, not something to
+        # casually change here too.
         def on_activate(_item, handler=handler) -> None:
             final_image = refresh_image() if refresh_image is not None else image
-            handler(final_image, cursor_shape, clipboard_backend, title)
+
+            def run():
+                handler(final_image, cursor_shape, clipboard_backend, title)
+                return GLib.SOURCE_REMOVE
+
+            GLib.idle_add(run, priority=GLib.PRIORITY_DEFAULT)
 
         item.connect("activate", on_activate)
         menu.append(item)

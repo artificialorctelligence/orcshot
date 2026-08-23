@@ -1,3 +1,307 @@
+orcshot (0.1.0-21) noble; urgency=medium
+
+  * Fix the editor window overflowing the screen vertically on Wayland
+    when the capture is taller than what's available - live-confirmed
+    on the Ubuntu 26.04 Wayland VM (direflail, 2026-08-22) with a
+    diagnostic trace showing self.resize() to an already screen-
+    clamped size was itself being overridden - the window grew *past*
+    even its own requested target (804x768 requested, 856x857 actual),
+    not just failing to shrink to it. The same scenario already
+    clamped correctly on X11. Fixed with Gtk.Window.set_geometry_hints
+    (MAX_SIZE) - a protocol-level constraint that maps directly to
+    Wayland's own xdg-shell set_max_size(), which the compositor is
+    required to respect during its own size negotiation, unlike GTK's
+    internal widget-tree sizing which resize() alone didn't fully
+    constrain here. Verified live on the same VM across both an
+    oversized and a normal-sized capture - the window now correctly
+    stays within the screen's work area in both cases, with no
+    regression on X11 (verified locally, unchanged).
+
+ -- Orcshot <314918217+artificialorctelligence@users.noreply.github.com>  Sat, 22 Aug 2026 23:55:00 -0500
+
+orcshot (0.1.0-20) noble; urgency=medium
+
+  * Removed the temporary diagnostic logging added while chasing the
+    editor window placement bug - direflail confirmed 0.1.0-19 clean
+    across 6 of their own repeated tests. No behavior change.
+
+ -- Orcshot <314918217+artificialorctelligence@users.noreply.github.com>  Sat, 22 Aug 2026 23:25:00 -0500
+
+orcshot (0.1.0-19) noble; urgency=medium
+
+  * Fix the intermittent jump left over after 0.1.0-18's fix - real
+    journalctl evidence (direflail, 2026-08-22) caught it directly: on
+    some editor opens, the window correctly appeared at
+    Gtk.WindowPosition.CENTER's own placement, then visibly jumped to
+    the work area's top-left corner a moment later. Root cause,
+    confirmed with a direct, repeated live test: self.get_position(),
+    called from the same idle_add timing _resize_canvas_and_window
+    uses, is genuinely racy against the window's own real
+    configure-event - it returned a stale (0,0) in 4 of 5 live runs,
+    before the real, CENTER-placed position had actually been
+    reported back yet. The position-clamp logic added earlier today
+    trusted that stale read and explicitly moved the window there,
+    intermittently overwriting CENTER's own already-correct placement
+    - exactly matching the "still has issue intermittently" report.
+    Now tracks position from the configure-event itself (never stale,
+    it's the geometry that just genuinely happened) instead of
+    querying it fresh, and skips repositioning entirely on the very
+    first call, before any real position is known yet, rather than
+    guess. Verified live across 8 repeated runs, including the exact
+    racy case - no more stale-position moves, in either case the
+    window settles correctly.
+
+ -- Orcshot <314918217+artificialorctelligence@users.noreply.github.com>  Sat, 22 Aug 2026 23:15:00 -0500
+
+orcshot (0.1.0-18) noble; urgency=medium
+
+  * Editor window placement, round 4 - direflail correctly pushed back
+    that "we never had this issue before today" (2026-08-22): three
+    earlier attempts this session (removing Gtk.WindowPosition.CENTER,
+    then an explicit move() to the primary monitor, then no position
+    hint at all) were chasing the wrong hypothesis, based on an
+    artificial test that didn't reflect real usage. Direct, decisive
+    comparison using the diagnostic logging added this session (same
+    window, same session, only the position hint changed): *without*
+    CENTER, Cinnamon/Muffin's placement-mode=automatic policy runs its
+    own multi-step negotiation for a brand-new window with no position
+    request at all - a real, visible sequence of position changes
+    before it settles, occasionally onto a different monitor. *With*
+    CENTER restored, the same window settles in one step and stays
+    there. Restored it - this is likely the real, original explanation
+    for the very first report of this bug too, not a wrong-monitor
+    problem. The self-correcting configure-event handler and
+    Greenshot-faithful "clamp position to stay on-screen, don't force
+    dead-center" resize logic from earlier today are kept as
+    defense-in-depth. Diagnostic logging is kept for one more round
+    pending live confirmation this is actually resolved, not stripped
+    prematurely.
+
+ -- Orcshot <314918217+artificialorctelligence@users.noreply.github.com>  Sat, 22 Aug 2026 23:00:00 -0500
+
+orcshot (0.1.0-17) noble; urgency=medium
+
+  * Editor window placement, round 3 (direflail, 2026-08-22): the
+    cross-monitor jump is gone (0.1.0-16's configure-event fix), but a
+    smaller same-monitor jump remained - the editor's post-capture
+    resize used to always recenter dead-center on its monitor. Checked
+    what real Windows Greenshot does (ImageEditorForm.cs): it never
+    recenters at all, only ever sets Size - WinForms grows from the
+    form's existing top-left corner, Location untouched. The editor
+    now does the same: grows in place from wherever the window manager
+    already put it, only nudging position enough to stay fully
+    on-screen if growing would otherwise push it past the work area's
+    edge, rather than unconditionally jumping to geometric center.
+    Also adds temporary WARNING-level diagnostic logging to every
+    configure-event and resize/move decision (visible via `journalctl
+    --user -u orcshot.service`, no logging config needed) - direflail's
+    own ask, since isolated reproduction scripts keep failing to
+    replicate the real, mouse/window-manager-timing-sensitive
+    behavior; this gets a real trace from the next live repro instead
+    of more guessing. Will be removed once whatever's left is fully
+    nailed down.
+
+ -- Orcshot <314918217+artificialorctelligence@users.noreply.github.com>  Sat, 22 Aug 2026 23:20:00 -0500
+
+orcshot (0.1.0-16) noble; urgency=medium
+
+  * Fix the remaining residual monitor jump/wrong-size left over after
+    0.1.0-15 - live-confirmed (direflail, 2026-08-22) that deferring
+    the destination picker's own dispatch by one main-loop iteration
+    reduced but didn't fully eliminate it ("grows somewhat bigger" now
+    instead of gigantic). Root cause: a real, mouse-driven menu
+    popdown's own X11 grab-release/focus-revert sequence can still
+    take Cinnamon/Muffin's placement-mode=automatic window manager
+    longer than one main-loop iteration to actually settle on a final
+    monitor, so the editor's one-shot monitor check could still read a
+    not-yet-final monitor and size itself for the wrong one. Rather
+    than guess a fixed delay long enough to outlast that (fragile
+    against exactly this class of timing-dependent WM behavior, and
+    liable to reintroduce the same bug on a different machine), the
+    editor now reacts to its own configure-event and re-adapts its
+    size/position every time its actual monitor genuinely changes,
+    however many times or however late the window manager moves it.
+    Verified live: simulated a delayed cross-monitor move after the
+    window had already settled, confirmed it correctly resized and
+    re-centered for the new monitor rather than staying stuck with
+    stale sizing from the old one.
+
+ -- Orcshot <314918217+artificialorctelligence@users.noreply.github.com>  Sat, 22 Aug 2026 23:00:00 -0500
+
+orcshot (0.1.0-15) noble; urgency=medium
+
+  * Fix the real cause of the editor's monitor jump - 0.1.0-13/-14's
+    own fixes addressed the editor's own initial-placement code but
+    direflail's live re-testing still showed the identical double-jump
+    afterward ("same behavior"), which turned out to have a different
+    root cause entirely: the classic destination picker's own menu
+    item handler called its destination's action (Edit, Save As,
+    Print, any configured External Command - all of them, not just
+    Edit) directly and synchronously from inside the menu's "activate"
+    signal, before the menu's own popdown had actually reached the
+    display server - the exact same class of race app.py's own
+    _defer() was already built and shipped to fix for tray captures
+    (see that function's own docstring), just never applied to this
+    picker. Starting a brand new top-level window while the menu's
+    own X11 grab/focus state hadn't been released yet confused
+    Cinnamon/Muffin's placement-mode=automatic + focus-new-windows=
+    smart window-manager policy into a visible double-placement.
+    Confirmed via a live repro through the real picker menu itself
+    (not just the editor window in isolation, which never showed the
+    race) that deferring the handler by one main-loop iteration - the
+    same fix _defer() already uses - eliminates it: stable from the
+    first frame through the real code path, 23 consecutive checks
+    over 1.15 seconds with no movement.
+
+ -- Orcshot <314918217+artificialorctelligence@users.noreply.github.com>  Sat, 22 Aug 2026 22:45:00 -0500
+
+orcshot (0.1.0-14) noble; urgency=medium
+
+  * Fix a follow-up double-jump from 0.1.0-13's own fix (direflail,
+    live-testing, 2026-08-22): pinning the editor's initial placement
+    to the primary monitor fought Cinnamon/Muffin's own
+    placement-mode=automatic window-manager policy - the window opened
+    on primary for a moment, then the WM's own placement decision
+    moved it again to wherever the mouse actually was, a visible
+    double-jump. Checked what real Windows Greenshot does here
+    (ImageEditorForm.cs's GetAvailableScreenSpace): it never requests
+    a position at all - it uses Screen.FromControl(this), whatever
+    monitor Windows' own default placement already chose, and just
+    sizes to fit that. The editor now does the same: no explicit
+    initial position on either axis, letting the window manager make
+    one single placement decision, with _resize_canvas_and_window's
+    own existing monitor-detection adapting to wherever that lands -
+    confirmed live, stable from the first frame, no more double-jump.
+
+ -- Orcshot <314918217+artificialorctelligence@users.noreply.github.com>  Sat, 22 Aug 2026 22:35:00 -0500
+
+orcshot (0.1.0-13) noble; urgency=medium
+
+  * Fix the editor window opening on the wrong monitor and growing to
+    fill it - live-confirmed (direflail, 2026-08-22, dual monitor:
+    2560x1440 primary + 1920x1080 secondary): "opening edit caused the
+    window to open then jump to the other monitor and grow almost to
+    the size of the screen." Root cause, confirmed by reading the
+    actual pointer position at the moment of the bug: the editor's
+    initial placement used Gtk.WindowPosition.CENTER, which centers a
+    parent-less window on whichever monitor currently has the *mouse
+    pointer* - not the primary monitor, not wherever the capture/Edit
+    click happened. A hotkey capture, or the mouse simply drifting
+    before the editor finished opening, put it on an unrelated
+    monitor. The editor now explicitly places itself on the primary
+    monitor instead, matching what its own post-capture resize step
+    already falls back to - deterministic regardless of where the
+    pointer happens to be. Confirmed live: the window now opens on the
+    primary monitor and stays there even with the pointer sitting on
+    the other one.
+
+ -- Orcshot <314918217+artificialorctelligence@users.noreply.github.com>  Sat, 22 Aug 2026 22:15:00 -0500
+
+orcshot (0.1.0-12) noble; urgency=medium
+
+  * Fix Quit doing nothing at all when a dialog (Preferences, or an
+    Add/Edit External Command dialog) was open - live-confirmed
+    (direflail, 2026-08-22: captured, opened Edit, opened Preferences,
+    Quit did nothing). Root cause, confirmed via an isolated repro:
+    Gtk.Dialog.run() runs its own nested main loop, and
+    Gio.Application.quit() only returns control once execution gets
+    back to the outermost loop - it doesn't preempt an already-running
+    nested one, so the quit request just sat there forever with
+    nothing to act on it. The tray's Quit handler now forces every
+    currently-open dialog to respond before quitting, which unwinds
+    the nested loop and lets the real quit proceed - confirmed live
+    end to end (Preferences open, Quit closes it and the whole app).
+    Affects both X11 and Wayland alike, since the handler is shared
+    code, not platform-specific.
+
+ -- Orcshot <314918217+artificialorctelligence@users.noreply.github.com>  Sat, 22 Aug 2026 22:00:00 -0500
+
+orcshot (0.1.0-11) noble; urgency=medium
+
+  * Find App follow-up, from more live X11 testing (direflail,
+    2026-08-22): results are now one alphabetical list by name across
+    Snap/Flatpak/native instead of grouped by source then alphabetical
+    within each group. Snap results no longer include content-only
+    snaps with nothing to launch (e.g. "GTK Common Themes" -
+    gtk-common-themes, installed by default on Ubuntu/Mint - shares
+    theme assets with other snaps but has no /snap/bin/<name> of its
+    own; picking it produced "Command not found" with OK stuck
+    greyed out). Preferences' Destinations tab: the "Default" section
+    (the five built-ins) is now sized to show all of them with no
+    scrollbar, since that list never grows; "External" keeps its own
+    scrollbar since that one can.
+
+ -- Orcshot <314918217+artificialorctelligence@users.noreply.github.com>  Sat, 22 Aug 2026 21:30:00 -0500
+
+orcshot (0.1.0-10) noble; urgency=medium
+
+  * Find App follow-up, from live X11 testing (direflail, 2026-08-22):
+    the results list now shows every installed app up front instead of
+    staying blank until you type, so it's obvious what the list is for.
+    The "Name is required" message that used to sit there while
+    browsing (it was validating the still-empty Add Command form,
+    which the user hadn't touched yet) now reads "Search the list of
+    installed applications." instead, and only clears once a result is
+    selected. Single-clicking a result and pressing OK now does the
+    same thing double-clicking it already did (fills the form, moves
+    to Add Command for review) rather than doing nothing - double-
+    click itself is unchanged.
+
+ -- Orcshot <314918217+artificialorctelligence@users.noreply.github.com>  Sat, 22 Aug 2026 21:05:00 -0500
+
+orcshot (0.1.0-9) noble; urgency=medium
+
+  * Task #166 follow-up: Find App now also searches natively installed
+    apps (via .desktop launcher files, the same curated list GNOME
+    Shell's own app launcher reads) alongside Snap and Flatpak, and
+    only fetches all three lists once per dialog instead of re-querying
+    snapd/flatpak/disk on every keystroke. LibreOffice, OpenOffice,
+    Krita, and GIMP are now auto-detected and added as External Command
+    destinations the first time the app ever starts (a native install
+    wins outright; otherwise whichever of Snap/Flatpak has the newer
+    version) - Office moves off its old bespoke code path onto this
+    same mechanism, gaining Snap-safe temp file handling for free.
+    Preferences' Destinations tab is split into "Default" (the five
+    built-ins, enable/disable only) and "External" (commands, with
+    Add/Edit/Delete moved inline) - the separate "Manage..." dialog is
+    gone.
+
+ -- Orcshot <314918217+artificialorctelligence@users.noreply.github.com>  Sat, 22 Aug 2026 20:45:00 -0500
+
+orcshot (0.1.0-8) noble; urgency=medium
+
+  * Task #166 follow-up: adding a new External Command now offers a
+    "Find App" mode that searches installed Snap and Flatpak apps
+    (via snapd's local REST API and `flatpak list`, both local-only,
+    no network) and fills in Command/Arguments correctly - the
+    Command/Arguments split that was easy to get wrong by hand. A
+    "?" tooltip explains the split between Find App and the existing
+    Add Command form. _validate also gives a more specific hint when
+    a full command line gets pasted into the Command field whole.
+
+ -- Orcshot <314918217+artificialorctelligence@users.noreply.github.com>  Sat, 22 Aug 2026 18:10:00 -0500
+
+orcshot (0.1.0-7) noble; urgency=medium
+
+  * Preferences' Destinations checklist didn't refresh after adding,
+    editing, or deleting an entry via the "Manage..." External
+    Commands dialog - only closing and reopening Preferences entirely
+    picked up the change. The checklist's own Gtk.ListStore is now
+    rebuilt every time the Manage dialog closes, not just once when
+    Preferences itself is first built.
+
+ -- Orcshot <314918217+artificialorctelligence@users.noreply.github.com>  Sat, 22 Aug 2026 17:35:00 -0500
+
+orcshot (0.1.0-6) noble; urgency=medium
+
+  * Task #166: Snap-confined external commands (e.g. Krita) get their
+    handoff file from a visible ~/Orcshot folder instead of the hidden
+    ~/.cache/orcshot, since Snap's home interface excludes any path
+    with a hidden ancestor. Temp files are deleted after the command
+    runs either way.
+
+ -- Orcshot <314918217+artificialorctelligence@users.noreply.github.com>  Sat, 22 Aug 2026 17:15:00 -0500
+
 orcshot (0.1.0-5) noble; urgency=medium
 
   * Fix save_image_to_file always building an RGBA (has_alpha=True)

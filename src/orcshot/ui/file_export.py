@@ -104,3 +104,37 @@ def orcshot_cache_dir() -> Path:
     directory = cache_home / "orcshot"
     directory.mkdir(mode=0o700, parents=True, exist_ok=True)
     return directory
+
+
+def orcshot_visible_temp_dir(home: Path = None) -> Path:
+    """~/Orcshot - task #166: orcshot_cache_dir above isn't enough for
+    every sandboxed target. A Flatpak-confined app typically gets
+    access to ~/.cache/* (the commonly-granted xdg-cache permission,
+    which is *why* orcshot_cache_dir works for Flatpak targets) - but
+    a Snap-confined app's "home" interface grants the opposite: plain,
+    non-hidden paths under $HOME, explicitly excluding any path with a
+    hidden (dot-prefixed) ancestor. Every XDG convention (~/.cache,
+    ~/.config, ~/.local) is hidden by definition, so satisfying Snap
+    needs a real, visible top-level folder instead - confirmed live
+    (direflail, task #166): a Snap-confined Krita reproducibly failed
+    to read a file under ~/.cache/orcshot/ with the exact same error
+    both through Orcshot and run standalone against a manually-placed
+    file, ruling out a race/timing cause.
+
+    Used only for Snap-confined external commands (see
+    external_commands.py's own _is_snap_command) - orcshot_cache_dir
+    remains the default for everything else, so this new visible
+    folder only appears at all when it's actually needed.
+
+    mode=0o700, same reasoning as orcshot_cache_dir - visible in a
+    file manager doesn't mean readable by other local users; Snap's
+    AppArmor confinement is enforced on top of normal Unix permissions,
+    not instead of them, so restricting this to the owning user is
+    still safe and doesn't defeat the Snap-visibility fix (Snap's
+    confined process runs as this same Unix user).
+    """
+    if home is None:
+        home = Path.home()
+    directory = home / "Orcshot"
+    directory.mkdir(mode=0o700, exist_ok=True)
+    return directory

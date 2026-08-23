@@ -13,7 +13,7 @@ from gi.repository import GdkPixbuf
 
 import numpy as np
 
-from orcshot.ui.file_export import orcshot_cache_dir, save_image_to_file
+from orcshot.ui.file_export import orcshot_cache_dir, orcshot_visible_temp_dir, save_image_to_file
 from orcshot.ui.gdk_convert import pixbuf_to_numpy
 
 
@@ -126,6 +126,23 @@ def test_cache_dir_is_under_xdg_cache_home(tmp_path, monkeypatch):
 
     assert directory == tmp_path / "orcshot"
     assert directory.is_dir()
+
+
+def test_visible_temp_dir_is_a_plain_top_level_folder_under_home(tmp_path):
+    # task #166: Snap's home interface excludes any path with a hidden
+    # (dot-prefixed) ancestor, unlike orcshot_cache_dir's ~/.cache/orcshot
+    # - every path component from home down must be non-hidden.
+    directory = orcshot_visible_temp_dir(home=tmp_path)
+
+    assert directory.parent == tmp_path
+    assert not directory.name.startswith(".")
+    assert directory.is_dir()
+
+
+def test_visible_temp_dir_is_created_with_restricted_permissions(tmp_path):
+    directory = orcshot_visible_temp_dir(home=tmp_path)
+
+    assert oct(directory.stat().st_mode & 0o777) == "0o700"
 
 
 def test_cache_dir_is_created_with_restricted_permissions(tmp_path, monkeypatch):
