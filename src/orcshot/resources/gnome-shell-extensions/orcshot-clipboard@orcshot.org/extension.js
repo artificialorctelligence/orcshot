@@ -163,6 +163,7 @@ const CAPTURE_IFACE = `
 <node>
    <interface name="org.gnome.Shell.Extensions.OrcshotCapture">
       <method name="StartRegionSelect">
+         <arg type="b" direction="in" name="showMagnifier" />
          <arg type="b" direction="out" name="ok" />
          <arg type="s" direction="out" name="destination" />
          <arg type="ay" direction="out" name="pngBytes" />
@@ -678,8 +679,16 @@ class RegionSelectOverlay extends St.Widget {
     GObject.registerClass(this);
   }
 
-  constructor() {
+  // Task #174: showMagnifier threads settings.get_show_magnifier_
+  // while_selecting() through from StartRegionSelectAsync's own new
+  // in-arg - previously this preference had no channel into this
+  // class at all, so the magnifier always showed here regardless of
+  // what the user had configured (X11/the portal-fallback path both
+  // already read the setting directly, since they run in Orcshot's
+  // own process).
+  constructor(showMagnifier) {
     super({ visible: false, reactive: true, x: 0, y: 0 });
+    this._showMagnifier = showMagnifier;
     Main.uiGroup.add_child(this);
     this.add_constraint(new Clutter.BindConstraint({
       source: global.stage,
@@ -870,7 +879,13 @@ class RegionSelectOverlay extends St.Widget {
     this._cursorX = x;
     this._cursorY = y;
     this._drawing.queue_repaint();
-    this._sampleLoupe(x, y).catch(e => logError(e, 'Error sampling region-select loupe'));
+    // Task #174: skips the sample (a real Shell.Screenshot.composite_
+    // to_stream() grab, not just a draw step) entirely when disabled -
+    // _onRepaint's own "if (this._loupePixbuf !== null)" check already
+    // means never populating it is sufficient to also stop it drawing,
+    // no separate gate needed there.
+    if (this._showMagnifier)
+      this._sampleLoupe(x, y).catch(e => logError(e, 'Error sampling region-select loupe'));
   }
 
   // Same clamped-crop technique as EyedropperOverlay's own _sample
@@ -2158,7 +2173,7 @@ export default class Extension extends ShellExtension {
   // Each method below now marshals its own out-Variant and calls
   // invocation.return_value() directly rather than returning a value,
   // matching CAPTURE_IFACE's declared out-arg types exactly.
-  async StartRegionSelectAsync(_parameters, invocation) {
+  async StartRegionSelectAsync(parameters, invocation) {
     // try/catch + logError matches CaptureRect's own existing
     // pattern below - without it, a thrown/rejected error here was
     // only ever visible as a bare "Unhandled promise rejection" with
@@ -2166,9 +2181,14 @@ export default class Extension extends ShellExtension {
     // modules/core/overrides/Gio.js, doesn't log the actual error),
     // which cost real diagnostic time chasing task #38's GNOME-46
     // Clutter.PanGesture incompatibility blind.
+    //
+    // parameters arrives pre-unpacked as a plain JS array on this GJS
+    // version, not via .deepUnpack() - see CaptureRectAsync's own
+    // comment below for the live-confirmed reasoning (task #150).
+    const [showMagnifier] = parameters;
     let reply;
     try {
-      const overlay = new RegionSelectOverlay();
+      const overlay = new RegionSelectOverlay(showMagnifier);
       const result = await overlay.selectAsync();
       reply = result === null
         ? [false, '', [], 0, 0, 0, 0]

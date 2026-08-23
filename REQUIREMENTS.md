@@ -7250,6 +7250,13 @@ commit (also documented in `BACKLOG.md`'s former #168 entry, now closed) for the
 why only the *values* could be shared, not the offset-search algorithm itself (GJS can't import Python -
 a completely separate process).
 
+**Correction, added during task #174 below**: that commit's own "verified live" claim (via `gnome-
+extensions disable/enable` on the VM) turned out not to be real verification - `disable()`/`enable()`
+doesn't force GJS to re-import the module, so the old module (with value-identical hardcoded constants)
+was almost certainly still what actually ran. Retroactively confirmed genuine via task #174's own real VM
+reboot instead - see that entry for the full story of how this was caught and why the module-level
+JavaScript execution model makes that retroactive confirmation valid.
+
 **Real divergence found, not fixed here** - spun off as `BACKLOG.md` #174: `settings.
 get_show_magnifier_while_selecting()` is honored by both X11 and the Wayland portal-fallback path, but
 never read at all by the Wayland Shell-native `RegionSelectOverlay` - already self-documented as a known
@@ -7289,6 +7296,56 @@ before filing to `BACKLOG.md` as #177, rather than trusting the older write-up a
 dialog. One-line fix: `_do_open_online_help` now opens `self._WIKI_URL` instead of the bare repo root. Full
 suite green (1121 passed, 3 skipped, unchanged - no test coverage existed or was added for this GTK
 glue/`webbrowser.open` call, consistent with this file's own established convention).
+
+## Task #174: "Show magnifier while selecting" now honored by the Wayland Shell-native overlay (fixed,
+verified live 2026-08-23) - plus a real correction to an earlier verification claim this same session
+
+Fix itself is small: `StartRegionSelect` (the D-Bus method `gnome_region_select.py` calls to run the whole
+Shell-native selection flow) gained one new in-arg, `showMagnifier` - `gnome_region_select.py` now passes
+`settings.get_show_magnifier_while_selecting()` through; `extension.js`'s `RegionSelectOverlay` stores it
+and gates `_sampleLoupe` (the actual `Shell.Screenshot.composite_to_stream()` grab, not just the draw step
+- `_onRepaint`'s own "if (this._loupePixbuf !== null)" check already means never populating it is enough
+to also stop it drawing, no second gate needed). One real implementation subtlety caught before it became
+a bug: `StartRegionSelectAsync`'s own `parameters` arg does NOT need `.deepUnpack()` on this GJS version -
+confirmed by re-reading `CaptureRectAsync`'s own already-live-verified comment on the exact same question
+(task #150) instead of assuming a generic GJS pattern.
+
+**The real story of this task is a verification methodology bug, not just a feature gap - worth recording
+in full.** Testing on the Wayland VM via `gnome-extensions disable/enable` (used earlier this same session
+to "verify" task #168's magnifier-constants-sharing fix, and used again here) produced a completely
+misleading result: the extension reported `State: ACTIVE` with zero errors, region-select worked
+end-to-end - and yet a direct `gdbus call` to `StartRegionSelect` with the new boolean argument came back
+with "Introspection data indicates 0 parameters but more was passed." **The running Shell process was
+still serving the old, pre-edit interface**, despite the JS file on disk (confirmed directly) having the
+new one. `disable()`/`enable()` re-invokes those lifecycle methods on the *same already-imported* module
+instance - it does not force GJS to re-import the module file, so a module-level `const` like `CAPTURE_IFACE`
+(a string literal baked into the module at import time) never picks up an edit until the module is
+genuinely re-imported, which - on Wayland, no in-place Shell restart being possible - means a real
+logout/login or reboot, not a disable/enable toggle.
+
+This means task #168's own "verified live" claim, made earlier this same session, was not actually
+verified - the old module's hardcoded magnifier constants happen to be value-identical to the new
+JSON-loaded ones (that was the whole point of the refactor: a pure, no-behavior-change migration), so
+"zero errors, correct-looking values" was consistent with the stale module never having reloaded at all.
+Caught only because *this* task's change (a genuine interface/signature change, not just internal
+constant-loading) produced an observable difference a value-identical refactor couldn't have. Retroactively
+confirmed as a happy accident rather than a real gap, though: a real VM reboot (`VBoxManage controlvm
+... reset`, no guest credentials needed - graceful `sudo reboot`/`systemctl reboot` both require
+interactive polkit auth that a non-interactive guest-control session can't satisfy) forced a genuine
+module re-import, confirmed directly via `gdbus introspect` showing the correct new `StartRegionSelect`
+signature - and because a JS module's top-level code executes atomically, that one piece of live evidence
+confirms *every* top-level line in the module ran fresh, including #168's own constants-loading code, not
+just this task's own change. Both fixes are now genuinely, not just apparently, verified live.
+
+**A second real bug found live as a side effect of the reboot, not this task's own subject** - spun off as
+`BACKLOG.md` #180: a stale, pre-task-#141 XDG autostart entry on this VM raced `orcshot.service` at boot,
+reproducing task #170's exact orphaned-process symptom from a third, untouched launch path. See that
+backlog entry for the full write-up; cleaned up manually on this VM, not fixed in code.
+
+Both magnifier-setting directions confirmed live post-reboot: disabled -> no magnifier while dragging;
+re-enabled -> magnifier shows again. Full suite green (1121 passed, 3 skipped) - this D-Bus call itself
+has no unit coverage, consistent with `gnome_region_select.py`'s own established "only verified live"
+convention for the same reason `test_gnome_region_select.py` already states.
 
 ## Licensing
 

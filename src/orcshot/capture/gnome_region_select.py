@@ -39,6 +39,7 @@ from gi.repository import GdkPixbuf, Gio, GLib
 
 from orcshot.capture.gnome_clipboard import BUS_NAME
 from orcshot.core.geometry import Rect
+from orcshot.settings import get_show_magnifier_while_selecting
 from orcshot.ui.gdk_convert import pixbuf_to_numpy
 
 # A distinct object path from gnome_clipboard.py's, not just a
@@ -143,7 +144,16 @@ def start_region_select(on_selected, on_cancelled=None) -> None:
     interaction (drag, then picking a destination) or cancels out of
     it at any point (Escape/click-outside during either the drag or
     the destination picker - the extension treats both the same way,
-    so this module doesn't distinguish them either)."""
+    so this module doesn't distinguish them either).
+
+    Task #174: passes settings.get_show_magnifier_while_selecting()
+    through as StartRegionSelect's own new in-arg - previously this
+    preference had no channel into the Shell-native path at all
+    (RegionSelectWindow/WaylandRegionSelect, the other two backends,
+    already read it directly since they run in this same process),
+    so the extension's own RegionSelectOverlay always showed the
+    magnifier regardless of what the user had configured.
+    """
     bus = Gio.bus_get_sync(Gio.BusType.SESSION, None)
 
     def on_reply(connection, result, _user_data=None):
@@ -172,6 +182,6 @@ def start_region_select(on_selected, on_cancelled=None) -> None:
 
     bus.call(
         BUS_NAME, OBJECT_PATH, INTERFACE, "StartRegionSelect",
-        None, GLib.VariantType("(bsayiiii)"), Gio.DBusCallFlags.NONE,
-        GLib.MAXINT, None, on_reply, None,
+        GLib.Variant("(b)", (get_show_magnifier_while_selecting(),)), GLib.VariantType("(bsayiiii)"),
+        Gio.DBusCallFlags.NONE, GLib.MAXINT, None, on_reply, None,
     )

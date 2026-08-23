@@ -53,21 +53,33 @@ testing specifically - real Wayland hardware, or a non-VM Wayland session,
 wouldn't hit this at all, so it may only ever matter for this project's own
 dev-testing setup, not real users.
 
-## #174: "Show magnifier while selecting" preference ignored by the Wayland Shell-native overlay
+## #180: Stale pre-migration XDG autostart entry races orcshot.service at boot
 
-Found during task #168's audit (2026-08-23). `settings.get_show_magnifier_while_selecting()` is honored by
-both `RegionSelectWindow` (X11) and `WaylandRegionSelect` (the portal-fallback path) - but the *preferred*
-Wayland path, `extension.js`'s own `RegionSelectOverlay`, never reads it at all: the magnifier always shows
-there regardless of the user's preference. Already self-documented as a known gap in `settings.py`'s own
-docstring ("a real, documented platform gap, not a silent one") and in the Capture tab's own checkbox
-tooltip - but still live, and easy to forget now that the surrounding code (task #168's constant-sharing
-fix) has moved on.
+Found live (2026-08-23) as a genuine side effect while verifying task #174 on the Wayland VM, not by
+inspection - a real, reproducible boot-time instance of task #170's exact symptom (`systemctl status`
+showing `inactive`/exited-0 while a real, working, untracked process owns the D-Bus name), but from a
+*different* trigger than #170's own fix covers.
 
-direflail's own call: this needs fixing, not just documenting. Likely direction: thread the setting's
-value into the D-Bus call that starts `RegionSelectOverlay` (`region_select_gnome_shell.py`'s own call
-into the extension), the same kind of channel task #113 already built for destination-picker data - there's
-currently no such channel from `settings.json` into that D-Bus call at all, which is the actual gap, not
-the overlay code itself.
+Root cause: `~/.config/autostart/orcshot.desktop` (dated well before task #141's systemd-unit migration,
+`Exec=/usr/bin/orcshot` - a bare exec, plus a stale dev-checkout icon path) was still present on this VM.
+GNOME session's own XDG-autostart mechanism launches it independently of, and racing against,
+`orcshot.service`'s own `WantedBy=graphical-session.target` startup - confirmed live: after a real VM
+reboot, `orcshot.service` itself exited cleanly within 3ms (the *correct*, safe forwarding behavior for a
+second instance losing the race - not a crash), while a separate, systemd-untracked process from the
+autostart entry ended up owning `org.orcshot.Orcshot` on the session bus.
+
+Not a flaw in task #170's own fix - that fix wraps the *current* entry points (the Applications-menu
+`.desktop` file, the four global hotkeys), and correctly prevents *those* from racing. This is a third,
+independent launch path task #170 never touched, left over from before `autostart.py` was rewritten to
+manage a systemd unit instead of writing its own XDG autostart file. `autostart.py`'s own docstring
+("Unlike the .desktop-writing functions this replaces...") documents *what* replaced the old mechanism but
+never mentions cleaning up an old file a previous version had already written - any real install that had
+autostart enabled before that migration would carry this exact stale file forward, silently, forever.
+
+Likely direction: `enable_autostart()`/`disable_autostart()` (or a one-time migration step alongside
+`maybe_seed_default_external_commands`'s own pattern) should remove `~/.config/autostart/orcshot.desktop`
+if it exists, not just leave the systemd unit as the only *new* mechanism. Cleaned up manually on this one
+VM to unblock #174's own testing; not fixed in code.
 
 ## #175: Multi-monitor Wayland capture - crop-offset origin assumption never verified against real hardware
 
