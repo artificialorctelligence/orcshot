@@ -4,21 +4,6 @@ Open items not yet scheduled into a task. Each entry keeps the context that
 led to it - not just "what," but "why this matters" - so picking it up later
 doesn't require re-deriving the reasoning from scratch.
 
-## #177: "Online Help" menu item opens the bare repo instead of the wiki it could now use
-
-Found by a REQUIREMENTS.md sweep (2026-08-23), then re-checked against current code before filing (not
-just trusted as still accurate) - and the situation has genuinely changed since it was originally written.
-`editor_window.py`'s `_do_open_online_help` (task #95 part 1) still opens
-`https://github.com/artificialorctelligence/orcshot` - its own docstring says why: "real help-page
-content... doesn't exist yet... tracked separately... since it's content-writing, not code." True when
-written. Not true anymore: the wiki now has real content (the "Destinations" page added earlier this same
-session), and this exact file already has a working `_WIKI_URL` constant
-(`https://github.com/artificialorctelligence/orcshot/wiki`, task #142) - just used by a *different* help
-dialog (the tool-shortcuts reference), never wired to this menu item.
-
-Concretely actionable now, not just "someday, once content exists": point `_do_open_online_help` at
-`self._WIKI_URL` instead of the bare repo root. A one-line fix, no content-writing blocker left.
-
 ## #178: Insert Window never uses the nicer Wayland Shell-native window-picker overlay
 
 Found by a REQUIREMENTS.md sweep (2026-08-23, task #99's own original write-up), re-checked against current

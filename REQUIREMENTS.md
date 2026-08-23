@@ -7279,6 +7279,17 @@ Wayland Shell-native picker overlay (`force_plain_overlay=True`, a known, delibe
 revisited). Not yet triaged into `BACKLOG.md` - direflail's own call pending on which are worth tracking
 formally versus letting go.
 
+## Task #177: "Online Help" menu item now actually opens the wiki (fixed 2026-08-23)
+
+Filed and closed the same session it was found. `_do_open_online_help`'s own docstring had said "real
+help-page content... doesn't exist yet" since task #95 part 1 - true then, no longer true once the wiki
+gained real content earlier this same session (the "Destinations" page). Re-checked against current code
+before filing to `BACKLOG.md` as #177, rather than trusting the older write-up as still accurate - found
+`_WIKI_URL` (task #142's own constant) already existed in the same file, just wired to a different help
+dialog. One-line fix: `_do_open_online_help` now opens `self._WIKI_URL` instead of the bare repo root. Full
+suite green (1121 passed, 3 skipped, unchanged - no test coverage existed or was added for this GTK
+glue/`webbrowser.open` call, consistent with this file's own established convention).
+
 ## Licensing
 
 **Status: decided — GPLv3.** Greenshot (Windows) is GPLv3; this is a derivative work — same feature

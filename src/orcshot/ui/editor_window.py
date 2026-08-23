@@ -1698,12 +1698,13 @@ class EditorWindow(Gtk.Window):
         menu.show_all()
 
     def _do_open_online_help(self) -> None:
-        """Placeholder target - real help-page content (probably a
-        GitHub wiki page) doesn't exist yet, tracked separately from
-        this menu-wiring task since it's content-writing, not code.
-        Opens the repo root in the meantime rather than a dead link.
+        """Task #177: opens the wiki (_WIKI_URL, task #142's own
+        constant, previously only used by the tool-shortcuts help
+        dialog) - this menu item used to open the bare repo root
+        instead, tracked as a placeholder since the wiki had no real
+        content yet. It does now (the "Destinations" page).
         """
-        webbrowser.open("https://github.com/artificialorctelligence/orcshot")
+        webbrowser.open(self._WIKI_URL)
 
     def _do_quick_save(self) -> None:
         """Real Windows' silent "Save" - writes immediately to the
