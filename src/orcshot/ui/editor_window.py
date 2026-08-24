@@ -198,6 +198,7 @@ from orcshot.settings import (
     set_update_check_interval_days,
     set_use_default_proxy,
 )
+from orcshot.i18n import _
 from orcshot.resources import LOGO_PATH
 from orcshot.core.tools import (
     STYLE_FIELD_CROP_MODE,
@@ -363,10 +364,10 @@ _OBFUSCATE_MODE_TO_TOOL = {mode: tool for tool, mode in _TOOL_TO_OBFUSCATE_MODE.
 # below instead, shown only in the dropdown menu where someone's
 # actually comparing modes, not on every render of the style panel.
 _OBFUSCATE_MODE_LABELS = {
-    Tool.SOLID_FILL: "Solid Fill",
-    Tool.SCRAMBLE: "Color Scramble",
-    Tool.PIXELIZE: "Pixelize",
-    Tool.BLUR: "Blur",
+    Tool.SOLID_FILL: _("Solid Fill"),
+    Tool.SCRAMBLE: _("Color Scramble"),
+    Tool.PIXELIZE: _("Pixelize"),
+    Tool.BLUR: _("Blur"),
 }
 
 # A 3-tier rating (solid fill > color scramble > blur/pixelize), not
@@ -374,26 +375,26 @@ _OBFUSCATE_MODE_LABELS = {
 # a real, distinct middle ground rather than lumping it in with either
 # extreme.
 _OBFUSCATE_MODE_SECURITY_SUFFIX = {
-    Tool.SOLID_FILL: "most secure",
-    Tool.SCRAMBLE: "moderately secure",
-    Tool.PIXELIZE: "not secure",
-    Tool.BLUR: "not secure",
+    Tool.SOLID_FILL: _("most secure"),
+    Tool.SCRAMBLE: _("moderately secure"),
+    Tool.PIXELIZE: _("not secure"),
+    Tool.BLUR: _("not secure"),
 }
 
 _OBFUSCATE_MODE_TOOLTIPS = {
-    Tool.SOLID_FILL: (
+    Tool.SOLID_FILL: _(
         "Completely replaces the covered area with a solid color. Nothing about the "
         "original content can be recovered - the recommended choice for anything sensitive."
     ),
-    Tool.SCRAMBLE: (
+    Tool.SCRAMBLE: _(
         "Replaces the area with synthetic noise matched to its overall color. Resists "
         "known reconstruction attacks (e.g. Depix), but a dominant hue may still be inferable."
     ),
-    Tool.PIXELIZE: (
+    Tool.PIXELIZE: _(
         "Reconstructable with publicly available tools (e.g. Depix, unredacter), even with "
         "this port's own noise hardening. Do not use for sensitive information."
     ),
-    Tool.BLUR: (
+    Tool.BLUR: _(
         "Reconstructable with publicly available tools (e.g. Depix, unredacter). Do not use "
         "for sensitive information."
     ),
@@ -437,10 +438,10 @@ _HIGHLIGHT_MODE_TO_TOOL = {mode: tool for tool, mode in _TOOL_TO_HIGHLIGHT_MODE.
 # captures what it does") - open to a better pair of words later,
 # not treated as final. Magnification's own name needed no change.
 _HIGHLIGHT_MODE_LABELS = {
-    Tool.HIGHLIGHT_TEXT: "Highlight",
-    Tool.HIGHLIGHT_AREA: "Spotlight Focus",
-    Tool.HIGHLIGHT_GRAYSCALE: "Spotlight Colorize",
-    Tool.HIGHLIGHT_MAGNIFY: "Magnification",
+    Tool.HIGHLIGHT_TEXT: _("Highlight"),
+    Tool.HIGHLIGHT_AREA: _("Spotlight Focus"),
+    Tool.HIGHLIGHT_GRAYSCALE: _("Spotlight Colorize"),
+    Tool.HIGHLIGHT_MAGNIFY: _("Magnification"),
 }
 
 # Dropdown order matches the real Windows enum/dropdown declaration
@@ -461,11 +462,11 @@ _HIGHLIGHT_MODE_ORDER = (Tool.HIGHLIGHT_TEXT, Tool.HIGHLIGHT_AREA, Tool.HIGHLIGH
 # Every color below satisfies that "at least one full channel" property
 # and reads as a classic highlighter-pen color, not an arbitrary choice.
 _HIGHLIGHT_FILL_COLORS = [
-    ("Yellow", (255, 255, 0, 255)),
-    ("Green", (0, 255, 0, 255)),
-    ("Pink", (255, 20, 147, 255)),
-    ("Orange", (255, 140, 0, 255)),
-    ("Blue", (30, 144, 255, 255)),
+    (_("Yellow"), (255, 255, 0, 255)),
+    (_("Green"), (0, 255, 0, 255)),
+    (_("Pink"), (255, 20, 147, 255)),
+    (_("Orange"), (255, 140, 0, 255)),
+    (_("Blue"), (30, 144, 255, 255)),
 ]
 
 # Crop (task #91) - three Tool values sharing one toolbar button, same
@@ -483,9 +484,9 @@ _CROP_MODE_ORDER = (Tool.CROP_DEFAULT, Tool.CROP_VERTICAL, Tool.CROP_HORIZONTAL)
 # _CROP_MODE_ORDER above since it's a one-time seed action, not a
 # persistent mode (see _do_auto_crop's own docstring).
 _CROP_MODE_LABELS = {
-    Tool.CROP_DEFAULT: "Default",
-    Tool.CROP_VERTICAL: "Vertical",
-    Tool.CROP_HORIZONTAL: "Horizontal",
+    Tool.CROP_DEFAULT: _("Default"),
+    Tool.CROP_VERTICAL: _("Vertical"),
+    Tool.CROP_HORIZONTAL: _("Horizontal"),
 }
 
 # Solid Fill's own preset redaction labels (task #60 follow-up) - "" is
@@ -494,7 +495,22 @@ _CROP_MODE_LABELS = {
 # custom label already has the separate Text tool (see this dropdown's
 # own tooltip / REQUIREMENTS.md for the reasoning).
 _OBFUSCATE_FILL_TEXT_PRESETS = ("", "REDACTED", "CENSORED", "CLASSIFIED", "CONFIDENTIAL", "SECRET")
-_OBFUSCATE_FILL_TEXT_LABELS = {"": "None", **{preset: preset for preset in _OBFUSCATE_FILL_TEXT_PRESETS[1:]}}
+# Written out as explicit literals (not a dict comprehension over
+# _OBFUSCATE_FILL_TEXT_PRESETS) so xgettext can actually see each
+# msgid - it can't extract through `preset: preset for preset in ...`
+# since the value there is a variable, not a string literal. Display
+# text only: the raw preset codes above (used as dict/state keys and
+# as the literal text stamped onto the image via ObfuscateShape.
+# fill_text - see _on_obfuscate_fill_text_item_toggled) are
+# deliberately left untranslated, same as any other fixed data key.
+_OBFUSCATE_FILL_TEXT_LABELS = {
+    "": _("None"),
+    "REDACTED": _("REDACTED"),
+    "CENSORED": _("CENSORED"),
+    "CLASSIFIED": _("CLASSIFIED"),
+    "CONFIDENTIAL": _("CONFIDENTIAL"),
+    "SECRET": _("SECRET"),
+}
 
 # A floor, not a fixed height - Gtk.Widget.set_size_request sets a
 # minimum the box can still grow past if it genuinely needs to, so
@@ -519,17 +535,17 @@ _OBFUSCATE_FILL_TEXT_LABELS = {"": "None", **{preset: preset for preset in _OBFU
 _STYLE_PANEL_MIN_HEIGHT = 42
 
 _TOOL_LABELS = [
-    (Tool.SELECT, "Select"),
+    (Tool.SELECT, _("Select")),
     None,
-    (Tool.RECTANGLE, "Rectangle"),
-    (Tool.ELLIPSE, "Ellipse"),
-    (Tool.LINE, "Line"),
-    (Tool.ARROW, "Arrow"),
-    (Tool.FREEHAND, "Freehand"),
-    (Tool.TEXT, "Text"),
-    (Tool.SPEECH_BUBBLE, "Speech Bubble"),
-    (Tool.STEP_LABEL, "Step Label"),
-    (Tool.EMOJI, "Emoji"),
+    (Tool.RECTANGLE, _("Rectangle")),
+    (Tool.ELLIPSE, _("Ellipse")),
+    (Tool.LINE, _("Line")),
+    (Tool.ARROW, _("Arrow")),
+    (Tool.FREEHAND, _("Freehand")),
+    (Tool.TEXT, _("Text")),
+    (Tool.SPEECH_BUBBLE, _("Speech Bubble")),
+    (Tool.STEP_LABEL, _("Step Label")),
+    (Tool.EMOJI, _("Emoji")),
     None,
     # Real Windows order (ImageEditorForm.Designer.cs's toolsToolStrip.
     # Items): ...Emoji, [separator], Highlight, Obfuscate, Effects,
@@ -549,29 +565,39 @@ _TOOL_LABELS = [
 ]
 
 # Appended to a tooltip in parentheses wherever a real keyboard
-# shortcut exists (by request) - keyed by the exact tool label used
-# in _TOOL_LABELS above, so it's read alongside the same _TOOL_KEYS
-# mapping the tooltip is describing rather than duplicating it by
-# hand. Tools/actions with no dedicated key (Effects, Preferences,
-# Cut/Copy Shape/Paste Shape - the last three deliberately have none,
-# since Ctrl+C is already claimed by whole-image copy) simply have no
-# entry here and keep their plain label.
+# shortcut exists (by request) - keyed by Tool, read alongside the
+# same _TOOL_KEYS mapping the tooltip is describing rather than
+# duplicating it by hand. Tools/actions with no dedicated key
+# (Effects, Preferences, Cut/Copy Shape/Paste Shape - the last three
+# deliberately have none, since Ctrl+C is already claimed by
+# whole-image copy) simply have no entry here and keep their plain
+# label.
+#
+# Keyed by Tool (the stable enum), NOT by the tool's display label
+# string - i18n phase 1 follow-up (task #9's own carried-forward
+# review): _TOOL_LABELS' label text is wrapped in _() now, so a
+# label-string key here would silently stop matching the moment a
+# real translation catalog exists (the lookup at its call site used
+# to be _TOOL_TOOLTIP_SHORTCUTS.get(label) against an already-
+# translated label - harmless today only because _() is still an
+# inert passthrough). Tool is immune to translation entirely, so this
+# stays correct regardless of locale.
 _TOOL_TOOLTIP_SHORTCUTS = {
-    "Select": "Esc",
-    "Rectangle": "R",
-    "Ellipse": "E",
-    "Line": "L",
-    "Arrow": "A",
-    "Freehand": "F",
-    "Text": "T",
-    "Speech Bubble": "S",
-    "Step Label": "I",
-    "Emoji": "M",
+    Tool.SELECT: "Esc",
+    Tool.RECTANGLE: "R",
+    Tool.ELLIPSE: "E",
+    Tool.LINE: "L",
+    Tool.ARROW: "A",
+    Tool.FREEHAND: "F",
+    Tool.TEXT: "T",
+    Tool.SPEECH_BUBBLE: "S",
+    Tool.STEP_LABEL: "I",
+    Tool.EMOJI: "M",
 }
 
 
 def _with_shortcut(label: str, shortcut: str | None) -> str:
-    return f"{label} ({shortcut})" if shortcut else label
+    return _("{} ({})").format(label, shortcut) if shortcut else label
 
 
 def _icon_menu_item(label: str, icon_image: Gtk.Image, handler) -> Gtk.MenuItem:
@@ -1462,7 +1488,7 @@ class EditorWindow(Gtk.Window):
         self._surface = numpy_to_cairo_surface(image)
         self._resize_canvas_and_window()
         img_h, img_w = image.shape[:2]
-        self._dimensions_label.set_text(f"{img_w} x {img_h}")
+        self._dimensions_label.set_text(_("{} x {}").format(img_w, img_h))
         self._refresh_remove_transparency_visibility()
         # Task #100 - stale OCR word/line bounds from before this
         # change would silently misalign Obfuscate Text's matches, see
@@ -1526,7 +1552,7 @@ class EditorWindow(Gtk.Window):
             menu.append(item)
             return submenu
 
-        file_menu = add_menu("File")
+        file_menu = add_menu(_("File"))
         # Open... (task #129) has no real Windows equivalent - its own
         # File menu has no "Open" item at all; the closest analogue,
         # LoadElementsToolStripMenuItemClick (this port's own Object >
@@ -1535,7 +1561,7 @@ class EditorWindow(Gtk.Window):
         # new document. Placed first, ahead of Save, matching the
         # conventional Open-before-Save ordering most apps use even
         # though real Windows has nothing here to match against.
-        add_item(file_menu, "Open...", self._do_open, icon_name="document-open-symbolic")
+        add_item(file_menu, _("Open..."), self._do_open, icon_name="document-open-symbolic")
         file_menu.append(Gtk.SeparatorMenuItem())
         # Save = silent quick-save (preferred location, auto filename,
         # no dialog) vs. Save As... = always dialog-driven - real
@@ -1547,21 +1573,23 @@ class EditorWindow(Gtk.Window):
         # this exact quick-save mechanism, task #95 just menu-ifies it
         # and gives dialog-driven saving its own honestly-named item
         # rather than overloading "Save...").
-        add_item(file_menu, "Save", self._do_quick_save, icon_name="document-save-symbolic")
-        add_item(file_menu, "Save As...", self._do_save, icon_name="document-save-as-symbolic")
-        add_item(file_menu, "Copy to Clipboard", self._do_copy, icon_name="edit-copy-symbolic")
-        add_item(file_menu, "Print...", self._do_print, icon_name="document-print-symbolic")
+        add_item(file_menu, _("Save"), self._do_quick_save, icon_name="document-save-symbolic")
+        add_item(file_menu, _("Save As..."), self._do_save, icon_name="document-save-as-symbolic")
+        add_item(file_menu, _("Copy to Clipboard"), self._do_copy, icon_name="edit-copy-symbolic")
+        add_item(file_menu, _("Print..."), self._do_print, icon_name="document-print-symbolic")
         file_menu.append(Gtk.SeparatorMenuItem())
-        add_item(file_menu, "Insert Image...", self._do_insert_image, icon_name="insert-image-symbolic")
-        add_item(file_menu, "Insert SVG...", self._do_insert_svg, icon_name="insert-image-symbolic")
+        add_item(file_menu, _("Insert Image..."), self._do_insert_image, icon_name="insert-image-symbolic")
+        add_item(file_menu, _("Insert SVG..."), self._do_insert_svg, icon_name="insert-image-symbolic")
         file_menu.append(Gtk.SeparatorMenuItem())
-        add_item(file_menu, "Screenshot Save Location...", self._do_choose_save_location, icon_name="folder-symbolic")
+        add_item(
+            file_menu, _("Screenshot Save Location..."), self._do_choose_save_location, icon_name="folder-symbolic",
+        )
         file_menu.append(Gtk.SeparatorMenuItem())
-        add_item(file_menu, "Close", self.close, icon_name="window-close-symbolic")
+        add_item(file_menu, _("Close"), self.close, icon_name="window-close-symbolic")
 
-        edit_menu = add_menu("Edit")
-        add_item(edit_menu, "Undo", self._do_undo, icon_name="edit-undo-symbolic")
-        add_item(edit_menu, "Redo", self._do_redo, icon_name="edit-redo-symbolic")
+        edit_menu = add_menu(_("Edit"))
+        add_item(edit_menu, _("Undo"), self._do_undo, icon_name="edit-undo-symbolic")
+        add_item(edit_menu, _("Redo"), self._do_redo, icon_name="edit-redo-symbolic")
         edit_menu.append(Gtk.SeparatorMenuItem())
         # Cut/Copy/Paste here act on the selected *shape*, matching
         # real Windows' cutToolStripMenuItem/copyToolStripMenuItem/
@@ -1571,19 +1599,19 @@ class EditorWindow(Gtk.Window):
         # since that one's always available regardless of selection.
         # Our previous Edit>Copy wrongly called the whole-image copy
         # (_do_copy) - fixed here while rebuilding this menu.
-        add_item(edit_menu, "Cut", self._do_cut_shape, icon_name="edit-cut-symbolic")
-        add_item(edit_menu, "Copy", self._do_copy_shape, icon_name="edit-copy-symbolic")
-        add_item(edit_menu, "Paste", self._do_paste_shape, icon_name="edit-paste-symbolic")
+        add_item(edit_menu, _("Cut"), self._do_cut_shape, icon_name="edit-cut-symbolic")
+        add_item(edit_menu, _("Copy"), self._do_copy_shape, icon_name="edit-copy-symbolic")
+        add_item(edit_menu, _("Paste"), self._do_paste_shape, icon_name="edit-paste-symbolic")
         edit_menu.append(Gtk.SeparatorMenuItem())
-        add_item(edit_menu, "Duplicate", self._do_duplicate, icon_name="edit-copy-symbolic")
+        add_item(edit_menu, _("Duplicate"), self._do_duplicate, icon_name="edit-copy-symbolic")
         edit_menu.append(Gtk.SeparatorMenuItem())
-        add_item(edit_menu, "Preferences...", self._do_show_settings, icon_name="preferences-system-symbolic")
+        add_item(edit_menu, _("Preferences..."), self._do_show_settings, icon_name="preferences-system-symbolic")
         edit_menu.append(Gtk.SeparatorMenuItem())
-        add_item(edit_menu, "Insert Window...", self._do_insert_window, icon_name="list-add-symbolic")
+        add_item(edit_menu, _("Insert Window..."), self._do_insert_window, icon_name="list-add-symbolic")
         edit_menu.append(Gtk.SeparatorMenuItem())
-        add_item(edit_menu, "Clear All", self._do_clear, icon_name="edit-clear-all-symbolic")
+        add_item(edit_menu, _("Clear All"), self._do_clear, icon_name="edit-clear-all-symbolic")
 
-        object_menu = add_menu("Object")
+        object_menu = add_menu(_("Object"))
         # Mirrors the tool palette's own shape tools (real Windows does
         # the same - addRectangleToolStripMenuItem etc. duplicate the
         # toolStrip1 buttons exactly). Reuses set_active(True) on the
@@ -1607,14 +1635,14 @@ class EditorWindow(Gtk.Window):
         # menu height is a real, scarce resource this port can't afford
         # to spend on it.
         for tool, label in (
-            (Tool.RECTANGLE, "Rectangle"),
-            (Tool.ELLIPSE, "Ellipse"),
-            (Tool.LINE, "Line"),
-            (Tool.ARROW, "Arrow"),
-            (Tool.FREEHAND, "Freehand"),
-            (Tool.TEXT, "Text"),
-            (Tool.SPEECH_BUBBLE, "Speech Bubble"),
-            (Tool.STEP_LABEL, "Counter"),
+            (Tool.RECTANGLE, _("Rectangle")),
+            (Tool.ELLIPSE, _("Ellipse")),
+            (Tool.LINE, _("Line")),
+            (Tool.ARROW, _("Arrow")),
+            (Tool.FREEHAND, _("Freehand")),
+            (Tool.TEXT, _("Text")),
+            (Tool.SPEECH_BUBBLE, _("Speech Bubble")),
+            (Tool.STEP_LABEL, _("Counter")),
         ):
             add_item(
                 object_menu, label,
@@ -1629,8 +1657,8 @@ class EditorWindow(Gtk.Window):
         # ImageEditorForm.Designer.cs:731-732). Task #125 - needed real
         # multi-selection to exist first (see EditorWindow.
         # selected_shapes/_set_selected_shapes).
-        add_item(object_menu, "Select All", self._do_select_all, icon_name="edit-select-all-symbolic")
-        add_item(object_menu, "Delete", self._do_delete, icon_name="edit-delete-symbolic")
+        add_item(object_menu, _("Select All"), self._do_select_all, icon_name="edit-select-all-symbolic")
+        add_item(object_menu, _("Delete"), self._do_delete, icon_name="edit-delete-symbolic")
         object_menu.append(Gtk.SeparatorMenuItem())
         # icon_name was missing entirely here (unlike every sibling in
         # this menu - Delete, Save/Load Objects) - live-verified as a
@@ -1638,31 +1666,31 @@ class EditorWindow(Gtk.Window):
         # left "Arrange" sitting between icon-indented rows looked like
         # a spacing bug. Reuses "Bring to Top"'s own icon rather than
         # inventing an unrelated one for the submenu header.
-        arrange_menu = add_submenu(object_menu, "Arrange", icon_name="go-top-symbolic")
-        add_item(arrange_menu, "Bring to Top", self._do_bring_to_front, icon_name="go-top-symbolic")
-        add_item(arrange_menu, "Up One Level", self._do_bring_forward, icon_name="go-up-symbolic")
-        add_item(arrange_menu, "Down One Level", self._do_send_backward, icon_name="go-down-symbolic")
-        add_item(arrange_menu, "Send to Bottom", self._do_send_to_back, icon_name="go-bottom-symbolic")
+        arrange_menu = add_submenu(object_menu, _("Arrange"), icon_name="go-top-symbolic")
+        add_item(arrange_menu, _("Bring to Top"), self._do_bring_to_front, icon_name="go-top-symbolic")
+        add_item(arrange_menu, _("Up One Level"), self._do_bring_forward, icon_name="go-up-symbolic")
+        add_item(arrange_menu, _("Down One Level"), self._do_send_backward, icon_name="go-down-symbolic")
+        add_item(arrange_menu, _("Send to Bottom"), self._do_send_to_back, icon_name="go-bottom-symbolic")
         # No separator here - real Windows' own objectToolStripMenuItem
         # DropDownItems.AddRange puts saveElementsToolStripMenuItem/
         # loadElementsToolStripMenuItem directly after arrangeToolStripMenuItem
         # too (ImageEditorForm.Designer.cs:734-736).
-        add_item(object_menu, "Save Objects...", self._do_save_objects, icon_name="document-save-symbolic")
-        add_item(object_menu, "Load Objects...", self._do_load_objects, icon_name="document-open-symbolic")
+        add_item(object_menu, _("Save Objects..."), self._do_save_objects, icon_name="document-save-symbolic")
+        add_item(object_menu, _("Load Objects..."), self._do_load_objects, icon_name="document-open-symbolic")
 
-        zoom_menu = add_menu("Zoom")
+        zoom_menu = add_menu(_("Zoom"))
         self._populate_zoom_menu(zoom_menu)
 
-        help_menu = add_menu("Help")
-        add_item(help_menu, "Online Help", self._do_open_online_help, icon_name="help-browser-symbolic")
+        help_menu = add_menu(_("Help"))
+        add_item(help_menu, _("Online Help"), self._do_open_online_help, icon_name="help-browser-symbolic")
         # Orcshot-only addition (task #103) - real Windows has no menu
         # item here at all, its own update check is purely a silent
         # background timer (UpdateService.cs, see REQUIREMENTS.md).
         add_item(
-            help_menu, "Check for Updates...", self._do_check_for_updates,
+            help_menu, _("Check for Updates..."), self._do_check_for_updates,
             icon_name="software-update-available-symbolic",
         )
-        add_item(help_menu, "About Orcshot", self._do_show_about, icon_name="help-about-symbolic")
+        add_item(help_menu, _("About Orcshot"), self._do_show_about, icon_name="help-about-symbolic")
 
         return menu_bar
 
@@ -1688,12 +1716,12 @@ class EditorWindow(Gtk.Window):
             item.connect("activate", lambda _i: handler())
             menu.append(item)
 
-        add("Zoom In", self._do_zoom_in, icon_name="zoom-in-symbolic")
-        add("Zoom Out", self._do_zoom_out, icon_name="zoom-out-symbolic")
-        add("Best Fit", self._do_zoom_best_fit)
+        add(_("Zoom In"), self._do_zoom_in, icon_name="zoom-in-symbolic")
+        add(_("Zoom Out"), self._do_zoom_out, icon_name="zoom-out-symbolic")
+        add(_("Best Fit"), self._do_zoom_best_fit)
         menu.append(Gtk.SeparatorMenuItem())
         for level in ZOOM_LEVELS:
-            label = zoom_percent_label(level) + (" - Actual Size" if level == ACTUAL_SIZE_ZOOM else "")
+            label = zoom_percent_label(level) + (_(" - Actual Size") if level == ACTUAL_SIZE_ZOOM else "")
             add(label, lambda level=level: self._set_zoom(level))
         menu.show_all()
 
@@ -1743,7 +1771,7 @@ class EditorWindow(Gtk.Window):
         save_image_to_file(self._composited_image(), path, jpeg_quality=settings.jpeg_quality)
         self._saved_generation = self.undo_redo.generation
         if settings.copy_path_to_clipboard:
-            Gtk.Clipboard.get_default(self.get_display()).set_text(str(path), -1)
+            Gtk.Clipboard.get_default(self.get_display()).set_text(str(path), -1)  # noqa: i18n (clipboard data, not UI text)
 
     def _maybe_show_quality_dialog(self, output_format: str) -> None:
         """Faithful port of QualityDialog (Greenshot.Base/Controls/
@@ -1760,7 +1788,7 @@ class EditorWindow(Gtk.Window):
         if not settings.always_show_quality_dialog:
             return
         self._commit_text_editing_if_active()
-        dialog = Gtk.Dialog(title="JPEG Quality", transient_for=self)
+        dialog = Gtk.Dialog(title=_("JPEG Quality"), transient_for=self)
         dialog.add_buttons("Continue", Gtk.ResponseType.OK)
         content = dialog.get_content_area()
         content.set_border_width(12)
@@ -1770,7 +1798,7 @@ class EditorWindow(Gtk.Window):
         scale.set_value(settings.jpeg_quality)
         scale.set_digits(0)
         scale.set_sensitive(output_format == "jpg")
-        content.pack_start(Gtk.Label(label="JPEG quality:"), False, False, 0)
+        content.pack_start(Gtk.Label(label=_("JPEG quality:")), False, False, 0)
         content.pack_start(scale, True, True, 0)
 
         dialog.show_all()
@@ -1798,8 +1826,8 @@ class EditorWindow(Gtk.Window):
 
     def _do_show_about(self) -> None:
         dialog = Gtk.AboutDialog(transient_for=self)
-        dialog.set_program_name("Orcshot")
-        dialog.set_comments("A Linux port of Greenshot - not affiliated with or endorsed by the Greenshot project")
+        dialog.set_program_name("Orcshot")  # noqa: i18n (proper noun)
+        dialog.set_comments(_("A Linux port of Greenshot - not affiliated with or endorsed by the Greenshot project"))
         dialog.set_logo_icon_name(None)
         try:
             dialog.set_logo(GdkPixbuf.Pixbuf.new_from_file(str(LOGO_PATH)))
@@ -1871,19 +1899,19 @@ class EditorWindow(Gtk.Window):
                 continue
             if entry is _ROTATE_CW_ACTION:
                 self._build_action_button(
-                    toolbar, lambda: rotate_cw_icon_image(icon_color), "Rotate CW",
-                    "Rotate Clockwise (Ctrl+.)", self._do_rotate_cw,
+                    toolbar, lambda: rotate_cw_icon_image(icon_color), _("Rotate CW"),
+                    _("Rotate Clockwise (Ctrl+.)"), self._do_rotate_cw,
                 )
                 continue
             if entry is _ROTATE_CCW_ACTION:
                 self._build_action_button(
-                    toolbar, lambda: rotate_ccw_icon_image(icon_color), "Rotate CCW",
-                    "Rotate Counterclockwise (Ctrl+,)", self._do_rotate_ccw,
+                    toolbar, lambda: rotate_ccw_icon_image(icon_color), _("Rotate CCW"),
+                    _("Rotate Counterclockwise (Ctrl+,)"), self._do_rotate_ccw,
                 )
                 continue
             if entry is _RESIZE_ACTION:
                 self._build_action_button(
-                    toolbar, lambda: resize_icon_image(icon_color), "Resize", "Resize... (Z)", self._do_resize,
+                    toolbar, lambda: resize_icon_image(icon_color), _("Resize"), _("Resize... (Z)"), self._do_resize,
                 )
                 continue
             tool, label = entry
@@ -1892,7 +1920,7 @@ class EditorWindow(Gtk.Window):
                 group_leader = button
             button.set_icon_widget(tool_icon_image(tool, color=icon_color, size=get_icon_size()))
             button.set_label(label)
-            button.set_tooltip_text(_with_shortcut(label, _TOOL_TOOLTIP_SHORTCUTS.get(label)))
+            button.set_tooltip_text(_with_shortcut(label, _TOOL_TOOLTIP_SHORTCUTS.get(tool)))
             button.set_active(tool is self.tool)
             button.connect("toggled", self._on_tool_button_toggled, tool)
             toolbar.insert(button, -1)
@@ -1939,8 +1967,8 @@ class EditorWindow(Gtk.Window):
         if group_leader is None:
             group_leader = button
         button.set_icon_widget(obfuscate_icon_image(icon_color))
-        button.set_label("Obfuscate")
-        button.set_tooltip_text("Obfuscate (O)")
+        button.set_label(_("Obfuscate"))
+        button.set_tooltip_text(_("Obfuscate (O)"))
         button.set_active(self.tool in _OBFUSCATE_MODE_ORDER)
         button.connect("toggled", self._on_obfuscate_button_toggled)
         toolbar.insert(button, -1)
@@ -1954,7 +1982,7 @@ class EditorWindow(Gtk.Window):
         # "toggled" when already active) - see that method's own
         # docstring, same reasoning the H/O/C keyboard shortcuts follow.
         _connect_overflow_icon_proxy(
-            button, "orcshot-tool-obfuscate-proxy", "Obfuscate",
+            button, "orcshot-tool-obfuscate-proxy", _("Obfuscate"),
             lambda: obfuscate_icon_image(icon_color), self._activate_obfuscate_tool,
         )
         return group_leader
@@ -1973,8 +2001,8 @@ class EditorWindow(Gtk.Window):
         if group_leader is None:
             group_leader = button
         button.set_icon_widget(highlight_icon_image(icon_color))
-        button.set_label("Highlight")
-        button.set_tooltip_text("Highlight (H)")
+        button.set_label(_("Highlight"))
+        button.set_tooltip_text(_("Highlight (H)"))
         button.set_active(self.tool in _HIGHLIGHT_MODE_ORDER)
         button.connect("toggled", self._on_highlight_button_toggled)
         toolbar.insert(button, -1)
@@ -1982,7 +2010,7 @@ class EditorWindow(Gtk.Window):
         for mode in _HIGHLIGHT_MODE_ORDER:
             self._tool_buttons[mode] = button
         _connect_overflow_icon_proxy(
-            button, "orcshot-tool-highlight-proxy", "Highlight",
+            button, "orcshot-tool-highlight-proxy", _("Highlight"),
             lambda: highlight_icon_image(icon_color), self._activate_highlight_tool,
         )
         return group_leader
@@ -2163,8 +2191,8 @@ class EditorWindow(Gtk.Window):
         if group_leader is None:
             group_leader = button
         button.set_icon_widget(crop_icon_image(icon_color))
-        button.set_label("Crop")
-        button.set_tooltip_text("Crop (C)")
+        button.set_label(_("Crop"))
+        button.set_tooltip_text(_("Crop (C)"))
         button.set_active(self.tool in _CROP_MODE_ORDER)
         button.connect("toggled", self._on_crop_button_toggled)
         toolbar.insert(button, -1)
@@ -2172,7 +2200,7 @@ class EditorWindow(Gtk.Window):
         for mode in _CROP_MODE_ORDER:
             self._tool_buttons[mode] = button
         _connect_overflow_icon_proxy(
-            button, "orcshot-tool-crop-proxy", "Crop",
+            button, "orcshot-tool-crop-proxy", _("Crop"),
             lambda: crop_icon_image(icon_color), self._activate_crop_tool,
         )
         return group_leader
@@ -2201,7 +2229,7 @@ class EditorWindow(Gtk.Window):
             item.connect("toggled", self._on_crop_mode_item_toggled, mode)
             menu.append(item)
             self._crop_mode_items[mode] = item
-        auto_item = Gtk.MenuItem(label="Auto")
+        auto_item = Gtk.MenuItem(label=_("Auto"))
         auto_item.connect("activate", lambda _i: self._do_auto_crop())
         menu.append(auto_item)
         menu.show_all()
@@ -2426,7 +2454,7 @@ class EditorWindow(Gtk.Window):
         button = Gtk.MenuButton()
         button.set_relief(Gtk.ReliefStyle.NONE)
         button.set_image(effects_icon_image(icon_color))
-        button.set_tooltip_text("Effects")
+        button.set_tooltip_text(_("Effects"))
         button.set_popup(self._build_effects_menu())
 
         item = Gtk.ToolItem()
@@ -2442,7 +2470,7 @@ class EditorWindow(Gtk.Window):
         proxy = Gtk.MenuItem()
         proxy_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
         proxy_box.pack_start(effects_icon_image(icon_color), False, False, 0)
-        proxy_box.pack_start(Gtk.Label(label="Effects"), False, False, 0)
+        proxy_box.pack_start(Gtk.Label(label=_("Effects")), False, False, 0)
         proxy.add(proxy_box)
         proxy.set_submenu(self._build_effects_menu())
         proxy.show_all()
@@ -2494,21 +2522,21 @@ class EditorWindow(Gtk.Window):
             menu.append(item)
             return item
 
-        add_item("Add Border", self._do_border)
-        add_item("Add Drop Shadow", self._do_drop_shadow)
-        add_item("Drop Shadow Settings...", self._do_drop_shadow_settings)
-        add_item("Torn Edges", self._do_torn_edge)
-        add_item("Torn Edge Settings...", self._do_torn_edge_settings)
-        add_item("Grayscale", self._do_grayscale)
-        add_item("Invert", self._do_invert)
+        add_item(_("Add Border"), self._do_border)
+        add_item(_("Add Drop Shadow"), self._do_drop_shadow)
+        add_item(_("Drop Shadow Settings..."), self._do_drop_shadow_settings)
+        add_item(_("Torn Edges"), self._do_torn_edge)
+        add_item(_("Torn Edge Settings..."), self._do_torn_edge_settings)
+        add_item(_("Grayscale"), self._do_grayscale)
+        add_item(_("Invert"), self._do_invert)
         self._remove_transparency_items.append(
-            add_item("Remove Transparency...", self._do_remove_transparency),
+            add_item(_("Remove Transparency..."), self._do_remove_transparency),
         )
         # "Find & Redact Text...", not Windows' own "Obfuscate Text" -
         # see ui/text_obfuscation_dialog.py's module docstring for why
         # (collides with the separate manual Obfuscate tool, and
         # "Obfuscate" undersells the Highlight-based effect choices).
-        add_item("Find & Redact Text...", self._do_obfuscate_text)
+        add_item(_("Find & Redact Text..."), self._do_obfuscate_text)
         menu.show_all()
         self._refresh_remove_transparency_visibility()
         return menu
@@ -2575,26 +2603,28 @@ class EditorWindow(Gtk.Window):
             toolbar.insert(button, -1)
             return button
 
-        add_button("document-save-symbolic", "Save (Ctrl+S)", self._do_save)
-        add_button("edit-copy-symbolic", "Copy Image to Clipboard (Ctrl+C)", self._do_copy)
-        add_button("document-print-symbolic", "Print (Ctrl+P)", self._do_print)
+        add_button("document-save-symbolic", _("Save (Ctrl+S)"), self._do_save)
+        add_button("edit-copy-symbolic", _("Copy Image to Clipboard (Ctrl+C)"), self._do_copy)
+        add_button("document-print-symbolic", _("Print (Ctrl+P)"), self._do_print)
 
         toolbar.insert(Gtk.SeparatorToolItem(), -1)
-        add_button("edit-delete-symbolic", "Delete (Del)", self._do_delete)
+        add_button("edit-delete-symbolic", _("Delete (Del)"), self._do_delete)
 
         toolbar.insert(Gtk.SeparatorToolItem(), -1)
-        add_button("edit-cut-symbolic", "Cut", self._do_cut_shape)
-        add_button("edit-copy-symbolic", "Copy Shape", self._do_copy_shape)
-        add_button("edit-paste-symbolic", "Paste Shape", self._do_paste_shape)
-        add_button("edit-undo-symbolic", "Undo (Ctrl+Z)", self._do_undo)
-        add_button("edit-redo-symbolic", "Redo (Ctrl+Y)", self._do_redo)
+        add_button("edit-cut-symbolic", _("Cut"), self._do_cut_shape)
+        add_button("edit-copy-symbolic", _("Copy Shape"), self._do_copy_shape)
+        add_button("edit-paste-symbolic", _("Paste Shape"), self._do_paste_shape)
+        add_button("edit-undo-symbolic", _("Undo (Ctrl+Z)"), self._do_undo)
+        add_button("edit-redo-symbolic", _("Redo (Ctrl+Y)"), self._do_redo)
 
         toolbar.insert(Gtk.SeparatorToolItem(), -1)
-        add_button("preferences-system-symbolic", "Preferences", self._do_show_settings)
-        add_button("applications-graphics-symbolic", "Open in External Editor", self._do_open_in_external_editor)
+        add_button("preferences-system-symbolic", _("Preferences"), self._do_show_settings)
+        add_button(
+            "applications-graphics-symbolic", _("Open in External Editor"), self._do_open_in_external_editor,
+        )
 
         toolbar.insert(Gtk.SeparatorToolItem(), -1)
-        add_button("help-about-symbolic", "Help", self._do_show_help)
+        add_button("help-about-symbolic", _("Help"), self._do_show_help)
 
         return toolbar
 
@@ -2709,19 +2739,19 @@ class EditorWindow(Gtk.Window):
             box.pack_start(cell, False, False, 0)
             self._style_field_widgets[field_name] = cell
 
-        line_label = Gtk.Label(label="Line:")
+        line_label = Gtk.Label(label=_("Line:"))
         line_button, self._line_color_swatch = self._build_color_button(
             lambda: self._active_style().line_color, self._on_line_color_changed,
         )
         add_cell(STYLE_FIELD_LINE_COLOR, line_label, line_button)
 
-        fill_label = Gtk.Label(label="Fill:")
+        fill_label = Gtk.Label(label=_("Fill:"))
         fill_button, self._fill_color_swatch = self._build_color_button(
             lambda: self._active_style().fill_color, self._on_fill_color_changed,
         )
         add_cell(STYLE_FIELD_FILL_COLOR, fill_label, fill_button)
 
-        thickness_label = Gtk.Label(label="Line Thickness:")
+        thickness_label = Gtk.Label(label=_("Line Thickness:"))
         adjustment = Gtk.Adjustment(
             value=self._active_style().line_thickness, lower=0, upper=20, step_increment=1
         )
@@ -2729,7 +2759,7 @@ class EditorWindow(Gtk.Window):
         self._thickness_spin.connect("value-changed", self._on_thickness_changed)
         add_cell(STYLE_FIELD_LINE_THICKNESS, thickness_label, self._thickness_spin)
 
-        self._shadow_check = Gtk.CheckButton(label="Shadow")
+        self._shadow_check = Gtk.CheckButton(label=_("Shadow"))
         self._shadow_check.set_active(self._active_style().shadow)
         self._shadow_check.connect("toggled", self._on_shadow_toggled)
         add_cell(STYLE_FIELD_SHADOW, self._shadow_check)
@@ -2749,7 +2779,7 @@ class EditorWindow(Gtk.Window):
         # _set_obfuscate_mode - simpler than swapping an icon glyph
         # and consistent with every other control in this panel being
         # text, not icons (icons are only in the tool palette).
-        mode_label = Gtk.Label(label="Mode:")
+        mode_label = Gtk.Label(label=_("Mode:"))
         self._obfuscate_mode_button = Gtk.MenuButton(label=self._obfuscate_mode_label(self._default_obfuscate_mode))
         self._obfuscate_mode_button.set_popup(self._build_obfuscate_mode_menu())
         add_cell(STYLE_FIELD_OBFUSCATE_MODE, mode_label, self._obfuscate_mode_button)
@@ -2761,7 +2791,7 @@ class EditorWindow(Gtk.Window):
         # core/tools.py). Reuses _build_color_button, the same swatch-
         # button-plus-picker-dialog every other color field in this
         # panel already uses.
-        obfuscate_fill_label = Gtk.Label(label="Fill:")
+        obfuscate_fill_label = Gtk.Label(label=_("Fill:"))
         obfuscate_fill_button, self._obfuscate_fill_swatch = self._build_color_button(
             self._active_obfuscate_fill_color, self._on_obfuscate_fill_color_changed,
         )
@@ -2771,14 +2801,14 @@ class EditorWindow(Gtk.Window):
         # a fixed preset list, not free text entry, mirroring the Mode
         # dropdown above (Gtk.MenuButton + Gtk.RadioMenuItem group)
         # rather than reusing TextShape's click-to-edit machinery.
-        text_label = Gtk.Label(label="Text:")
+        text_label = Gtk.Label(label=_("Text:"))
         self._obfuscate_fill_text_button = Gtk.MenuButton(
             label=self._obfuscate_fill_text_label(self._default_obfuscate_fill_text)
         )
         self._obfuscate_fill_text_button.set_popup(self._build_obfuscate_fill_text_menu())
         add_cell(STYLE_FIELD_OBFUSCATE_FILL_TEXT, text_label, self._obfuscate_fill_text_button)
 
-        text_color_label = Gtk.Label(label="Text Color:")
+        text_color_label = Gtk.Label(label=_("Text Color:"))
         text_color_button, self._obfuscate_text_color_swatch = self._build_color_button(
             self._active_obfuscate_text_color, self._on_obfuscate_text_color_changed,
         )
@@ -2885,10 +2915,10 @@ class EditorWindow(Gtk.Window):
     @staticmethod
     def _obfuscate_amount_label_text(tool: Tool) -> str:
         if tool is Tool.BLUR:
-            return "Blur Radius:"
+            return _("Blur Radius:")
         if tool is Tool.PIXELIZE:
-            return "Pixel Size:"
-        return "Amount:"
+            return _("Pixel Size:")
+        return _("Amount:")
 
     def _on_obfuscate_amount_changed(self, spin: Gtk.SpinButton) -> None:
         amount = spin.get_value_as_int()
