@@ -66,10 +66,16 @@ def _crop_to_rect(image: np.ndarray, rect: Rect, bounds: Rect) -> np.ndarray:
     real portal call or GTK to exercise.
 
     Assumes the portal image starts at the virtual screen's own origin
-    (bounds.left, bounds.top) - true for the VM's single monitor
-    (bounds.left == 0, image was exactly 1366x768), but NOT YET
-    verified against a real multi-monitor Wayland session, where
-    bounds.left/top can be negative.
+    (bounds.left, bounds.top). On GNOME this is provably always true:
+    Mutter's meta_verify_logical_monitor_config rejects any monitor
+    layout with a negative x/y outright (confirmed both against
+    upstream Mutter source and by reproducing the exact rejection live
+    via GetCurrentState/ApplyMonitorsConfig on a real 2-monitor Wayland
+    session - see BACKLOG.md's resolved #175 entry), so bounds.left/top
+    - the union of always-non-negative monitor origins - can never be
+    negative here either. Non-GNOME Wayland compositors (KWin, wlroots)
+    aren't verified to share this guarantee, but orcshot's Wayland path
+    is GNOME Shell-extension-centric, not a supported target otherwise.
     """
     height, width = image.shape[:2]
     crop = Rect(

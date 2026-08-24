@@ -81,21 +81,29 @@ Likely direction: `enable_autostart()`/`disable_autostart()` (or a one-time migr
 if it exists, not just leave the systemd unit as the only *new* mechanism. Cleaned up manually on this one
 VM to unblock #174's own testing; not fixed in code.
 
-## #175: Multi-monitor Wayland capture - crop-offset origin assumption never verified against real hardware
+## #175 RESOLVED (2026-08-23): non-GNOME Wayland compositors unverified for the crop-offset origin assumption
 
-Long-standing, not new: found independently by both task #168's code audit and a separate sweep of
-`REQUIREMENTS.md` (2026-08-23), which turned up the same concern restated at least five times across
-weeks of entries (`## Task #49 ("Add Wayland support") status`'s own "Known, deliberately non-blocking
-gaps" section, and referenced again in at least four earlier entries) - always "untested," never closed,
-because this project's only Wayland test rig is a single-monitor VM.
+Was: "crop-offset origin assumption never verified against real hardware" - the long-standing concern
+(restated at least five times across `REQUIREMENTS.md`, `## Task #49` status entry included) that
+`capture/wayland.py`'s `_crop_to_rect` assumes the portal's screenshot starts at `bounds.left`/`bounds.top`,
+untestable because this project's only Wayland rig was a single-monitor VM.
 
-`capture/wayland.py`'s `_crop_to_rect` assumes the portal's screenshot image starts at the virtual screen's
-own origin (`bounds.left`, `bounds.top`). Checked directly (2026-08-23, not just re-read): the crop
-*arithmetic itself* is sound for negative-origin monitors - traced through concrete numbers (a monitor at
-x=-1920) and confirmed it maps to the correct pixels, no sign bug. The genuine unknown isn't the math, it's
-the *assumption* - whether the portal's actual real-world output on real multi-monitor Wayland hardware
-really does start exactly where this code expects. Needs a real multi-monitor Wayland session to close;
-nothing in this project's current test setup can settle it.
+Closed for GNOME: set up a real 2-monitor Wayland session (VirtualBox `setscreenlayout`, `monitorcount=2`)
+and drove Mutter's own `org.gnome.Mutter.DisplayConfig.ApplyMonitorsConfig` directly to attempt a
+negative-origin arrangement. It was rejected live - `"Invalid logical monitor position (-1366, 0)"` -
+which traces to Mutter's own `meta_verify_logical_monitor_config` (confirmed against upstream Mutter
+source): any logical monitor with x<0 or y<0 is refused outright, unconditionally, before any layout is
+even applied. Since `ScreenLayout.virtual_bounds` (`capture/backend.py`) is the union of individual
+monitor bounds, and Mutter guarantees every individual monitor origin is non-negative, `bounds.left`/
+`bounds.top` can never be negative on GNOME either - the exact case `_crop_to_rect`'s old comment worried
+about is structurally impossible there, not just untested. Comment updated in `wayland.py` to state this
+as a proven guarantee instead of an open question.
+
+Residual, deliberately narrow: orcshot's Wayland capture path goes through GDK's compositor-agnostic
+monitor enumeration (`gdk_screen_layout`), not a GNOME-specific API, so in principle a different Wayland
+compositor (KWin, a wlroots-based one) could report a different coordinate convention - not checked, and
+not urgent, since orcshot's Wayland support is built around a bundled GNOME Shell extension and isn't a
+supported target on other compositors anyway.
 
 ## #176: Cross-monitor drag continuity (region-select/eyedropper/window-picker) never verified on real Wayland hardware
 

@@ -7347,6 +7347,44 @@ re-enabled -> magnifier shows again. Full suite green (1121 passed, 3 skipped) -
 has no unit coverage, consistent with `gnome_region_select.py`'s own established "only verified live"
 convention for the same reason `test_gnome_region_select.py` already states.
 
+## Task #175: multi-monitor Wayland crop-offset origin assumption - closed for GNOME (2026-08-23)
+
+Long-standing concern (`BACKLOG.md`, restated at least five times across earlier `REQUIREMENTS.md`
+entries): `capture/wayland.py`'s `_crop_to_rect` assumes the portal's screenshot starts at the virtual
+screen's own origin (`bounds.left`, `bounds.top`), untested against real multi-monitor Wayland hardware
+because this project's only Wayland rig was a single-monitor VM.
+
+Genuinely closed this time, not just re-deferred: gave the Ubuntu 26.04 VM a real second monitor
+(`VBoxManage modifyvm --monitorcount 2`, then `controlvm setscreenlayout` - discovered along the way that
+this API requires every screen's layout in one atomic call; issuing them per-screen fails with
+`NS_ERROR_INVALID_ARG` even with otherwise-valid arguments). Rather than fighting VirtualBox's own
+absolute-mouse-integration desync across two separate screen windows (a real, reproduced quirk after
+forcing a layout outside the guest's normal auto-resize negotiation), drove GNOME's own
+`org.gnome.Mutter.DisplayConfig.ApplyMonitorsConfig` directly via `VBoxManage guestcontrol` (credentials
+in the gitignored `vmpw.txt`, username `ubuntu2604` - not `direflail`, corrected after an initial failed
+logon attempt) to attempt a genuinely negative-origin arrangement (monitor 2 at x=-1366).
+
+Mutter rejected it outright, live: `"Invalid logical monitor position (-1366, 0)"`. Traced to source rather
+than accepted at face value - fetched upstream Mutter's `meta-monitor-config-manager.c` and confirmed
+`meta_verify_logical_monitor_config` unconditionally rejects any logical monitor with x<0 or y<0 before
+applying any layout at all, no exceptions. This is doubly confirmed, not just a docs claim: the live VM's
+own rejection message matches that exact source pattern verbatim, so whatever Mutter version Ubuntu
+26.04 actually ships enforces the same rule.
+
+**This flips the original question.** The task was never going to find a real negative-origin monitor to
+capture from, because GNOME structurally cannot produce one - not a gap in this project's test rig, a real
+guarantee of the compositor itself. Since `ScreenLayout.virtual_bounds` (`capture/backend.py`) is the union
+of individual monitor bounds, and every individual monitor origin is guaranteed non-negative by Mutter,
+`bounds.left`/`bounds.top` can never be negative on GNOME either. `_crop_to_rect`'s own comment (previously
+"NOT YET verified... bounds.left/top can be negative") was rewritten to state this as a proven guarantee,
+not an open question, with the citation trail.
+
+Deliberately left open, narrow, and low-priority (`BACKLOG.md`'s replacement entry): orcshot's Wayland path
+reads monitor geometry through GDK's compositor-agnostic enumeration (`gdk_screen_layout`), not a
+GNOME-specific API, so a non-GNOME Wayland compositor could in principle use a different coordinate
+convention - not checked, since orcshot's Wayland support is built around a bundled GNOME Shell extension
+and was never a supported target elsewhere.
+
 ## Licensing
 
 **Status: decided — GPLv3.** Greenshot (Windows) is GPLv3; this is a derivative work — same feature
