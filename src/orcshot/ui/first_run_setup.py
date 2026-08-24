@@ -92,6 +92,7 @@ from orcshot.hotkey_setup import (
     detect_profile,
     resolve_hotkey_choices,
 )
+from orcshot.i18n import _
 from orcshot.settings import is_first_run_setup_done, mark_first_run_setup_done
 
 
@@ -153,7 +154,7 @@ def _run_dialog(parent, executable: str, settings_backend) -> None:
     hotkeys_available = profile is not None
     conflicts = check_all_conflicts(settings_backend, profile=profile) if hotkeys_available else {}
 
-    dialog = Gtk.Dialog(title="Orcshot Setup", transient_for=parent)
+    dialog = Gtk.Dialog(title=_("Orcshot Setup"), transient_for=parent)
     dialog.add_buttons(
         "Not Now", Gtk.ResponseType.CANCEL,
         "Enable", Gtk.ResponseType.OK,
@@ -164,11 +165,19 @@ def _run_dialog(parent, executable: str, settings_backend) -> None:
     content.set_border_width(12)
     content.set_spacing(8)
 
-    intro = "Set up Orcshot to start automatically at login"
-    intro += ", and enable its capture keyboard shortcuts?" if hotkeys_available else "?"
+    # Kept as two full sentences (not built by concatenating a fixed
+    # base with a conditional suffix fragment) so each is one complete,
+    # independently-translatable unit - xgettext extracts a whole
+    # msgid fine either way, but a translator working from disconnected
+    # fragments ("...login" + ", and enable...?") has no way to
+    # reorder words across the join the way many languages need to.
+    if hotkeys_available:
+        intro = _("Set up Orcshot to start automatically at login, and enable its capture keyboard shortcuts?")
+    else:
+        intro = _("Set up Orcshot to start automatically at login?")
     content.pack_start(Gtk.Label(label=intro, wrap=True, xalign=0), False, False, 0)
 
-    autostart_check = Gtk.CheckButton(label="Start automatically at login")
+    autostart_check = Gtk.CheckButton(label=_("Start automatically at login"))
     autostart_check.set_active(True)
     content.pack_start(autostart_check, False, False, 0)
 
@@ -180,10 +189,10 @@ def _run_dialog(parent, executable: str, settings_backend) -> None:
             hb_conflicts = conflicts.get(hb.name, [])
             if hb_conflicts:
                 sources = ", ".join(c.source for c in hb_conflicts)
-                label = f"{hb.name} ({hb.binding}) — overwrite {sources}?"
+                label = _("{} ({}) — overwrite {}?").format(hb.name, hb.binding, sources)
                 default_active = False
             else:
-                label = f"{hb.name} ({hb.binding})"
+                label = _("{} ({})").format(hb.name, hb.binding)
                 default_active = True
             check = Gtk.CheckButton(label=label)
             check.set_active(default_active)
@@ -198,8 +207,8 @@ def _run_dialog(parent, executable: str, settings_backend) -> None:
         # nothing when "Enable" is clicked.
         manual_lines = "\n".join(f"  {hb.name}: {executable} {hb.cli_flag}" for hb in DEFAULT_HOTKEYS)
         content.pack_start(Gtk.Label(
-            label="Automatic keyboard shortcut setup isn't available on this desktop. "
-                  "You can bind shortcuts to these manually instead:\n"
+            label=_("Automatic keyboard shortcut setup isn't available on this desktop. "
+                    "You can bind shortcuts to these manually instead:\n")
                   + manual_lines,
             wrap=True, xalign=0,
         ), False, False, 0)

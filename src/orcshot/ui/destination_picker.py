@@ -73,6 +73,7 @@ from orcshot.capture.clipboard import ClipboardBackend
 from orcshot.core.drawing import Layer
 from orcshot.core.filename_pattern import resolve_filename_pattern
 from orcshot.core.shapes import CursorShape
+from orcshot.i18n import _
 from orcshot.settings import (
     consume_filename_counter,
     get_excluded_destinations,
@@ -156,7 +157,7 @@ def _quick_save(image: np.ndarray, cursor_shape: CursorShape = None, title: str 
     path = directory / filename
     save_image_to_file(_flattened(image, cursor_shape), path, jpeg_quality=output_settings.jpeg_quality)
     if output_settings.copy_path_to_clipboard:
-        Gtk.Clipboard.get_default(Gdk.Display.get_default()).set_text(str(path), -1)
+        Gtk.Clipboard.get_default(Gdk.Display.get_default()).set_text(str(path), -1)  # noqa: i18n (clipboard data, not UI text)
 
 
 def _save_as(image: np.ndarray, cursor_shape: CursorShape = None, title: str = "") -> None:
@@ -180,7 +181,7 @@ def _save_as(image: np.ndarray, cursor_shape: CursorShape = None, title: str = "
     output_settings = get_output_settings()
     app = Gio.Application.get_default()
     parent = app.topmost_editor() if app is not None else None
-    dialog = Gtk.FileChooserDialog(title="Save Screenshot As", transient_for=parent, action=Gtk.FileChooserAction.SAVE)
+    dialog = Gtk.FileChooserDialog(title=_("Save Screenshot As"), transient_for=parent, action=Gtk.FileChooserAction.SAVE)
     dialog.add_buttons(
         Gtk.STOCK_CANCEL, Gtk.ResponseType.CANCEL,
         Gtk.STOCK_SAVE, Gtk.ResponseType.OK,
@@ -200,7 +201,7 @@ def _save_as(image: np.ndarray, cursor_shape: CursorShape = None, title: str = "
             save_image_to_file(_flattened(image, cursor_shape), path, jpeg_quality=output_settings.jpeg_quality)
             consume_filename_counter()
             if output_settings.copy_path_to_clipboard:
-                Gtk.Clipboard.get_default(Gdk.Display.get_default()).set_text(str(path), -1)
+                Gtk.Clipboard.get_default(Gdk.Display.get_default()).set_text(str(path), -1)  # noqa: i18n (clipboard data, not UI text)
     finally:
         dialog.destroy()
 
@@ -212,11 +213,11 @@ def _save_as(image: np.ndarray, cursor_shape: CursorShape = None, title: str = "
 # neither duplicates the actual destination logic. Order/labels match
 # Windows' own destination priority (see this module's own docstring).
 _DESTINATION_TABLE = [
-    ("clipboard", "Copy to Clipboard", lambda img, cs, clipboard_backend, title: clipboard_backend.set_image(_flattened(img, cs))),
-    ("save", "Save", lambda img, cs, clipboard_backend, title: _quick_save(img, cs, title)),
-    ("save_as", "Save As...", lambda img, cs, clipboard_backend, title: _save_as(img, cs, title)),
-    ("edit", "Edit", lambda img, cs, clipboard_backend, title: _open_editor(img, cs, title)),
-    ("print", "Print", lambda img, cs, clipboard_backend, title: print_image(_flattened(img, cs))),
+    ("clipboard", _("Copy to Clipboard"), lambda img, cs, clipboard_backend, title: clipboard_backend.set_image(_flattened(img, cs))),
+    ("save", _("Save"), lambda img, cs, clipboard_backend, title: _quick_save(img, cs, title)),
+    ("save_as", _("Save As..."), lambda img, cs, clipboard_backend, title: _save_as(img, cs, title)),
+    ("edit", _("Edit"), lambda img, cs, clipboard_backend, title: _open_editor(img, cs, title)),
+    ("print", _("Print"), lambda img, cs, clipboard_backend, title: print_image(_flattened(img, cs))),
 ]
 
 
