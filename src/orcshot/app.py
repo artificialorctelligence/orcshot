@@ -45,6 +45,7 @@ gi.require_version("Gdk", "3.0")
 from gi.repository import Gdk, Gio, GLib, Gtk
 
 from orcshot.core.update_check import is_newer_version, should_check_now
+from orcshot.i18n import _
 from orcshot.ui.destination_picker import destinations_for_shell
 from orcshot.settings import (
     clear_quit_marker, get_last_update_check, get_update_check_interval_days,
@@ -314,8 +315,8 @@ class OrcshotApplication(Gtk.Application):
             # every branch above too - the actual bug).
             if not opened_a_file and was_already_running:
                 self._notify(
-                    "Orcshot is already running",
-                    "Look for its icon in the system tray.",
+                    _("Orcshot is already running"),
+                    _("Look for its icon in the system tray."),
                     notification_id="orcshot-already-running",
                 )
         return 0
@@ -545,7 +546,7 @@ class OrcshotApplication(Gtk.Application):
         except PortalRequestCancelled:
             pass
         except (PortalRequestFailed, PortalRequestTimedOut) as e:
-            self._notify("Screenshot failed", f"The screenshot couldn't be taken.\n\n{e}")
+            self._notify(_("Screenshot failed"), _("The screenshot couldn't be taken.\n\n{}").format(e))
 
     def _tray_action_handlers(self) -> dict:
         """One handler per capture mode, keyed by the same mode string
@@ -774,9 +775,11 @@ class OrcshotApplication(Gtk.Application):
         live_version = get_live_api_version()
         if live_version is not None and live_version < EXPECTED_API_VERSION:
             self._notify(
-                "Orcshot's Wayland integration needs a restart",
-                "An update changed how Orcshot's Shell extension works, but your session is "
-                "still running the previous version. Log out and back in to finish applying it.",
+                _("Orcshot's Wayland integration needs a restart"),
+                _(
+                    "An update changed how Orcshot's Shell extension works, but your session is "
+                    "still running the previous version. Log out and back in to finish applying it."
+                ),
             )
             return  # explains a missing/stale tray button too - no separate report needed
 
@@ -784,9 +787,11 @@ class OrcshotApplication(Gtk.Application):
             error = get_tray_button_error()
             detail = f"\n\n{error}" if error else ""
             self._notify(
-                "Orcshot's tray icon fell back to a plain version",
-                "Its usual Shell-integrated tray icon couldn't be created, so a plain fallback "
-                f"is being used instead. This is a bug worth reporting.{detail}",
+                _("Orcshot's tray icon fell back to a plain version"),
+                _(
+                    "Its usual Shell-integrated tray icon couldn't be created, so a plain fallback "
+                    "is being used instead. This is a bug worth reporting.{}"
+                ).format(detail),
             )
 
     def _recheck_tray_icon_after_extension_change(self) -> None:
@@ -915,14 +920,14 @@ class OrcshotApplication(Gtk.Application):
             # the indicator at that file's own directory so the plain
             # name (no extension) it was constructed with resolves.
             indicator.set_icon_theme_path(str(LOGO_PATH.parent))
-            indicator.set_title("Orcshot")
+            indicator.set_title("Orcshot")  # noqa: i18n (proper noun)
             indicator.set_status(AyatanaAppIndicator3.IndicatorStatus.ACTIVE)
             indicator.set_menu(menu)
             return indicator
 
         icon = Gtk.StatusIcon()
         icon.set_from_file(str(LOGO_PATH))
-        icon.set_tooltip_text("Orcshot")
+        icon.set_tooltip_text("Orcshot")  # noqa: i18n (proper noun)
         icon.connect("activate", lambda _icon: self.start_capture())
         icon.connect("popup-menu", lambda _icon, button, time: self._show_tray_menu(menu, button, time))
         return icon
@@ -1000,35 +1005,37 @@ class OrcshotApplication(Gtk.Application):
         handlers = self._tray_action_handlers()
 
         region_item = menu_item(
-            "Capture Region", lambda: _defer(handlers["region"]), icon_mode="region",
+            _("Capture Region"), lambda: _defer(handlers["region"]), icon_mode="region",
         )
         menu.append(region_item)
 
         full_screen_item = menu_item(
-            "Capture Full Screen", lambda: _defer(handlers["full_screen"]), icon_mode="full_screen",
+            _("Capture Full Screen"), lambda: _defer(handlers["full_screen"]), icon_mode="full_screen",
         )
         menu.append(full_screen_item)
 
         active_window_item = menu_item(
-            "Capture Active Window", lambda: _defer(handlers["active_window"]), icon_mode="active_window",
+            _("Capture Active Window"), lambda: _defer(handlers["active_window"]), icon_mode="active_window",
         )
         menu.append(active_window_item)
 
         window_picker_item = menu_item(
-            "Capture Window...", lambda: _defer(handlers["window_picker"]), icon_mode="window_picker",
+            _("Capture Window..."), lambda: _defer(handlers["window_picker"]), icon_mode="window_picker",
         )
         from orcshot.capture.backend_select import window_picker_supported
 
         if not window_picker_supported():
             window_picker_item.set_sensitive(False)
             window_picker_item.set_tooltip_text(
-                "Not available on this Wayland session - enable window capture support "
-                "in Preferences, or use Capture Region instead."
+                _(
+                    "Not available on this Wayland session - enable window capture support "
+                    "in Preferences, or use Capture Region instead."
+                )
             )
         menu.append(window_picker_item)
 
         self._repeat_item = menu_item(
-            "Repeat Last Region", lambda: _defer(handlers["repeat_region"]), icon_mode="repeat_region",
+            _("Repeat Last Region"), lambda: _defer(handlers["repeat_region"]), icon_mode="repeat_region",
         )
         self._repeat_item.set_sensitive(False)  # no region captured yet
         menu.append(self._repeat_item)
@@ -1043,7 +1050,7 @@ class OrcshotApplication(Gtk.Application):
         # editor open (its own File > Open) or going through the file
         # manager.
         open_file_item = menu_item(
-            "Open File...", self.open_file_from_tray, icon_name="document-open-symbolic",
+            _("Open File..."), self.open_file_from_tray, icon_name="document-open-symbolic",
         )
         menu.append(open_file_item)
 
@@ -1058,7 +1065,7 @@ class OrcshotApplication(Gtk.Application):
         # from inside an already-open editor - this is the only way to
         # reach it with none open at all.
         preferences_item = menu_item(
-            "Preferences...", self.show_preferences, icon_name="preferences-system-symbolic",
+            _("Preferences..."), self.show_preferences, icon_name="preferences-system-symbolic",
         )
         menu.append(preferences_item)
 
@@ -1070,7 +1077,7 @@ class OrcshotApplication(Gtk.Application):
         # menu item was the one path that bypassed it (the Shell-native
         # panel button's own "tray-quit" GAction already routes through
         # it correctly).
-        quit_item = menu_item("Quit", self._quit_and_hide_tray_button, icon_name="application-exit-symbolic")
+        quit_item = menu_item(_("Quit"), self._quit_and_hide_tray_button, icon_name="application-exit-symbolic")
         menu.append(quit_item)
         menu.show_all()
         return menu
@@ -1125,8 +1132,8 @@ class OrcshotApplication(Gtk.Application):
         tag, url = result
         if is_newer_version(tag, installed_version("orcshot")):
             self._notify(
-                "Orcshot update available",
-                f"A newer version of Orcshot is available! Do you want to download Orcshot {tag}?",
+                _("Orcshot update available"),
+                _("A newer version of Orcshot is available! Do you want to download Orcshot {}?").format(tag),
                 uri=url,
             )
         elif manual:
@@ -1158,8 +1165,8 @@ class OrcshotApplication(Gtk.Application):
     def _show_update_check_failed_dialog(self, parent: Gtk.Window) -> None:
         dialog = Gtk.MessageDialog(
             transient_for=parent, message_type=Gtk.MessageType.ERROR, buttons=Gtk.ButtonsType.OK,
-            text="Couldn't check for updates",
-            secondary_text="No response from GitHub - check your network connection and try again.",
+            text=_("Couldn't check for updates"),
+            secondary_text=_("No response from GitHub - check your network connection and try again."),
         )
         dialog.run()
         dialog.destroy()
@@ -1167,8 +1174,8 @@ class OrcshotApplication(Gtk.Application):
     def _show_up_to_date_dialog(self, parent: Gtk.Window) -> None:
         dialog = Gtk.MessageDialog(
             transient_for=parent, message_type=Gtk.MessageType.INFO, buttons=Gtk.ButtonsType.OK,
-            text="Orcshot is up to date",
-            secondary_text=f"You're running the latest version ({installed_version('orcshot')}).",
+            text=_("Orcshot is up to date"),
+            secondary_text=_("You're running the latest version ({}).").format(installed_version("orcshot")),
         )
         dialog.run()
         dialog.destroy()

@@ -62,10 +62,11 @@ from orcshot.core.geometry import Rect
 from orcshot.core.history import AddElementMemento, CompositeMemento
 from orcshot.core.ocr import SCOPE_LINES, SCOPE_WORDS, OcrResult, find_matches
 from orcshot.core.shapes import HighlightMode, HighlightShape, ObfuscateMode, ObfuscateShape
+from orcshot.i18n import _, ngettext
 from orcshot.ui.ocr import run_tesseract_ocr, tesseract_available
 
 _DEBOUNCE_MS = 300
-_DIALOG_TITLE = "Find & Redact Text"
+_DIALOG_TITLE = _("Find & Redact Text")
 
 # (label, mode-key) - mode-key is either an ObfuscateMode or a
 # HighlightMode; _make_shape below dispatches on which one it is. Order
@@ -161,7 +162,7 @@ def do_obfuscate_text(editor) -> None:
     if not tesseract_available():
         _info_dialog(
             editor, _DIALOG_TITLE,
-            "Tesseract OCR is not installed. Install the tesseract-ocr package to use this feature.",
+            _("Tesseract OCR is not installed. Install the tesseract-ocr package to use this feature."),
             message_type=Gtk.MessageType.WARNING,
         )
         return
@@ -175,14 +176,14 @@ def do_obfuscate_text(editor) -> None:
         try:
             editor._ocr_result = run_tesseract_ocr(editor.base_image)
         except Exception as exc:
-            _info_dialog(editor, _DIALOG_TITLE, f"OCR failed: {exc}", message_type=Gtk.MessageType.ERROR)
+            _info_dialog(editor, _DIALOG_TITLE, _("OCR failed: {}").format(exc), message_type=Gtk.MessageType.ERROR)
             return
         finally:
             if window is not None:
                 window.set_cursor(None)
 
     if not editor._ocr_result.has_content:
-        _info_dialog(editor, _DIALOG_TITLE, "No text found in this image.")
+        _info_dialog(editor, _DIALOG_TITLE, _("No text found in this image."))
         return
 
     _TextObfuscationDialog(editor, editor._ocr_result).run()
@@ -215,15 +216,15 @@ class _TextObfuscationDialog:
         # A fresh search each time avoids that; every other setting
         # (regex/case/scope/effect/colors/padding/offset) still persists,
         # since those read as preferences rather than leftover state.
-        self._search_entry.set_placeholder_text("Search text (min. 3 characters)...")
+        self._search_entry.set_placeholder_text(_("Search text (min. 3 characters)..."))
         search_row.pack_start(self._search_entry, True, True, 0)
         content.pack_start(search_row, False, False, 0)
 
         options_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
-        self._regex_check = Gtk.CheckButton(label="Regex")
+        self._regex_check = Gtk.CheckButton(label=_("Regex"))
         self._regex_check.set_active(self._settings["use_regex"])
         options_row.pack_start(self._regex_check, False, False, 0)
-        self._case_check = Gtk.CheckButton(label="Case sensitive")
+        self._case_check = Gtk.CheckButton(label=_("Case sensitive"))
         self._case_check.set_active(self._settings["case_sensitive"])
         options_row.pack_start(self._case_check, False, False, 0)
         content.pack_start(options_row, False, False, 0)
@@ -232,7 +233,7 @@ class _TextObfuscationDialog:
         content.pack_start(grid, False, False, 0)
         row = 0
 
-        grid.attach(Gtk.Label(label="Search in:", xalign=0), 0, row, 1, 1)
+        grid.attach(Gtk.Label(label=_("Search in:"), xalign=0), 0, row, 1, 1)
         self._scope_combo = Gtk.ComboBoxText()
         self._scope_combo.append_text("Words")
         self._scope_combo.append_text("Lines")
@@ -240,7 +241,7 @@ class _TextObfuscationDialog:
         grid.attach(self._scope_combo, 1, row, 1, 1)
         row += 1
 
-        grid.attach(Gtk.Label(label="Effect:", xalign=0), 0, row, 1, 1)
+        grid.attach(Gtk.Label(label=_("Effect:"), xalign=0), 0, row, 1, 1)
         self._effect_combo = Gtk.ComboBoxText()
         for label, _mode in _EFFECT_CHOICES:
             self._effect_combo.append_text(label)
@@ -248,66 +249,66 @@ class _TextObfuscationDialog:
         grid.attach(self._effect_combo, 1, row, 1, 1)
         row += 1
 
-        self._pixel_size_label = Gtk.Label(label="Pixel size:", xalign=0)
+        self._pixel_size_label = Gtk.Label(label=_("Pixel size:"), xalign=0)
         grid.attach(self._pixel_size_label, 0, row, 1, 1)
         self._pixel_size_spin = Gtk.SpinButton.new_with_range(2, 100, 1)
         self._pixel_size_spin.set_value(self._settings["pixel_size"])
         grid.attach(self._pixel_size_spin, 1, row, 1, 1)
         row += 1
 
-        self._blur_radius_label = Gtk.Label(label="Blur radius:", xalign=0)
+        self._blur_radius_label = Gtk.Label(label=_("Blur radius:"), xalign=0)
         grid.attach(self._blur_radius_label, 0, row, 1, 1)
         self._blur_radius_spin = Gtk.SpinButton.new_with_range(1, 30, 1)
         self._blur_radius_spin.set_value(self._settings["blur_radius"])
         grid.attach(self._blur_radius_spin, 1, row, 1, 1)
         row += 1
 
-        self._solid_fill_color_label = Gtk.Label(label="Fill color:", xalign=0)
+        self._solid_fill_color_label = Gtk.Label(label=_("Fill color:"), xalign=0)
         grid.attach(self._solid_fill_color_label, 0, row, 1, 1)
         self._solid_fill_color_button = Gtk.ColorButton()
         self._solid_fill_color_button.set_rgba(_color_to_rgba(self._settings["solid_fill_color"]))
         grid.attach(self._solid_fill_color_button, 1, row, 1, 1)
         row += 1
 
-        self._highlight_color_label = Gtk.Label(label="Highlight color:", xalign=0)
+        self._highlight_color_label = Gtk.Label(label=_("Highlight color:"), xalign=0)
         grid.attach(self._highlight_color_label, 0, row, 1, 1)
         self._highlight_color_button = Gtk.ColorButton()
         self._highlight_color_button.set_rgba(_color_to_rgba(self._settings["highlight_color"]))
         grid.attach(self._highlight_color_button, 1, row, 1, 1)
         row += 1
 
-        self._magnification_label = Gtk.Label(label="Magnification:", xalign=0)
+        self._magnification_label = Gtk.Label(label=_("Magnification:"), xalign=0)
         grid.attach(self._magnification_label, 0, row, 1, 1)
         self._magnification_spin = Gtk.SpinButton.new_with_range(2, 8, 1)
         self._magnification_spin.set_value(self._settings["magnification_factor"])
         grid.attach(self._magnification_spin, 1, row, 1, 1)
         row += 1
 
-        grid.attach(Gtk.Label(label="Padding horizontal %:", xalign=0), 0, row, 1, 1)
+        grid.attach(Gtk.Label(label=_("Padding horizontal %:"), xalign=0), 0, row, 1, 1)
         self._padding_h_spin = Gtk.SpinButton.new_with_range(0, 200, 1)
         self._padding_h_spin.set_value(self._settings["padding_horizontal"])
         grid.attach(self._padding_h_spin, 1, row, 1, 1)
         row += 1
 
-        grid.attach(Gtk.Label(label="Padding vertical %:", xalign=0), 0, row, 1, 1)
+        grid.attach(Gtk.Label(label=_("Padding vertical %:"), xalign=0), 0, row, 1, 1)
         self._padding_v_spin = Gtk.SpinButton.new_with_range(0, 200, 1)
         self._padding_v_spin.set_value(self._settings["padding_vertical"])
         grid.attach(self._padding_v_spin, 1, row, 1, 1)
         row += 1
 
-        grid.attach(Gtk.Label(label="Offset horizontal:", xalign=0), 0, row, 1, 1)
+        grid.attach(Gtk.Label(label=_("Offset horizontal:"), xalign=0), 0, row, 1, 1)
         self._offset_h_spin = Gtk.SpinButton.new_with_range(-100, 100, 1)
         self._offset_h_spin.set_value(self._settings["offset_horizontal"])
         grid.attach(self._offset_h_spin, 1, row, 1, 1)
         row += 1
 
-        grid.attach(Gtk.Label(label="Offset vertical:", xalign=0), 0, row, 1, 1)
+        grid.attach(Gtk.Label(label=_("Offset vertical:"), xalign=0), 0, row, 1, 1)
         self._offset_v_spin = Gtk.SpinButton.new_with_range(-100, 100, 1)
         self._offset_v_spin.set_value(self._settings["offset_vertical"])
         grid.attach(self._offset_v_spin, 1, row, 1, 1)
         row += 1
 
-        self._match_count_label = Gtk.Label(label="0 matches", xalign=0)
+        self._match_count_label = Gtk.Label(label=_("0 matches"), xalign=0)
         content.pack_start(self._match_count_label, False, False, 0)
 
         for widget, signal in (
@@ -392,7 +393,8 @@ class _TextObfuscationDialog:
             shape = _make_shape(bounds, mode, settings)
             self._editor.layer.add(shape)
             self._preview_shapes.append(shape)
-        self._match_count_label.set_text(f"{len(matches)} match{'es' if len(matches) != 1 else ''}")
+        match_count = len(matches)
+        self._match_count_label.set_text(ngettext("{} match", "{} matches", match_count).format(match_count))
         self._editor._drawing_area.queue_draw()
 
     def run(self) -> None:
