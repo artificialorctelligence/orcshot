@@ -7419,6 +7419,37 @@ the affected population. Called unconditionally from `app.py`'s `do_startup`, ne
 `maybe_seed_default_external_commands()`'s own "must run regardless of whether the user ever opens
 Preferences" call. Full suite green (1124 passed, 3 skipped).
 
+## Task #176: cross-monitor drag continuity - verified live on real 2-monitor Wayland hardware (2026-08-23)
+
+Found during task #168's audit, narrower than it first looked once actually read: `ui/monitor_window.py`'s
+own docstring already made a sound claim that ordinary event-to-window routing (motion/button events going
+to whichever window is physically under the cursor) is universal windowing behavior, not something
+Wayland-specific - true on every desktop, X11 included. The real open question was more specific: does an
+*in-progress drag* (a region-select rectangle) that starts on one monitor's own top-level `MonitorWindow`
+correctly continue once the cursor crosses onto a second monitor's separate window, or does it break/reset
+at the boundary? Wayland's per-monitor-TOPLEVEL architecture (necessary since Wayland forbids absolute
+window positioning) makes this a real, monitor-boundary-specific question X11's single spanning `POPUP`
+window never has to answer.
+
+Read the actual wiring before testing rather than assuming: `region_select_wayland.py`'s `WaylandRegionSelect`
+keeps `_drag_origin`/`_selection`/`_cursor_pos` as single shared instance state, not per-`MonitorWindow` -
+every window created by `create_monitor_windows` is wired to the exact same `_on_motion`/`_on_button_press`/
+`_on_button_release` methods, each of which receives already-translated global coordinates (`MonitorWindow.
+to_global`) and updates that one shared state, then calls `queue_draw_all` to redraw every window from it.
+`eyedropper_wayland.py` follows the identical pattern (`self._dragging` as shared instance state). By
+construction, a drag should continue correctly across the boundary regardless of which physical window the
+motion events arrive on - the one thing code-reading alone can't prove is whether GTK/GDK actually delivers
+motion-notify events cleanly to the newly-entered TOPLEVEL with no dead zone, which needed real hardware.
+
+Verified live on the same 2-monitor VM set up for task #175 (`Virtual-1` primary, `Virtual-2` adjacent):
+positioned the two VirtualBox "Virtual Screen" windows side-by-side on the host desktop, started a
+region-select drag inside one, dragged across the shared edge into the other without releasing, and
+released there. direflail confirmed all three pass/fail criteria: the selection rectangle tracked
+continuously across the crossing with no freeze/reset/glitch, the dimmed overlay updated correctly in both
+windows throughout, and the resulting capture was correct - a single rectangle properly spanning both
+monitors. `monitor_window.py`'s own docstring (previously "NOT independently live-verified for real
+cross-monitor handoff") updated to record this as confirmed rather than an open question.
+
 ## Licensing
 
 **Status: decided — GPLv3.** Greenshot (Windows) is GPLv3; this is a derivative work — same feature

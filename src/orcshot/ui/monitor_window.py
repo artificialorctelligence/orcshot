@@ -25,13 +25,15 @@ targets one specific window's Gdk.Window, and the seat redirects *all*
 key events there regardless of which monitor the pointer is over -
 call it on exactly one of the windows, not all of them.
 
-NOT independently live-verified for real cross-monitor handoff: the
-only Wayland test hardware available (see
-[[reference-virtualbox-vm-testing]]) has a single monitor. Built on
-the compositor fundamentals above rather than anything Wayland-
-specific/uncertain, but flagging this honestly per this project's
-verification discipline - see REQUIREMENTS.md's Wayland overlay-
-positioning section.
+Cross-monitor drag handoff confirmed live (2026-08-23, BACKLOG.md's
+resolved #176): a region-select drag started on one MonitorWindow and
+continued across the boundary into a second one, on a real 2-monitor
+Wayland VM, tracked continuously with no freeze/reset/glitch at the
+crossing - see REQUIREMENTS.md's Task #176 entry. Confirms the design
+above (shared drag state lives on the caller, not per-window; every
+window redraws from the same global-coordinate state via
+queue_draw_all) rather than depending on anything Wayland-specific at
+the boundary itself.
 """
 
 from __future__ import annotations

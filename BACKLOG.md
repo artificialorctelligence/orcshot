@@ -63,19 +63,6 @@ Mutter's proven-always-non-negative guarantee. Not checked, and not urgent: orcs
 built around a bundled GNOME Shell extension and isn't a supported target on other compositors anyway -
 revisit only if that ever changes.
 
-## #176: Cross-monitor drag continuity (region-select/eyedropper/window-picker) never verified on real Wayland hardware
-
-Found during task #168's audit (2026-08-23), narrower than it first looked once actually read: `ui/
-monitor_window.py`'s own docstring already makes a sound claim that ordinary event-to-window routing (motion/
-button events going to whichever window is physically under the cursor) is universal windowing behavior, not
-something Wayland-specific needing verification - true on every desktop, X11 included. The real open question
-is more specific and wasn't previously named this precisely: does an *in-progress drag* (a region-select
-rectangle, an eyedropper follow) that starts on one monitor's own top-level `MonitorWindow` correctly
-continue once the cursor crosses onto a second monitor's separate window, or does it break/reset at the
-boundary? Wayland's per-monitor-TOPLEVEL architecture (necessary here since Wayland forbids absolute window
-positioning - see that module's own docstring) makes this a real, monitor-boundary-specific question X11's
-single spanning `POPUP` window never has to answer. Only ever tested on this project's single-monitor VM;
-needs real multi-monitor Wayland hardware to settle.
 
 ## #173: No i18n/translation infrastructure - every string is a hardcoded English literal
 
