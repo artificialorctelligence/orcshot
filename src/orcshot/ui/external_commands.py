@@ -58,6 +58,7 @@ gi.require_version("Gtk", "3.0")
 from gi.repository import Gtk
 
 from orcshot.core.update_check import is_newer_version
+from orcshot.i18n import _
 from orcshot.settings import (
     ExternalCommand,
     get_external_commands,
@@ -502,12 +503,12 @@ def _validate(name: str, commandline: str, argument: str, existing_name: str | N
     command required and resolvable, arguments parseable.
     """
     if not name.strip():
-        return "Name is required."
+        return _("Name is required.")
     other_names = {c.name for c in get_external_commands() if c.name != existing_name}
     if name in other_names:
-        return "A command with this name already exists."
+        return _("A command with this name already exists.")
     if not commandline.strip():
-        return "Command is required."
+        return _("Command is required.")
     if shutil.which(commandline) is None and not Path(commandline).is_file():
         # A real command is never a single argv item with a space in
         # it (confirmed live, task #166 follow-up: direflail's own
@@ -515,13 +516,13 @@ def _validate(name: str, commandline: str, argument: str, existing_name: str | N
         # field) - a much more specific, actionable signal than the
         # generic "not found" below covers, worth its own message.
         if " " in commandline.strip():
-            return "This looks like a full command line - put just the program name here, and the rest in Arguments."
-        return "Command not found - check the path, or that it's on your PATH."
+            return _("This looks like a full command line - put just the program name here, and the rest in Arguments.")
+        return _("Command not found - check the path, or that it's on your PATH.")
     try:
         for token in shlex.split(argument):
             token.format("")
     except ValueError as error:
-        return f"Invalid arguments: {error}"
+        return _("Invalid arguments: {}").format(error)
     return None
 
 
@@ -554,18 +555,18 @@ def _build_command_form(grid: Gtk.Grid, existing: ExternalCommand | None, parent
     """
     name_entry = Gtk.Entry()
     name_entry.set_text(existing.name if existing else "")
-    grid.attach(Gtk.Label(label="Name:", xalign=0), 0, 0, 1, 1)
+    grid.attach(Gtk.Label(label=_("Name:"), xalign=0), 0, 0, 1, 1)
     grid.attach(name_entry, 1, 0, 2, 1)
 
     command_entry = Gtk.Entry()
     command_entry.set_text(existing.commandline if existing else "")
-    grid.attach(Gtk.Label(label="Command:", xalign=0), 0, 1, 1, 1)
+    grid.attach(Gtk.Label(label=_("Command:"), xalign=0), 0, 1, 1, 1)
     grid.attach(command_entry, 1, 1, 1, 1)
-    browse_button = Gtk.Button(label="Browse...")
+    browse_button = Gtk.Button(label=_("Browse..."))
 
     def on_browse(_button) -> None:
         chooser = Gtk.FileChooserDialog(
-            title="Select Command", transient_for=parent_dialog, action=Gtk.FileChooserAction.OPEN,
+            title=_("Select Command"), transient_for=parent_dialog, action=Gtk.FileChooserAction.OPEN,
         )
         chooser.add_buttons(Gtk.STOCK_CANCEL, Gtk.ResponseType.CANCEL, Gtk.STOCK_OPEN, Gtk.ResponseType.OK)
         try:
@@ -579,11 +580,11 @@ def _build_command_form(grid: Gtk.Grid, existing: ExternalCommand | None, parent
 
     argument_entry = Gtk.Entry()
     argument_entry.set_text(existing.argument if existing else _DEFAULT_ARGUMENT_TEMPLATE)
-    argument_entry.set_tooltip_text("{0} is replaced with the screenshot's exported file path.")
-    grid.attach(Gtk.Label(label="Arguments:", xalign=0), 0, 2, 1, 1)
+    argument_entry.set_tooltip_text(_("{0} is replaced with the screenshot's exported file path."))
+    grid.attach(Gtk.Label(label=_("Arguments:"), xalign=0), 0, 2, 1, 1)
     grid.attach(argument_entry, 1, 2, 2, 1)
 
-    background_check = Gtk.CheckButton(label="Run in background")
+    background_check = Gtk.CheckButton(label=_("Run in background"))
     background_check.set_active(existing.run_in_background if existing else True)
     grid.attach(background_check, 1, 3, 2, 1)
 
@@ -611,7 +612,7 @@ def show_command_detail_dialog(parent: Gtk.Window, existing: ExternalCommand | N
     task - there's nothing to "find" when editing something that
     already exists, direflail's own explicit call on scope.
     """
-    dialog = Gtk.Dialog(title="External Command", transient_for=parent, modal=True)
+    dialog = Gtk.Dialog(title=_("External Command"), transient_for=parent, modal=True)
     ok_button = dialog.add_button("OK", Gtk.ResponseType.OK)
     dialog.add_button("Cancel", Gtk.ResponseType.CANCEL)
     content = dialog.get_content_area()
@@ -638,9 +639,11 @@ def show_command_detail_dialog(parent: Gtk.Window, existing: ExternalCommand | N
         mode_row.pack_start(mode_combo, False, False, 0)
         help_icon = Gtk.Image.new_from_icon_name("dialog-question-symbolic", Gtk.IconSize.BUTTON)
         help_icon.set_tooltip_text(
-            "Find App searches your installed apps - Snap, Flatpak, and natively installed - "
-            "and fills in the fields below for you. For anything else - a plain program or a "
-            "script - use Add Command."
+            _(
+                "Find App searches your installed apps - Snap, Flatpak, and natively installed - "
+                "and fills in the fields below for you. For anything else - a plain program or a "
+                "script - use Add Command."
+            )
         )
         mode_row.pack_start(help_icon, False, False, 0)
         content.pack_start(mode_row, False, False, 0)
@@ -698,8 +701,10 @@ def show_command_detail_dialog(parent: Gtk.Window, existing: ExternalCommand | N
         else:
             find_page.pack_start(
                 Gtk.Label(
-                    label="No installed apps could be found to search.\n"
-                    "Use Add Command instead.",
+                    label=_(
+                        "No installed apps could be found to search.\n"
+                        "Use Add Command instead."
+                    ),
                     justify=Gtk.Justification.CENTER,
                 ),
                 True, True, 0,
@@ -724,7 +729,7 @@ def show_command_detail_dialog(parent: Gtk.Window, existing: ExternalCommand | N
         # (see on_response below for what OK actually does with it).
         if mode_combo is not None and mode_combo.get_active_id() == "find":
             has_selection = results_tree is not None and results_tree.get_selection().get_selected()[1] is not None
-            error_label.set_text("" if has_selection else "Search the list of installed applications.")
+            error_label.set_text("" if has_selection else _("Search the list of installed applications."))
             ok_button.set_sensitive(has_selection)
             return
         error = _validate(

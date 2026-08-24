@@ -23,6 +23,7 @@ gi.require_version("Gdk", "3.0")
 from gi.repository import Gdk, Gtk
 
 from orcshot.core.color_palette import add_recent_color, color_palette_grid
+from orcshot.i18n import _
 from orcshot.settings import get_recent_colors, set_recent_colors
 from orcshot.ui.eyedropper import start_eyedropper
 
@@ -74,7 +75,7 @@ def show_color_picker(
     a swatch) is added to the persisted recent-colors list
     (settings.py), matching AddToRecentColors (ColorDialog.cs:182-192).
     """
-    dialog = Gtk.Dialog(title="Select Color", transient_for=parent)
+    dialog = Gtk.Dialog(title=_("Select Color"), transient_for=parent)
     dialog.add_buttons(Gtk.STOCK_CANCEL, Gtk.ResponseType.CANCEL, "Apply", Gtk.ResponseType.OK)
     content = dialog.get_content_area()
     content.set_border_width(10)
@@ -123,7 +124,7 @@ def show_color_picker(
             grid.attach(swatch, col_idx, row_idx, 1, 1)
     left_box.pack_start(grid, False, False, 0)
 
-    recent_label = Gtk.Label(label="Recently used colors")
+    recent_label = Gtk.Label(label=_("Recently used colors"))
     recent_label.set_xalign(0)
     left_box.pack_start(recent_label, False, False, 0)
     recent_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=2)
@@ -146,9 +147,11 @@ def show_color_picker(
     right_box.pack_start(preview, False, False, 0)
 
     fields_grid = Gtk.Grid(row_spacing=4, column_spacing=6)
-    fields_grid.attach(Gtk.Label(label="Hex:"), 0, 0, 1, 1)
+    fields_grid.attach(Gtk.Label(label=_("Hex:")), 0, 0, 1, 1)
     fields_grid.attach(hex_entry, 1, 0, 1, 1)
-    for row, (label, spin) in enumerate((("R:", r_spin), ("G:", g_spin), ("B:", b_spin), ("A:", a_spin)), start=1):
+    for row, (label, spin) in enumerate(
+        ((_("R:"), r_spin), (_("G:"), g_spin), (_("B:"), b_spin), (_("A:"), a_spin)), start=1
+    ):
         fields_grid.attach(Gtk.Label(label=label), 0, row, 1, 1)
         fields_grid.attach(spin, 1, row, 1, 1)
     right_box.pack_start(fields_grid, False, False, 0)
@@ -171,11 +174,11 @@ def show_color_picker(
         spin.connect("value-changed", on_rgba_changed)
 
     if allow_transparent:
-        transparent_button = Gtk.Button(label="Transparent")
+        transparent_button = Gtk.Button(label=_("Transparent"))
         transparent_button.connect("clicked", lambda _b: apply_color((0, 0, 0, 0)))
         right_box.pack_start(transparent_button, False, False, 0)
 
-    eyedropper_button = Gtk.Button(label="Eyedropper")
+    eyedropper_button = Gtk.Button(label=_("Eyedropper"))
 
     def on_eyedropper_clicked(widget):
         start_eyedropper(widget, apply_color, capture_backend=capture_backend)
