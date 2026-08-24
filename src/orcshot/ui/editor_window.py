@@ -3672,12 +3672,13 @@ class EditorWindow(Gtk.Window):
     # task #127/#128 feedback: the old inline version was the single
     # longest line in the whole dialog and the main reason wrapping
     # became necessary at all).
-    # Column 1 (the key/shortcut names below - "Escape", "Ctrl+Z /
-    # Ctrl+Y", etc.) is deliberately left unwrapped, same precedent as
-    # _TOOL_TOOLTIP_SHORTCUTS above: these represent physical
-    # keyboard/mouse inputs, not descriptive UI text, so they stay
-    # fixed regardless of locale. Column 2 (the description) is real
-    # user-facing text and is wrapped.
+    # Column 1: bare key-cap symbols ("Escape", "Ctrl+Z / Ctrl+Y", etc.)
+    # are deliberately left unwrapped, same precedent as
+    # _TOOL_TOOLTIP_SHORTCUTS above - these represent physical keyboard
+    # inputs, not descriptive UI text, so they stay fixed regardless of
+    # locale. "Double-click"/"Click"/"Left-click"/"Right-click" are
+    # different: descriptive English verb phrases, not symbolic key
+    # names, so those ARE wrapped like any other column-2 text below.
     _HELP_SECTIONS = [
         (_("Tools"), [
             ("Escape", _("Select")),
@@ -3699,7 +3700,7 @@ class EditorWindow(Gtk.Window):
         ]),
         (_("Editing"), [
             ("Delete", _("Delete the selected shape")),
-            ("Double-click", _("Re-edit an existing text/speech bubble/emoji shape")),
+            (_("Double-click"), _("Re-edit an existing text/speech bubble/emoji shape")),
             ("Enter", _("Commit a text/speech bubble/emoji edit")),
             ("Escape", _("Cancel a text/speech bubble/emoji edit, or an in-progress crop selection")),
         ]),
@@ -3737,14 +3738,14 @@ class EditorWindow(Gtk.Window):
         if os.environ.get("XDG_SESSION_TYPE") == "wayland":
             why_url = f"{EditorWindow._WIKI_URL}#why-does-the-wayland-tray-icon-only-have-one-click-action"
             return [(
-                "Click",
+                _("Click"),
                 _('Open the tray menu\n(Wayland has no separate click action - '
                   '<a href="{}">Why?</a>)').format(why_url),
                 True,
             )]
         return [
-            ("Left-click", _("Start a region capture immediately")),
-            ("Right-click", _("Open the tray menu")),
+            (_("Left-click"), _("Start a region capture immediately")),
+            (_("Right-click"), _("Open the tray menu")),
         ]
 
     def _do_show_help(self) -> None:
@@ -3775,7 +3776,7 @@ class EditorWindow(Gtk.Window):
         def add_header(text: str) -> None:
             nonlocal row
             label = Gtk.Label()
-            label.set_markup(f"<b>{text}</b>")  # noqa: i18n (markup template only; text is already _()-wrapped at its source)
+            label.set_markup(_("<b>{}</b>").format(text))
             label.set_xalign(0)
             if row > 0:
                 label.set_margin_top(10)
