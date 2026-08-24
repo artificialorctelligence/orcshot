@@ -2024,7 +2024,7 @@ class EditorWindow(Gtk.Window):
         self._obfuscate_mode_items = {}
         item_group_leader = None
         for mode in _OBFUSCATE_MODE_ORDER:
-            label = f"{_OBFUSCATE_MODE_LABELS[mode]} ({_OBFUSCATE_MODE_SECURITY_SUFFIX[mode]})"
+            label = _("{} ({})").format(_OBFUSCATE_MODE_LABELS[mode], _OBFUSCATE_MODE_SECURITY_SUFFIX[mode])
             item = Gtk.RadioMenuItem.new_with_label_from_widget(item_group_leader, label)
             if item_group_leader is None:
                 item_group_leader = item
