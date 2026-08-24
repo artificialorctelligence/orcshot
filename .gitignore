@@ -24,3 +24,6 @@ debian/orcshot.substvars
 
 # VM login credentials for local VBoxManage guestcontrol testing - never committed
 vmpw.txt
+
+# i18n phase 1: generated .pot extraction files
+po/*.pot
