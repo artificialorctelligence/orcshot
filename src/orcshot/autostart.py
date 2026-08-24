@@ -32,9 +32,13 @@ a real enable/disable.
 
 from __future__ import annotations
 
+import os
 import subprocess
+from pathlib import Path
 
 SERVICE_NAME = "orcshot.service"
+
+_LEGACY_DESKTOP_ENTRY_FILENAME = "orcshot.desktop"
 
 
 def is_autostart_enabled() -> bool:
@@ -68,6 +72,29 @@ def enable_autostart() -> None:
     task #151 follow-up) rather than starting a genuine second copy.
     """
     subprocess.run(["systemctl", "--user", "enable", "--now", SERVICE_NAME], check=True)
+
+
+def remove_legacy_autostart_entry(config_home: Path = None) -> None:
+    """Task #180: removes the pre-task-#141 XDG autostart .desktop
+    entry (``$XDG_CONFIG_HOME/autostart/orcshot.desktop``) if one is
+    still present, left over from before this module was rewritten to
+    manage a systemd unit instead of writing that file directly. That
+    migration only ever changed what *new* installs do; an existing
+    install that had autostart enabled before it kept the old file, and
+    GNOME session's own XDG-autostart mechanism launches it
+    independently of - and racing against - orcshot.service at every
+    boot, reproducing task #170's exact orphaned-process symptom from a
+    third launch path #170's own fix never touched. Found live on a
+    real VM reboot, see BACKLOG.md's resolved #180 entry.
+
+    Naturally idempotent (a no-op if the file, or even the whole
+    directory, was never there) so this is safe to call unconditionally
+    on every app startup - unlike ``maybe_seed_default_external_commands``,
+    there's no "already ran once" state to track separately.
+    """
+    if config_home is None:
+        config_home = Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config"))
+    (config_home / "autostart" / _LEGACY_DESKTOP_ENTRY_FILENAME).unlink(missing_ok=True)
 
 
 def disable_autostart() -> None:

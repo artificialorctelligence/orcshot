@@ -7379,11 +7379,45 @@ of individual monitor bounds, and every individual monitor origin is guaranteed 
 "NOT YET verified... bounds.left/top can be negative") was rewritten to state this as a proven guarantee,
 not an open question, with the citation trail.
 
-Deliberately left open, narrow, and low-priority (`BACKLOG.md`'s replacement entry): orcshot's Wayland path
-reads monitor geometry through GDK's compositor-agnostic enumeration (`gdk_screen_layout`), not a
-GNOME-specific API, so a non-GNOME Wayland compositor could in principle use a different coordinate
-convention - not checked, since orcshot's Wayland support is built around a bundled GNOME Shell extension
-and was never a supported target elsewhere.
+Deliberately left open, narrow, and low-priority (`BACKLOG.md` #181, this entry's own narrowed successor):
+orcshot's Wayland path reads monitor geometry through GDK's compositor-agnostic enumeration
+(`gdk_screen_layout`), not a GNOME-specific API, so a non-GNOME Wayland compositor could in principle use a
+different coordinate convention - not checked, since orcshot's Wayland support is built around a bundled
+GNOME Shell extension and was never a supported target elsewhere.
+
+## Task #180: stale pre-migration XDG autostart entry raced orcshot.service at boot (fixed 2026-08-23)
+
+Found live (2026-08-23) as a genuine side effect while verifying task #174 on the Wayland VM, not by
+inspection: a real, reproducible boot-time instance of task #170's exact symptom (`systemctl status`
+showing `inactive`/exited-0 while a real, working, untracked process owns the D-Bus name), but from a
+*different* trigger than #170's own fix covers.
+
+Root cause: `~/.config/autostart/orcshot.desktop` (dated well before task #141's systemd-unit migration,
+`Exec=/usr/bin/orcshot` - a bare exec, plus a stale dev-checkout icon path) was still present on that VM.
+GNOME session's own XDG-autostart mechanism launches it independently of, and racing against,
+`orcshot.service`'s own `WantedBy=graphical-session.target` startup - confirmed live: after a real VM
+reboot, `orcshot.service` itself exited cleanly within 3ms (the *correct*, safe forwarding behavior for a
+second instance losing the race, not a crash), while a separate, systemd-untracked process from the
+autostart entry ended up owning `org.orcshot.Orcshot` on the session bus.
+
+Not a flaw in task #170's own fix - that fix wraps the *current* entry points (the Applications-menu
+`.desktop` file, the four global hotkeys) and correctly prevents *those* from racing. This was a third,
+independent launch path #170 never touched, left over from before `autostart.py` was rewritten (task #141)
+to manage a systemd unit instead of writing its own XDG autostart file. That migration's own docstring
+documented *what* replaced the old mechanism but never mentioned cleaning up a file a previous version had
+already written - any real install that had autostart enabled before that migration carried this exact
+stale file forward, silently, forever.
+
+Fixed with the smallest change that actually closes the gap for already-affected installs, not just new
+ones: `autostart.py` gained `remove_legacy_autostart_entry()` (TDD, `tests/unit/test_autostart.py`, 3 new
+tests), deleting `$XDG_CONFIG_HOME/autostart/orcshot.desktop` if present via `Path.unlink(missing_ok=True)`
+- naturally idempotent, so unlike `maybe_seed_default_external_commands` there's no separate "already ran"
+flag to persist. Considered gating it behind `enable_autostart()`/`disable_autostart()` (only firing on an
+explicit Preferences checkbox toggle) but rejected that: a user who already has the stale file and never
+touches that checkbox again would keep racing at every boot forever, which wouldn't actually fix the bug for
+the affected population. Called unconditionally from `app.py`'s `do_startup`, next to
+`maybe_seed_default_external_commands()`'s own "must run regardless of whether the user ever opens
+Preferences" call. Full suite green (1124 passed, 3 skipped).
 
 ## Licensing
 

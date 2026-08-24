@@ -55,6 +55,7 @@ from orcshot.ui.capture_modes import (
     start_full_screen_capture,
     start_last_region_capture,
 )
+from orcshot.autostart import remove_legacy_autostart_entry
 from orcshot.resources import LOGO_PATH
 from orcshot.ui.external_commands import maybe_seed_default_external_commands
 from orcshot.ui.first_run_setup import maybe_run_first_run_setup
@@ -206,6 +207,13 @@ class OrcshotApplication(Gtk.Application):
         # whether the user ever engages with the first-run wizard at
         # all (direflail's own explicit call).
         maybe_seed_default_external_commands()
+        # Task #180: cleans up a stale pre-task-#141 autostart .desktop
+        # entry, if one is still there, on every startup - naturally
+        # idempotent (a no-op once removed), so unlike the seed call
+        # above it doesn't need its own "already ran" flag, and it must
+        # run for existing installs regardless of whether the user ever
+        # touches the Preferences autostart checkbox again.
+        remove_legacy_autostart_entry()
         self._recheck_tray_icon_after_extension_change()
 
         # "app.open-uri" backs every notification's default (click)

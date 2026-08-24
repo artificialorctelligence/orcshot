@@ -53,57 +53,15 @@ testing specifically - real Wayland hardware, or a non-VM Wayland session,
 wouldn't hit this at all, so it may only ever matter for this project's own
 dev-testing setup, not real users.
 
-## #180: Stale pre-migration XDG autostart entry races orcshot.service at boot
+## #181: Crop-offset origin assumption unverified specifically for non-GNOME Wayland compositors
 
-Found live (2026-08-23) as a genuine side effect while verifying task #174 on the Wayland VM, not by
-inspection - a real, reproducible boot-time instance of task #170's exact symptom (`systemctl status`
-showing `inactive`/exited-0 while a real, working, untracked process owns the D-Bus name), but from a
-*different* trigger than #170's own fix covers.
-
-Root cause: `~/.config/autostart/orcshot.desktop` (dated well before task #141's systemd-unit migration,
-`Exec=/usr/bin/orcshot` - a bare exec, plus a stale dev-checkout icon path) was still present on this VM.
-GNOME session's own XDG-autostart mechanism launches it independently of, and racing against,
-`orcshot.service`'s own `WantedBy=graphical-session.target` startup - confirmed live: after a real VM
-reboot, `orcshot.service` itself exited cleanly within 3ms (the *correct*, safe forwarding behavior for a
-second instance losing the race - not a crash), while a separate, systemd-untracked process from the
-autostart entry ended up owning `org.orcshot.Orcshot` on the session bus.
-
-Not a flaw in task #170's own fix - that fix wraps the *current* entry points (the Applications-menu
-`.desktop` file, the four global hotkeys), and correctly prevents *those* from racing. This is a third,
-independent launch path task #170 never touched, left over from before `autostart.py` was rewritten to
-manage a systemd unit instead of writing its own XDG autostart file. `autostart.py`'s own docstring
-("Unlike the .desktop-writing functions this replaces...") documents *what* replaced the old mechanism but
-never mentions cleaning up an old file a previous version had already written - any real install that had
-autostart enabled before that migration would carry this exact stale file forward, silently, forever.
-
-Likely direction: `enable_autostart()`/`disable_autostart()` (or a one-time migration step alongside
-`maybe_seed_default_external_commands`'s own pattern) should remove `~/.config/autostart/orcshot.desktop`
-if it exists, not just leave the systemd unit as the only *new* mechanism. Cleaned up manually on this one
-VM to unblock #174's own testing; not fixed in code.
-
-## #175 RESOLVED (2026-08-23): non-GNOME Wayland compositors unverified for the crop-offset origin assumption
-
-Was: "crop-offset origin assumption never verified against real hardware" - the long-standing concern
-(restated at least five times across `REQUIREMENTS.md`, `## Task #49` status entry included) that
-`capture/wayland.py`'s `_crop_to_rect` assumes the portal's screenshot starts at `bounds.left`/`bounds.top`,
-untestable because this project's only Wayland rig was a single-monitor VM.
-
-Closed for GNOME: set up a real 2-monitor Wayland session (VirtualBox `setscreenlayout`, `monitorcount=2`)
-and drove Mutter's own `org.gnome.Mutter.DisplayConfig.ApplyMonitorsConfig` directly to attempt a
-negative-origin arrangement. It was rejected live - `"Invalid logical monitor position (-1366, 0)"` -
-which traces to Mutter's own `meta_verify_logical_monitor_config` (confirmed against upstream Mutter
-source): any logical monitor with x<0 or y<0 is refused outright, unconditionally, before any layout is
-even applied. Since `ScreenLayout.virtual_bounds` (`capture/backend.py`) is the union of individual
-monitor bounds, and Mutter guarantees every individual monitor origin is non-negative, `bounds.left`/
-`bounds.top` can never be negative on GNOME either - the exact case `_crop_to_rect`'s old comment worried
-about is structurally impossible there, not just untested. Comment updated in `wayland.py` to state this
-as a proven guarantee instead of an open question.
-
-Residual, deliberately narrow: orcshot's Wayland capture path goes through GDK's compositor-agnostic
-monitor enumeration (`gdk_screen_layout`), not a GNOME-specific API, so in principle a different Wayland
-compositor (KWin, a wlroots-based one) could report a different coordinate convention - not checked, and
-not urgent, since orcshot's Wayland support is built around a bundled GNOME Shell extension and isn't a
-supported target on other compositors anyway.
+Narrowed successor to the old #175 (closed for GNOME - see REQUIREMENTS.md's Task #175 entry for the full
+resolution). `capture/wayland.py`'s Wayland path reads monitor geometry through GDK's compositor-agnostic
+enumeration (`gdk_screen_layout`), not a GNOME-specific API, so in principle a different Wayland compositor
+(KWin, a wlroots-based one) could use a different coordinate convention for `bounds.left`/`bounds.top` than
+Mutter's proven-always-non-negative guarantee. Not checked, and not urgent: orcshot's Wayland support is
+built around a bundled GNOME Shell extension and isn't a supported target on other compositors anyway -
+revisit only if that ever changes.
 
 ## #176: Cross-monitor drag continuity (region-select/eyedropper/window-picker) never verified on real Wayland hardware
 
