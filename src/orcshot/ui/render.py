@@ -315,7 +315,7 @@ def _pango_layout(ctx: cairo.Context, text: str, family: str, size: float, bold:
     weight = "Bold " if bold else ""
     slant = "Italic " if italic else ""
     layout.set_font_description(Pango.FontDescription.from_string(f"{family} {weight}{slant}{size}"))
-    layout.set_text(text, -1)
+    layout.set_text(text, -1)  # noqa: i18n (user-typed annotation text, not UI chrome)
     layout.set_alignment(_PANGO_ALIGNMENT[alignment])
     layout.set_wrap(Pango.WrapMode.WORD_CHAR)
     layout.set_width(max(0, int(width_px * Pango.SCALE)))

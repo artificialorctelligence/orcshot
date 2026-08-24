@@ -48,6 +48,7 @@ from gi.repository import Gtk, Pango, PangoCairo
 
 from orcshot.core.effects import grayscale_image, invert_image, monochrome_image, rotate_90_image
 from orcshot.core.print_layout import compute_print_layout
+from orcshot.i18n import _
 from orcshot.settings import PrintOptions, get_footer_pattern, get_print_options, set_print_options
 from orcshot.ui.cairo_convert import numpy_to_cairo_surface
 
@@ -97,7 +98,7 @@ def _footer_layout(context, text: str):
     # canvas) would size the footer text wrong against a real printer's
     # resolution.
     layout = context.create_pango_layout()
-    layout.set_text(text, -1)
+    layout.set_text(text, -1)  # noqa: i18n (user-typed annotation text, not UI chrome)
     font_desc = Pango.FontDescription()
     font_desc.set_family(_FOOTER_FONT_FAMILY)
     font_desc.set_size(_FOOTER_FONT_SIZE_PT * Pango.SCALE)
@@ -153,31 +154,31 @@ def _show_print_options_dialog(parent: Gtk.Window, options: PrintOptions) -> Pri
     (full color / grayscale / monochrome radios + an independent
     invert checkbox), plus "don't ask again".
     """
-    dialog = Gtk.Dialog(title="Orcshot print options", transient_for=parent)
+    dialog = Gtk.Dialog(title=_("Orcshot print options"), transient_for=parent)
     dialog.add_buttons(Gtk.STOCK_CANCEL, Gtk.ResponseType.CANCEL, Gtk.STOCK_OK, Gtk.ResponseType.OK)
     content = dialog.get_content_area()
     content.set_border_width(12)
     content.set_spacing(10)
 
-    layout_frame = Gtk.Frame(label="Page layout settings")
+    layout_frame = Gtk.Frame(label=_("Page layout settings"))
     layout_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
     layout_box.set_border_width(8)
-    shrink_check = Gtk.CheckButton(label="Shrink printout to fit paper size")
+    shrink_check = Gtk.CheckButton(label=_("Shrink printout to fit paper size"))
     shrink_check.set_active(options.allow_shrink)
-    enlarge_check = Gtk.CheckButton(label="Enlarge printout to fit paper size")
+    enlarge_check = Gtk.CheckButton(label=_("Enlarge printout to fit paper size"))
     enlarge_check.set_active(options.allow_enlarge)
-    rotate_check = Gtk.CheckButton(label="Rotate printout to page orientation")
+    rotate_check = Gtk.CheckButton(label=_("Rotate printout to page orientation"))
     rotate_check.set_active(options.allow_rotate)
-    center_check = Gtk.CheckButton(label="Center printout on page")
+    center_check = Gtk.CheckButton(label=_("Center printout on page"))
     center_check.set_active(options.center)
-    footer_check = Gtk.CheckButton(label="Print date / time at bottom of page")
+    footer_check = Gtk.CheckButton(label=_("Print date / time at bottom of page"))
     footer_check.set_active(options.footer)
     for widget in (shrink_check, enlarge_check, rotate_check, center_check, footer_check):
         layout_box.pack_start(widget, False, False, 0)
     layout_frame.add(layout_box)
     content.pack_start(layout_frame, False, False, 0)
 
-    color_frame = Gtk.Frame(label="Color settings")
+    color_frame = Gtk.Frame(label=_("Color settings"))
     color_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
     color_box.set_border_width(8)
     color_radio = Gtk.RadioButton.new_with_label(None, "Full color print")
@@ -189,14 +190,14 @@ def _show_print_options_dialog(parent: Gtk.Window, options: PrintOptions) -> Pri
         grayscale_radio.set_active(True)
     else:
         color_radio.set_active(True)
-    invert_check = Gtk.CheckButton(label="Print with inverted colors")
+    invert_check = Gtk.CheckButton(label=_("Print with inverted colors"))
     invert_check.set_active(options.inverted)
     for widget in (color_radio, grayscale_radio, monochrome_radio, invert_check):
         color_box.pack_start(widget, False, False, 0)
     color_frame.add(color_box)
     content.pack_start(color_frame, False, False, 0)
 
-    dont_ask_check = Gtk.CheckButton(label="Save options as default and do not ask again")
+    dont_ask_check = Gtk.CheckButton(label=_("Save options as default and do not ask again"))
     dont_ask_check.set_active(False)
     content.pack_start(dont_ask_check, False, False, 0)
 
