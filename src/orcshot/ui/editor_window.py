@@ -4391,7 +4391,7 @@ class EditorWindow(Gtk.Window):
         bar.set_border_width(2)
 
         img_h, img_w = self._base_image.shape[:2]
-        self._dimensions_label = Gtk.Label(label=f"{img_w} x {img_h}")
+        self._dimensions_label = Gtk.Label(label=f"{img_w} x {img_h}")  # noqa: i18n (numeric only)
         bar.pack_start(self._dimensions_label, False, False, 4)
 
         zoom_menu = Gtk.Menu()
@@ -4488,7 +4488,7 @@ class EditorWindow(Gtk.Window):
 
     def _do_remove_transparency(self) -> None:
         self._commit_text_editing_if_active()
-        dialog = Gtk.ColorChooserDialog(title="Remove Transparency", transient_for=self)
+        dialog = Gtk.ColorChooserDialog(title=_("Remove Transparency"), transient_for=self)
         dialog.set_use_alpha(False)
         try:
             if dialog.run() != Gtk.ResponseType.OK:
@@ -4513,22 +4513,22 @@ class EditorWindow(Gtk.Window):
         """
         self._commit_text_editing_if_active()
         h, w = self._base_image.shape[:2]
-        dialog = Gtk.Dialog(title="Resize Image", transient_for=self)
+        dialog = Gtk.Dialog(title=_("Resize Image"), transient_for=self)
         dialog.add_buttons(Gtk.STOCK_CANCEL, Gtk.ResponseType.CANCEL, Gtk.STOCK_OK, Gtk.ResponseType.OK)
         content = dialog.get_content_area()
         content.set_border_width(12)
         content.set_spacing(6)
 
         grid = Gtk.Grid(row_spacing=6, column_spacing=6)
-        grid.attach(Gtk.Label(label="Width:"), 0, 0, 1, 1)
+        grid.attach(Gtk.Label(label=_("Width:")), 0, 0, 1, 1)
         width_spin = Gtk.SpinButton.new_with_range(1, 10000, 1)
         width_spin.set_value(w)
         grid.attach(width_spin, 1, 0, 1, 1)
-        grid.attach(Gtk.Label(label="Height:"), 0, 1, 1, 1)
+        grid.attach(Gtk.Label(label=_("Height:")), 0, 1, 1, 1)
         height_spin = Gtk.SpinButton.new_with_range(1, 10000, 1)
         height_spin.set_value(h)
         grid.attach(height_spin, 1, 1, 1, 1)
-        aspect_check = Gtk.CheckButton(label="Maintain aspect ratio")
+        aspect_check = Gtk.CheckButton(label=_("Maintain aspect ratio"))
         aspect_check.set_active(True)
         grid.attach(aspect_check, 0, 2, 2, 1)
         content.pack_start(grid, False, False, 0)
@@ -4577,27 +4577,27 @@ class EditorWindow(Gtk.Window):
     def _do_drop_shadow_settings(self) -> None:
         self._commit_text_editing_if_active()
         settings = self._drop_shadow_settings
-        dialog = Gtk.Dialog(title="Drop Shadow Settings", transient_for=self)
+        dialog = Gtk.Dialog(title=_("Drop Shadow Settings"), transient_for=self)
         dialog.add_buttons(Gtk.STOCK_CANCEL, Gtk.ResponseType.CANCEL, Gtk.STOCK_OK, Gtk.ResponseType.OK)
         content = dialog.get_content_area()
         content.set_border_width(12)
         content.set_spacing(6)
 
         grid = Gtk.Grid(row_spacing=6, column_spacing=6)
-        grid.attach(Gtk.Label(label="Darkness:"), 0, 0, 1, 1)
+        grid.attach(Gtk.Label(label=_("Darkness:")), 0, 0, 1, 1)
         darkness_spin = Gtk.SpinButton.new_with_range(0, 1, 0.05)
         darkness_spin.set_digits(2)
         darkness_spin.set_value(settings["darkness"])
         grid.attach(darkness_spin, 1, 0, 1, 1)
-        grid.attach(Gtk.Label(label="Size:"), 0, 1, 1, 1)
+        grid.attach(Gtk.Label(label=_("Size:")), 0, 1, 1, 1)
         size_spin = Gtk.SpinButton.new_with_range(1, 50, 1)
         size_spin.set_value(settings["size"])
         grid.attach(size_spin, 1, 1, 1, 1)
-        grid.attach(Gtk.Label(label="Offset X:"), 0, 2, 1, 1)
+        grid.attach(Gtk.Label(label=_("Offset X:")), 0, 2, 1, 1)
         offset_x_spin = Gtk.SpinButton.new_with_range(-50, 50, 1)
         offset_x_spin.set_value(settings["offset"][0])
         grid.attach(offset_x_spin, 1, 2, 1, 1)
-        grid.attach(Gtk.Label(label="Offset Y:"), 0, 3, 1, 1)
+        grid.attach(Gtk.Label(label=_("Offset Y:")), 0, 3, 1, 1)
         offset_y_spin = Gtk.SpinButton.new_with_range(-50, 50, 1)
         offset_y_spin.set_value(settings["offset"][1])
         grid.attach(offset_y_spin, 1, 3, 1, 1)
@@ -4628,28 +4628,28 @@ class EditorWindow(Gtk.Window):
     def _do_torn_edge_settings(self) -> None:
         self._commit_text_editing_if_active()
         settings = self._torn_edge_settings
-        dialog = Gtk.Dialog(title="Torn Edge Settings", transient_for=self)
+        dialog = Gtk.Dialog(title=_("Torn Edge Settings"), transient_for=self)
         dialog.add_buttons(Gtk.STOCK_CANCEL, Gtk.ResponseType.CANCEL, Gtk.STOCK_OK, Gtk.ResponseType.OK)
         content = dialog.get_content_area()
         content.set_border_width(12)
         content.set_spacing(6)
 
         grid = Gtk.Grid(row_spacing=6, column_spacing=6)
-        grid.attach(Gtk.Label(label="Tooth height:"), 0, 0, 1, 1)
+        grid.attach(Gtk.Label(label=_("Tooth height:")), 0, 0, 1, 1)
         tooth_spin = Gtk.SpinButton.new_with_range(1, 50, 1)
         tooth_spin.set_value(settings["tooth_height"])
         grid.attach(tooth_spin, 1, 0, 1, 1)
-        grid.attach(Gtk.Label(label="Horizontal tooth range:"), 0, 1, 1, 1)
+        grid.attach(Gtk.Label(label=_("Horizontal tooth range:")), 0, 1, 1, 1)
         h_range_spin = Gtk.SpinButton.new_with_range(2, 200, 1)
         h_range_spin.set_value(settings["horizontal_tooth_range"])
         grid.attach(h_range_spin, 1, 1, 1, 1)
-        grid.attach(Gtk.Label(label="Vertical tooth range:"), 0, 2, 1, 1)
+        grid.attach(Gtk.Label(label=_("Vertical tooth range:")), 0, 2, 1, 1)
         v_range_spin = Gtk.SpinButton.new_with_range(2, 200, 1)
         v_range_spin.set_value(settings["vertical_tooth_range"])
         grid.attach(v_range_spin, 1, 2, 1, 1)
         content.pack_start(grid, False, False, 0)
 
-        edge_labels = ("Top", "Right", "Bottom", "Left")
+        edge_labels = (_("Top"), _("Right"), _("Bottom"), _("Left"))
         edge_checks = []
         edge_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
         for label, enabled in zip(edge_labels, settings["edges"]):
@@ -4659,7 +4659,7 @@ class EditorWindow(Gtk.Window):
             edge_box.pack_start(check, False, False, 0)
         content.pack_start(edge_box, False, False, 0)
 
-        shadow_check = Gtk.CheckButton(label="Generate shadow")
+        shadow_check = Gtk.CheckButton(label=_("Generate shadow"))
         shadow_check.set_active(settings["generate_shadow"])
         content.pack_start(shadow_check, False, False, 0)
 
@@ -5226,9 +5226,9 @@ class EditorWindow(Gtk.Window):
         # event.
         dialog = Gtk.MessageDialog(
             transient_for=self, modal=True, message_type=Gtk.MessageType.OTHER,
-            buttons=Gtk.ButtonsType.NONE, text="Do you want to save the screenshot?",
+            buttons=Gtk.ButtonsType.NONE, text=_("Do you want to save the screenshot?"),
         )
-        dialog.set_title("Save image?")
+        dialog.set_title(_("Save image?"))
         dialog.add_buttons(
             "Yes", Gtk.ResponseType.YES,
             "No", Gtk.ResponseType.NO,
