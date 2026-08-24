@@ -157,6 +157,34 @@ Confirms the `# noqa: i18n` escape hatch isn't just theoretical: `editor_window.
 `dialog.set_program_name("Orcshot")` matches this sink shape but is a proper noun that must
 never be translated - a real example of a string that needs the exemption, not a wrap.
 
+**A more serious false-positive found during implementation planning:** `set_text` as a bare
+method name is too broad a sink signal on its own. `render.py`/`printing.py`'s
+`layout.set_text(text, -1)` is `Pango.Layout.set_text()` rendering the *user's own typed
+annotation text* onto the canvas, not application UI chrome - wrapping it would try to
+`gettext`-translate arbitrary user content, which is nonsensical and would silently corrupt
+behavior once a real catalog exists. `destination_picker.py`'s
+`Gtk.Clipboard.get_default(...).set_text(str(path), -1)` is the same method name copying a
+*file path* to the clipboard - also not translatable text. Both share the identical method
+name with the legitimate `Gtk.Entry`/`Gtk.Label` UI-chrome sinks, so a name-only AST matcher
+can't distinguish them without real type inference. Resolution: these specific call sites get
+an explicit `# noqa: i18n` with a stated reason, rather than teaching the scanner
+receiver-type inference - two known, permanent exceptions are simpler than a more complex
+scanner for a distinction that doesn't otherwise come up.
+
+Also excluded on the same "not natural language" grounds as the Cairo `show_text` coordinate
+overlays already covered under "explicitly not wrapped": purely numeric labels like
+`editor_window.py`'s `Gtk.Label(label=f"{img_w} x {img_h}")` (image dimensions) and its zoom
+percentage label - digits and punctuation only, nothing for a translator to translate.
+
+Several sink call sites take the return value of a helper function
+(`self._obfuscate_amount_label_text(amount_tool)`, `zoom_percent_label(self._zoom)`,
+`self._highlight_mode_label(...)`) rather than a literal directly - for these, the actual
+wrap (or exclusion, if it turns out to be numeric-only like the zoom/dimensions labels above)
+belongs inside the helper function's own definition, not at the widget-construction call
+site. The sweep needs to trace every non-literal argument at a sink call site back to its
+source before deciding wrap vs. exclude, not just skip anything that isn't a bare string
+literal.
+
 The AST walker flags any string-literal argument at one of these sink call sites that isn't
 wrapped in `_()`/`ngettext()` (or a `.format()` call on one, for the f-string-conversion
 case) and isn't exempted via an inline `# noqa: i18n` comment on that line - the same
