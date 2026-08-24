@@ -2832,18 +2832,18 @@ class EditorWindow(Gtk.Window):
         # plus its own real Windows controls (blurRadiusUpDown/
         # brightnessUpDown/magnificationFactorUpDown, ImageEditorForm.
         # Designer.cs) that Obfuscate has no equivalent of.
-        highlight_mode_label = Gtk.Label(label="Mode:")
+        highlight_mode_label = Gtk.Label(label=_("Mode:"))
         self._highlight_mode_button = Gtk.MenuButton(label=self._highlight_mode_label(self._default_highlight_mode))
         self._highlight_mode_button.set_popup(self._build_highlight_mode_menu())
         add_cell(STYLE_FIELD_HIGHLIGHT_MODE, highlight_mode_label, self._highlight_mode_button)
 
-        highlight_fill_label = Gtk.Label(label="Fill:")
+        highlight_fill_label = Gtk.Label(label=_("Fill:"))
         highlight_fill_button, self._highlight_fill_swatch = self._build_highlight_fill_button(
             self._active_highlight_fill_color, self._on_highlight_fill_color_changed,
         )
         add_cell(STYLE_FIELD_HIGHLIGHT_FILL_COLOR, highlight_fill_label, highlight_fill_button)
 
-        brightness_label = Gtk.Label(label="Brightness:")
+        brightness_label = Gtk.Label(label=_("Brightness:"))
         brightness_adjustment = Gtk.Adjustment(
             value=self._default_highlight_brightness, lower=0.0, upper=1.0, step_increment=0.05,
         )
@@ -2851,7 +2851,7 @@ class EditorWindow(Gtk.Window):
         self._highlight_brightness_spin.connect("value-changed", self._on_highlight_brightness_changed)
         add_cell(STYLE_FIELD_HIGHLIGHT_BRIGHTNESS, brightness_label, self._highlight_brightness_spin)
 
-        blur_radius_label = Gtk.Label(label="Blur Radius:")
+        blur_radius_label = Gtk.Label(label=_("Blur Radius:"))
         blur_radius_adjustment = Gtk.Adjustment(
             value=self._default_highlight_blur_radius, lower=1, upper=50, step_increment=1,
         )
@@ -2862,7 +2862,7 @@ class EditorWindow(Gtk.Window):
         # "Amount:" (task #106), not "Magnification:" - redundant with
         # the mode's own name right next to it (paralleling Obfuscate's
         # Pixelize/Blur amount field, already just called "Amount").
-        magnification_label = Gtk.Label(label="Amount:")
+        magnification_label = Gtk.Label(label=_("Amount:"))
         magnification_adjustment = Gtk.Adjustment(
             value=self._default_highlight_magnification, lower=2, upper=10, step_increment=1,
         )
@@ -2873,7 +2873,7 @@ class EditorWindow(Gtk.Window):
         # Crop's own Mode cell (task #91) - mirrors Obfuscate/Highlight's
         # own Mode dropdowns exactly (real cropModeButton also lives in
         # propertiesToolStrip, not attached to btnCrop).
-        crop_mode_label = Gtk.Label(label="Mode:")
+        crop_mode_label = Gtk.Label(label=_("Mode:"))
         self._crop_mode_button = Gtk.MenuButton(label=_CROP_MODE_LABELS[self._default_crop_mode])
         self._crop_mode_button.set_popup(self._build_crop_mode_menu())
         add_cell(STYLE_FIELD_CROP_MODE, crop_mode_label, self._crop_mode_button)
@@ -2899,11 +2899,11 @@ class EditorWindow(Gtk.Window):
         self._crop_confirm_cell = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
         confirm_button = Gtk.Button()
         confirm_button.set_image(stock_icon_image("emblem-ok-symbolic", icon_color, size=16))
-        confirm_button.set_tooltip_text("Confirm")
+        confirm_button.set_tooltip_text(_("Confirm"))
         confirm_button.connect("clicked", lambda _b: self._confirm_crop())
         cancel_button = Gtk.Button()
         cancel_button.set_image(stock_icon_image("action-unavailable-symbolic", icon_color, size=16))
-        cancel_button.set_tooltip_text("Cancel (Esc)")
+        cancel_button.set_tooltip_text(_("Cancel (Esc)"))
         cancel_button.connect("clicked", lambda _b: self._cancel_crop())
         self._crop_confirm_cell.pack_start(confirm_button, False, False, 0)
         self._crop_confirm_cell.pack_start(cancel_button, False, False, 0)
@@ -3273,7 +3273,7 @@ class EditorWindow(Gtk.Window):
         extension rather than claiming to write a real .gst file.
         """
         self._commit_text_editing_if_active()
-        dialog = Gtk.FileChooserDialog(title="Save Objects", transient_for=self, action=Gtk.FileChooserAction.SAVE)
+        dialog = Gtk.FileChooserDialog(title=_("Save Objects"), transient_for=self, action=Gtk.FileChooserAction.SAVE)
         dialog.add_buttons(Gtk.STOCK_CANCEL, Gtk.ResponseType.CANCEL, Gtk.STOCK_SAVE, Gtk.ResponseType.OK)
         dialog.set_current_folder(str(get_output_directory()))
         dialog.set_current_name("objects.json")
@@ -3308,7 +3308,7 @@ class EditorWindow(Gtk.Window):
         behavior.
         """
         self._commit_text_editing_if_active()
-        dialog = Gtk.FileChooserDialog(title="Load Objects", transient_for=self, action=Gtk.FileChooserAction.OPEN)
+        dialog = Gtk.FileChooserDialog(title=_("Load Objects"), transient_for=self, action=Gtk.FileChooserAction.OPEN)
         dialog.add_buttons(Gtk.STOCK_CANCEL, Gtk.ResponseType.CANCEL, Gtk.STOCK_OPEN, Gtk.ResponseType.OK)
         object_filter = Gtk.FileFilter()
         object_filter.set_name("Orcshot objects")
@@ -3327,7 +3327,7 @@ class EditorWindow(Gtk.Window):
         except InvalidOrcshotFileError as exc:
             error_dialog = Gtk.MessageDialog(
                 transient_for=self, message_type=Gtk.MessageType.ERROR, buttons=Gtk.ButtonsType.OK,
-                text="Couldn't load objects",
+                text=_("Couldn't load objects"),
             )
             error_dialog.format_secondary_text(str(exc))
             error_dialog.run()
@@ -3403,7 +3403,7 @@ class EditorWindow(Gtk.Window):
 
         format_combo.connect("changed", on_format_changed)
         extra = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
-        extra.pack_start(Gtk.Label(label="Save as type:"), False, False, 0)
+        extra.pack_start(Gtk.Label(label=_("Save as type:")), False, False, 0)
         extra.pack_start(format_combo, False, False, 0)
         extra.show_all()
         dialog.set_extra_widget(extra)
@@ -3429,7 +3429,7 @@ class EditorWindow(Gtk.Window):
                     save_image_to_file(self._composited_image(), path, jpeg_quality=jpeg_quality)
                 self._saved_generation = self.undo_redo.generation
                 if output_settings.copy_path_to_clipboard:
-                    Gtk.Clipboard.get_default(self.get_display()).set_text(str(path), -1)
+                    Gtk.Clipboard.get_default(self.get_display()).set_text(str(path), -1)  # noqa: i18n (clipboard data, not UI text)
                 saved = True
         finally:
             dialog.destroy()
@@ -3456,7 +3456,7 @@ class EditorWindow(Gtk.Window):
         trigger it at all, so nothing was dropped by folding it in.
         """
         self._commit_text_editing_if_active()
-        dialog = Gtk.FileChooserDialog(title="Insert Image", transient_for=self, action=Gtk.FileChooserAction.OPEN)
+        dialog = Gtk.FileChooserDialog(title=_("Insert Image"), transient_for=self, action=Gtk.FileChooserAction.OPEN)
         dialog.add_buttons(Gtk.STOCK_CANCEL, Gtk.ResponseType.CANCEL, Gtk.STOCK_OPEN, Gtk.ResponseType.OK)
         image_filter = Gtk.FileFilter()
         image_filter.set_name("Images")
@@ -3486,7 +3486,7 @@ class EditorWindow(Gtk.Window):
         SVG support as a generic IFileFormatHandler too
         (SvgFileFormatHandler.cs), not a dedicated toolbar tool."""
         self._commit_text_editing_if_active()
-        dialog = Gtk.FileChooserDialog(title="Insert SVG", transient_for=self, action=Gtk.FileChooserAction.OPEN)
+        dialog = Gtk.FileChooserDialog(title=_("Insert SVG"), transient_for=self, action=Gtk.FileChooserAction.OPEN)
         dialog.add_buttons(Gtk.STOCK_CANCEL, Gtk.ResponseType.CANCEL, Gtk.STOCK_OPEN, Gtk.ResponseType.OK)
         svg_filter = Gtk.FileFilter()
         svg_filter.set_name("SVG images")
@@ -3632,10 +3632,12 @@ class EditorWindow(Gtk.Window):
         if command is None:
             dialog = Gtk.MessageDialog(
                 transient_for=self, message_type=Gtk.MessageType.INFO, buttons=Gtk.ButtonsType.OK,
-                text="No external image editor found",
+                text=_("No external image editor found"),
             )
             names = ", ".join(name for name, _, _ in _EXTERNAL_EDITOR_CANDIDATES)
-            dialog.format_secondary_text(f"Tried: {names} (checked both PATH and Flatpak). Install one of these to use this button.")
+            dialog.format_secondary_text(
+                _("Tried: {} (checked both PATH and Flatpak). Install one of these to use this button.").format(names)
+            )
             dialog.run()
             dialog.destroy()
             return
@@ -3670,47 +3672,53 @@ class EditorWindow(Gtk.Window):
     # task #127/#128 feedback: the old inline version was the single
     # longest line in the whole dialog and the main reason wrapping
     # became necessary at all).
+    # Column 1 (the key/shortcut names below - "Escape", "Ctrl+Z /
+    # Ctrl+Y", etc.) is deliberately left unwrapped, same precedent as
+    # _TOOL_TOOLTIP_SHORTCUTS above: these represent physical
+    # keyboard/mouse inputs, not descriptive UI text, so they stay
+    # fixed regardless of locale. Column 2 (the description) is real
+    # user-facing text and is wrapped.
     _HELP_SECTIONS = [
-        ("Tools", [
-            ("Escape", "Select"),
-            ("R", "Rectangle"),
-            ("E", "Ellipse"),
-            ("L", "Line"),
-            ("F", "Freehand"),
-            ("A", "Arrow"),
-            ("T", "Text"),
-            ("S", "Speech Bubble"),
-            ("I", "Step Label"),
-            ("H", "Highlight (whichever mode was last prepared)"),
-            ("O", "Obfuscate (whichever mode was last prepared)"),
-            ("C", "Crop (whichever mode was last prepared)"),
-            ("M", "Emoji"),
-            ("Z", "Resize (a whole-image effect, not a drawing tool)"),
-            ("", f'For details on each tool\'s sub-modes, see the '
-                 f'<a href="{_WIKI_URL}#tools-and-their-sub-modes">wiki</a>.', True),
+        (_("Tools"), [
+            ("Escape", _("Select")),
+            ("R", _("Rectangle")),
+            ("E", _("Ellipse")),
+            ("L", _("Line")),
+            ("F", _("Freehand")),
+            ("A", _("Arrow")),
+            ("T", _("Text")),
+            ("S", _("Speech Bubble")),
+            ("I", _("Step Label")),
+            ("H", _("Highlight (whichever mode was last prepared)")),
+            ("O", _("Obfuscate (whichever mode was last prepared)")),
+            ("C", _("Crop (whichever mode was last prepared)")),
+            ("M", _("Emoji")),
+            ("Z", _("Resize (a whole-image effect, not a drawing tool)")),
+            ("", _('For details on each tool\'s sub-modes, see the '
+                   '<a href="{}">wiki</a>.').format(_WIKI_URL + "#tools-and-their-sub-modes"), True),
         ]),
-        ("Editing", [
-            ("Delete", "Delete the selected shape"),
-            ("Double-click", "Re-edit an existing text/speech bubble/emoji shape"),
-            ("Enter", "Commit a text/speech bubble/emoji edit"),
-            ("Escape", "Cancel a text/speech bubble/emoji edit, or an in-progress crop selection"),
+        (_("Editing"), [
+            ("Delete", _("Delete the selected shape")),
+            ("Double-click", _("Re-edit an existing text/speech bubble/emoji shape")),
+            ("Enter", _("Commit a text/speech bubble/emoji edit")),
+            ("Escape", _("Cancel a text/speech bubble/emoji edit, or an in-progress crop selection")),
         ]),
-        ("Actions", [
-            ("Ctrl+Z / Ctrl+Y", "Undo / Redo"),
-            ("Ctrl+C", "Copy the whole image to the clipboard"),
-            ("Ctrl+S", "Save"),
-            ("Ctrl+P", "Print"),
-            ("Ctrl+B", "Add Border"),
-            ("Ctrl+Q", "Add Drop Shadow"),
-            ("Ctrl+T", "Add Torn Edge"),
-            ("Ctrl+G", "Grayscale"),
-            ("Ctrl+I", "Invert Colors"),
-            ("Ctrl+Delete", "Clear (transparent background)"),
-            ("Ctrl+, / Ctrl+.", "Rotate counterclockwise / clockwise"),
-            ("Ctrl+ +/-", "Zoom in / out"),
-            ("Ctrl+Shift+ +/-", "Enlarge / shrink canvas"),
-            ("Ctrl+0", "Zoom to actual size"),
-            ("Ctrl+9", "Zoom to best fit"),
+        (_("Actions"), [
+            ("Ctrl+Z / Ctrl+Y", _("Undo / Redo")),
+            ("Ctrl+C", _("Copy the whole image to the clipboard")),
+            ("Ctrl+S", _("Save")),
+            ("Ctrl+P", _("Print")),
+            ("Ctrl+B", _("Add Border")),
+            ("Ctrl+Q", _("Add Drop Shadow")),
+            ("Ctrl+T", _("Add Torn Edge")),
+            ("Ctrl+G", _("Grayscale")),
+            ("Ctrl+I", _("Invert Colors")),
+            ("Ctrl+Delete", _("Clear (transparent background)")),
+            ("Ctrl+, / Ctrl+.", _("Rotate counterclockwise / clockwise")),
+            ("Ctrl+ +/-", _("Zoom in / out")),
+            ("Ctrl+Shift+ +/-", _("Enlarge / shrink canvas")),
+            ("Ctrl+0", _("Zoom to actual size")),
+            ("Ctrl+9", _("Zoom to best fit")),
         ]),
     ]
 
@@ -3730,17 +3738,18 @@ class EditorWindow(Gtk.Window):
             why_url = f"{EditorWindow._WIKI_URL}#why-does-the-wayland-tray-icon-only-have-one-click-action"
             return [(
                 "Click",
-                f'Open the tray menu\n(Wayland has no separate click action - <a href="{why_url}">Why?</a>)',
+                _('Open the tray menu\n(Wayland has no separate click action - '
+                  '<a href="{}">Why?</a>)').format(why_url),
                 True,
             )]
         return [
-            ("Left-click", "Start a region capture immediately"),
-            ("Right-click", "Open the tray menu"),
+            ("Left-click", _("Start a region capture immediately")),
+            ("Right-click", _("Open the tray menu")),
         ]
 
     def _do_show_help(self) -> None:
         self._commit_text_editing_if_active()
-        dialog = Gtk.Dialog(title="Orcshot Help", transient_for=self)
+        dialog = Gtk.Dialog(title=_("Orcshot Help"), transient_for=self)
         dialog.add_buttons(Gtk.STOCK_CLOSE, Gtk.ResponseType.CLOSE)
         # This grid's natural height (every tool/editing/action/tray
         # row, ~35 at last count) comfortably exceeds a low-res display
@@ -3766,7 +3775,7 @@ class EditorWindow(Gtk.Window):
         def add_header(text: str) -> None:
             nonlocal row
             label = Gtk.Label()
-            label.set_markup(f"<b>{text}</b>")
+            label.set_markup(f"<b>{text}</b>")  # noqa: i18n (markup template only; text is already _()-wrapped at its source)
             label.set_xalign(0)
             if row > 0:
                 label.set_margin_top(10)
@@ -3824,7 +3833,7 @@ class EditorWindow(Gtk.Window):
             for entry in entries:
                 add_row(*entry)
 
-        add_header("Tray Icon")
+        add_header(_("Tray Icon"))
         for entry in self._tray_icon_help_rows():
             add_row(*entry)
 
@@ -3980,7 +3989,7 @@ class EditorWindow(Gtk.Window):
     def _show_text_editor(self) -> None:
         shape = self._editing_text_shape
         buffer = self._text_editor.get_buffer()
-        buffer.set_text(shape.text)
+        buffer.set_text(shape.text)  # noqa: i18n (user-typed annotation text, not UI chrome)
         buffer.place_cursor(buffer.get_end_iter())
         self._apply_text_editor_style(shape)
         self._canvas_overlay.queue_resize()
