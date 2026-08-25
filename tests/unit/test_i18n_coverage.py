@@ -9,11 +9,23 @@ at package-build time - no new CI/packaging wiring needed.
 
 from pathlib import Path
 
+import orcshot
+
 from tests.unit._i18n_scan import scan_source
 
-_REPO_ROOT = Path(__file__).parent.parent.parent
-_IN_SCOPE_FILES = sorted((_REPO_ROOT / "src" / "orcshot" / "ui").glob("*.py")) + [
-    _REPO_ROOT / "src" / "orcshot" / "app.py",
+# Resolved from the installed orcshot package's own location, not a
+# hardcoded src/orcshot path relative to this test file - same reason
+# resources.py's RESOURCES_DIR does this: dh_auto_test runs pytest
+# against pybuild's build tree, where hatchling has already flattened
+# src/orcshot/ down to a plain orcshot/ package (the src/ layout is a
+# source-tree convention, not part of the built distribution), so a
+# path relative to this test file's own position in the source tree
+# doesn't exist there. Resolving via orcshot.__file__ finds the real
+# package directory correctly in a dev checkout, a pybuild build tree,
+# or an installed .deb alike.
+_PACKAGE_ROOT = Path(orcshot.__file__).parent
+_IN_SCOPE_FILES = sorted((_PACKAGE_ROOT / "ui").glob("*.py")) + [
+    _PACKAGE_ROOT / "app.py",
 ]
 
 
@@ -22,5 +34,5 @@ class TestI18nCoverage:
         all_violations = []
         for path in _IN_SCOPE_FILES:
             for violation in scan_source(path.read_text(), filename=str(path)):
-                all_violations.append(f"{path.relative_to(_REPO_ROOT)}:{violation.line}: {violation.message}")
+                all_violations.append(f"{path.relative_to(_PACKAGE_ROOT)}:{violation.line}: {violation.message}")
         assert all_violations == [], "\n".join(all_violations)
