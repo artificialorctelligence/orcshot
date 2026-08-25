@@ -4,6 +4,7 @@ Priority: optional
 Maintainer: Orcshot <314918217+artificialorctelligence@users.noreply.github.com>
 Build-Depends: debhelper-compat (= 13),
                dh-python,
+               gettext,
                pybuild-plugin-pyproject,
                python3-all,
                python3-hatchling,

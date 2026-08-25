@@ -40,3 +40,21 @@ override_dh_installsystemduser:
 # problem this virtual display would introduce, not the one it fixes.
 override_dh_auto_test:
 	PYBUILD_TEST_ARGS='tests -m "not x11 and not wayland"' xvfb-run -a dh_auto_test
+
+# i18n phase 2: compiles every real translation in po/*.po into the
+# package before dh_auto_build runs, so hatchling's own wheel build
+# (packages = ["src/orcshot"], no explicit include list) picks up each
+# compiled .mo the same way it already picks up every other file
+# already sitting under src/orcshot/resources/ - no debian/orcshot.
+# install entry needed, matching orcshot/i18n.py's own RESOURCES_DIR-
+# relative _LOCALE_DIR convention. Loops over whatever *.po files
+# exist rather than hardcoding a language list, so adding a new
+# language later is just adding a new po/<lang>.po file - no rules
+# change needed.
+override_dh_auto_build:
+	for po in po/*.po; do \
+		lang=$$(basename "$$po" .po); \
+		mkdir -p src/orcshot/resources/locale/$$lang/LC_MESSAGES; \
+		msgfmt "$$po" -o src/orcshot/resources/locale/$$lang/LC_MESSAGES/orcshot.mo; \
+	done
+	dh_auto_build

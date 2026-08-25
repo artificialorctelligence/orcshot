@@ -6,7 +6,6 @@
 set -e
 cd "$(dirname "$0")/.."
 mkdir -p po
-xgettext --language=Python --keyword=_ --keyword=ngettext:1,2 \
-    --force-po --output=po/orcshot.pot \
-    $(find src/orcshot -name '*.py')
+find src/orcshot -name '*.py' -print0 | xargs -0 xgettext --language=Python \
+    --keyword=_ --keyword=ngettext:1,2 --force-po --output=po/orcshot.pot
 echo "Wrote po/orcshot.pot"
