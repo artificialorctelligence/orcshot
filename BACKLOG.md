@@ -62,28 +62,3 @@ enumeration (`gdk_screen_layout`), not a GNOME-specific API, so in principle a d
 Mutter's proven-always-non-negative guarantee. Not checked, and not urgent: orcshot's Wayland support is
 built around a bundled GNOME Shell extension and isn't a supported target on other compositors anyway -
 revisit only if that ever changes.
-
-
-## #173: No i18n/translation infrastructure - every string is a hardcoded English literal
-
-Scoping decision from task #93 (2026-08-10), recorded in REQUIREMENTS.md but never carried over into this
-file (which didn't exist yet at the time) - resurfaced by direflail's own recollection, 2026-08-23.
-
-Real Windows Greenshot ships 39 translations (`Greenshot/Languages/language-*.xml` - ar-SY, ca-CA, cs-CZ,
-da-DK, de-DE, de-x-franconia, el-GR, en-US, es-ES, et-EE, fa-IR, fi-FI, fr-FR, fr-QC, he-IL, hu-HU, id-ID,
-it-IT, ja-JP, kab-DZ, ko-KR, lt-LT, lv-LV, nl-NL, nn-NO, pl-PL, pt-BR, pt-PT, ro-RO, ru-RU, sk-SK, sl-SI,
-sr-RS, sv-SE, tr-TR, uk-UA, vi-VN, zh-CN, zh-TW), each a `LanguageKey`-driven resource file (~304
-`<resource>` entries in `language-en-US.xml` alone). Orcshot has zero i18n infrastructure - every
-user-facing string across the whole `ui/` tree is a hardcoded English literal in the Python source, not a
-lookup against any resource table.
-
-Not attempted as part of task #93 or since - explicitly scoped out at the time as "not a Preferences-
-dialog checkbox; it's a foundational rework (extract ~300+ literals into a resource/gettext layer, wire
-every widget construction site to look them up, then translate and maintain N language files) that
-touches nearly every file under `ui/`." That characterization still holds; nothing about the size or shape
-of the effort has changed since. Likely direction, if picked up: standard Python `gettext`
-(`.po`/`.mo` files, `_()` wrapping at each call site) rather than inventing a bespoke resource-table format
-the way the real Windows app's own XML scheme does - `gettext` is the established Linux/GTK convention and
-would compose naturally with `debian/rules`' existing packaging rather than needing new build tooling.
-Scope alone (300+ literals, every `ui/` file, N language files to actually translate and maintain) makes
-this a dedicated effort of its own, not something to fold into an unrelated task.

@@ -7450,6 +7450,68 @@ windows throughout, and the resulting capture was correct - a single rectangle p
 monitors. `monitor_window.py`'s own docstring (previously "NOT independently live-verified for real
 cross-monitor handoff") updated to record this as confirmed rather than an open question.
 
+## Task #173: gettext infrastructure landed - i18n phase 1 complete (2026-08-24)
+
+Phase 1 only (infrastructure + sweep) - see BACKLOG.md's now-removed #173 entry for the original scoping
+split from task #93 (2026-08-10). Phase 2 (producing and maintaining actual `.po` language files) stays
+deliberately deferred, same reasoning as the original scoping decision: translating and maintaining N
+language files is a dedicated effort of its own, not something this phase's own scope needed to pull in
+to be complete.
+
+**What was built**: `src/orcshot/i18n.py` binds `_()`/`ngettext()` once at import time via the stdlib
+`gettext` module (`gettext.translation("orcshot", localedir=..., fallback=True)`), resolving its locale
+directory the same package-relative way icons and `magnifier_constants.json` already do, rather than the
+system `/usr/share/locale/` - resolves identically in a dev checkout and an installed `.deb`.
+`fallback=True` means `_()` is currently an inert passthrough (no real `.mo` catalogs ship yet - this
+phase is infrastructure-only), which is exactly why every pre-existing test's expected UI-text output was
+unaffected by wrapping every genuinely user-facing literal across the whole `ui/` tree and `app.py`
+(task-by-task sweep, `b809516`..`159d554`, 12 commits). `scripts/extract_pot.sh` is dev-only tooling
+(deliberately not wired into `debian/rules`/`debian/control` - see the design doc's "Extraction tooling"
+section) that runs `xgettext` over `src/orcshot` and writes `po/orcshot.pot`; current run extracts 335
+real strings (336 `msgid` entries minus the PO header).
+
+**The regression guard**: `tests/unit/_i18n_scan.py`'s `scan_source()` is an AST walker, not a text-shape
+heuristic - it flags any bare string-literal argument reaching one of a fixed set of GTK/Gio text-setting
+sinks (`set_text`, `set_label`, `set_title`, `set_tooltip_text`, `set_markup`, `Gtk.Label(label=...)`,
+`Gio.Notification.new(...)`, etc. - full list in the design doc) that isn't already wrapped in
+`_()`/`ngettext()` or explicitly exempted with a `# noqa: i18n` comment. A heuristic like "capitalized
+with a space" would miss short unspaced labels like "OK"/"Cancel", which is why this is sink-based
+instead of shape-based. `tests/unit/test_i18n_coverage.py` (task 14, the closing acceptance gate) wires it
+up for real - 30 in-scope files (every `src/orcshot/ui/*.py` plus `app.py`) - rather than the synthetic
+fixtures `test_i18n_scan.py` uses to test the scanner itself. It runs as a normal part of
+`pytest tests/unit`, so it's already enforced everywhere the suite already runs, including
+`debian/rules`' own `override_dh_auto_test` at package-build time - no new CI/packaging wiring needed.
+
+**Two real false positives found during planning, not just anticipated in the abstract**: `set_text` as a
+bare method name is too broad a sink signal on its own, because it also matches two calls that aren't UI
+chrome at all. `render.py:318` and `printing.py:100` both call `layout.set_text(text, -1)` -
+`Pango.Layout.set_text()` rendering the *user's own typed annotation text* onto the canvas; wrapping it in
+`_()` would try to gettext-translate arbitrary user content, which is nonsensical and would silently
+corrupt behavior the moment a real catalog ships. `destination_picker.py:160` and `:204`'s
+`Gtk.Clipboard.get_default(...).set_text(str(path), -1)` match the identical method name while copying a
+*file path* to the clipboard - also not translatable text. Both share the exact method name with the
+legitimate `Gtk.Entry`/`Gtk.Label` sinks, so a name-only AST matcher can't tell them apart without real
+receiver-type inference; resolved with an explicit `# noqa: i18n` and a stated reason at each of the four
+call sites rather than teaching the scanner type inference for a distinction that doesn't come up
+anywhere else in the codebase.
+
+**A real entanglement bug found and fixed during the sweep, not a hypothetical**: `editor_window.py`'s
+`_TOOL_TOOLTIP_SHORTCUTS` dict was originally keyed by each tool's display-label string (`"Select"`,
+`"Rectangle"`, ...), looked up at its call site as `_TOOL_TOOLTIP_SHORTCUTS.get(label)` against an
+*already-`_()`-wrapped* label. Harmless today only because `_()` is still an inert passthrough - but once
+a real translation catalog ships, that lookup would silently stop matching for every non-English locale (a
+translated label string would never equal an English dict key), quietly dropping every tool's
+keyboard-shortcut tooltip suffix with no error and no test failure to catch it, since the wrapped `_()`
+call still returns its English argument unchanged today. Task 9 (`b02ee17`) re-keyed the dict by `Tool`
+(the stable enum, immune to translation entirely) instead of the label string, and updated the one call
+site (`editor_window.py:1923`) to `_TOOL_TOOLTIP_SHORTCUTS.get(tool)`. Left a comment at the dict's own
+definition (`editor_window.py:577-584`) recording why, so a future edit doesn't re-key it back to the
+label string out of habit.
+
+Full suite green: 1134 passed, 3 skipped - up from the pre-phase-1 baseline, the increase coming from this
+phase's own new tests (`tests/unit/test_i18n.py`, `test_i18n_scan.py`, `test_extract_pot.py`, and this
+task's `test_i18n_coverage.py`).
+
 ## Licensing
 
 **Status: decided — GPLv3.** Greenshot (Windows) is GPLv3; this is a derivative work — same feature
