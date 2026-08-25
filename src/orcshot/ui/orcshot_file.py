@@ -36,6 +36,7 @@ import numpy as np
 
 from orcshot.core.drawing import Layer
 from orcshot.core.orcshot_format import deserialize_layer_into, serialize_layer
+from orcshot.i18n import _
 from orcshot.ui.gdk_convert import numpy_to_pixbuf, pixbuf_to_numpy
 
 MARKER = b"ORCSHOT1"
@@ -51,7 +52,7 @@ def save_orcshot_file(image: np.ndarray, layer: Layer, path) -> None:
     path = Path(path)
     ok, png_bytes = numpy_to_pixbuf(image).save_to_bufferv("png", [], [])
     if not ok:
-        raise InvalidOrcshotFileError("Failed to encode the image as PNG")
+        raise InvalidOrcshotFileError(_("Failed to encode the image as PNG"))
     json_bytes = json.dumps(serialize_layer(layer)).encode("utf-8")
     with open(path, "wb") as f:
         f.write(bytes(png_bytes))
@@ -69,12 +70,16 @@ def load_orcshot_file(path) -> tuple[np.ndarray, Layer]:
     path = Path(path)
     data = path.read_bytes()
     if len(data) < _TRAILER_SIZE or data[-len(MARKER):] != MARKER:
-        raise InvalidOrcshotFileError(f"{path} has no .orcshot trailer - not a file this format wrote")
+        raise InvalidOrcshotFileError(
+            _("{} has no .orcshot trailer - not a file this format wrote").format(path)
+        )
 
     length = _LENGTH_STRUCT.unpack(data[-_TRAILER_SIZE:-len(MARKER)])[0]
     json_start = len(data) - _TRAILER_SIZE - length
     if json_start < 0:
-        raise InvalidOrcshotFileError(f"{path}'s trailer claims a shape-layer length longer than the file itself")
+        raise InvalidOrcshotFileError(
+            _("{}'s trailer claims a shape-layer length longer than the file itself").format(path)
+        )
 
     png_bytes = data[:json_start]
     json_bytes = data[json_start : json_start + length]
@@ -84,13 +89,13 @@ def load_orcshot_file(path) -> tuple[np.ndarray, Layer]:
         loader.write(png_bytes)
         loader.close()
     except Exception as exc:
-        raise InvalidOrcshotFileError(f"{path}'s image portion isn't a valid PNG") from exc
+        raise InvalidOrcshotFileError(_("{}'s image portion isn't a valid PNG").format(path)) from exc
     image = pixbuf_to_numpy(loader.get_pixbuf())
 
     try:
         shape_data = json.loads(json_bytes.decode("utf-8"))
     except (UnicodeDecodeError, json.JSONDecodeError) as exc:
-        raise InvalidOrcshotFileError(f"{path}'s shape-layer blob isn't valid JSON") from exc
+        raise InvalidOrcshotFileError(_("{}'s shape-layer blob isn't valid JSON").format(path)) from exc
 
     layer = Layer()
     deserialize_layer_into(layer, shape_data)
@@ -127,7 +132,9 @@ def load_objects_file(path) -> Layer:
     try:
         shape_data = json.loads(data.decode("utf-8"))
     except (UnicodeDecodeError, json.JSONDecodeError) as exc:
-        raise InvalidOrcshotFileError(f"{path} isn't a valid Save Objects file or .orcshot file") from exc
+        raise InvalidOrcshotFileError(
+            _("{} isn't a valid Save Objects file or .orcshot file").format(path)
+        ) from exc
 
     layer = Layer()
     deserialize_layer_into(layer, shape_data)
