@@ -18,6 +18,25 @@ import gettext
 from pathlib import Path
 
 _LOCALE_DIR = Path(__file__).parent / "resources" / "locale"
-_translation = gettext.translation("orcshot", localedir=_LOCALE_DIR, fallback=True)
+
+
+def _load_translation(domain: str, localedir, languages=None) -> gettext.NullTranslations:
+    """gettext.translation's own fallback=True only protects against
+    find() returning no candidate .mo at all - once a candidate path
+    exists on disk but can't actually be opened (permission denied,
+    corrupt file, etc.), it propagates that OSError instead of falling
+    back, even with fallback=True set. Confirmed live during i18n
+    phase 1's own VM verification: a real .mo installed with
+    root-only permissions crashed the whole app on every startup,
+    instead of the app just silently staying in English the way any
+    other catalog problem already does.
+    """
+    try:
+        return gettext.translation(domain, localedir=localedir, languages=languages, fallback=True)
+    except OSError:
+        return gettext.NullTranslations()
+
+
+_translation = _load_translation("orcshot", _LOCALE_DIR)
 _ = _translation.gettext
 ngettext = _translation.ngettext
