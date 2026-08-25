@@ -17,6 +17,8 @@ doesn't need yet.
 
 from __future__ import annotations
 
+from orcshot.i18n import _
+
 import secrets
 from dataclasses import dataclass, field, replace
 from enum import Enum
@@ -461,7 +463,7 @@ class ObfuscateShape:
 
     ``fill_text``/``text_color`` (task #60 follow-up) are SOLID_FILL's
     own optional preset label - one of a fixed set ("REDACTED",
-    "CENSORED", etc., see ui/editor_window.py's own preset list) drawn
+    "CENSORED", etc., see OBFUSCATE_FILL_TEXT_PRESETS below) drawn
     centered over the fill, or "" (the default) for a plain box. No
     free-text entry by design - deliberate user call: anyone wanting
     custom text can already use the separate Text tool instead, so
@@ -493,3 +495,31 @@ class ObfuscateShape:
     fill_text: str = ""
     text_color: Color = (255, 255, 255, 255)
     seed: int = field(default_factory=lambda: secrets.randbits(128), compare=False)
+
+
+# Solid Fill's own preset redaction labels (task #60 follow-up) - "" is
+# "None" (plain box, no text, ObfuscateShape.fill_text's own default).
+# Deliberately a fixed list, not free text entry - anyone wanting a
+# custom label already has the separate Text tool instead. Lives here,
+# not in ui/editor_window.py, so both that module's own preset dropdown
+# AND ui/render.py's actual drawing code can share one lookup:
+# fill_text itself deliberately stays a stable, untranslated key (it's
+# also a dict key above and a persisted .orcshot file field, so it
+# needs to stay portable across locales/versions), but what actually
+# gets drawn onto the image should be the *translated* label, not the
+# raw key - see ui/render.py's render_obfuscate, which looks the key
+# up here before drawing rather than passing shape.fill_text straight
+# through.
+OBFUSCATE_FILL_TEXT_PRESETS = ("", "REDACTED", "CENSORED", "CLASSIFIED", "CONFIDENTIAL", "SECRET")
+# Written out as explicit literals (not a dict comprehension over
+# OBFUSCATE_FILL_TEXT_PRESETS) so xgettext can actually see each
+# msgid - it can't extract through `preset: preset for preset in ...`
+# since the value there is a variable, not a string literal.
+OBFUSCATE_FILL_TEXT_LABELS = {
+    "": _("None"),
+    "REDACTED": _("REDACTED"),
+    "CENSORED": _("CENSORED"),
+    "CLASSIFIED": _("CLASSIFIED"),
+    "CONFIDENTIAL": _("CONFIDENTIAL"),
+    "SECRET": _("SECRET"),
+}

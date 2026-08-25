@@ -72,6 +72,7 @@ from orcshot.core.filters import (
 )
 from orcshot.core.geometry import Rect
 from orcshot.core.shapes import (
+    OBFUSCATE_FILL_TEXT_LABELS,
     ArrowShape,
     Color,
     CursorShape,
@@ -684,7 +685,15 @@ def render_obfuscate(ctx: cairo.Context, shape: ObfuscateShape, base_image, rng=
     ctx.restore()
 
     if shape.mode is ObfuscateMode.SOLID_FILL and shape.fill_text:
-        _draw_fitted_centered_text(ctx, shape.fill_text, shape.text_color, shape.bounds)
+        # fill_text is a stable, untranslated storage key (see
+        # OBFUSCATE_FILL_TEXT_LABELS's own docstring in core/shapes.py
+        # for why) - translate it to its display label here, at the
+        # point of drawing, rather than drawing the raw key. Falls
+        # back to the raw key itself for anything not in the fixed
+        # preset list (there shouldn't be any, but this keeps a
+        # custom/future fill_text value from just vanishing).
+        label = OBFUSCATE_FILL_TEXT_LABELS.get(shape.fill_text, shape.fill_text)
+        _draw_fitted_centered_text(ctx, label, shape.text_color, shape.bounds)
 
 
 # AREA_HIGHLIGHT/GRAYSCALE are "spotlight" modes - they affect the

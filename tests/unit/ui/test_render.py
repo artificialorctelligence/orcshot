@@ -313,6 +313,40 @@ class TestRenderObfuscate:
         outside_region = result[outside_mask]
         assert not np.any(np.all(outside_region == (255, 255, 255, 255), axis=-1))
 
+    def test_solid_fill_draws_the_translated_label_not_the_raw_stored_key(self):
+        # fill_text is a stable, untranslated key (also a dict key and
+        # a persisted .orcshot file field, so it must stay portable
+        # across locales - see core/shapes.py's OBFUSCATE_FILL_TEXT_LABELS
+        # docstring) - but what actually gets drawn onto the image
+        # should be the *translated* label, not the raw key. Since
+        # _() is inert under the test suite's fallback locale, the
+        # label and the key are identical for a real preset like
+        # "REDACTED" - so this monkeypatches the lookup table itself
+        # to a value deliberately different from the key, the only
+        # way to prove the render path is genuinely going through the
+        # translation lookup rather than passing shape.fill_text
+        # straight through (which would pass just as easily with an
+        # identity mapping and give a false sense of coverage).
+        import unittest.mock
+
+        from orcshot.ui import render as render_module
+
+        base_image = noisy_base_image()
+        bounds = Rect(5, 5, 45, 45)
+        shape = ObfuscateShape(
+            bounds, mode=ObfuscateMode.SOLID_FILL, fill_color=(0, 0, 0, 255),
+            fill_text="REDACTED", text_color=(255, 255, 255, 255),
+        )
+
+        with unittest.mock.patch.object(
+            render_module, "OBFUSCATE_FILL_TEXT_LABELS", {"REDACTED": "TRANSLATED LABEL"},
+        ), unittest.mock.patch.object(render_module, "_draw_fitted_centered_text") as mock_draw:
+            render_to_numpy(50, 50, lambda ctx: render_shape(ctx, shape, base_image=base_image))
+
+        mock_draw.assert_called_once_with(
+            unittest.mock.ANY, "TRANSLATED LABEL", shape.text_color, shape.bounds,
+        )
+
     def test_scramble_matches_the_filters_module_exactly(self):
         base_image = noisy_base_image()
         bounds = Rect(5, 5, 35, 35)

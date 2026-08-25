@@ -157,8 +157,8 @@ from orcshot.core.history import (
     UndoRedoStack,
 )
 from orcshot.core.shapes import (
-    HighlightMode, HighlightShape, ImageShape, ObfuscateMode, ObfuscateShape, ShapeStyle, SpeechBubbleShape,
-    StepLabelShape, SvgShape, TextShape,
+    OBFUSCATE_FILL_TEXT_LABELS, OBFUSCATE_FILL_TEXT_PRESETS, HighlightMode, HighlightShape, ImageShape,
+    ObfuscateMode, ObfuscateShape, ShapeStyle, SpeechBubbleShape, StepLabelShape, SvgShape, TextShape,
 )
 from orcshot.settings import (
     EXTERNAL_EDITOR_AUTO,
@@ -487,29 +487,6 @@ _CROP_MODE_LABELS = {
     Tool.CROP_DEFAULT: _("Default"),
     Tool.CROP_VERTICAL: _("Vertical"),
     Tool.CROP_HORIZONTAL: _("Horizontal"),
-}
-
-# Solid Fill's own preset redaction labels (task #60 follow-up) - "" is
-# "None" (plain box, no text, ObfuscateShape.fill_text's own default).
-# Deliberately a fixed list, not free text entry - anyone wanting a
-# custom label already has the separate Text tool (see this dropdown's
-# own tooltip / REQUIREMENTS.md for the reasoning).
-_OBFUSCATE_FILL_TEXT_PRESETS = ("", "REDACTED", "CENSORED", "CLASSIFIED", "CONFIDENTIAL", "SECRET")
-# Written out as explicit literals (not a dict comprehension over
-# _OBFUSCATE_FILL_TEXT_PRESETS) so xgettext can actually see each
-# msgid - it can't extract through `preset: preset for preset in ...`
-# since the value there is a variable, not a string literal. Display
-# text only: the raw preset codes above (used as dict/state keys and
-# as the literal text stamped onto the image via ObfuscateShape.
-# fill_text - see _on_obfuscate_fill_text_item_toggled) are
-# deliberately left untranslated, same as any other fixed data key.
-_OBFUSCATE_FILL_TEXT_LABELS = {
-    "": _("None"),
-    "REDACTED": _("REDACTED"),
-    "CENSORED": _("CENSORED"),
-    "CLASSIFIED": _("CLASSIFIED"),
-    "CONFIDENTIAL": _("CONFIDENTIAL"),
-    "SECRET": _("SECRET"),
 }
 
 # A floor, not a fixed height - Gtk.Widget.set_size_request sets a
@@ -3015,15 +2992,15 @@ class EditorWindow(Gtk.Window):
 
     @staticmethod
     def _obfuscate_fill_text_label(text: str) -> str:
-        return _OBFUSCATE_FILL_TEXT_LABELS[text]
+        return OBFUSCATE_FILL_TEXT_LABELS[text]
 
     def _build_obfuscate_fill_text_menu(self) -> Gtk.Menu:
         menu = Gtk.Menu()
         self._obfuscate_fill_text_items = {}
         item_group_leader = None
-        for preset in _OBFUSCATE_FILL_TEXT_PRESETS:
+        for preset in OBFUSCATE_FILL_TEXT_PRESETS:
             item = Gtk.RadioMenuItem.new_with_label_from_widget(
-                item_group_leader, _OBFUSCATE_FILL_TEXT_LABELS[preset]
+                item_group_leader, OBFUSCATE_FILL_TEXT_LABELS[preset]
             )
             if item_group_leader is None:
                 item_group_leader = item
