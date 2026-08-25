@@ -1488,7 +1488,7 @@ class EditorWindow(Gtk.Window):
         self._surface = numpy_to_cairo_surface(image)
         self._resize_canvas_and_window()
         img_h, img_w = image.shape[:2]
-        self._dimensions_label.set_text(_("{} x {}").format(img_w, img_h))
+        self._dimensions_label.set_text(f"{img_w} x {img_h}")  # noqa: i18n (numeric only)
         self._refresh_remove_transparency_visibility()
         # Task #100 - stale OCR word/line bounds from before this
         # change would silently misalign Obfuscate Text's matches, see
@@ -1721,7 +1721,10 @@ class EditorWindow(Gtk.Window):
         add(_("Best Fit"), self._do_zoom_best_fit)
         menu.append(Gtk.SeparatorMenuItem())
         for level in ZOOM_LEVELS:
-            label = zoom_percent_label(level) + (_(" - Actual Size") if level == ACTUAL_SIZE_ZOOM else "")
+            if level == ACTUAL_SIZE_ZOOM:
+                label = _("{} - Actual Size").format(zoom_percent_label(level))
+            else:
+                label = zoom_percent_label(level)
             add(label, lambda level=level: self._set_zoom(level))
         menu.show_all()
 
@@ -3358,7 +3361,7 @@ class EditorWindow(Gtk.Window):
         self._commit_text_editing_if_active()
         self._clipboard.set_image(self._composited_image())
 
-    def _do_save(self, title: str = _("Save Screenshot")) -> bool:
+    def _do_save(self, title: str | None = None) -> bool:
         """Save As... - always dialog-driven, with an explicit "Save as
         type" selector (task #95's Output tab work) rather than relying
         on whatever extension the user happens to type, matching real
@@ -3371,6 +3374,7 @@ class EditorWindow(Gtk.Window):
         title is overridable for prompt_save_for_upgrade below, which
         wants to explain *why* a save dialog appeared unprompted.
         """
+        title = title or _("Save Screenshot")
         self._commit_text_editing_if_active()
         output_settings = get_output_settings()
         dialog = Gtk.FileChooserDialog(

@@ -7465,10 +7465,14 @@ system `/usr/share/locale/` - resolves identically in a dev checkout and an inst
 `fallback=True` means `_()` is currently an inert passthrough (no real `.mo` catalogs ship yet - this
 phase is infrastructure-only), which is exactly why every pre-existing test's expected UI-text output was
 unaffected by wrapping every genuinely user-facing literal across the whole `ui/` tree and `app.py`
-(task-by-task sweep, `b809516`..`159d554`, 12 commits). `scripts/extract_pot.sh` is dev-only tooling
-(deliberately not wired into `debian/rules`/`debian/control` - see the design doc's "Extraction tooling"
-section) that runs `xgettext` over `src/orcshot` and writes `po/orcshot.pot`; current run extracts 335
-real strings (336 `msgid` entries minus the PO header).
+(task-by-task sweep, `b809516`..`159d554`, 11 commits - the range excludes `b809516` itself, which is the
+scanner commit, not a sweep commit). `scripts/extract_pot.sh` is dev-only tooling (deliberately not wired
+into `debian/rules`/`debian/control` - see the design doc's "Extraction tooling" section) that runs
+`xgettext` over `src/orcshot` and writes `po/orcshot.pot`; current run (after the final whole-branch
+review's sink-list expansion, below) extracts 357 `msgid` entries excluding the PO header, 358 distinct
+source string literals - one entry short of the literal count because
+`text_obfuscation_dialog.py`'s `ngettext("{} match", "{} matches", n)` collapses two source literals into
+one `msgid`/`msgid_plural` entry.
 
 **The regression guard**: `tests/unit/_i18n_scan.py`'s `scan_source()` is an AST walker, not a text-shape
 heuristic - it flags any bare string-literal argument reaching one of a fixed set of GTK/Gio text-setting
@@ -7511,6 +7515,36 @@ label string out of habit.
 Full suite green: 1134 passed, 3 skipped - up from the pre-phase-1 baseline, the increase coming from this
 phase's own new tests (`tests/unit/test_i18n.py`, `test_i18n_scan.py`, `test_extract_pot.py`, and this
 task's `test_i18n_coverage.py`).
+
+**Final whole-branch review (2026-08-24), fixed in place**: each of the 14 phase-1 tasks had already passed
+its own individual review, but a review of the whole branch together found the sink list above was missing
+four common GTK text-setting shapes - `Gtk.Dialog.add_buttons()`/`.add_button()` (non-stock labels),
+`Gtk.RadioButton.new_with_label()`/`.new_with_label_from_widget()`, `Gtk.FileFilter.set_name()`, and
+`Gtk.ComboBoxText.append_text()` - which had left real user-facing strings unwrapped throughout the sweep.
+Added to `_SINK_METHODS`, then re-run against the full `ui/` tree + `app.py`: 24 newly-flagged hits across
+`color_dialog.py`, `editor_window.py`, `external_commands.py`, `first_run_setup.py`, `printing.py`, and
+`text_obfuscation_dialog.py`, plus a handful the scanner structurally can't reach - positional
+`Gtk.TreeViewColumn(title, ...)` arguments, `super().__init__(title=...)` (`EditorWindow`'s own window
+title), and `ComboBoxText.append(id, text)`'s second positional argument - found and wrapped by hand.
+`editor_window.py`'s own local `add_button(icon_name, tooltip, handler)` toolbar helper (unrelated to
+`Gtk.Dialog.add_button`) was renamed to `add_tool_button` first, to avoid a name collision with the
+newly-added sink method.
+
+The same review also found and fixed: five spots where `_` was reassigned as a throwaway
+tuple-unpacking variable in a scope that also calls `_()` (harmless only because `_()` wasn't yet called in
+those *exact* scopes - a latent shadowing bug for the next edit, invisible to any test or the scanner);
+a stale Preferences-dialog tooltip that named the now-closed "task #109 (i18n infrastructure)" to end
+users; one `_()`-bound function default argument (`_do_save`'s `title` parameter), which evaluates once at
+import time rather than per call; a fragment-concatenation regression in the zoom menu's "- Actual Size"
+suffix, the exact disconnected-fragment anti-pattern `first_run_setup.py` was refactored away from earlier
+in this same phase; and an inconsistency between two write sites for the same numeric-only dimensions
+label (`editor_window.py`), one correctly left unwrapped with a `# noqa: i18n (numeric only)`, the other
+wrapping it in `_()` for no reason. `tests/unit/test_i18n.py` gained two new test methods covering
+`ngettext()`'s actual fallback plural-selection behavior (previously only `_()` itself was tested). Full
+suite green after all of the above: 1136 passed, 3 skipped - up by exactly the 2 new `ngettext()` tests
+just mentioned, otherwise unchanged; every other fix here is behavior-preserving, matching `_()`'s
+still-inert passthrough. See BACKLOG.md's `#182` entry for phase 2 (authoring real translations), the
+deliberately-deferred remainder this phase never claimed to cover.
 
 ## Licensing
 

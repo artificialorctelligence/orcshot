@@ -1,9 +1,15 @@
-from orcshot.i18n import _
+from orcshot.i18n import _, ngettext
 
 
 class TestFallbackTranslation:
     def test_returns_the_argument_unchanged_when_no_catalog_is_installed(self):
         assert _("Preferences") == "Preferences"
+
+    def test_ngettext_picks_the_singular_form_with_no_catalog_installed(self):
+        assert ngettext("{} match", "{} matches", 1) == "{} match"
+
+    def test_ngettext_picks_the_plural_form_with_no_catalog_installed(self):
+        assert ngettext("{} match", "{} matches", 2) == "{} matches"
 
     def test_a_real_catalog_actually_substitutes(self, tmp_path):
         import gettext as gettext_module
