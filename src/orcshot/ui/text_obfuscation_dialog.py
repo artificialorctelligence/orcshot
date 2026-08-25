@@ -198,7 +198,7 @@ class _TextObfuscationDialog:
         self._debounce_id = None
 
         dialog = Gtk.Dialog(title=_DIALOG_TITLE, transient_for=editor)
-        dialog.add_buttons(Gtk.STOCK_CANCEL, Gtk.ResponseType.CANCEL, "Apply", Gtk.ResponseType.OK)
+        dialog.add_buttons(Gtk.STOCK_CANCEL, Gtk.ResponseType.CANCEL, _("Apply"), Gtk.ResponseType.OK)
         dialog.set_default_size(420, -1)
         self._dialog = dialog
 
@@ -235,8 +235,8 @@ class _TextObfuscationDialog:
 
         grid.attach(Gtk.Label(label=_("Search in:"), xalign=0), 0, row, 1, 1)
         self._scope_combo = Gtk.ComboBoxText()
-        self._scope_combo.append_text("Words")
-        self._scope_combo.append_text("Lines")
+        self._scope_combo.append_text(_("Words"))
+        self._scope_combo.append_text(_("Lines"))
         self._scope_combo.set_active(0 if self._settings["scope"] == SCOPE_WORDS else 1)
         grid.attach(self._scope_combo, 1, row, 1, 1)
         row += 1

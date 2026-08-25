@@ -613,8 +613,8 @@ def show_command_detail_dialog(parent: Gtk.Window, existing: ExternalCommand | N
     already exists, direflail's own explicit call on scope.
     """
     dialog = Gtk.Dialog(title=_("External Command"), transient_for=parent, modal=True)
-    ok_button = dialog.add_button("OK", Gtk.ResponseType.OK)
-    dialog.add_button("Cancel", Gtk.ResponseType.CANCEL)
+    ok_button = dialog.add_button(_("OK"), Gtk.ResponseType.OK)
+    dialog.add_button(_("Cancel"), Gtk.ResponseType.CANCEL)
     content = dialog.get_content_area()
     content.set_border_width(12)
     content.set_spacing(6)
@@ -634,8 +634,8 @@ def show_command_detail_dialog(parent: Gtk.Window, existing: ExternalCommand | N
     if existing is None:
         mode_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
         mode_combo = Gtk.ComboBoxText()
-        mode_combo.append("find", "Find App")
-        mode_combo.append("add", "Add Command")
+        mode_combo.append("find", _("Find App"))
+        mode_combo.append("add", _("Add Command"))
         mode_row.pack_start(mode_combo, False, False, 0)
         help_icon = Gtk.Image.new_from_icon_name("dialog-question-symbolic", Gtk.IconSize.BUTTON)
         help_icon.set_tooltip_text(
@@ -657,7 +657,7 @@ def show_command_detail_dialog(parent: Gtk.Window, existing: ExternalCommand | N
             find_page.pack_start(search_entry, False, False, 0)
             results_store = Gtk.ListStore(str, str, str, str)  # display, name, commandline, argument
             results_tree = Gtk.TreeView(model=results_store, headers_visible=False)
-            results_tree.append_column(Gtk.TreeViewColumn("App", Gtk.CellRendererText(), text=0))
+            results_tree.append_column(Gtk.TreeViewColumn(_("App"), Gtk.CellRendererText(), text=0))
             scroller = Gtk.ScrolledWindow()
             scroller.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
             scroller.set_min_content_height(160)

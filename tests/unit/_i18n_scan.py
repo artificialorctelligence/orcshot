@@ -16,6 +16,8 @@ _SINK_METHODS = {
     "set_text", "set_tooltip_text", "set_label", "set_title", "set_markup",
     "set_placeholder_text", "set_body", "format_secondary_text",
     "set_program_name", "set_comments",
+    "add_buttons", "add_button", "new_with_label", "new_with_label_from_widget",
+    "set_name", "append_text",
 }
 
 _SINK_CONSTRUCTORS = {

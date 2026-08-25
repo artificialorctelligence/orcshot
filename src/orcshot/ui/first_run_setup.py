@@ -156,8 +156,8 @@ def _run_dialog(parent, executable: str, settings_backend) -> None:
 
     dialog = Gtk.Dialog(title=_("Orcshot Setup"), transient_for=parent)
     dialog.add_buttons(
-        "Not Now", Gtk.ResponseType.CANCEL,
-        "Enable", Gtk.ResponseType.OK,
+        _("Not Now"), Gtk.ResponseType.CANCEL,
+        _("Enable"), Gtk.ResponseType.OK,
     )
     dialog.set_default_response(Gtk.ResponseType.OK)
 

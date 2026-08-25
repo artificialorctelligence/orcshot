@@ -76,7 +76,7 @@ def show_color_picker(
     (settings.py), matching AddToRecentColors (ColorDialog.cs:182-192).
     """
     dialog = Gtk.Dialog(title=_("Select Color"), transient_for=parent)
-    dialog.add_buttons(Gtk.STOCK_CANCEL, Gtk.ResponseType.CANCEL, "Apply", Gtk.ResponseType.OK)
+    dialog.add_buttons(Gtk.STOCK_CANCEL, Gtk.ResponseType.CANCEL, _("Apply"), Gtk.ResponseType.OK)
     content = dialog.get_content_area()
     content.set_border_width(10)
     content.set_spacing(8)

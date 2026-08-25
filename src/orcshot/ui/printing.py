@@ -181,9 +181,9 @@ def _show_print_options_dialog(parent: Gtk.Window, options: PrintOptions) -> Pri
     color_frame = Gtk.Frame(label=_("Color settings"))
     color_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
     color_box.set_border_width(8)
-    color_radio = Gtk.RadioButton.new_with_label(None, "Full color print")
-    grayscale_radio = Gtk.RadioButton.new_with_label_from_widget(color_radio, "Force grayscale printing")
-    monochrome_radio = Gtk.RadioButton.new_with_label_from_widget(color_radio, "Force black/white printing")
+    color_radio = Gtk.RadioButton.new_with_label(None, _("Full color print"))
+    grayscale_radio = Gtk.RadioButton.new_with_label_from_widget(color_radio, _("Force grayscale printing"))
+    monochrome_radio = Gtk.RadioButton.new_with_label_from_widget(color_radio, _("Force black/white printing"))
     if options.monochrome:
         monochrome_radio.set_active(True)
     elif options.grayscale:

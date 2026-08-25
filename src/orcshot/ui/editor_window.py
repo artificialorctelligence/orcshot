@@ -725,7 +725,7 @@ class EditorWindow(Gtk.Window):
         self, image: np.ndarray, clipboard_backend: ClipboardBackend = None, already_saved: bool = False,
         window_title: str = "",
     ):
-        super().__init__(title="Orcshot image editor")
+        super().__init__(title=_("Orcshot image editor"))
         # Task #169, round 4 - direflail's own correction after three
         # earlier attempts each made things worse ("we never had this
         # issue before today"): restored, not removed. Earlier
@@ -1789,7 +1789,7 @@ class EditorWindow(Gtk.Window):
             return
         self._commit_text_editing_if_active()
         dialog = Gtk.Dialog(title=_("JPEG Quality"), transient_for=self)
-        dialog.add_buttons("Continue", Gtk.ResponseType.OK)
+        dialog.add_buttons(_("Continue"), Gtk.ResponseType.OK)
         content = dialog.get_content_area()
         content.set_border_width(12)
         content.set_spacing(6)
@@ -2596,35 +2596,35 @@ class EditorWindow(Gtk.Window):
         toolbar.set_style(Gtk.ToolbarStyle.ICONS)
         icon_color = _rgba_to_color(self.get_style_context().get_color(Gtk.StateFlags.NORMAL))
 
-        def add_button(icon_name: str, tooltip: str, handler) -> Gtk.ToolButton:
+        def add_tool_button(icon_name: str, tooltip: str, handler) -> Gtk.ToolButton:
             button = Gtk.ToolButton(icon_widget=stock_icon_image(icon_name, icon_color, size=16))
             button.set_tooltip_text(tooltip)
             button.connect("clicked", lambda _b: handler())
             toolbar.insert(button, -1)
             return button
 
-        add_button("document-save-symbolic", _("Save (Ctrl+S)"), self._do_save)
-        add_button("edit-copy-symbolic", _("Copy Image to Clipboard (Ctrl+C)"), self._do_copy)
-        add_button("document-print-symbolic", _("Print (Ctrl+P)"), self._do_print)
+        add_tool_button("document-save-symbolic", _("Save (Ctrl+S)"), self._do_save)
+        add_tool_button("edit-copy-symbolic", _("Copy Image to Clipboard (Ctrl+C)"), self._do_copy)
+        add_tool_button("document-print-symbolic", _("Print (Ctrl+P)"), self._do_print)
 
         toolbar.insert(Gtk.SeparatorToolItem(), -1)
-        add_button("edit-delete-symbolic", _("Delete (Del)"), self._do_delete)
+        add_tool_button("edit-delete-symbolic", _("Delete (Del)"), self._do_delete)
 
         toolbar.insert(Gtk.SeparatorToolItem(), -1)
-        add_button("edit-cut-symbolic", _("Cut"), self._do_cut_shape)
-        add_button("edit-copy-symbolic", _("Copy Shape"), self._do_copy_shape)
-        add_button("edit-paste-symbolic", _("Paste Shape"), self._do_paste_shape)
-        add_button("edit-undo-symbolic", _("Undo (Ctrl+Z)"), self._do_undo)
-        add_button("edit-redo-symbolic", _("Redo (Ctrl+Y)"), self._do_redo)
+        add_tool_button("edit-cut-symbolic", _("Cut"), self._do_cut_shape)
+        add_tool_button("edit-copy-symbolic", _("Copy Shape"), self._do_copy_shape)
+        add_tool_button("edit-paste-symbolic", _("Paste Shape"), self._do_paste_shape)
+        add_tool_button("edit-undo-symbolic", _("Undo (Ctrl+Z)"), self._do_undo)
+        add_tool_button("edit-redo-symbolic", _("Redo (Ctrl+Y)"), self._do_redo)
 
         toolbar.insert(Gtk.SeparatorToolItem(), -1)
-        add_button("preferences-system-symbolic", _("Preferences"), self._do_show_settings)
-        add_button(
+        add_tool_button("preferences-system-symbolic", _("Preferences"), self._do_show_settings)
+        add_tool_button(
             "applications-graphics-symbolic", _("Open in External Editor"), self._do_open_in_external_editor,
         )
 
         toolbar.insert(Gtk.SeparatorToolItem(), -1)
-        add_button("help-about-symbolic", _("Help"), self._do_show_help)
+        add_tool_button("help-about-symbolic", _("Help"), self._do_show_help)
 
         return toolbar
 
@@ -3279,7 +3279,7 @@ class EditorWindow(Gtk.Window):
         dialog.set_current_name("objects.json")
         dialog.set_do_overwrite_confirmation(True)
         object_filter = Gtk.FileFilter()
-        object_filter.set_name("Orcshot objects")
+        object_filter.set_name(_("Orcshot objects"))
         object_filter.add_pattern("*.json")
         dialog.add_filter(object_filter)
         try:
@@ -3311,7 +3311,7 @@ class EditorWindow(Gtk.Window):
         dialog = Gtk.FileChooserDialog(title=_("Load Objects"), transient_for=self, action=Gtk.FileChooserAction.OPEN)
         dialog.add_buttons(Gtk.STOCK_CANCEL, Gtk.ResponseType.CANCEL, Gtk.STOCK_OPEN, Gtk.ResponseType.OK)
         object_filter = Gtk.FileFilter()
-        object_filter.set_name("Orcshot objects")
+        object_filter.set_name(_("Orcshot objects"))
         for pattern in ("*.json", "*.orcshot"):
             object_filter.add_pattern(pattern)
         dialog.add_filter(object_filter)
@@ -3459,7 +3459,7 @@ class EditorWindow(Gtk.Window):
         dialog = Gtk.FileChooserDialog(title=_("Insert Image"), transient_for=self, action=Gtk.FileChooserAction.OPEN)
         dialog.add_buttons(Gtk.STOCK_CANCEL, Gtk.ResponseType.CANCEL, Gtk.STOCK_OPEN, Gtk.ResponseType.OK)
         image_filter = Gtk.FileFilter()
-        image_filter.set_name("Images")
+        image_filter.set_name(_("Images"))
         for pattern in ("*.png", "*.jpg", "*.jpeg", "*.bmp", "*.gif", "*.ico", "*.cur", "*.tif", "*.tiff"):
             image_filter.add_pattern(pattern)
         dialog.add_filter(image_filter)
@@ -3489,7 +3489,7 @@ class EditorWindow(Gtk.Window):
         dialog = Gtk.FileChooserDialog(title=_("Insert SVG"), transient_for=self, action=Gtk.FileChooserAction.OPEN)
         dialog.add_buttons(Gtk.STOCK_CANCEL, Gtk.ResponseType.CANCEL, Gtk.STOCK_OPEN, Gtk.ResponseType.OK)
         svg_filter = Gtk.FileFilter()
-        svg_filter.set_name("SVG images")
+        svg_filter.set_name(_("SVG images"))
         svg_filter.add_pattern("*.svg")
         dialog.add_filter(svg_filter)
         try:
@@ -5230,9 +5230,9 @@ class EditorWindow(Gtk.Window):
         )
         dialog.set_title(_("Save image?"))
         dialog.add_buttons(
-            "Yes", Gtk.ResponseType.YES,
-            "No", Gtk.ResponseType.NO,
-            "Cancel", Gtk.ResponseType.CANCEL,
+            _("Yes"), Gtk.ResponseType.YES,
+            _("No"), Gtk.ResponseType.NO,
+            _("Cancel"), Gtk.ResponseType.CANCEL,
         )
         response = dialog.run()
         dialog.destroy()
@@ -5280,7 +5280,7 @@ def choose_and_open_orcshot_file(transient_for: Gtk.Window = None) -> None:
     dialog.add_buttons(Gtk.STOCK_CANCEL, Gtk.ResponseType.CANCEL, Gtk.STOCK_OPEN, Gtk.ResponseType.OK)
     dialog.set_current_folder(str(get_output_directory()))
     orcshot_filter = Gtk.FileFilter()
-    orcshot_filter.set_name("Orcshot files")
+    orcshot_filter.set_name(_("Orcshot files"))
     orcshot_filter.add_pattern("*.orcshot")
     dialog.add_filter(orcshot_filter)
     try:
@@ -5341,7 +5341,7 @@ def _choose_save_location(parent: Gtk.Window = None) -> None:
     )
     dialog.add_buttons(
         Gtk.STOCK_CANCEL, Gtk.ResponseType.CANCEL,
-        "Select", Gtk.ResponseType.OK,
+        _("Select"), Gtk.ResponseType.OK,
     )
     current = get_output_directory()
     current.mkdir(parents=True, exist_ok=True)
@@ -5407,18 +5407,19 @@ def _build_general_settings_tab(parent: Gtk.Window) -> Gtk.Box:
     app_box.set_border_width(8)
     app_frame.add(app_box)
 
-    # Placeholder - task #109 (i18n infrastructure) doesn't exist
-    # yet, so there's only ever one real choice. Shown disabled
-    # rather than omitted so the real Windows field this
-    # corresponds to (combobox_language, groupbox_applicationsettings)
-    # has a visible, honest placement already.
+    # Placeholder - i18n phase 1 (gettext infrastructure) is done,
+    # but phase 2 (authoring real translations) hasn't happened yet,
+    # so there's only ever one real choice. Shown disabled rather
+    # than omitted so the real Windows field this corresponds to
+    # (combobox_language, groupbox_applicationsettings) has a
+    # visible, honest placement already.
     language_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
     language_row.pack_start(Gtk.Label(label=_("Language:")), False, False, 0)
     language_combo = Gtk.ComboBoxText()
-    language_combo.append("en", "English")
+    language_combo.append("en", _("English"))
     language_combo.set_active_id("en")
     language_combo.set_sensitive(False)
-    language_combo.set_tooltip_text(_("Only English is available - see task #109 (i18n infrastructure)."))
+    language_combo.set_tooltip_text(_("Only English is available - no translations have been contributed yet."))
     language_row.pack_start(language_combo, False, False, 0)
     app_box.pack_start(language_row, False, False, 0)
 
@@ -5475,7 +5476,7 @@ def _build_general_settings_tab(parent: Gtk.Window) -> Gtk.Box:
     editor_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
     editor_row.pack_start(Gtk.Label(label=_("External Image Editor:")), False, False, 0)
     editor_combo = Gtk.ComboBoxText()
-    editor_combo.append(EXTERNAL_EDITOR_AUTO, "Auto (Krita, then GIMP)")
+    editor_combo.append(EXTERNAL_EDITOR_AUTO, _("Auto (Krita, then GIMP)"))
     for name, _path_command, _flatpak_id in _EXTERNAL_EDITOR_CANDIDATES:
         editor_combo.append(name, name)
     current_preference = get_external_editor_preference()
@@ -5870,7 +5871,7 @@ def _build_destinations_settings_tab(dialog: Gtk.Dialog) -> Gtk.Box:
         tree_view = Gtk.TreeView(model=store)
         toggle_renderer = Gtk.CellRendererToggle()
         toggle_renderer.connect("toggled", lambda _renderer, path: on_toggled(store, path))
-        tree_view.append_column(Gtk.TreeViewColumn("Enabled", toggle_renderer, active=0))
+        tree_view.append_column(Gtk.TreeViewColumn(_("Enabled"), toggle_renderer, active=0))
         tree_view.append_column(Gtk.TreeViewColumn(column_label, Gtk.CellRendererText(), text=1))
         return tree_view
 
@@ -6023,9 +6024,9 @@ def _build_printer_settings_tab() -> Gtk.Box:
     color_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
     color_box.set_border_width(8)
 
-    color_radio = Gtk.RadioButton.new_with_label(None, "Full color print")
-    grayscale_radio = Gtk.RadioButton.new_with_label_from_widget(color_radio, "Force grayscale printing")
-    monochrome_radio = Gtk.RadioButton.new_with_label_from_widget(color_radio, "Force black/white printing")
+    color_radio = Gtk.RadioButton.new_with_label(None, _("Full color print"))
+    grayscale_radio = Gtk.RadioButton.new_with_label_from_widget(color_radio, _("Force grayscale printing"))
+    monochrome_radio = Gtk.RadioButton.new_with_label_from_widget(color_radio, _("Force black/white printing"))
     if options.monochrome:
         monochrome_radio.set_active(True)
     elif options.grayscale:
