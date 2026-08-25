@@ -216,7 +216,7 @@ _DESTINATION_TABLE = [
     ("clipboard", _("Copy to Clipboard"), lambda img, cs, clipboard_backend, title: clipboard_backend.set_image(_flattened(img, cs))),
     ("save", _("Save"), lambda img, cs, clipboard_backend, title: _quick_save(img, cs, title)),
     ("save_as", _("Save As..."), lambda img, cs, clipboard_backend, title: _save_as(img, cs, title)),
-    ("edit", _("Edit"), lambda img, cs, clipboard_backend, title: _open_editor(img, cs, title)),
+    ("edit", _("Edit..."), lambda img, cs, clipboard_backend, title: _open_editor(img, cs, title)),
     ("print", _("Print"), lambda img, cs, clipboard_backend, title: print_image(_flattened(img, cs))),
 ]
 

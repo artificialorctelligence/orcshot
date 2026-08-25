@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-08-25 18:25-0500\n"
+"POT-Creation-Date: 2026-08-25 18:48-0500\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -57,35 +57,6 @@ msgstr ""
 
 #: src/orcshot/ui/color_dialog.py:181
 msgid "Eyedropper"
-msgstr ""
-
-#: src/orcshot/ui/destination_picker.py:184
-msgid "Save Screenshot As"
-msgstr ""
-
-#: src/orcshot/ui/destination_picker.py:216
-#: src/orcshot/ui/editor_window.py:1578
-msgid "Copy to Clipboard"
-msgstr ""
-
-#: src/orcshot/ui/destination_picker.py:217
-#: src/orcshot/ui/editor_window.py:1576 src/orcshot/ui/editor_window.py:3714
-msgid "Save"
-msgstr ""
-
-#: src/orcshot/ui/destination_picker.py:218
-#: src/orcshot/ui/editor_window.py:1577
-msgid "Save As..."
-msgstr ""
-
-#: src/orcshot/ui/destination_picker.py:219
-#: src/orcshot/ui/editor_window.py:1590
-msgid "Edit"
-msgstr ""
-
-#: src/orcshot/ui/destination_picker.py:220
-#: src/orcshot/ui/editor_window.py:3715
-msgid "Print"
 msgstr ""
 
 #: src/orcshot/ui/editor_window.py:367
@@ -281,6 +252,21 @@ msgstr ""
 msgid "Open..."
 msgstr ""
 
+#: src/orcshot/ui/editor_window.py:1576 src/orcshot/ui/editor_window.py:3714
+#: src/orcshot/ui/destination_picker.py:217
+msgid "Save"
+msgstr ""
+
+#: src/orcshot/ui/editor_window.py:1577
+#: src/orcshot/ui/destination_picker.py:218
+msgid "Save As..."
+msgstr ""
+
+#: src/orcshot/ui/editor_window.py:1578
+#: src/orcshot/ui/destination_picker.py:216
+msgid "Copy to Clipboard"
+msgstr ""
+
 #: src/orcshot/ui/editor_window.py:1579
 msgid "Print..."
 msgstr ""
@@ -299,6 +285,10 @@ msgstr ""
 
 #: src/orcshot/ui/editor_window.py:1588
 msgid "Close"
+msgstr ""
+
+#: src/orcshot/ui/editor_window.py:1590
+msgid "Edit"
 msgstr ""
 
 #: src/orcshot/ui/editor_window.py:1591
@@ -728,6 +718,11 @@ msgstr ""
 msgid "Copy the whole image to the clipboard"
 msgstr ""
 
+#: src/orcshot/ui/editor_window.py:3715
+#: src/orcshot/ui/destination_picker.py:220
+msgid "Print"
+msgstr ""
+
 #: src/orcshot/ui/editor_window.py:3718
 msgid "Add Torn Edge"
 msgstr ""
@@ -1118,6 +1113,7 @@ msgid "Add..."
 msgstr ""
 
 #: src/orcshot/ui/editor_window.py:5916
+#: src/orcshot/ui/destination_picker.py:219
 msgid "Edit..."
 msgstr ""
 
@@ -1438,6 +1434,10 @@ msgid "{} match"
 msgid_plural "{} matches"
 msgstr[0] ""
 msgstr[1] ""
+
+#: src/orcshot/ui/destination_picker.py:184
+msgid "Save Screenshot As"
+msgstr ""
 
 #: src/orcshot/app.py:318
 msgid "Orcshot is already running"
