@@ -3634,7 +3634,7 @@ class EditorWindow(Gtk.Window):
                 transient_for=self, message_type=Gtk.MessageType.INFO, buttons=Gtk.ButtonsType.OK,
                 text=_("No external image editor found"),
             )
-            names = ", ".join(name for name, _, _ in _EXTERNAL_EDITOR_CANDIDATES)
+            names = ", ".join(name for name, _path_command, _flatpak_id in _EXTERNAL_EDITOR_CANDIDATES)
             dialog.format_secondary_text(
                 _("Tried: {} (checked both PATH and Flatpak). Install one of these to use this button.").format(names)
             )
@@ -3973,7 +3973,7 @@ class EditorWindow(Gtk.Window):
         shape = self._editing_text_shape
         if shape is None:
             return
-        _, _, box_w, box_h = self._text_editor_screen_rect()
+        _x, _y, box_w, box_h = self._text_editor_screen_rect()
         buffer = self._text_editor.get_buffer()
         text = buffer.get_text(buffer.get_start_iter(), buffer.get_end_iter(), True)
         size = shape.font_size * float(self._zoom)
@@ -3983,7 +3983,7 @@ class EditorWindow(Gtk.Window):
         layout.set_font_description(Pango.FontDescription.from_string(f"{shape.font_family} {weight}{slant}{size}"))
         layout.set_wrap(Pango.WrapMode.WORD_CHAR)
         layout.set_width(max(0, round(box_w * Pango.SCALE)))
-        _, text_height = layout.get_pixel_size()
+        _width, text_height = layout.get_pixel_size()
         offset = vertical_text_offset(shape.vertical_alignment, box_h, text_height)
         self._text_editor.set_top_margin(max(0.0, offset))
 

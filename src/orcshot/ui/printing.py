@@ -116,7 +116,7 @@ def _draw_print_page(image: np.ndarray, options: PrintOptions, operation, contex
     if options.footer:
         footer_text = _footer_text(datetime.now(), get_footer_pattern())
         footer_layout = _footer_layout(context, footer_text)
-        _, extents = footer_layout.get_pixel_extents()
+        _ink_extents, extents = footer_layout.get_pixel_extents()
         footer_height = extents.height
         page_h -= footer_height  # reserved *before* the fit/center math, matching PrintHelper.cs:217
 
@@ -139,7 +139,7 @@ def _draw_print_page(image: np.ndarray, options: PrintOptions, operation, contex
     ctx.restore()
 
     if footer_layout is not None:
-        _, extents = footer_layout.get_pixel_extents()
+        _ink_extents, extents = footer_layout.get_pixel_extents()
         ctx.save()
         ctx.translate((context.get_width() - extents.width) / 2, page_h)
         ctx.set_source_rgb(0, 0, 0)
