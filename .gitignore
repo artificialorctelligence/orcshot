@@ -27,4 +27,8 @@ vmpw.txt
 
 # i18n: po/orcshot.pot is committed for real (phase 2 - TRANSLATING.md
 # points contributors at it as the template to translate from), so it's
-# deliberately not ignored here anymore.
+# deliberately not ignored here anymore. The compiled .mo catalogs are
+# a build-time artifact of debian/rules' own override_dh_auto_build
+# (compiled from po/*.po into here so hatchling's own wheel build
+# picks them up) - never committed, source of truth is po/*.po.
+src/orcshot/resources/locale/

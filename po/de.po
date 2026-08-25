@@ -1,0 +1,1621 @@
+# German translation for orcshot.
+# This file is distributed under the same license as the orcshot package.
+#
+msgid ""
+msgstr ""
+"Project-Id-Version: orcshot\n"
+"POT-Creation-Date: 2026-08-25 18:21-0500\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Language: de\n"
+"Plural-Forms: nplurals=2; plural=(n != 1);\n"
+
+#: src/orcshot/ui/color_dialog.py:78
+msgid "Select Color"
+msgstr "Farbe auswählen"
+
+#: src/orcshot/ui/color_dialog.py:79
+#: src/orcshot/ui/text_obfuscation_dialog.py:201
+msgid "Apply"
+msgstr "Übernehmen"
+
+#: src/orcshot/ui/color_dialog.py:127
+msgid "Recently used colors"
+msgstr "Zuletzt verwendete Farben"
+
+#: src/orcshot/ui/color_dialog.py:150
+msgid "Hex:"
+msgstr "Hex:"
+
+#: src/orcshot/ui/color_dialog.py:153
+msgid "R:"
+msgstr "R:"
+
+#: src/orcshot/ui/color_dialog.py:153
+msgid "G:"
+msgstr "G:"
+
+#: src/orcshot/ui/color_dialog.py:153
+msgid "B:"
+msgstr "B:"
+
+#: src/orcshot/ui/color_dialog.py:153
+msgid "A:"
+msgstr "A:"
+
+#: src/orcshot/ui/color_dialog.py:177
+msgid "Transparent"
+msgstr "Transparent"
+
+#: src/orcshot/ui/color_dialog.py:181
+msgid "Eyedropper"
+msgstr "Pipette"
+
+#: src/orcshot/ui/destination_picker.py:184
+msgid "Save Screenshot As"
+msgstr "Screenshot speichern unter"
+
+#: src/orcshot/ui/destination_picker.py:216
+#: src/orcshot/ui/editor_window.py:1578
+msgid "Copy to Clipboard"
+msgstr "In die Zwischenablage kopieren"
+
+#: src/orcshot/ui/destination_picker.py:217
+#: src/orcshot/ui/editor_window.py:1576 src/orcshot/ui/editor_window.py:3714
+msgid "Save"
+msgstr "Speichern"
+
+#: src/orcshot/ui/destination_picker.py:218
+#: src/orcshot/ui/editor_window.py:1577
+msgid "Save As..."
+msgstr "Speichern unter ..."
+
+#: src/orcshot/ui/destination_picker.py:219
+#: src/orcshot/ui/editor_window.py:1590
+msgid "Edit"
+msgstr "Bearbeiten"
+
+#: src/orcshot/ui/destination_picker.py:220
+#: src/orcshot/ui/editor_window.py:3715
+msgid "Print"
+msgstr "Drucken"
+
+#: src/orcshot/ui/editor_window.py:367
+msgid "Solid Fill"
+msgstr "Deckende Füllung"
+
+#: src/orcshot/ui/editor_window.py:368
+msgid "Color Scramble"
+msgstr "Farben verwürfeln"
+
+#: src/orcshot/ui/editor_window.py:369
+msgid "Pixelize"
+msgstr "Verpixeln"
+
+#: src/orcshot/ui/editor_window.py:370
+msgid "Blur"
+msgstr "Weichzeichnen"
+
+#: src/orcshot/ui/editor_window.py:378
+msgid "most secure"
+msgstr "am sichersten"
+
+#: src/orcshot/ui/editor_window.py:379
+msgid "moderately secure"
+msgstr "mäßig sicher"
+
+#: src/orcshot/ui/editor_window.py:380 src/orcshot/ui/editor_window.py:381
+msgid "not secure"
+msgstr "nicht sicher"
+
+#: src/orcshot/ui/editor_window.py:386
+msgid ""
+"Completely replaces the covered area with a solid color. Nothing about the "
+"original content can be recovered - the recommended choice for anything "
+"sensitive."
+msgstr ""
+"Ersetzt den abgedeckten Bereich vollständig durch eine deckende Farbe. Vom "
+"ursprünglichen Inhalt lässt sich nichts wiederherstellen – die empfohlene "
+"Wahl für alles Vertrauliche."
+
+#: src/orcshot/ui/editor_window.py:390
+msgid ""
+"Replaces the area with synthetic noise matched to its overall color. Resists "
+"known reconstruction attacks (e.g. Depix), but a dominant hue may still be "
+"inferable."
+msgstr ""
+"Ersetzt den Bereich durch künstliches Rauschen, das an seine Gesamtfarbe "
+"angepasst ist. Widersteht bekannten Rekonstruktionsangriffen (z. B. Depix), "
+"ein vorherrschender Farbton kann aber weiterhin erkennbar bleiben."
+
+#: src/orcshot/ui/editor_window.py:394
+msgid ""
+"Reconstructable with publicly available tools (e.g. Depix, unredacter), even "
+"with this port's own noise hardening. Do not use for sensitive information."
+msgstr ""
+"Lässt sich mit frei verfügbaren Werkzeugen (z. B. Depix, unredacter) "
+"rekonstruieren – selbst mit der zusätzlichen Rausch-Härtung dieser "
+"Portierung. Nicht für vertrauliche Informationen verwenden."
+
+#: src/orcshot/ui/editor_window.py:398
+msgid ""
+"Reconstructable with publicly available tools (e.g. Depix, unredacter). Do "
+"not use for sensitive information."
+msgstr ""
+"Lässt sich mit frei verfügbaren Werkzeugen (z. B. Depix, unredacter) "
+"rekonstruieren. Nicht für vertrauliche Informationen verwenden."
+
+#: src/orcshot/ui/editor_window.py:441 src/orcshot/ui/editor_window.py:2007
+#: src/orcshot/ui/editor_window.py:2016
+msgid "Highlight"
+msgstr "Hervorheben"
+
+#: src/orcshot/ui/editor_window.py:442
+msgid "Spotlight Focus"
+msgstr "Spotlight-Fokus"
+
+#: src/orcshot/ui/editor_window.py:443
+msgid "Spotlight Colorize"
+msgstr "Spotlight-Farbe"
+
+#: src/orcshot/ui/editor_window.py:444
+msgid "Magnification"
+msgstr "Vergrößerung"
+
+#: src/orcshot/ui/editor_window.py:465
+msgid "Yellow"
+msgstr "Gelb"
+
+#: src/orcshot/ui/editor_window.py:466
+msgid "Green"
+msgstr "Grün"
+
+#: src/orcshot/ui/editor_window.py:467
+msgid "Pink"
+msgstr "Rosa"
+
+#: src/orcshot/ui/editor_window.py:468
+msgid "Orange"
+msgstr "Orange"
+
+#: src/orcshot/ui/editor_window.py:469
+msgid "Blue"
+msgstr "Blau"
+
+#: src/orcshot/ui/editor_window.py:487 src/orcshot/ui/editor_window.py:5701
+#: src/orcshot/ui/editor_window.py:5882
+msgid "Default"
+msgstr "Standard"
+
+#: src/orcshot/ui/editor_window.py:488
+msgid "Vertical"
+msgstr "Vertikal"
+
+#: src/orcshot/ui/editor_window.py:489
+msgid "Horizontal"
+msgstr "Horizontal"
+
+#: src/orcshot/ui/editor_window.py:507
+msgid "None"
+msgstr "Keiner"
+
+#: src/orcshot/ui/editor_window.py:508
+msgid "REDACTED"
+msgstr "GESCHWÄRZT"
+
+#: src/orcshot/ui/editor_window.py:509
+msgid "CENSORED"
+msgstr "ZENSIERT"
+
+#: src/orcshot/ui/editor_window.py:510
+msgid "CLASSIFIED"
+msgstr "VERSCHLUSSSACHE"
+
+#: src/orcshot/ui/editor_window.py:511
+msgid "CONFIDENTIAL"
+msgstr "VERTRAULICH"
+
+#: src/orcshot/ui/editor_window.py:512
+msgid "SECRET"
+msgstr "GEHEIM"
+
+#: src/orcshot/ui/editor_window.py:538 src/orcshot/ui/editor_window.py:3688
+#: src/orcshot/ui/editor_window.py:5348
+msgid "Select"
+msgstr "Auswählen"
+
+#: src/orcshot/ui/editor_window.py:540 src/orcshot/ui/editor_window.py:1638
+#: src/orcshot/ui/editor_window.py:3689
+msgid "Rectangle"
+msgstr "Rechteck"
+
+#: src/orcshot/ui/editor_window.py:541 src/orcshot/ui/editor_window.py:1639
+#: src/orcshot/ui/editor_window.py:3690
+msgid "Ellipse"
+msgstr "Ellipse"
+
+#: src/orcshot/ui/editor_window.py:542 src/orcshot/ui/editor_window.py:1640
+#: src/orcshot/ui/editor_window.py:3691
+msgid "Line"
+msgstr "Linie"
+
+#: src/orcshot/ui/editor_window.py:543 src/orcshot/ui/editor_window.py:1641
+#: src/orcshot/ui/editor_window.py:3693
+msgid "Arrow"
+msgstr "Pfeil"
+
+#: src/orcshot/ui/editor_window.py:544 src/orcshot/ui/editor_window.py:1642
+#: src/orcshot/ui/editor_window.py:3692
+msgid "Freehand"
+msgstr "Freihand"
+
+#: src/orcshot/ui/editor_window.py:545 src/orcshot/ui/editor_window.py:1643
+#: src/orcshot/ui/editor_window.py:3694
+msgid "Text"
+msgstr "Text"
+
+#: src/orcshot/ui/editor_window.py:546 src/orcshot/ui/editor_window.py:1644
+#: src/orcshot/ui/editor_window.py:3695
+msgid "Speech Bubble"
+msgstr "Sprechblase"
+
+#: src/orcshot/ui/editor_window.py:547 src/orcshot/ui/editor_window.py:3696
+msgid "Step Label"
+msgstr "Schrittnummer"
+
+#: src/orcshot/ui/editor_window.py:548 src/orcshot/ui/editor_window.py:3700
+msgid "Emoji"
+msgstr "Emoji"
+
+#: src/orcshot/ui/editor_window.py:600 src/orcshot/ui/editor_window.py:2030
+#: src/orcshot/ui/first_run_setup.py:195
+msgid "{} ({})"
+msgstr "{} ({})"
+
+#: src/orcshot/ui/editor_window.py:728
+msgid "Orcshot image editor"
+msgstr "Orcshot-Bildbearbeitung"
+
+#: src/orcshot/ui/editor_window.py:1555
+msgid "File"
+msgstr "Datei"
+
+#: src/orcshot/ui/editor_window.py:1564
+msgid "Open..."
+msgstr "Öffnen ..."
+
+#: src/orcshot/ui/editor_window.py:1579
+msgid "Print..."
+msgstr "Drucken ..."
+
+#: src/orcshot/ui/editor_window.py:1581
+msgid "Insert Image..."
+msgstr "Bild einfügen ..."
+
+#: src/orcshot/ui/editor_window.py:1582
+msgid "Insert SVG..."
+msgstr "SVG einfügen ..."
+
+#: src/orcshot/ui/editor_window.py:1585
+msgid "Screenshot Save Location..."
+msgstr "Speicherort für Screenshots ..."
+
+#: src/orcshot/ui/editor_window.py:1588
+msgid "Close"
+msgstr "Schließen"
+
+#: src/orcshot/ui/editor_window.py:1591
+msgid "Undo"
+msgstr "Rückgängig"
+
+#: src/orcshot/ui/editor_window.py:1592
+msgid "Redo"
+msgstr "Wiederherstellen"
+
+#: src/orcshot/ui/editor_window.py:1602 src/orcshot/ui/editor_window.py:2617
+msgid "Cut"
+msgstr "Ausschneiden"
+
+#: src/orcshot/ui/editor_window.py:1603
+msgid "Copy"
+msgstr "Kopieren"
+
+#: src/orcshot/ui/editor_window.py:1604
+msgid "Paste"
+msgstr "Einfügen"
+
+#: src/orcshot/ui/editor_window.py:1606
+msgid "Duplicate"
+msgstr "Duplizieren"
+
+#: src/orcshot/ui/editor_window.py:1608 src/orcshot/app.py:1068
+msgid "Preferences..."
+msgstr "Einstellungen ..."
+
+#: src/orcshot/ui/editor_window.py:1610
+msgid "Insert Window..."
+msgstr "Fenster einfügen ..."
+
+#: src/orcshot/ui/editor_window.py:1612
+msgid "Clear All"
+msgstr "Alles löschen"
+
+#: src/orcshot/ui/editor_window.py:1614
+msgid "Object"
+msgstr "Objekt"
+
+#: src/orcshot/ui/editor_window.py:1645
+msgid "Counter"
+msgstr "Zähler"
+
+#: src/orcshot/ui/editor_window.py:1660
+msgid "Select All"
+msgstr "Alles auswählen"
+
+#: src/orcshot/ui/editor_window.py:1661 src/orcshot/ui/editor_window.py:5917
+msgid "Delete"
+msgstr "Löschen"
+
+#: src/orcshot/ui/editor_window.py:1669
+msgid "Arrange"
+msgstr "Anordnen"
+
+#: src/orcshot/ui/editor_window.py:1670
+msgid "Bring to Top"
+msgstr "In den Vordergrund"
+
+#: src/orcshot/ui/editor_window.py:1671
+msgid "Up One Level"
+msgstr "Eine Ebene nach vorn"
+
+#: src/orcshot/ui/editor_window.py:1672
+msgid "Down One Level"
+msgstr "Eine Ebene nach hinten"
+
+#: src/orcshot/ui/editor_window.py:1673
+msgid "Send to Bottom"
+msgstr "In den Hintergrund"
+
+#: src/orcshot/ui/editor_window.py:1678
+msgid "Save Objects..."
+msgstr "Objekte speichern ..."
+
+#: src/orcshot/ui/editor_window.py:1679
+msgid "Load Objects..."
+msgstr "Objekte laden ..."
+
+#: src/orcshot/ui/editor_window.py:1681
+msgid "Zoom"
+msgstr "Zoom"
+
+#: src/orcshot/ui/editor_window.py:1684 src/orcshot/ui/editor_window.py:2630
+msgid "Help"
+msgstr "Hilfe"
+
+#: src/orcshot/ui/editor_window.py:1685
+msgid "Online Help"
+msgstr "Online-Hilfe"
+
+#: src/orcshot/ui/editor_window.py:1690
+msgid "Check for Updates..."
+msgstr "Nach Updates suchen ..."
+
+#: src/orcshot/ui/editor_window.py:1693
+msgid "About Orcshot"
+msgstr "Über Orcshot"
+
+#: src/orcshot/ui/editor_window.py:1719
+msgid "Zoom In"
+msgstr "Vergrößern"
+
+#: src/orcshot/ui/editor_window.py:1720
+msgid "Zoom Out"
+msgstr "Verkleinern"
+
+#: src/orcshot/ui/editor_window.py:1721
+msgid "Best Fit"
+msgstr "Optimale Größe"
+
+#: src/orcshot/ui/editor_window.py:1725
+msgid "{} - Actual Size"
+msgstr "{} – Originalgröße"
+
+#: src/orcshot/ui/editor_window.py:1794
+msgid "JPEG Quality"
+msgstr "JPEG-Qualität"
+
+#: src/orcshot/ui/editor_window.py:1795
+msgid "Continue"
+msgstr "Weiter"
+
+#: src/orcshot/ui/editor_window.py:1804 src/orcshot/ui/editor_window.py:5809
+msgid "JPEG quality:"
+msgstr "JPEG-Qualität:"
+
+#: src/orcshot/ui/editor_window.py:1833
+msgid ""
+"A Linux port of Greenshot - not affiliated with or endorsed by the Greenshot "
+"project"
+msgstr ""
+"Eine Linux-Portierung von Greenshot – weder mit dem Greenshot-Projekt "
+"verbunden noch von ihm unterstützt"
+
+#: src/orcshot/ui/editor_window.py:1905
+msgid "Rotate CW"
+msgstr "Rechts drehen"
+
+#: src/orcshot/ui/editor_window.py:1906
+msgid "Rotate Clockwise (Ctrl+.)"
+msgstr "Im Uhrzeigersinn drehen (Strg+.)"
+
+#: src/orcshot/ui/editor_window.py:1911
+msgid "Rotate CCW"
+msgstr "Links drehen"
+
+#: src/orcshot/ui/editor_window.py:1912
+msgid "Rotate Counterclockwise (Ctrl+,)"
+msgstr "Gegen den Uhrzeigersinn drehen (Strg+,)"
+
+#: src/orcshot/ui/editor_window.py:1917
+msgid "Resize"
+msgstr "Größe ändern"
+
+#: src/orcshot/ui/editor_window.py:1917
+msgid "Resize... (Z)"
+msgstr "Größe ändern ... (Z)"
+
+#: src/orcshot/ui/editor_window.py:1973 src/orcshot/ui/editor_window.py:1988
+msgid "Obfuscate"
+msgstr "Unkenntlich machen"
+
+#: src/orcshot/ui/editor_window.py:1974
+msgid "Obfuscate (O)"
+msgstr "Unkenntlich machen (O)"
+
+#: src/orcshot/ui/editor_window.py:2008
+msgid "Highlight (H)"
+msgstr "Hervorheben (H)"
+
+#: src/orcshot/ui/editor_window.py:2197 src/orcshot/ui/editor_window.py:2206
+msgid "Crop"
+msgstr "Zuschneiden"
+
+#: src/orcshot/ui/editor_window.py:2198
+msgid "Crop (C)"
+msgstr "Zuschneiden (C)"
+
+#: src/orcshot/ui/editor_window.py:2235
+msgid "Auto"
+msgstr "Automatisch"
+
+#: src/orcshot/ui/editor_window.py:2460 src/orcshot/ui/editor_window.py:2476
+msgid "Effects"
+msgstr "Effekte"
+
+#: src/orcshot/ui/editor_window.py:2528 src/orcshot/ui/editor_window.py:3716
+msgid "Add Border"
+msgstr "Rahmen hinzufügen"
+
+#: src/orcshot/ui/editor_window.py:2529 src/orcshot/ui/editor_window.py:3717
+msgid "Add Drop Shadow"
+msgstr "Schlagschatten hinzufügen"
+
+#: src/orcshot/ui/editor_window.py:2530
+msgid "Drop Shadow Settings..."
+msgstr "Schlagschatten-Einstellungen ..."
+
+#: src/orcshot/ui/editor_window.py:2531
+msgid "Torn Edges"
+msgstr "Ausgerissene Ränder"
+
+#: src/orcshot/ui/editor_window.py:2532
+msgid "Torn Edge Settings..."
+msgstr "Einstellungen für ausgerissene Ränder ..."
+
+#: src/orcshot/ui/editor_window.py:2533 src/orcshot/ui/editor_window.py:3719
+msgid "Grayscale"
+msgstr "Graustufen"
+
+#: src/orcshot/ui/editor_window.py:2534
+msgid "Invert"
+msgstr "Invertieren"
+
+#: src/orcshot/ui/editor_window.py:2536
+msgid "Remove Transparency..."
+msgstr "Transparenz entfernen ..."
+
+#: src/orcshot/ui/editor_window.py:2542
+msgid "Find & Redact Text..."
+msgstr "Text suchen & schwärzen ..."
+
+#: src/orcshot/ui/editor_window.py:2609
+msgid "Save (Ctrl+S)"
+msgstr "Speichern (Strg+S)"
+
+#: src/orcshot/ui/editor_window.py:2610
+msgid "Copy Image to Clipboard (Ctrl+C)"
+msgstr "Bild in die Zwischenablage kopieren (Strg+C)"
+
+#: src/orcshot/ui/editor_window.py:2611
+msgid "Print (Ctrl+P)"
+msgstr "Drucken (Strg+P)"
+
+#: src/orcshot/ui/editor_window.py:2614
+msgid "Delete (Del)"
+msgstr "Löschen (Entf)"
+
+#: src/orcshot/ui/editor_window.py:2618
+msgid "Copy Shape"
+msgstr "Form kopieren"
+
+#: src/orcshot/ui/editor_window.py:2619
+msgid "Paste Shape"
+msgstr "Form einfügen"
+
+#: src/orcshot/ui/editor_window.py:2620
+msgid "Undo (Ctrl+Z)"
+msgstr "Rückgängig (Strg+Z)"
+
+#: src/orcshot/ui/editor_window.py:2621
+msgid "Redo (Ctrl+Y)"
+msgstr "Wiederherstellen (Strg+Y)"
+
+#: src/orcshot/ui/editor_window.py:2624 src/orcshot/ui/editor_window.py:5381
+msgid "Preferences"
+msgstr "Einstellungen"
+
+#: src/orcshot/ui/editor_window.py:2626
+msgid "Open in External Editor"
+msgstr "In externem Editor öffnen"
+
+#: src/orcshot/ui/editor_window.py:2745
+msgid "Line:"
+msgstr "Linie:"
+
+#: src/orcshot/ui/editor_window.py:2751 src/orcshot/ui/editor_window.py:2797
+#: src/orcshot/ui/editor_window.py:2843
+msgid "Fill:"
+msgstr "Füllung:"
+
+#: src/orcshot/ui/editor_window.py:2757
+msgid "Line Thickness:"
+msgstr "Linienstärke:"
+
+#: src/orcshot/ui/editor_window.py:2765
+msgid "Shadow"
+msgstr "Schatten"
+
+#: src/orcshot/ui/editor_window.py:2785 src/orcshot/ui/editor_window.py:2838
+#: src/orcshot/ui/editor_window.py:2879
+msgid "Mode:"
+msgstr "Modus:"
+
+#: src/orcshot/ui/editor_window.py:2807
+msgid "Text:"
+msgstr "Text:"
+
+#: src/orcshot/ui/editor_window.py:2814
+msgid "Text Color:"
+msgstr "Textfarbe:"
+
+#: src/orcshot/ui/editor_window.py:2849
+msgid "Brightness:"
+msgstr "Helligkeit:"
+
+#: src/orcshot/ui/editor_window.py:2857 src/orcshot/ui/editor_window.py:2921
+msgid "Blur Radius:"
+msgstr "Weichzeichnungsradius:"
+
+#: src/orcshot/ui/editor_window.py:2868 src/orcshot/ui/editor_window.py:2924
+msgid "Amount:"
+msgstr "Stärke:"
+
+#: src/orcshot/ui/editor_window.py:2905
+msgid "Confirm"
+msgstr "Bestätigen"
+
+#: src/orcshot/ui/editor_window.py:2909
+msgid "Cancel (Esc)"
+msgstr "Abbrechen (Esc)"
+
+#: src/orcshot/ui/editor_window.py:2923
+msgid "Pixel Size:"
+msgstr "Pixelgröße:"
+
+#: src/orcshot/ui/editor_window.py:3279
+msgid "Save Objects"
+msgstr "Objekte speichern"
+
+#: src/orcshot/ui/editor_window.py:3285 src/orcshot/ui/editor_window.py:3317
+msgid "Orcshot objects"
+msgstr "Orcshot-Objekte"
+
+#: src/orcshot/ui/editor_window.py:3314
+msgid "Load Objects"
+msgstr "Objekte laden"
+
+#: src/orcshot/ui/editor_window.py:3333
+msgid "Couldn't load objects"
+msgstr "Objekte konnten nicht geladen werden"
+
+#: src/orcshot/ui/editor_window.py:3377
+msgid "Save Screenshot"
+msgstr "Screenshot speichern"
+
+#: src/orcshot/ui/editor_window.py:3410
+msgid "Save as type:"
+msgstr "Dateityp:"
+
+#: src/orcshot/ui/editor_window.py:3463
+msgid "Insert Image"
+msgstr "Bild einfügen"
+
+#: src/orcshot/ui/editor_window.py:3466
+msgid "Images"
+msgstr "Bilder"
+
+#: src/orcshot/ui/editor_window.py:3493
+msgid "Insert SVG"
+msgstr "SVG einfügen"
+
+#: src/orcshot/ui/editor_window.py:3496
+msgid "SVG images"
+msgstr "SVG-Bilder"
+
+#: src/orcshot/ui/editor_window.py:3639
+msgid "No external image editor found"
+msgstr "Kein externer Bildeditor gefunden"
+
+#: src/orcshot/ui/editor_window.py:3643
+msgid ""
+"Tried: {} (checked both PATH and Flatpak). Install one of these to use this "
+"button."
+msgstr ""
+"Gesucht wurde nach: {} (sowohl im PATH als auch in Flatpak). Installieren "
+"Sie eines dieser Programme, um diese Schaltfläche zu verwenden."
+
+#: src/orcshot/ui/editor_window.py:3687
+msgid "Tools"
+msgstr "Werkzeuge"
+
+#: src/orcshot/ui/editor_window.py:3697
+msgid "Highlight (whichever mode was last prepared)"
+msgstr "Hervorheben (im zuletzt eingestellten Modus)"
+
+#: src/orcshot/ui/editor_window.py:3698
+msgid "Obfuscate (whichever mode was last prepared)"
+msgstr "Unkenntlich machen (im zuletzt eingestellten Modus)"
+
+#: src/orcshot/ui/editor_window.py:3699
+msgid "Crop (whichever mode was last prepared)"
+msgstr "Zuschneiden (im zuletzt eingestellten Modus)"
+
+#: src/orcshot/ui/editor_window.py:3701
+msgid "Resize (a whole-image effect, not a drawing tool)"
+msgstr "Größe ändern (ein Effekt für das ganze Bild, kein Zeichenwerkzeug)"
+
+#: src/orcshot/ui/editor_window.py:3702
+msgid "For details on each tool's sub-modes, see the <a href=\"{}\">wiki</a>."
+msgstr ""
+"Einzelheiten zu den Untermodi der einzelnen Werkzeuge finden Sie im <a href="
+"\"{}\">Wiki</a>."
+
+#: src/orcshot/ui/editor_window.py:3705
+msgid "Editing"
+msgstr "Bearbeiten"
+
+#: src/orcshot/ui/editor_window.py:3706
+msgid "Delete the selected shape"
+msgstr "Die ausgewählte Form löschen"
+
+#: src/orcshot/ui/editor_window.py:3707
+msgid "Double-click"
+msgstr "Doppelklick"
+
+#: src/orcshot/ui/editor_window.py:3707
+msgid "Re-edit an existing text/speech bubble/emoji shape"
+msgstr "Eine vorhandene Text-, Sprechblasen- oder Emoji-Form erneut bearbeiten"
+
+#: src/orcshot/ui/editor_window.py:3708
+msgid "Commit a text/speech bubble/emoji edit"
+msgstr "Eine Text-, Sprechblasen- oder Emoji-Bearbeitung übernehmen"
+
+#: src/orcshot/ui/editor_window.py:3709
+msgid ""
+"Cancel a text/speech bubble/emoji edit, or an in-progress crop selection"
+msgstr ""
+"Eine Text-, Sprechblasen- oder Emoji-Bearbeitung bzw. eine laufende "
+"Zuschnittauswahl abbrechen"
+
+#: src/orcshot/ui/editor_window.py:3711
+msgid "Actions"
+msgstr "Aktionen"
+
+#: src/orcshot/ui/editor_window.py:3712
+msgid "Undo / Redo"
+msgstr "Rückgängig / Wiederherstellen"
+
+#: src/orcshot/ui/editor_window.py:3713
+msgid "Copy the whole image to the clipboard"
+msgstr "Das gesamte Bild in die Zwischenablage kopieren"
+
+#: src/orcshot/ui/editor_window.py:3718
+msgid "Add Torn Edge"
+msgstr "Ausgerissenen Rand hinzufügen"
+
+#: src/orcshot/ui/editor_window.py:3720
+msgid "Invert Colors"
+msgstr "Farben invertieren"
+
+#: src/orcshot/ui/editor_window.py:3721
+msgid "Clear (transparent background)"
+msgstr "Leeren (transparenter Hintergrund)"
+
+#: src/orcshot/ui/editor_window.py:3722
+msgid "Rotate counterclockwise / clockwise"
+msgstr "Gegen den / im Uhrzeigersinn drehen"
+
+#: src/orcshot/ui/editor_window.py:3723
+msgid "Zoom in / out"
+msgstr "Vergrößern / verkleinern"
+
+#: src/orcshot/ui/editor_window.py:3724
+msgid "Enlarge / shrink canvas"
+msgstr "Arbeitsfläche vergrößern / verkleinern"
+
+#: src/orcshot/ui/editor_window.py:3725
+msgid "Zoom to actual size"
+msgstr "Auf Originalgröße zoomen"
+
+#: src/orcshot/ui/editor_window.py:3726
+msgid "Zoom to best fit"
+msgstr "Auf optimale Größe zoomen"
+
+#: src/orcshot/ui/editor_window.py:3745
+msgid "Click"
+msgstr "Klick"
+
+#: src/orcshot/ui/editor_window.py:3746
+msgid ""
+"Open the tray menu\n"
+"(Wayland has no separate click action - <a href=\"{}\">Why?</a>)"
+msgstr ""
+"Das Tray-Menü öffnen\n"
+"(Unter Wayland gibt es keine eigene Klickaktion – <a href=\"{}\">Warum?</a>)"
+
+#: src/orcshot/ui/editor_window.py:3751
+msgid "Left-click"
+msgstr "Linksklick"
+
+#: src/orcshot/ui/editor_window.py:3751
+msgid "Start a region capture immediately"
+msgstr "Sofort eine Bereichsaufnahme starten"
+
+#: src/orcshot/ui/editor_window.py:3752
+msgid "Right-click"
+msgstr "Rechtsklick"
+
+#: src/orcshot/ui/editor_window.py:3752
+msgid "Open the tray menu"
+msgstr "Das Tray-Menü öffnen"
+
+#: src/orcshot/ui/editor_window.py:3757
+msgid "Orcshot Help"
+msgstr "Orcshot-Hilfe"
+
+#: src/orcshot/ui/editor_window.py:3783
+msgid "<b>{}</b>"
+msgstr "<b>{}</b>"
+
+#: src/orcshot/ui/editor_window.py:3841
+msgid "Tray Icon"
+msgstr "Tray-Symbol"
+
+#: src/orcshot/ui/editor_window.py:4495
+msgid "Remove Transparency"
+msgstr "Transparenz entfernen"
+
+#: src/orcshot/ui/editor_window.py:4520
+msgid "Resize Image"
+msgstr "Bildgröße ändern"
+
+#: src/orcshot/ui/editor_window.py:4527
+msgid "Width:"
+msgstr "Breite:"
+
+#: src/orcshot/ui/editor_window.py:4531
+msgid "Height:"
+msgstr "Höhe:"
+
+#: src/orcshot/ui/editor_window.py:4535
+msgid "Maintain aspect ratio"
+msgstr "Seitenverhältnis beibehalten"
+
+#: src/orcshot/ui/editor_window.py:4584
+msgid "Drop Shadow Settings"
+msgstr "Schlagschatten-Einstellungen"
+
+#: src/orcshot/ui/editor_window.py:4591
+msgid "Darkness:"
+msgstr "Dunkelheit:"
+
+#: src/orcshot/ui/editor_window.py:4596
+msgid "Size:"
+msgstr "Größe:"
+
+#: src/orcshot/ui/editor_window.py:4600
+msgid "Offset X:"
+msgstr "Versatz X:"
+
+#: src/orcshot/ui/editor_window.py:4604
+msgid "Offset Y:"
+msgstr "Versatz Y:"
+
+#: src/orcshot/ui/editor_window.py:4635
+msgid "Torn Edge Settings"
+msgstr "Einstellungen für ausgerissene Ränder"
+
+#: src/orcshot/ui/editor_window.py:4642
+msgid "Tooth height:"
+msgstr "Zackenhöhe:"
+
+#: src/orcshot/ui/editor_window.py:4646
+msgid "Horizontal tooth range:"
+msgstr "Horizontaler Zackenbereich:"
+
+#: src/orcshot/ui/editor_window.py:4650
+msgid "Vertical tooth range:"
+msgstr "Vertikaler Zackenbereich:"
+
+#: src/orcshot/ui/editor_window.py:4656
+msgid "Top"
+msgstr "Oben"
+
+#: src/orcshot/ui/editor_window.py:4656
+msgid "Right"
+msgstr "Rechts"
+
+#: src/orcshot/ui/editor_window.py:4656
+msgid "Bottom"
+msgstr "Unten"
+
+#: src/orcshot/ui/editor_window.py:4656
+msgid "Left"
+msgstr "Links"
+
+#: src/orcshot/ui/editor_window.py:4666
+msgid "Generate shadow"
+msgstr "Schatten erzeugen"
+
+#: src/orcshot/ui/editor_window.py:5233
+msgid "Do you want to save the screenshot?"
+msgstr "Möchten Sie den Screenshot speichern?"
+
+#: src/orcshot/ui/editor_window.py:5235
+msgid "Save image?"
+msgstr "Bild speichern?"
+
+#: src/orcshot/ui/editor_window.py:5237
+msgid "Yes"
+msgstr "Ja"
+
+#: src/orcshot/ui/editor_window.py:5238
+msgid "No"
+msgstr "Nein"
+
+#: src/orcshot/ui/editor_window.py:5239 src/orcshot/ui/external_commands.py:617
+msgid "Cancel"
+msgstr "Abbrechen"
+
+#: src/orcshot/ui/editor_window.py:5266
+msgid "New install incoming — save your work"
+msgstr "Neue Installation steht bevor – speichern Sie Ihre Arbeit"
+
+#: src/orcshot/ui/editor_window.py:5283
+msgid "Open"
+msgstr "Öffnen"
+
+#: src/orcshot/ui/editor_window.py:5287
+msgid "Orcshot files"
+msgstr "Orcshot-Dateien"
+
+#: src/orcshot/ui/editor_window.py:5320
+msgid "Couldn't open file"
+msgstr "Datei konnte nicht geöffnet werden"
+
+#: src/orcshot/ui/editor_window.py:5344
+msgid "Screenshot Save Location"
+msgstr "Speicherort für Screenshots"
+
+#: src/orcshot/ui/editor_window.py:5387
+msgid "General"
+msgstr "Allgemein"
+
+#: src/orcshot/ui/editor_window.py:5388 src/orcshot/ui/editor_window.py:5609
+msgid "Capture"
+msgstr "Aufnahme"
+
+#: src/orcshot/ui/editor_window.py:5389
+msgid "Output"
+msgstr "Ausgabe"
+
+#: src/orcshot/ui/editor_window.py:5390
+msgid "Destinations"
+msgstr "Ziele"
+
+#: src/orcshot/ui/editor_window.py:5391
+msgid "Printer"
+msgstr "Drucker"
+
+#: src/orcshot/ui/editor_window.py:5409
+msgid "Application Settings"
+msgstr "Anwendungseinstellungen"
+
+#: src/orcshot/ui/editor_window.py:5421
+msgid "Language:"
+msgstr "Sprache:"
+
+#: src/orcshot/ui/editor_window.py:5423
+msgid "English"
+msgstr "Englisch"
+
+#: src/orcshot/ui/editor_window.py:5426
+msgid "Only English is available - no translations have been contributed yet."
+msgstr ""
+"Es ist nur Englisch verfügbar – es wurden noch keine Übersetzungen "
+"beigesteuert."
+
+#: src/orcshot/ui/editor_window.py:5436
+msgid "Icon size:"
+msgstr "Symbolgröße:"
+
+#: src/orcshot/ui/editor_window.py:5439
+msgid "Takes effect the next time you open a screenshot."
+msgstr "Wird wirksam, wenn Sie das nächste Mal einen Screenshot öffnen."
+
+#: src/orcshot/ui/editor_window.py:5450
+msgid "Launch Orcshot on startup"
+msgstr "Orcshot beim Anmelden starten"
+
+#: src/orcshot/ui/editor_window.py:5481
+msgid "External Image Editor:"
+msgstr "Externer Bildeditor:"
+
+#: src/orcshot/ui/editor_window.py:5483
+msgid "Auto (Krita, then GIMP)"
+msgstr "Automatisch (Krita, dann GIMP)"
+
+#: src/orcshot/ui/editor_window.py:5503
+msgid "Suppress the save dialog when closing the editor"
+msgstr "Beim Schließen des Editors nicht nach dem Speichern fragen"
+
+#: src/orcshot/ui/editor_window.py:5512
+msgid "Hotkeys"
+msgstr "Tastenkürzel"
+
+#: src/orcshot/ui/editor_window.py:5516
+msgid "Configure Hotkeys..."
+msgstr "Tastenkürzel einrichten ..."
+
+#: src/orcshot/ui/editor_window.py:5528
+msgid "Network and Updates"
+msgstr "Netzwerk und Updates"
+
+#: src/orcshot/ui/editor_window.py:5537
+msgid "Use system default proxy"
+msgstr "Standard-Proxy des Systems verwenden"
+
+#: src/orcshot/ui/editor_window.py:5543
+msgid "Check for updates every"
+msgstr "Nach Updates suchen alle"
+
+#: src/orcshot/ui/editor_window.py:5548
+msgid ""
+"How often Orcshot checks GitHub for a newer release in the background. 0 = "
+"never check, matching Windows' own UpdateCheckInterval semantics."
+msgstr ""
+"Wie oft Orcshot im Hintergrund auf GitHub nach einer neueren Version sucht. "
+"0 = nie prüfen, entsprechend der UpdateCheckInterval-Semantik der Windows-"
+"Version."
+
+#: src/orcshot/ui/editor_window.py:5554
+msgid "days"
+msgstr "Tage"
+
+#: src/orcshot/ui/editor_window.py:5618
+msgid "Capture mouse cursor"
+msgstr "Mauszeiger mit aufnehmen"
+
+#: src/orcshot/ui/editor_window.py:5630
+msgid "Show magnifier while selecting a region"
+msgstr "Lupe beim Auswählen eines Bereichs anzeigen"
+
+#: src/orcshot/ui/editor_window.py:5634
+msgid ""
+"Applies to X11 and the Wayland portal-fallback path. The Wayland Shell-"
+"native picker's own magnifier doesn't read this setting yet."
+msgstr ""
+"Gilt für X11 und den Portal-Fallback unter Wayland. Die eigene Lupe der "
+"Shell-nativen Wayland-Auswahl berücksichtigt diese Einstellung noch nicht."
+
+#: src/orcshot/ui/editor_window.py:5644
+msgid "Play camera sound"
+msgstr "Kameraton abspielen"
+
+#: src/orcshot/ui/editor_window.py:5649
+msgid "Show notification after capture"
+msgstr "Nach der Aufnahme eine Benachrichtigung anzeigen"
+
+#: src/orcshot/ui/editor_window.py:5673
+msgid "Preferred File Settings"
+msgstr "Bevorzugte Dateieinstellungen"
+
+#: src/orcshot/ui/editor_window.py:5689
+msgid "Filename pattern:"
+msgstr "Dateinamensmuster:"
+
+#: src/orcshot/ui/editor_window.py:5693
+#, python-format
+msgid ""
+"Both ${...} placeholders and %-codes work in the same pattern. Click ? for "
+"the full list."
+msgstr ""
+"Sowohl ${...}-Platzhalter als auch %-codes funktionieren im selben Muster. "
+"Klicken Sie auf ?, um die vollständige Liste zu sehen."
+
+#: src/orcshot/ui/editor_window.py:5715
+msgid "Filename pattern placeholders and codes"
+msgstr "Platzhalter und Codes für das Dateinamensmuster"
+
+#: src/orcshot/ui/editor_window.py:5717
+msgid ""
+"${YYYY} year, 4 digits\n"
+"${MM} month, 2 digits\n"
+"${DD} day, 2 digits\n"
+"${hh} hour, 2 digits\n"
+"${mm} minute, 2 digits\n"
+"${ss} second, 2 digits\n"
+"${NUM} incrementing number, 6 digits (see Counter below)\n"
+"${RRR...} random alphanumerics, same length as the number of R's\n"
+"${title} capture title, when available\n"
+"${\"affix\"?TOKEN} renders affix+value only when TOKEN has one, e.g. ${\" - "
+"\"?title} for \" - My Window\" - or nothing at all if there's no title\n"
+"\n"
+"%Y year, %y year (2 digits)\n"
+"%m month, %d day\n"
+"%H hour (24h), %I hour (12h), %p AM/PM\n"
+"%M minute, %S second\n"
+"%A/%a weekday name, %B/%b month name\n"
+"%% a literal percent sign"
+msgstr ""
+"${YYYY} Jahr, 4-stellig\n"
+"${MM} Monat, 2-stellig\n"
+"${DD} Tag, 2-stellig\n"
+"${hh} Stunde, 2-stellig\n"
+"${mm} Minute, 2-stellig\n"
+"${ss} Sekunde, 2-stellig\n"
+"${NUM} fortlaufende Nummer, 6-stellig (siehe „Zähler“ weiter unten)\n"
+"${RRR...} zufällige alphanumerische Zeichen, so viele wie angegebene R\n"
+"${title} Titel der Aufnahme, sofern vorhanden\n"
+"${\"Zusatz\"?TOKEN} gibt Zusatz+Wert nur aus, wenn TOKEN einen Wert hat, z. "
+"B. ${\" - \"?title} für \" - Mein Fenster\" – oder gar nichts, wenn es "
+"keinen Titel gibt\n"
+"\n"
+"%Y Jahr, %y Jahr (2-stellig)\n"
+"%m Monat, %d Tag\n"
+"%H Stunde (24 h), %I Stunde (12 h), %p AM/PM\n"
+"%M Minute, %S Sekunde\n"
+"%A/%a Wochentagsname, %B/%b Monatsname\n"
+"%% ein wörtliches Prozentzeichen"
+
+#: src/orcshot/ui/editor_window.py:5749
+#, python-brace-format
+msgid "Counter (${NUM} in filename):"
+msgstr "Zähler (${NUM} im Dateinamen):"
+
+#: src/orcshot/ui/editor_window.py:5757
+msgid "Primary format:"
+msgstr "Primäres Format:"
+
+#: src/orcshot/ui/editor_window.py:5766
+msgid "Copy file path to clipboard after saving"
+msgstr "Dateipfad nach dem Speichern in die Zwischenablage kopieren"
+
+#: src/orcshot/ui/editor_window.py:5772
+msgid "Screenshot Save Location:"
+msgstr "Speicherort für Screenshots:"
+
+#: src/orcshot/ui/editor_window.py:5775
+msgid "Change..."
+msgstr "Ändern ..."
+
+#: src/orcshot/ui/editor_window.py:5787
+msgid "Quality Settings"
+msgstr "Qualitätseinstellungen"
+
+#: src/orcshot/ui/editor_window.py:5795
+msgid "Reduce colors to 256 (8-bit)"
+msgstr "Farben auf 256 reduzieren (8 Bit)"
+
+#: src/orcshot/ui/editor_window.py:5797
+msgid ""
+"Not applied to saves yet - this port has no color-quantization step built."
+msgstr ""
+"Wird beim Speichern noch nicht angewendet – diese Portierung besitzt keinen "
+"Schritt zur Farbquantisierung."
+
+#: src/orcshot/ui/editor_window.py:5801
+msgid "Always show quality dialog before saving"
+msgstr "Qualitätsdialog immer vor dem Speichern anzeigen"
+
+#: src/orcshot/ui/editor_window.py:5878
+msgid "Enabled"
+msgstr "Aktiviert"
+
+#: src/orcshot/ui/editor_window.py:5895
+msgid "External"
+msgstr "Extern"
+
+#: src/orcshot/ui/editor_window.py:5915
+msgid "Add..."
+msgstr "Hinzufügen ..."
+
+#: src/orcshot/ui/editor_window.py:5916
+msgid "Edit..."
+msgstr "Bearbeiten ..."
+
+#: src/orcshot/ui/editor_window.py:5981
+msgid "Page Layout Settings"
+msgstr "Seitenlayout-Einstellungen"
+
+#: src/orcshot/ui/editor_window.py:5985 src/orcshot/ui/printing.py:166
+msgid "Shrink printout to fit paper size"
+msgstr "Ausdruck auf Papiergröße verkleinern"
+
+#: src/orcshot/ui/editor_window.py:5990 src/orcshot/ui/printing.py:168
+msgid "Enlarge printout to fit paper size"
+msgstr "Ausdruck auf Papiergröße vergrößern"
+
+#: src/orcshot/ui/editor_window.py:5995 src/orcshot/ui/printing.py:170
+msgid "Rotate printout to page orientation"
+msgstr "Ausdruck an die Seitenausrichtung anpassen"
+
+#: src/orcshot/ui/editor_window.py:6000 src/orcshot/ui/printing.py:172
+msgid "Center printout on page"
+msgstr "Ausdruck auf der Seite zentrieren"
+
+#: src/orcshot/ui/editor_window.py:6005 src/orcshot/ui/printing.py:174
+msgid "Print date / time at bottom of page"
+msgstr "Datum/Uhrzeit am Seitenende drucken"
+
+#: src/orcshot/ui/editor_window.py:6014
+msgid "Footer pattern:"
+msgstr "Fußzeilenmuster:"
+
+#: src/orcshot/ui/editor_window.py:6018
+msgid ""
+"A Python strftime format, e.g. %B %d, %Y %I:%M %p - printed at the bottom of "
+"the page."
+msgstr ""
+"Ein Python-strftime-Format, z. B. %d. %B %Y, %H:%M – wird am Seitenende "
+"gedruckt."
+
+#: src/orcshot/ui/editor_window.py:6027
+msgid "Color Settings"
+msgstr "Farbeinstellungen"
+
+#: src/orcshot/ui/editor_window.py:6031 src/orcshot/ui/printing.py:184
+msgid "Full color print"
+msgstr "Druck in voller Farbe"
+
+#: src/orcshot/ui/editor_window.py:6032 src/orcshot/ui/printing.py:185
+msgid "Force grayscale printing"
+msgstr "Druck in Graustufen erzwingen"
+
+#: src/orcshot/ui/editor_window.py:6033 src/orcshot/ui/printing.py:186
+msgid "Force black/white printing"
+msgstr "Druck in Schwarzweiß erzwingen"
+
+#: src/orcshot/ui/editor_window.py:6048 src/orcshot/ui/printing.py:193
+msgid "Print with inverted colors"
+msgstr "Mit invertierten Farben drucken"
+
+#: src/orcshot/ui/editor_window.py:6056
+msgid "Show print options dialog every time an image is printed"
+msgstr "Bei jedem Druck den Dialog mit den Druckoptionen anzeigen"
+
+#: src/orcshot/ui/external_commands.py:506
+msgid "Name is required."
+msgstr "Ein Name ist erforderlich."
+
+#: src/orcshot/ui/external_commands.py:509
+msgid "A command with this name already exists."
+msgstr "Ein Befehl mit diesem Namen existiert bereits."
+
+#: src/orcshot/ui/external_commands.py:511
+msgid "Command is required."
+msgstr "Ein Befehl ist erforderlich."
+
+#: src/orcshot/ui/external_commands.py:519
+msgid ""
+"This looks like a full command line - put just the program name here, and "
+"the rest in Arguments."
+msgstr ""
+"Das sieht nach einer vollständigen Befehlszeile aus – geben Sie hier nur den "
+"Programmnamen ein und den Rest unter „Argumente“."
+
+#: src/orcshot/ui/external_commands.py:520
+msgid "Command not found - check the path, or that it's on your PATH."
+msgstr ""
+"Befehl nicht gefunden – prüfen Sie den Pfad oder ob er in Ihrem PATH liegt."
+
+#: src/orcshot/ui/external_commands.py:525
+msgid "Invalid arguments: {}"
+msgstr "Ungültige Argumente: {}"
+
+#: src/orcshot/ui/external_commands.py:558
+msgid "Name:"
+msgstr "Name:"
+
+#: src/orcshot/ui/external_commands.py:563
+msgid "Command:"
+msgstr "Befehl:"
+
+#: src/orcshot/ui/external_commands.py:565
+msgid "Browse..."
+msgstr "Durchsuchen ..."
+
+#: src/orcshot/ui/external_commands.py:569
+msgid "Select Command"
+msgstr "Befehl auswählen"
+
+#: src/orcshot/ui/external_commands.py:583
+#, python-brace-format
+msgid "{0} is replaced with the screenshot's exported file path."
+msgstr "{0} wird durch den exportierten Dateipfad des Screenshots ersetzt."
+
+#: src/orcshot/ui/external_commands.py:584
+msgid "Arguments:"
+msgstr "Argumente:"
+
+#: src/orcshot/ui/external_commands.py:587
+msgid "Run in background"
+msgstr "Im Hintergrund ausführen"
+
+#: src/orcshot/ui/external_commands.py:615
+msgid "External Command"
+msgstr "Externer Befehl"
+
+#: src/orcshot/ui/external_commands.py:616
+msgid "OK"
+msgstr "OK"
+
+#: src/orcshot/ui/external_commands.py:637
+msgid "Find App"
+msgstr "App suchen"
+
+#: src/orcshot/ui/external_commands.py:638
+msgid "Add Command"
+msgstr "Befehl hinzufügen"
+
+#: src/orcshot/ui/external_commands.py:643
+msgid ""
+"Find App searches your installed apps - Snap, Flatpak, and natively "
+"installed - and fills in the fields below for you. For anything else - a "
+"plain program or a script - use Add Command."
+msgstr ""
+"„App suchen“ durchsucht Ihre installierten Anwendungen – Snap, Flatpak und "
+"nativ installierte – und füllt die Felder unten für Sie aus. Für alles "
+"andere – ein einfaches Programm oder ein Skript – verwenden Sie „Befehl "
+"hinzufügen“."
+
+#: src/orcshot/ui/external_commands.py:660
+msgid "App"
+msgstr "App"
+
+#: src/orcshot/ui/external_commands.py:705
+msgid ""
+"No installed apps could be found to search.\n"
+"Use Add Command instead."
+msgstr ""
+"Es konnten keine installierten Anwendungen zum Durchsuchen gefunden werden.\n"
+"Verwenden Sie stattdessen „Befehl hinzufügen“."
+
+#: src/orcshot/ui/external_commands.py:732
+msgid "Search the list of installed applications."
+msgstr "Die Liste der installierten Anwendungen durchsuchen."
+
+#: src/orcshot/ui/first_run_setup.py:157
+msgid "Orcshot Setup"
+msgstr "Orcshot-Einrichtung"
+
+#: src/orcshot/ui/first_run_setup.py:159
+msgid "Not Now"
+msgstr "Nicht jetzt"
+
+#: src/orcshot/ui/first_run_setup.py:160
+msgid "Enable"
+msgstr "Aktivieren"
+
+#: src/orcshot/ui/first_run_setup.py:175
+msgid ""
+"Set up Orcshot to start automatically at login, and enable its capture "
+"keyboard shortcuts?"
+msgstr ""
+"Orcshot so einrichten, dass es bei der Anmeldung automatisch startet, und "
+"seine Tastenkürzel für Aufnahmen aktivieren?"
+
+#: src/orcshot/ui/first_run_setup.py:177
+msgid "Set up Orcshot to start automatically at login?"
+msgstr "Orcshot so einrichten, dass es bei der Anmeldung automatisch startet?"
+
+#: src/orcshot/ui/first_run_setup.py:180
+msgid "Start automatically at login"
+msgstr "Automatisch bei der Anmeldung starten"
+
+#: src/orcshot/ui/first_run_setup.py:192
+msgid "{} ({}) — overwrite {}?"
+msgstr "{} ({}) — {} überschreiben?"
+
+#: src/orcshot/ui/first_run_setup.py:210
+msgid ""
+"Automatic keyboard shortcut setup isn't available on this desktop. You can "
+"bind shortcuts to these manually instead:\n"
+msgstr ""
+"Die automatische Einrichtung von Tastenkürzeln ist auf dieser "
+"Arbeitsumgebung nicht verfügbar. Sie können die Tastenkürzel stattdessen "
+"selbst zuweisen:\n"
+
+#: src/orcshot/ui/orcshot_file.py:55
+msgid "Failed to encode the image as PNG"
+msgstr "Das Bild konnte nicht als PNG kodiert werden"
+
+#: src/orcshot/ui/orcshot_file.py:74
+msgid "{} has no .orcshot trailer - not a file this format wrote"
+msgstr ""
+"{} hat keinen .orcshot-Anhang – diese Datei wurde nicht in diesem Format "
+"geschrieben"
+
+#: src/orcshot/ui/orcshot_file.py:81
+msgid "{}'s trailer claims a shape-layer length longer than the file itself"
+msgstr ""
+"Der Anhang von {} gibt für die Formebene eine Länge an, die größer ist als "
+"die Datei selbst"
+
+#: src/orcshot/ui/orcshot_file.py:92
+msgid "{}'s image portion isn't a valid PNG"
+msgstr "Der Bildteil von {} ist kein gültiges PNG"
+
+#: src/orcshot/ui/orcshot_file.py:98
+msgid "{}'s shape-layer blob isn't valid JSON"
+msgstr "Der Formebenen-Datenblock von {} ist kein gültiges JSON"
+
+#: src/orcshot/ui/orcshot_file.py:136
+msgid "{} isn't a valid Save Objects file or .orcshot file"
+msgstr "{} ist weder eine gültige Objektdatei noch eine .orcshot-Datei"
+
+#: src/orcshot/ui/printing.py:157
+msgid "Orcshot print options"
+msgstr "Orcshot-Druckoptionen"
+
+#: src/orcshot/ui/printing.py:163
+msgid "Page layout settings"
+msgstr "Seitenlayout-Einstellungen"
+
+#: src/orcshot/ui/printing.py:181
+msgid "Color settings"
+msgstr "Farbeinstellungen"
+
+#: src/orcshot/ui/printing.py:200
+msgid "Save options as default and do not ask again"
+msgstr "Optionen als Standard speichern und nicht mehr nachfragen"
+
+#: src/orcshot/ui/text_obfuscation_dialog.py:69
+msgid "Find & Redact Text"
+msgstr "Text suchen & schwärzen"
+
+#: src/orcshot/ui/text_obfuscation_dialog.py:165
+msgid ""
+"Tesseract OCR is not installed. Install the tesseract-ocr package to use "
+"this feature."
+msgstr ""
+"Tesseract OCR ist nicht installiert. Installieren Sie das Paket tesseract-"
+"ocr, um diese Funktion zu nutzen."
+
+#: src/orcshot/ui/text_obfuscation_dialog.py:179
+msgid "OCR failed: {}"
+msgstr "OCR fehlgeschlagen: {}"
+
+#: src/orcshot/ui/text_obfuscation_dialog.py:186
+msgid "No text found in this image."
+msgstr "In diesem Bild wurde kein Text gefunden."
+
+#: src/orcshot/ui/text_obfuscation_dialog.py:219
+msgid "Search text (min. 3 characters)..."
+msgstr "Text suchen (mind. 3 Zeichen) ..."
+
+#: src/orcshot/ui/text_obfuscation_dialog.py:224
+msgid "Regex"
+msgstr "Regex"
+
+#: src/orcshot/ui/text_obfuscation_dialog.py:227
+msgid "Case sensitive"
+msgstr "Groß-/Kleinschreibung beachten"
+
+#: src/orcshot/ui/text_obfuscation_dialog.py:236
+msgid "Search in:"
+msgstr "Suchen in:"
+
+#: src/orcshot/ui/text_obfuscation_dialog.py:238
+msgid "Words"
+msgstr "Wörtern"
+
+#: src/orcshot/ui/text_obfuscation_dialog.py:239
+msgid "Lines"
+msgstr "Zeilen"
+
+#: src/orcshot/ui/text_obfuscation_dialog.py:244
+msgid "Effect:"
+msgstr "Effekt:"
+
+#: src/orcshot/ui/text_obfuscation_dialog.py:252
+msgid "Pixel size:"
+msgstr "Pixelgröße:"
+
+#: src/orcshot/ui/text_obfuscation_dialog.py:259
+msgid "Blur radius:"
+msgstr "Weichzeichnungsradius:"
+
+#: src/orcshot/ui/text_obfuscation_dialog.py:266
+msgid "Fill color:"
+msgstr "Füllfarbe:"
+
+#: src/orcshot/ui/text_obfuscation_dialog.py:273
+msgid "Highlight color:"
+msgstr "Hervorhebungsfarbe:"
+
+#: src/orcshot/ui/text_obfuscation_dialog.py:280
+msgid "Magnification:"
+msgstr "Vergrößerung:"
+
+#: src/orcshot/ui/text_obfuscation_dialog.py:287
+msgid "Padding horizontal %:"
+msgstr "Innenabstand horizontal %:"
+
+#: src/orcshot/ui/text_obfuscation_dialog.py:293
+msgid "Padding vertical %:"
+msgstr "Innenabstand vertikal %:"
+
+#: src/orcshot/ui/text_obfuscation_dialog.py:299
+msgid "Offset horizontal:"
+msgstr "Versatz horizontal:"
+
+#: src/orcshot/ui/text_obfuscation_dialog.py:305
+msgid "Offset vertical:"
+msgstr "Versatz vertikal:"
+
+#: src/orcshot/ui/text_obfuscation_dialog.py:311
+msgid "0 matches"
+msgstr "0 Treffer"
+
+#: src/orcshot/ui/text_obfuscation_dialog.py:397
+msgid "{} match"
+msgid_plural "{} matches"
+msgstr[0] "{} Treffer"
+msgstr[1] "{} Treffer"
+
+#: src/orcshot/app.py:318
+msgid "Orcshot is already running"
+msgstr "Orcshot läuft bereits"
+
+#: src/orcshot/app.py:319
+msgid "Look for its icon in the system tray."
+msgstr "Das Symbol finden Sie im System-Tray."
+
+#: src/orcshot/app.py:549
+msgid "Screenshot failed"
+msgstr "Screenshot fehlgeschlagen"
+
+#: src/orcshot/app.py:549
+msgid ""
+"The screenshot couldn't be taken.\n"
+"\n"
+"{}"
+msgstr ""
+"Der Screenshot konnte nicht erstellt werden.\n"
+"\n"
+"{}"
+
+#: src/orcshot/app.py:778
+msgid "Orcshot's Wayland integration needs a restart"
+msgstr "Die Wayland-Integration von Orcshot muss neu gestartet werden"
+
+#: src/orcshot/app.py:780
+msgid ""
+"An update changed how Orcshot's Shell extension works, but your session is "
+"still running the previous version. Log out and back in to finish applying "
+"it."
+msgstr ""
+"Ein Update hat die Arbeitsweise der Shell-Erweiterung von Orcshot geändert, "
+"Ihre Sitzung verwendet aber noch die vorherige Version. Melden Sie sich ab "
+"und wieder an, um die Aktualisierung abzuschließen."
+
+#: src/orcshot/app.py:790
+msgid "Orcshot's tray icon fell back to a plain version"
+msgstr "Orcshot verwendet ein einfaches Ersatz-Tray-Symbol"
+
+#: src/orcshot/app.py:792
+msgid ""
+"Its usual Shell-integrated tray icon couldn't be created, so a plain "
+"fallback is being used instead. This is a bug worth reporting.{}"
+msgstr ""
+"Das übliche, in die Shell integrierte Tray-Symbol konnte nicht erstellt "
+"werden, daher wird ein einfaches Ersatzsymbol verwendet. Dieser Fehler "
+"sollte gemeldet werden.{}"
+
+#: src/orcshot/app.py:1008
+msgid "Capture Region"
+msgstr "Bereich aufnehmen"
+
+#: src/orcshot/app.py:1013
+msgid "Capture Full Screen"
+msgstr "Gesamten Bildschirm aufnehmen"
+
+#: src/orcshot/app.py:1018
+msgid "Capture Active Window"
+msgstr "Aktives Fenster aufnehmen"
+
+#: src/orcshot/app.py:1023
+msgid "Capture Window..."
+msgstr "Fenster aufnehmen ..."
+
+#: src/orcshot/app.py:1031
+msgid ""
+"Not available on this Wayland session - enable window capture support in "
+"Preferences, or use Capture Region instead."
+msgstr ""
+"In dieser Wayland-Sitzung nicht verfügbar – aktivieren Sie die "
+"Unterstützung für Fensteraufnahmen in den Einstellungen oder verwenden Sie "
+"stattdessen „Bereich aufnehmen“."
+
+#: src/orcshot/app.py:1038
+msgid "Repeat Last Region"
+msgstr "Letzten Bereich wiederholen"
+
+#: src/orcshot/app.py:1053
+msgid "Open File..."
+msgstr "Datei öffnen ..."
+
+#: src/orcshot/app.py:1080
+msgid "Quit"
+msgstr "Beenden"
+
+#: src/orcshot/app.py:1135
+msgid "Orcshot update available"
+msgstr "Orcshot-Update verfügbar"
+
+#: src/orcshot/app.py:1136
+msgid ""
+"A newer version of Orcshot is available! Do you want to download Orcshot {}?"
+msgstr ""
+"Eine neuere Version von Orcshot ist verfügbar! Möchten Sie Orcshot {} "
+"herunterladen?"
+
+#: src/orcshot/app.py:1168
+msgid "Couldn't check for updates"
+msgstr "Suche nach Updates fehlgeschlagen"
+
+#: src/orcshot/app.py:1169
+msgid "No response from GitHub - check your network connection and try again."
+msgstr ""
+"Keine Antwort von GitHub – prüfen Sie Ihre Netzwerkverbindung und versuchen "
+"Sie es erneut."
+
+#: src/orcshot/app.py:1177
+msgid "Orcshot is up to date"
+msgstr "Orcshot ist auf dem neuesten Stand"
+
+#: src/orcshot/app.py:1178
+msgid "You're running the latest version ({})."
+msgstr "Sie verwenden bereits die neueste Version ({})."
