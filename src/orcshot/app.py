@@ -194,6 +194,7 @@ class OrcshotApplication(Gtk.Application):
         self._open_editors = []
         self._has_activated_before = False
         self._quit_after_editors_close = False
+        self._restart_after_editors_close = False
 
     def do_startup(self):
         Gtk.Application.do_startup(self)
@@ -422,6 +423,7 @@ class OrcshotApplication(Gtk.Application):
         if editor in self._open_editors:
             self._open_editors.remove(editor)
         self._maybe_quit_after_upgrade_prep()
+        self._maybe_restart_after_language_change()
 
     def _block_if_modal_dialog_open(self) -> bool:
         """True (after presenting the grabbing dialog instead) if a new
@@ -726,7 +728,7 @@ class OrcshotApplication(Gtk.Application):
         self._quit_after_editors_close = True
         for editor in list(self._open_editors):
             if editor.is_modified:
-                editor.prompt_save_for_upgrade()
+                editor.prompt_save_for_restart(_("New install incoming — save your work"))
             else:
                 editor.close()
         self._maybe_quit_after_upgrade_prep()
@@ -734,6 +736,37 @@ class OrcshotApplication(Gtk.Application):
     def _maybe_quit_after_upgrade_prep(self) -> None:
         if self._quit_after_editors_close and not self._open_editors:
             self._quit_and_hide_tray_button(write_marker=False)
+
+    def restart_for_language_change(self) -> None:
+        """Preferences' own language picker (task #183 follow-up) calls
+        this once the user confirms they want to restart now rather
+        than wait for the next natural one - mirrors
+        prepare_for_upgrade's own "prompt-save any open editors, then
+        act" shape, but the "act" here is a real self-restart rather
+        than a quit, since the whole point is to come back running
+        the new language immediately.
+        """
+        self._restart_after_editors_close = True
+        for editor in list(self._open_editors):
+            if editor.is_modified:
+                editor.prompt_save_for_restart(_("Restarting Orcshot — save your work"))
+            else:
+                editor.close()
+        self._maybe_restart_after_language_change()
+
+    def _maybe_restart_after_language_change(self) -> None:
+        """os.execv rather than quit()+relaunch (task #183 follow-up):
+        quit() only requests the main loop return control
+        asynchronously (see _quit_and_hide_tray_button's own docstring
+        for why that alone isn't reliable), and writes a "stay quit"
+        marker that would incorrectly swallow the very relaunch this
+        is trying to trigger. execv replaces this process's own image
+        in place - same PID, no coordination needed with the systemd
+        unit or the single-instance D-Bus name check a spawn-new-then-
+        quit-old approach would otherwise have to race against.
+        """
+        if self._restart_after_editors_close and not self._open_editors:
+            os.execv(sys.executable, [sys.executable, *sys.argv])
 
     def _check_shell_extension_health(self) -> None:
         """Surfaces two real, ordinary-but-easy-to-miss states

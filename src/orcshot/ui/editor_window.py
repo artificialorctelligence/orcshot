@@ -3350,7 +3350,7 @@ class EditorWindow(Gtk.Window):
         own post-BtnSaveClick `if (_surface.Modified)` check
         (ImageEditorForm.cs:1024-1028).
 
-        title is overridable for prompt_save_for_upgrade below, which
+        title is overridable for prompt_save_for_restart below, which
         wants to explain *why* a save dialog appeared unprompted.
         """
         title = title or _("Save Screenshot")
@@ -5228,21 +5228,23 @@ class EditorWindow(Gtk.Window):
         # default to the safe choice: don't close, don't lose anything.
         return True
 
-    def prompt_save_for_upgrade(self) -> None:
-        """Package-upgrade path (task #151 follow-up): OrcshotApplication.
-        prepare_for_upgrade calls this instead of going through the
-        normal close/delete-event flow above - a package install is
-        happening whether or not this window ever closes (see that
-        method's own docstring for why the install itself never
-        blocks on it), so there's no "Cancel" option that means
-        anything here. Goes straight to the Save As dialog, retitled
-        to explain why it appeared unprompted, and only closes the
-        window if the save actually completed - a cancelled save
-        leaves the window open exactly as before, same as this class's
-        own _on_delete_event does for a cancelled save there.
+    def prompt_save_for_restart(self, reason: str) -> None:
+        """Shared by both real restart paths this app has - package
+        upgrade (task #151, OrcshotApplication.prepare_for_upgrade) and
+        Preferences' language picker (task #183,
+        OrcshotApplication.restart_for_language_change) - instead of
+        going through the normal close/delete-event flow above: the
+        restart is happening whether or not this window ever closes,
+        so there's no "Cancel" option that means anything here. Goes
+        straight to the Save As dialog, retitled with the caller's own
+        reason so it explains why it appeared unprompted, and only
+        closes the window if the save actually completed - a
+        cancelled save leaves the window open exactly as before, same
+        as this class's own _on_delete_event does for a cancelled
+        save there.
         """
         self.present()
-        if self._do_save(title=_("New install incoming — save your work")):
+        if self._do_save(title=reason):
             self.destroy()
 
 
@@ -5391,6 +5393,45 @@ _AVAILABLE_LANGUAGES = (
 )
 
 
+def _on_language_changed(combo: Gtk.ComboBoxText, parent: Gtk.Window) -> None:
+    """Task #183 follow-up: a language change previously took effect
+    silently on the next restart, with nothing but a passive tooltip
+    to explain why nothing had visibly happened yet - direflail's own
+    live report after actually testing the picker. Offers to restart
+    right now instead, with the same "prompt-save any open editors
+    first" safety OrcshotApplication.prepare_for_upgrade already gives
+    a package upgrade - see that class's own restart_for_language_change,
+    prepare_for_upgrade's sibling for this case.
+
+    message_type=OTHER rather than QUESTION, same reasoning as the
+    "save before closing" dialog above: GTK's libcanberra-gtk-module,
+    if active, plays a themed system sound keyed directly to a
+    GtkMessageDialog's message-type, independent of anything else -
+    this is a routine confirmation, not worth an unsolicited sound.
+    """
+    new_language = combo.get_active_id() or ""
+    if new_language == get_language():
+        return
+    set_language(new_language)
+
+    native_name = dict(_AVAILABLE_LANGUAGES).get(new_language, _("System Default"))
+    dialog = Gtk.MessageDialog(
+        transient_for=parent, modal=True, message_type=Gtk.MessageType.OTHER,
+        buttons=Gtk.ButtonsType.NONE,
+        text=_("Restart Orcshot now to switch to {}?").format(native_name),
+    )
+    dialog.format_secondary_text(_("Any unsaved work will be saved first."))
+    dialog.add_buttons(
+        _("Later"), Gtk.ResponseType.CANCEL,
+        _("Restart Now"), Gtk.ResponseType.OK,
+    )
+    response = dialog.run()
+    dialog.destroy()
+
+    if response == Gtk.ResponseType.OK:
+        Gio.Application.get_default().restart_for_language_change()
+
+
 def _build_general_settings_tab(parent: Gtk.Window) -> Gtk.Box:
     """Matches real Windows' General tab (SettingsForm.Designer.cs:
     480-482's tab_general.Controls: groupbox_network,
@@ -5421,7 +5462,7 @@ def _build_general_settings_tab(parent: Gtk.Window) -> Gtk.Box:
         language_combo.append(code, native_name)
     language_combo.set_active_id(get_language())
     language_combo.set_tooltip_text(_("Applies after restarting Orcshot."))
-    language_combo.connect("changed", lambda combo: set_language(combo.get_active_id() or ""))
+    language_combo.connect("changed", lambda combo: _on_language_changed(combo, parent))
     language_row.pack_start(language_combo, False, False, 0)
     app_box.pack_start(language_row, False, False, 0)
 

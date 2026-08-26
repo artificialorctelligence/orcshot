@@ -5,7 +5,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: orcshot\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-08-25 18:58-0500\n"
+"POT-Creation-Date: 2026-08-26 16:45-0500\n"
 "PO-Revision-Date: 2026-08-25 18:21-0500\n"
 "Last-Translator: \n"
 "Language-Team: Japanese\n"
@@ -266,23 +266,23 @@ msgstr "Orcshot の印刷オプション"
 msgid "Page layout settings"
 msgstr "ページレイアウト設定"
 
-#: src/orcshot/ui/printing.py:166 src/orcshot/ui/editor_window.py:5983
+#: src/orcshot/ui/printing.py:166 src/orcshot/ui/editor_window.py:6024
 msgid "Shrink printout to fit paper size"
 msgstr "用紙サイズに合わせて縮小する"
 
-#: src/orcshot/ui/printing.py:168 src/orcshot/ui/editor_window.py:5988
+#: src/orcshot/ui/printing.py:168 src/orcshot/ui/editor_window.py:6029
 msgid "Enlarge printout to fit paper size"
 msgstr "用紙サイズに合わせて拡大する"
 
-#: src/orcshot/ui/printing.py:170 src/orcshot/ui/editor_window.py:5993
+#: src/orcshot/ui/printing.py:170 src/orcshot/ui/editor_window.py:6034
 msgid "Rotate printout to page orientation"
 msgstr "用紙の向きに合わせて回転する"
 
-#: src/orcshot/ui/printing.py:172 src/orcshot/ui/editor_window.py:5998
+#: src/orcshot/ui/printing.py:172 src/orcshot/ui/editor_window.py:6039
 msgid "Center printout on page"
 msgstr "ページの中央に配置する"
 
-#: src/orcshot/ui/printing.py:174 src/orcshot/ui/editor_window.py:6003
+#: src/orcshot/ui/printing.py:174 src/orcshot/ui/editor_window.py:6044
 msgid "Print date / time at bottom of page"
 msgstr "ページ下部に日付と時刻を印刷する"
 
@@ -290,19 +290,19 @@ msgstr "ページ下部に日付と時刻を印刷する"
 msgid "Color settings"
 msgstr "色の設定"
 
-#: src/orcshot/ui/printing.py:184 src/orcshot/ui/editor_window.py:6029
+#: src/orcshot/ui/printing.py:184 src/orcshot/ui/editor_window.py:6070
 msgid "Full color print"
 msgstr "フルカラーで印刷する"
 
-#: src/orcshot/ui/printing.py:185 src/orcshot/ui/editor_window.py:6030
+#: src/orcshot/ui/printing.py:185 src/orcshot/ui/editor_window.py:6071
 msgid "Force grayscale printing"
 msgstr "グレースケールで印刷する"
 
-#: src/orcshot/ui/printing.py:186 src/orcshot/ui/editor_window.py:6031
+#: src/orcshot/ui/printing.py:186 src/orcshot/ui/editor_window.py:6072
 msgid "Force black/white printing"
 msgstr "白黒で印刷する"
 
-#: src/orcshot/ui/printing.py:193 src/orcshot/ui/editor_window.py:6046
+#: src/orcshot/ui/printing.py:193 src/orcshot/ui/editor_window.py:6087
 msgid "Print with inverted colors"
 msgstr "色を反転して印刷する"
 
@@ -423,7 +423,7 @@ msgid "Save As..."
 msgstr "名前を付けて保存..."
 
 #: src/orcshot/ui/destination_picker.py:219
-#: src/orcshot/ui/editor_window.py:5914
+#: src/orcshot/ui/editor_window.py:5955
 msgid "Edit..."
 msgstr "編集..."
 
@@ -531,8 +531,8 @@ msgstr "オレンジ"
 msgid "Blue"
 msgstr "青"
 
-#: src/orcshot/ui/editor_window.py:489 src/orcshot/ui/editor_window.py:5699
-#: src/orcshot/ui/editor_window.py:5880
+#: src/orcshot/ui/editor_window.py:489 src/orcshot/ui/editor_window.py:5740
+#: src/orcshot/ui/editor_window.py:5921
 msgid "Default"
 msgstr "既定"
 
@@ -545,7 +545,7 @@ msgid "Horizontal"
 msgstr "水平"
 
 #: src/orcshot/ui/editor_window.py:517 src/orcshot/ui/editor_window.py:3667
-#: src/orcshot/ui/editor_window.py:5327
+#: src/orcshot/ui/editor_window.py:5329
 msgid "Select"
 msgstr "選択"
 
@@ -652,7 +652,7 @@ msgstr "貼り付け"
 msgid "Duplicate"
 msgstr "複製"
 
-#: src/orcshot/ui/editor_window.py:1587 src/orcshot/app.py:1068
+#: src/orcshot/ui/editor_window.py:1587 src/orcshot/app.py:1101
 msgid "Preferences..."
 msgstr "設定..."
 
@@ -676,7 +676,7 @@ msgstr "カウンター"
 msgid "Select All"
 msgstr "すべて選択"
 
-#: src/orcshot/ui/editor_window.py:1640 src/orcshot/ui/editor_window.py:5915
+#: src/orcshot/ui/editor_window.py:1640 src/orcshot/ui/editor_window.py:5956
 msgid "Delete"
 msgstr "削除"
 
@@ -752,7 +752,7 @@ msgstr "JPEG 品質"
 msgid "Continue"
 msgstr "続行"
 
-#: src/orcshot/ui/editor_window.py:1783 src/orcshot/ui/editor_window.py:5807
+#: src/orcshot/ui/editor_window.py:1783 src/orcshot/ui/editor_window.py:5848
 msgid "JPEG quality:"
 msgstr "JPEG 品質:"
 
@@ -884,7 +884,7 @@ msgstr "元に戻す (Ctrl+Z)"
 msgid "Redo (Ctrl+Y)"
 msgstr "やり直す (Ctrl+Y)"
 
-#: src/orcshot/ui/editor_window.py:2603 src/orcshot/ui/editor_window.py:5360
+#: src/orcshot/ui/editor_window.py:2603 src/orcshot/ui/editor_window.py:5362
 msgid "Preferences"
 msgstr "設定"
 
@@ -1226,107 +1226,119 @@ msgstr "はい"
 msgid "No"
 msgstr "いいえ"
 
-#: src/orcshot/ui/editor_window.py:5245
-msgid "New install incoming — save your work"
-msgstr "新しいバージョンをインストールします — 作業内容を保存してください"
-
-#: src/orcshot/ui/editor_window.py:5262
+#: src/orcshot/ui/editor_window.py:5264
 msgid "Open"
 msgstr "開く"
 
-#: src/orcshot/ui/editor_window.py:5266
+#: src/orcshot/ui/editor_window.py:5268
 msgid "Orcshot files"
 msgstr "Orcshot ファイル"
 
-#: src/orcshot/ui/editor_window.py:5299
+#: src/orcshot/ui/editor_window.py:5301
 msgid "Couldn't open file"
 msgstr "ファイルを開けませんでした"
 
-#: src/orcshot/ui/editor_window.py:5323
+#: src/orcshot/ui/editor_window.py:5325
 msgid "Screenshot Save Location"
 msgstr "スクリーンショットの保存先"
 
-#: src/orcshot/ui/editor_window.py:5366
+#: src/orcshot/ui/editor_window.py:5368
 msgid "General"
 msgstr "全般"
 
-#: src/orcshot/ui/editor_window.py:5367 src/orcshot/ui/editor_window.py:5607
+#: src/orcshot/ui/editor_window.py:5369 src/orcshot/ui/editor_window.py:5648
 msgid "Capture"
 msgstr "キャプチャ"
 
-#: src/orcshot/ui/editor_window.py:5368
+#: src/orcshot/ui/editor_window.py:5370
 msgid "Output"
 msgstr "出力"
 
-#: src/orcshot/ui/editor_window.py:5369
+#: src/orcshot/ui/editor_window.py:5371
 msgid "Destinations"
 msgstr "出力先"
 
-#: src/orcshot/ui/editor_window.py:5370
+#: src/orcshot/ui/editor_window.py:5372
 msgid "Printer"
 msgstr "プリンター"
 
-#: src/orcshot/ui/editor_window.py:5405
-msgid "Application Settings"
-msgstr "アプリケーション設定"
-
-#: src/orcshot/ui/editor_window.py:5417
-msgid "Language:"
-msgstr "言語:"
-
-#: src/orcshot/ui/editor_window.py:5419
+#: src/orcshot/ui/editor_window.py:5417 src/orcshot/ui/editor_window.py:5460
 msgid "System Default"
 msgstr "システムのデフォルト"
 
+#: src/orcshot/ui/editor_window.py:5421
+msgid "Restart Orcshot now to switch to {}?"
+msgstr "{} に切り替えるために今すぐ Orcshot を再起動しますか?"
+
 #: src/orcshot/ui/editor_window.py:5423
+msgid "Any unsaved work will be saved first."
+msgstr "未保存の作業は先に保存されます。"
+
+#: src/orcshot/ui/editor_window.py:5425
+msgid "Later"
+msgstr "後で"
+
+#: src/orcshot/ui/editor_window.py:5426
+msgid "Restart Now"
+msgstr "今すぐ再起動"
+
+#: src/orcshot/ui/editor_window.py:5446
+msgid "Application Settings"
+msgstr "アプリケーション設定"
+
+#: src/orcshot/ui/editor_window.py:5458
+msgid "Language:"
+msgstr "言語:"
+
+#: src/orcshot/ui/editor_window.py:5464
 msgid "Applies after restarting Orcshot."
 msgstr "Orcshotを再起動すると適用されます。"
 
-#: src/orcshot/ui/editor_window.py:5434
+#: src/orcshot/ui/editor_window.py:5475
 msgid "Icon size:"
 msgstr "アイコンサイズ:"
 
-#: src/orcshot/ui/editor_window.py:5437
+#: src/orcshot/ui/editor_window.py:5478
 msgid "Takes effect the next time you open a screenshot."
 msgstr "次にスクリーンショットを開いたときに反映されます。"
 
-#: src/orcshot/ui/editor_window.py:5448
+#: src/orcshot/ui/editor_window.py:5489
 msgid "Launch Orcshot on startup"
 msgstr "スタートアップ時に Orcshot を起動する"
 
-#: src/orcshot/ui/editor_window.py:5479
+#: src/orcshot/ui/editor_window.py:5520
 msgid "External Image Editor:"
 msgstr "外部画像エディター:"
 
-#: src/orcshot/ui/editor_window.py:5481
+#: src/orcshot/ui/editor_window.py:5522
 msgid "Auto (Krita, then GIMP)"
 msgstr "自動（Krita、次に GIMP）"
 
-#: src/orcshot/ui/editor_window.py:5501
+#: src/orcshot/ui/editor_window.py:5542
 msgid "Suppress the save dialog when closing the editor"
 msgstr "エディターを閉じるときに保存ダイアログを表示しない"
 
-#: src/orcshot/ui/editor_window.py:5510
+#: src/orcshot/ui/editor_window.py:5551
 msgid "Hotkeys"
 msgstr "ホットキー"
 
-#: src/orcshot/ui/editor_window.py:5514
+#: src/orcshot/ui/editor_window.py:5555
 msgid "Configure Hotkeys..."
 msgstr "ホットキーを設定..."
 
-#: src/orcshot/ui/editor_window.py:5526
+#: src/orcshot/ui/editor_window.py:5567
 msgid "Network and Updates"
 msgstr "ネットワークと更新"
 
-#: src/orcshot/ui/editor_window.py:5535
+#: src/orcshot/ui/editor_window.py:5576
 msgid "Use system default proxy"
 msgstr "システム既定のプロキシを使用する"
 
-#: src/orcshot/ui/editor_window.py:5541
+#: src/orcshot/ui/editor_window.py:5582
 msgid "Check for updates every"
 msgstr "更新を確認する間隔"
 
-#: src/orcshot/ui/editor_window.py:5546
+#: src/orcshot/ui/editor_window.py:5587
 msgid ""
 "How often Orcshot checks GitHub for a newer release in the background. 0 = "
 "never check, matching Windows' own UpdateCheckInterval semantics."
@@ -1335,19 +1347,19 @@ msgstr ""
 "す。0 を指定すると確認しません（Windows 版の UpdateCheckInterval と同じ動作で"
 "す）。"
 
-#: src/orcshot/ui/editor_window.py:5552
+#: src/orcshot/ui/editor_window.py:5593
 msgid "days"
 msgstr "日"
 
-#: src/orcshot/ui/editor_window.py:5616
+#: src/orcshot/ui/editor_window.py:5657
 msgid "Capture mouse cursor"
 msgstr "マウスカーソルをキャプチャする"
 
-#: src/orcshot/ui/editor_window.py:5628
+#: src/orcshot/ui/editor_window.py:5669
 msgid "Show magnifier while selecting a region"
 msgstr "範囲の選択中に拡大鏡を表示する"
 
-#: src/orcshot/ui/editor_window.py:5632
+#: src/orcshot/ui/editor_window.py:5673
 msgid ""
 "Applies to X11 and the Wayland portal-fallback path. The Wayland Shell-"
 "native picker's own magnifier doesn't read this setting yet."
@@ -1355,23 +1367,23 @@ msgstr ""
 "X11 と Wayland のポータル代替経路に適用されます。Wayland の Shell ネイティブ"
 "の範囲選択に組み込まれた拡大鏡は、まだこの設定を参照しません。"
 
-#: src/orcshot/ui/editor_window.py:5642
+#: src/orcshot/ui/editor_window.py:5683
 msgid "Play camera sound"
 msgstr "シャッター音を鳴らす"
 
-#: src/orcshot/ui/editor_window.py:5647
+#: src/orcshot/ui/editor_window.py:5688
 msgid "Show notification after capture"
 msgstr "キャプチャ後に通知を表示する"
 
-#: src/orcshot/ui/editor_window.py:5671
+#: src/orcshot/ui/editor_window.py:5712
 msgid "Preferred File Settings"
 msgstr "ファイルの既定設定"
 
-#: src/orcshot/ui/editor_window.py:5687
+#: src/orcshot/ui/editor_window.py:5728
 msgid "Filename pattern:"
 msgstr "ファイル名のパターン:"
 
-#: src/orcshot/ui/editor_window.py:5691
+#: src/orcshot/ui/editor_window.py:5732
 #, python-format
 msgid ""
 "Both ${...} placeholders and %-codes work in the same pattern. Click ? for "
@@ -1380,11 +1392,11 @@ msgstr ""
 "同じパターンの中で ${...} プレースホルダーと %-codes の両方を使用できます。す"
 "べての一覧を表示するには ? をクリックしてください。"
 
-#: src/orcshot/ui/editor_window.py:5713
+#: src/orcshot/ui/editor_window.py:5754
 msgid "Filename pattern placeholders and codes"
 msgstr "ファイル名パターンのプレースホルダーとコード"
 
-#: src/orcshot/ui/editor_window.py:5715
+#: src/orcshot/ui/editor_window.py:5756
 msgid ""
 "${YYYY} year, 4 digits\n"
 "${MM} month, 2 digits\n"
@@ -1425,66 +1437,66 @@ msgstr ""
 "%A/%a 曜日名、%B/%b 月名\n"
 "%% パーセント記号そのもの"
 
-#: src/orcshot/ui/editor_window.py:5747
+#: src/orcshot/ui/editor_window.py:5788
 #, python-brace-format
 msgid "Counter (${NUM} in filename):"
 msgstr "カウンター（ファイル名の ${NUM}）:"
 
-#: src/orcshot/ui/editor_window.py:5755
+#: src/orcshot/ui/editor_window.py:5796
 msgid "Primary format:"
 msgstr "既定のファイル形式:"
 
-#: src/orcshot/ui/editor_window.py:5764
+#: src/orcshot/ui/editor_window.py:5805
 msgid "Copy file path to clipboard after saving"
 msgstr "保存後にファイルパスをクリップボードにコピーする"
 
-#: src/orcshot/ui/editor_window.py:5770
+#: src/orcshot/ui/editor_window.py:5811
 msgid "Screenshot Save Location:"
 msgstr "スクリーンショットの保存先:"
 
-#: src/orcshot/ui/editor_window.py:5773
+#: src/orcshot/ui/editor_window.py:5814
 msgid "Change..."
 msgstr "変更..."
 
-#: src/orcshot/ui/editor_window.py:5785
+#: src/orcshot/ui/editor_window.py:5826
 msgid "Quality Settings"
 msgstr "品質設定"
 
-#: src/orcshot/ui/editor_window.py:5793
+#: src/orcshot/ui/editor_window.py:5834
 msgid "Reduce colors to 256 (8-bit)"
 msgstr "色数を 256 色（8 ビット）に減らす"
 
-#: src/orcshot/ui/editor_window.py:5795
+#: src/orcshot/ui/editor_window.py:5836
 msgid ""
 "Not applied to saves yet - this port has no color-quantization step built."
 msgstr ""
 "保存時にはまだ適用されません。本移植版には減色処理が実装されていません。"
 
-#: src/orcshot/ui/editor_window.py:5799
+#: src/orcshot/ui/editor_window.py:5840
 msgid "Always show quality dialog before saving"
 msgstr "保存前に必ず品質ダイアログを表示する"
 
-#: src/orcshot/ui/editor_window.py:5876
+#: src/orcshot/ui/editor_window.py:5917
 msgid "Enabled"
 msgstr "有効"
 
-#: src/orcshot/ui/editor_window.py:5893
+#: src/orcshot/ui/editor_window.py:5934
 msgid "External"
 msgstr "外部"
 
-#: src/orcshot/ui/editor_window.py:5913
+#: src/orcshot/ui/editor_window.py:5954
 msgid "Add..."
 msgstr "追加..."
 
-#: src/orcshot/ui/editor_window.py:5979
+#: src/orcshot/ui/editor_window.py:6020
 msgid "Page Layout Settings"
 msgstr "ページレイアウト設定"
 
-#: src/orcshot/ui/editor_window.py:6012
+#: src/orcshot/ui/editor_window.py:6053
 msgid "Footer pattern:"
 msgstr "フッターのパターン:"
 
-#: src/orcshot/ui/editor_window.py:6016
+#: src/orcshot/ui/editor_window.py:6057
 msgid ""
 "A Python strftime format, e.g. %B %d, %Y %I:%M %p - printed at the bottom of "
 "the page."
@@ -1492,27 +1504,27 @@ msgstr ""
 "Python の strftime 形式です（例: %B %d, %Y %I:%M %p）。ページ下部に印刷されま"
 "す。"
 
-#: src/orcshot/ui/editor_window.py:6025
+#: src/orcshot/ui/editor_window.py:6066
 msgid "Color Settings"
 msgstr "色の設定"
 
-#: src/orcshot/ui/editor_window.py:6054
+#: src/orcshot/ui/editor_window.py:6095
 msgid "Show print options dialog every time an image is printed"
 msgstr "画像を印刷するたびに印刷オプションのダイアログを表示する"
 
-#: src/orcshot/app.py:318
+#: src/orcshot/app.py:319
 msgid "Orcshot is already running"
 msgstr "Orcshot は既に実行中です"
 
-#: src/orcshot/app.py:319
+#: src/orcshot/app.py:320
 msgid "Look for its icon in the system tray."
 msgstr "システムトレイのアイコンを確認してください。"
 
-#: src/orcshot/app.py:549
+#: src/orcshot/app.py:551
 msgid "Screenshot failed"
 msgstr "スクリーンショットに失敗しました"
 
-#: src/orcshot/app.py:549
+#: src/orcshot/app.py:551
 msgid ""
 "The screenshot couldn't be taken.\n"
 "\n"
@@ -1522,11 +1534,19 @@ msgstr ""
 "\n"
 "{}"
 
-#: src/orcshot/app.py:778
+#: src/orcshot/app.py:731
+msgid "New install incoming — save your work"
+msgstr "新しいバージョンをインストールします — 作業内容を保存してください"
+
+#: src/orcshot/app.py:752
+msgid "Restarting Orcshot — save your work"
+msgstr "Orcshot を再起動しています — 作業内容を保存してください"
+
+#: src/orcshot/app.py:811
 msgid "Orcshot's Wayland integration needs a restart"
 msgstr "Orcshot の Wayland 連携には再起動が必要です"
 
-#: src/orcshot/app.py:780
+#: src/orcshot/app.py:813
 msgid ""
 "An update changed how Orcshot's Shell extension works, but your session is "
 "still running the previous version. Log out and back in to finish applying "
@@ -1536,11 +1556,11 @@ msgstr ""
 "では以前のバージョンが実行されたままです。適用を完了するには、いったんログア"
 "ウトしてログインし直してください。"
 
-#: src/orcshot/app.py:790
+#: src/orcshot/app.py:823
 msgid "Orcshot's tray icon fell back to a plain version"
 msgstr "Orcshot のトレイアイコンが簡易版に切り替わりました"
 
-#: src/orcshot/app.py:792
+#: src/orcshot/app.py:825
 msgid ""
 "Its usual Shell-integrated tray icon couldn't be created, so a plain "
 "fallback is being used instead. This is a bug worth reporting.{}"
@@ -1548,23 +1568,23 @@ msgstr ""
 "通常の Shell 統合トレイアイコンを作成できなかったため、代わりに簡易版を使用し"
 "ています。これは報告する価値のある不具合です。{}"
 
-#: src/orcshot/app.py:1008
+#: src/orcshot/app.py:1041
 msgid "Capture Region"
 msgstr "範囲をキャプチャ"
 
-#: src/orcshot/app.py:1013
+#: src/orcshot/app.py:1046
 msgid "Capture Full Screen"
 msgstr "画面全体をキャプチャ"
 
-#: src/orcshot/app.py:1018
+#: src/orcshot/app.py:1051
 msgid "Capture Active Window"
 msgstr "アクティブウィンドウをキャプチャ"
 
-#: src/orcshot/app.py:1023
+#: src/orcshot/app.py:1056
 msgid "Capture Window..."
 msgstr "ウィンドウをキャプチャ..."
 
-#: src/orcshot/app.py:1031
+#: src/orcshot/app.py:1064
 msgid ""
 "Not available on this Wayland session - enable window capture support in "
 "Preferences, or use Capture Region instead."
@@ -1572,44 +1592,44 @@ msgstr ""
 "この Wayland セッションでは利用できません。設定でウィンドウキャプチャのサポー"
 "トを有効にするか、代わりに「範囲をキャプチャ」を使用してください。"
 
-#: src/orcshot/app.py:1038
+#: src/orcshot/app.py:1071
 msgid "Repeat Last Region"
 msgstr "前回の範囲を再キャプチャ"
 
-#: src/orcshot/app.py:1053
+#: src/orcshot/app.py:1086
 msgid "Open File..."
 msgstr "ファイルを開く..."
 
-#: src/orcshot/app.py:1080
+#: src/orcshot/app.py:1113
 msgid "Quit"
 msgstr "終了"
 
-#: src/orcshot/app.py:1135
+#: src/orcshot/app.py:1168
 msgid "Orcshot update available"
 msgstr "Orcshot の更新があります"
 
-#: src/orcshot/app.py:1136
+#: src/orcshot/app.py:1169
 msgid ""
 "A newer version of Orcshot is available! Do you want to download Orcshot {}?"
 msgstr ""
 "Orcshot の新しいバージョンが公開されています。Orcshot {} をダウンロードします"
 "か？"
 
-#: src/orcshot/app.py:1168
+#: src/orcshot/app.py:1201
 msgid "Couldn't check for updates"
 msgstr "更新を確認できませんでした"
 
-#: src/orcshot/app.py:1169
+#: src/orcshot/app.py:1202
 msgid "No response from GitHub - check your network connection and try again."
 msgstr ""
 "GitHub から応答がありませんでした。ネットワーク接続を確認して、もう一度お試し"
 "ください。"
 
-#: src/orcshot/app.py:1177
+#: src/orcshot/app.py:1210
 msgid "Orcshot is up to date"
 msgstr "Orcshot は最新です"
 
-#: src/orcshot/app.py:1178
+#: src/orcshot/app.py:1211
 msgid "You're running the latest version ({})."
 msgstr "最新のバージョン ({}) を使用しています。"
 

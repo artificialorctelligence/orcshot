@@ -5,7 +5,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: orcshot\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-08-25 18:58-0500\n"
+"POT-Creation-Date: 2026-08-26 16:45-0500\n"
 "Language: zh\n"
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
@@ -249,23 +249,23 @@ msgstr "Orcshot 打印选项"
 msgid "Page layout settings"
 msgstr "页面布局设置"
 
-#: src/orcshot/ui/printing.py:166 src/orcshot/ui/editor_window.py:5983
+#: src/orcshot/ui/printing.py:166 src/orcshot/ui/editor_window.py:6024
 msgid "Shrink printout to fit paper size"
 msgstr "缩小打印内容以适应纸张大小"
 
-#: src/orcshot/ui/printing.py:168 src/orcshot/ui/editor_window.py:5988
+#: src/orcshot/ui/printing.py:168 src/orcshot/ui/editor_window.py:6029
 msgid "Enlarge printout to fit paper size"
 msgstr "放大打印内容以适应纸张大小"
 
-#: src/orcshot/ui/printing.py:170 src/orcshot/ui/editor_window.py:5993
+#: src/orcshot/ui/printing.py:170 src/orcshot/ui/editor_window.py:6034
 msgid "Rotate printout to page orientation"
 msgstr "旋转打印内容以匹配页面方向"
 
-#: src/orcshot/ui/printing.py:172 src/orcshot/ui/editor_window.py:5998
+#: src/orcshot/ui/printing.py:172 src/orcshot/ui/editor_window.py:6039
 msgid "Center printout on page"
 msgstr "将打印内容在页面上居中"
 
-#: src/orcshot/ui/printing.py:174 src/orcshot/ui/editor_window.py:6003
+#: src/orcshot/ui/printing.py:174 src/orcshot/ui/editor_window.py:6044
 msgid "Print date / time at bottom of page"
 msgstr "在页面底部打印日期 / 时间"
 
@@ -273,19 +273,19 @@ msgstr "在页面底部打印日期 / 时间"
 msgid "Color settings"
 msgstr "颜色设置"
 
-#: src/orcshot/ui/printing.py:184 src/orcshot/ui/editor_window.py:6029
+#: src/orcshot/ui/printing.py:184 src/orcshot/ui/editor_window.py:6070
 msgid "Full color print"
 msgstr "全彩打印"
 
-#: src/orcshot/ui/printing.py:185 src/orcshot/ui/editor_window.py:6030
+#: src/orcshot/ui/printing.py:185 src/orcshot/ui/editor_window.py:6071
 msgid "Force grayscale printing"
 msgstr "强制灰度打印"
 
-#: src/orcshot/ui/printing.py:186 src/orcshot/ui/editor_window.py:6031
+#: src/orcshot/ui/printing.py:186 src/orcshot/ui/editor_window.py:6072
 msgid "Force black/white printing"
 msgstr "强制黑白打印"
 
-#: src/orcshot/ui/printing.py:193 src/orcshot/ui/editor_window.py:6046
+#: src/orcshot/ui/printing.py:193 src/orcshot/ui/editor_window.py:6087
 msgid "Print with inverted colors"
 msgstr "以反色打印"
 
@@ -404,7 +404,7 @@ msgid "Save As..."
 msgstr "另存为…"
 
 #: src/orcshot/ui/destination_picker.py:219
-#: src/orcshot/ui/editor_window.py:5914
+#: src/orcshot/ui/editor_window.py:5955
 msgid "Edit..."
 msgstr "编辑…"
 
@@ -510,8 +510,8 @@ msgstr "橙色"
 msgid "Blue"
 msgstr "蓝色"
 
-#: src/orcshot/ui/editor_window.py:489 src/orcshot/ui/editor_window.py:5699
-#: src/orcshot/ui/editor_window.py:5880
+#: src/orcshot/ui/editor_window.py:489 src/orcshot/ui/editor_window.py:5740
+#: src/orcshot/ui/editor_window.py:5921
 msgid "Default"
 msgstr "默认"
 
@@ -524,7 +524,7 @@ msgid "Horizontal"
 msgstr "水平"
 
 #: src/orcshot/ui/editor_window.py:517 src/orcshot/ui/editor_window.py:3667
-#: src/orcshot/ui/editor_window.py:5327
+#: src/orcshot/ui/editor_window.py:5329
 msgid "Select"
 msgstr "选择"
 
@@ -631,7 +631,7 @@ msgstr "粘贴"
 msgid "Duplicate"
 msgstr "创建副本"
 
-#: src/orcshot/ui/editor_window.py:1587 src/orcshot/app.py:1068
+#: src/orcshot/ui/editor_window.py:1587 src/orcshot/app.py:1101
 msgid "Preferences..."
 msgstr "首选项…"
 
@@ -655,7 +655,7 @@ msgstr "计数器"
 msgid "Select All"
 msgstr "全选"
 
-#: src/orcshot/ui/editor_window.py:1640 src/orcshot/ui/editor_window.py:5915
+#: src/orcshot/ui/editor_window.py:1640 src/orcshot/ui/editor_window.py:5956
 msgid "Delete"
 msgstr "删除"
 
@@ -731,7 +731,7 @@ msgstr "JPEG 质量"
 msgid "Continue"
 msgstr "继续"
 
-#: src/orcshot/ui/editor_window.py:1783 src/orcshot/ui/editor_window.py:5807
+#: src/orcshot/ui/editor_window.py:1783 src/orcshot/ui/editor_window.py:5848
 msgid "JPEG quality:"
 msgstr "JPEG 质量："
 
@@ -861,7 +861,7 @@ msgstr "撤销 (Ctrl+Z)"
 msgid "Redo (Ctrl+Y)"
 msgstr "重做 (Ctrl+Y)"
 
-#: src/orcshot/ui/editor_window.py:2603 src/orcshot/ui/editor_window.py:5360
+#: src/orcshot/ui/editor_window.py:2603 src/orcshot/ui/editor_window.py:5362
 msgid "Preferences"
 msgstr "首选项"
 
@@ -1198,107 +1198,119 @@ msgstr "是"
 msgid "No"
 msgstr "否"
 
-#: src/orcshot/ui/editor_window.py:5245
-msgid "New install incoming — save your work"
-msgstr "即将安装新版本——请先保存您的工作"
-
-#: src/orcshot/ui/editor_window.py:5262
+#: src/orcshot/ui/editor_window.py:5264
 msgid "Open"
 msgstr "打开"
 
-#: src/orcshot/ui/editor_window.py:5266
+#: src/orcshot/ui/editor_window.py:5268
 msgid "Orcshot files"
 msgstr "Orcshot 文件"
 
-#: src/orcshot/ui/editor_window.py:5299
+#: src/orcshot/ui/editor_window.py:5301
 msgid "Couldn't open file"
 msgstr "无法打开文件"
 
-#: src/orcshot/ui/editor_window.py:5323
+#: src/orcshot/ui/editor_window.py:5325
 msgid "Screenshot Save Location"
 msgstr "截图保存位置"
 
-#: src/orcshot/ui/editor_window.py:5366
+#: src/orcshot/ui/editor_window.py:5368
 msgid "General"
 msgstr "常规"
 
-#: src/orcshot/ui/editor_window.py:5367 src/orcshot/ui/editor_window.py:5607
+#: src/orcshot/ui/editor_window.py:5369 src/orcshot/ui/editor_window.py:5648
 msgid "Capture"
 msgstr "截图"
 
-#: src/orcshot/ui/editor_window.py:5368
+#: src/orcshot/ui/editor_window.py:5370
 msgid "Output"
 msgstr "输出"
 
-#: src/orcshot/ui/editor_window.py:5369
+#: src/orcshot/ui/editor_window.py:5371
 msgid "Destinations"
 msgstr "输出目标"
 
-#: src/orcshot/ui/editor_window.py:5370
+#: src/orcshot/ui/editor_window.py:5372
 msgid "Printer"
 msgstr "打印机"
 
-#: src/orcshot/ui/editor_window.py:5405
-msgid "Application Settings"
-msgstr "应用程序设置"
-
-#: src/orcshot/ui/editor_window.py:5417
-msgid "Language:"
-msgstr "语言："
-
-#: src/orcshot/ui/editor_window.py:5419
+#: src/orcshot/ui/editor_window.py:5417 src/orcshot/ui/editor_window.py:5460
 msgid "System Default"
 msgstr "系统默认"
 
+#: src/orcshot/ui/editor_window.py:5421
+msgid "Restart Orcshot now to switch to {}?"
+msgstr "现在重启 Orcshot 以切换到{}吗?"
+
 #: src/orcshot/ui/editor_window.py:5423
+msgid "Any unsaved work will be saved first."
+msgstr "系统会先保存所有未保存的工作。"
+
+#: src/orcshot/ui/editor_window.py:5425
+msgid "Later"
+msgstr "以后再说"
+
+#: src/orcshot/ui/editor_window.py:5426
+msgid "Restart Now"
+msgstr "立即重启"
+
+#: src/orcshot/ui/editor_window.py:5446
+msgid "Application Settings"
+msgstr "应用程序设置"
+
+#: src/orcshot/ui/editor_window.py:5458
+msgid "Language:"
+msgstr "语言："
+
+#: src/orcshot/ui/editor_window.py:5464
 msgid "Applies after restarting Orcshot."
 msgstr "重启 Orcshot 后生效。"
 
-#: src/orcshot/ui/editor_window.py:5434
+#: src/orcshot/ui/editor_window.py:5475
 msgid "Icon size:"
 msgstr "图标大小："
 
-#: src/orcshot/ui/editor_window.py:5437
+#: src/orcshot/ui/editor_window.py:5478
 msgid "Takes effect the next time you open a screenshot."
 msgstr "将在下次打开截图时生效。"
 
-#: src/orcshot/ui/editor_window.py:5448
+#: src/orcshot/ui/editor_window.py:5489
 msgid "Launch Orcshot on startup"
 msgstr "开机时启动 Orcshot"
 
-#: src/orcshot/ui/editor_window.py:5479
+#: src/orcshot/ui/editor_window.py:5520
 msgid "External Image Editor:"
 msgstr "外部图像编辑器："
 
-#: src/orcshot/ui/editor_window.py:5481
+#: src/orcshot/ui/editor_window.py:5522
 msgid "Auto (Krita, then GIMP)"
 msgstr "自动（优先 Krita，其次 GIMP）"
 
-#: src/orcshot/ui/editor_window.py:5501
+#: src/orcshot/ui/editor_window.py:5542
 msgid "Suppress the save dialog when closing the editor"
 msgstr "关闭编辑器时不显示保存对话框"
 
-#: src/orcshot/ui/editor_window.py:5510
+#: src/orcshot/ui/editor_window.py:5551
 msgid "Hotkeys"
 msgstr "快捷键"
 
-#: src/orcshot/ui/editor_window.py:5514
+#: src/orcshot/ui/editor_window.py:5555
 msgid "Configure Hotkeys..."
 msgstr "配置快捷键…"
 
-#: src/orcshot/ui/editor_window.py:5526
+#: src/orcshot/ui/editor_window.py:5567
 msgid "Network and Updates"
 msgstr "网络与更新"
 
-#: src/orcshot/ui/editor_window.py:5535
+#: src/orcshot/ui/editor_window.py:5576
 msgid "Use system default proxy"
 msgstr "使用系统默认代理"
 
-#: src/orcshot/ui/editor_window.py:5541
+#: src/orcshot/ui/editor_window.py:5582
 msgid "Check for updates every"
 msgstr "检查更新间隔"
 
-#: src/orcshot/ui/editor_window.py:5546
+#: src/orcshot/ui/editor_window.py:5587
 msgid ""
 "How often Orcshot checks GitHub for a newer release in the background. 0 = "
 "never check, matching Windows' own UpdateCheckInterval semantics."
@@ -1306,19 +1318,19 @@ msgstr ""
 "Orcshot 在后台检查 GitHub 上是否有新版本的频率。0 表示从不检查，与 Windows 版"
 "的 UpdateCheckInterval 语义一致。"
 
-#: src/orcshot/ui/editor_window.py:5552
+#: src/orcshot/ui/editor_window.py:5593
 msgid "days"
 msgstr "天"
 
-#: src/orcshot/ui/editor_window.py:5616
+#: src/orcshot/ui/editor_window.py:5657
 msgid "Capture mouse cursor"
 msgstr "捕获鼠标指针"
 
-#: src/orcshot/ui/editor_window.py:5628
+#: src/orcshot/ui/editor_window.py:5669
 msgid "Show magnifier while selecting a region"
 msgstr "选择区域时显示放大镜"
 
-#: src/orcshot/ui/editor_window.py:5632
+#: src/orcshot/ui/editor_window.py:5673
 msgid ""
 "Applies to X11 and the Wayland portal-fallback path. The Wayland Shell-"
 "native picker's own magnifier doesn't read this setting yet."
@@ -1326,34 +1338,34 @@ msgstr ""
 "适用于 X11 以及 Wayland 的 portal 回退方式。Wayland 下 Shell 原生选取器自带的"
 "放大镜尚未读取此设置。"
 
-#: src/orcshot/ui/editor_window.py:5642
+#: src/orcshot/ui/editor_window.py:5683
 msgid "Play camera sound"
 msgstr "播放快门声"
 
-#: src/orcshot/ui/editor_window.py:5647
+#: src/orcshot/ui/editor_window.py:5688
 msgid "Show notification after capture"
 msgstr "截图后显示通知"
 
-#: src/orcshot/ui/editor_window.py:5671
+#: src/orcshot/ui/editor_window.py:5712
 msgid "Preferred File Settings"
 msgstr "首选文件设置"
 
-#: src/orcshot/ui/editor_window.py:5687
+#: src/orcshot/ui/editor_window.py:5728
 msgid "Filename pattern:"
 msgstr "文件名模式："
 
-#: src/orcshot/ui/editor_window.py:5691
+#: src/orcshot/ui/editor_window.py:5732
 #, python-format
 msgid ""
 "Both ${...} placeholders and %-codes work in the same pattern. Click ? for "
 "the full list."
 msgstr "同一模式中可以同时使用 ${...} 占位符和 %-codes。点击 ? 查看完整列表。"
 
-#: src/orcshot/ui/editor_window.py:5713
+#: src/orcshot/ui/editor_window.py:5754
 msgid "Filename pattern placeholders and codes"
 msgstr "文件名模式的占位符与代码"
 
-#: src/orcshot/ui/editor_window.py:5715
+#: src/orcshot/ui/editor_window.py:5756
 msgid ""
 "${YYYY} year, 4 digits\n"
 "${MM} month, 2 digits\n"
@@ -1393,91 +1405,91 @@ msgstr ""
 "%A/%a 星期名称，%B/%b 月份名称\n"
 "%% 一个百分号字面量"
 
-#: src/orcshot/ui/editor_window.py:5747
+#: src/orcshot/ui/editor_window.py:5788
 #, python-brace-format
 msgid "Counter (${NUM} in filename):"
 msgstr "计数器（文件名中的 ${NUM}）："
 
-#: src/orcshot/ui/editor_window.py:5755
+#: src/orcshot/ui/editor_window.py:5796
 msgid "Primary format:"
 msgstr "主要格式："
 
-#: src/orcshot/ui/editor_window.py:5764
+#: src/orcshot/ui/editor_window.py:5805
 msgid "Copy file path to clipboard after saving"
 msgstr "保存后将文件路径复制到剪贴板"
 
-#: src/orcshot/ui/editor_window.py:5770
+#: src/orcshot/ui/editor_window.py:5811
 msgid "Screenshot Save Location:"
 msgstr "截图保存位置："
 
-#: src/orcshot/ui/editor_window.py:5773
+#: src/orcshot/ui/editor_window.py:5814
 msgid "Change..."
 msgstr "更改…"
 
-#: src/orcshot/ui/editor_window.py:5785
+#: src/orcshot/ui/editor_window.py:5826
 msgid "Quality Settings"
 msgstr "质量设置"
 
-#: src/orcshot/ui/editor_window.py:5793
+#: src/orcshot/ui/editor_window.py:5834
 msgid "Reduce colors to 256 (8-bit)"
 msgstr "将颜色数减少到 256 色（8 位）"
 
-#: src/orcshot/ui/editor_window.py:5795
+#: src/orcshot/ui/editor_window.py:5836
 msgid ""
 "Not applied to saves yet - this port has no color-quantization step built."
 msgstr "保存时尚未应用此设置——本移植版还没有实现颜色量化步骤。"
 
-#: src/orcshot/ui/editor_window.py:5799
+#: src/orcshot/ui/editor_window.py:5840
 msgid "Always show quality dialog before saving"
 msgstr "保存前始终显示质量对话框"
 
-#: src/orcshot/ui/editor_window.py:5876
+#: src/orcshot/ui/editor_window.py:5917
 msgid "Enabled"
 msgstr "已启用"
 
-#: src/orcshot/ui/editor_window.py:5893
+#: src/orcshot/ui/editor_window.py:5934
 msgid "External"
 msgstr "外部"
 
-#: src/orcshot/ui/editor_window.py:5913
+#: src/orcshot/ui/editor_window.py:5954
 msgid "Add..."
 msgstr "添加…"
 
-#: src/orcshot/ui/editor_window.py:5979
+#: src/orcshot/ui/editor_window.py:6020
 msgid "Page Layout Settings"
 msgstr "页面布局设置"
 
-#: src/orcshot/ui/editor_window.py:6012
+#: src/orcshot/ui/editor_window.py:6053
 msgid "Footer pattern:"
 msgstr "页脚模式："
 
-#: src/orcshot/ui/editor_window.py:6016
+#: src/orcshot/ui/editor_window.py:6057
 msgid ""
 "A Python strftime format, e.g. %B %d, %Y %I:%M %p - printed at the bottom of "
 "the page."
 msgstr "Python 的 strftime 格式，例如 %B %d, %Y %I:%M %p，将打印在页面底部。"
 
-#: src/orcshot/ui/editor_window.py:6025
+#: src/orcshot/ui/editor_window.py:6066
 msgid "Color Settings"
 msgstr "颜色设置"
 
-#: src/orcshot/ui/editor_window.py:6054
+#: src/orcshot/ui/editor_window.py:6095
 msgid "Show print options dialog every time an image is printed"
 msgstr "每次打印图像时都显示打印选项对话框"
 
-#: src/orcshot/app.py:318
+#: src/orcshot/app.py:319
 msgid "Orcshot is already running"
 msgstr "Orcshot 已在运行"
 
-#: src/orcshot/app.py:319
+#: src/orcshot/app.py:320
 msgid "Look for its icon in the system tray."
 msgstr "请在系统托盘中查找它的图标。"
 
-#: src/orcshot/app.py:549
+#: src/orcshot/app.py:551
 msgid "Screenshot failed"
 msgstr "截图失败"
 
-#: src/orcshot/app.py:549
+#: src/orcshot/app.py:551
 msgid ""
 "The screenshot couldn't be taken.\n"
 "\n"
@@ -1487,11 +1499,19 @@ msgstr ""
 "\n"
 "{}"
 
-#: src/orcshot/app.py:778
+#: src/orcshot/app.py:731
+msgid "New install incoming — save your work"
+msgstr "即将安装新版本——请先保存您的工作"
+
+#: src/orcshot/app.py:752
+msgid "Restarting Orcshot — save your work"
+msgstr "Orcshot 正在重启——请保存您的工作"
+
+#: src/orcshot/app.py:811
 msgid "Orcshot's Wayland integration needs a restart"
 msgstr "Orcshot 的 Wayland 集成需要重启"
 
-#: src/orcshot/app.py:780
+#: src/orcshot/app.py:813
 msgid ""
 "An update changed how Orcshot's Shell extension works, but your session is "
 "still running the previous version. Log out and back in to finish applying "
@@ -1500,11 +1520,11 @@ msgstr ""
 "某次更新改变了 Orcshot 的 Shell 扩展的工作方式，但您的会话仍在运行旧版本。请"
 "注销并重新登录以完成应用。"
 
-#: src/orcshot/app.py:790
+#: src/orcshot/app.py:823
 msgid "Orcshot's tray icon fell back to a plain version"
 msgstr "Orcshot 的托盘图标已回退为普通版本"
 
-#: src/orcshot/app.py:792
+#: src/orcshot/app.py:825
 msgid ""
 "Its usual Shell-integrated tray icon couldn't be created, so a plain "
 "fallback is being used instead. This is a bug worth reporting.{}"
@@ -1512,23 +1532,23 @@ msgstr ""
 "无法创建通常使用的 Shell 集成托盘图标，因此改用了普通的回退图标。这是一个值得"
 "上报的缺陷。{}"
 
-#: src/orcshot/app.py:1008
+#: src/orcshot/app.py:1041
 msgid "Capture Region"
 msgstr "区域截图"
 
-#: src/orcshot/app.py:1013
+#: src/orcshot/app.py:1046
 msgid "Capture Full Screen"
 msgstr "全屏截图"
 
-#: src/orcshot/app.py:1018
+#: src/orcshot/app.py:1051
 msgid "Capture Active Window"
 msgstr "当前窗口截图"
 
-#: src/orcshot/app.py:1023
+#: src/orcshot/app.py:1056
 msgid "Capture Window..."
 msgstr "窗口截图…"
 
-#: src/orcshot/app.py:1031
+#: src/orcshot/app.py:1064
 msgid ""
 "Not available on this Wayland session - enable window capture support in "
 "Preferences, or use Capture Region instead."
@@ -1536,40 +1556,40 @@ msgstr ""
 "在当前 Wayland 会话中不可用——请在“首选项”中启用窗口捕获支持，或改用“区域截"
 "图”。"
 
-#: src/orcshot/app.py:1038
+#: src/orcshot/app.py:1071
 msgid "Repeat Last Region"
 msgstr "重复上次的区域"
 
-#: src/orcshot/app.py:1053
+#: src/orcshot/app.py:1086
 msgid "Open File..."
 msgstr "打开文件…"
 
-#: src/orcshot/app.py:1080
+#: src/orcshot/app.py:1113
 msgid "Quit"
 msgstr "退出"
 
-#: src/orcshot/app.py:1135
+#: src/orcshot/app.py:1168
 msgid "Orcshot update available"
 msgstr "Orcshot 有可用更新"
 
-#: src/orcshot/app.py:1136
+#: src/orcshot/app.py:1169
 msgid ""
 "A newer version of Orcshot is available! Do you want to download Orcshot {}?"
 msgstr "Orcshot 有新版本可用！是否下载 Orcshot {}？"
 
-#: src/orcshot/app.py:1168
+#: src/orcshot/app.py:1201
 msgid "Couldn't check for updates"
 msgstr "无法检查更新"
 
-#: src/orcshot/app.py:1169
+#: src/orcshot/app.py:1202
 msgid "No response from GitHub - check your network connection and try again."
 msgstr "GitHub 无响应——请检查网络连接后重试。"
 
-#: src/orcshot/app.py:1177
+#: src/orcshot/app.py:1210
 msgid "Orcshot is up to date"
 msgstr "Orcshot 已是最新版本"
 
-#: src/orcshot/app.py:1178
+#: src/orcshot/app.py:1211
 msgid "You're running the latest version ({})."
 msgstr "您正在运行最新版本（{}）。"
 

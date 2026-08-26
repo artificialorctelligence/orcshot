@@ -2,7 +2,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: orcshot\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-08-25 18:58-0500\n"
+"POT-Creation-Date: 2026-08-26 16:45-0500\n"
 "Language: uk\n"
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
@@ -255,23 +255,23 @@ msgstr "Параметри друку Orcshot"
 msgid "Page layout settings"
 msgstr "Параметри розмітки сторінки"
 
-#: src/orcshot/ui/printing.py:166 src/orcshot/ui/editor_window.py:5983
+#: src/orcshot/ui/printing.py:166 src/orcshot/ui/editor_window.py:6024
 msgid "Shrink printout to fit paper size"
 msgstr "Зменшувати відбиток до розміру паперу"
 
-#: src/orcshot/ui/printing.py:168 src/orcshot/ui/editor_window.py:5988
+#: src/orcshot/ui/printing.py:168 src/orcshot/ui/editor_window.py:6029
 msgid "Enlarge printout to fit paper size"
 msgstr "Збільшувати відбиток до розміру паперу"
 
-#: src/orcshot/ui/printing.py:170 src/orcshot/ui/editor_window.py:5993
+#: src/orcshot/ui/printing.py:170 src/orcshot/ui/editor_window.py:6034
 msgid "Rotate printout to page orientation"
 msgstr "Обертати відбиток за орієнтацією сторінки"
 
-#: src/orcshot/ui/printing.py:172 src/orcshot/ui/editor_window.py:5998
+#: src/orcshot/ui/printing.py:172 src/orcshot/ui/editor_window.py:6039
 msgid "Center printout on page"
 msgstr "Розміщувати відбиток по центру сторінки"
 
-#: src/orcshot/ui/printing.py:174 src/orcshot/ui/editor_window.py:6003
+#: src/orcshot/ui/printing.py:174 src/orcshot/ui/editor_window.py:6044
 msgid "Print date / time at bottom of page"
 msgstr "Друкувати дату й час унизу сторінки"
 
@@ -279,19 +279,19 @@ msgstr "Друкувати дату й час унизу сторінки"
 msgid "Color settings"
 msgstr "Параметри кольору"
 
-#: src/orcshot/ui/printing.py:184 src/orcshot/ui/editor_window.py:6029
+#: src/orcshot/ui/printing.py:184 src/orcshot/ui/editor_window.py:6070
 msgid "Full color print"
 msgstr "Повноколірний друк"
 
-#: src/orcshot/ui/printing.py:185 src/orcshot/ui/editor_window.py:6030
+#: src/orcshot/ui/printing.py:185 src/orcshot/ui/editor_window.py:6071
 msgid "Force grayscale printing"
 msgstr "Примусово друкувати у відтінках сірого"
 
-#: src/orcshot/ui/printing.py:186 src/orcshot/ui/editor_window.py:6031
+#: src/orcshot/ui/printing.py:186 src/orcshot/ui/editor_window.py:6072
 msgid "Force black/white printing"
 msgstr "Примусово друкувати чорно-білим"
 
-#: src/orcshot/ui/printing.py:193 src/orcshot/ui/editor_window.py:6046
+#: src/orcshot/ui/printing.py:193 src/orcshot/ui/editor_window.py:6087
 msgid "Print with inverted colors"
 msgstr "Друкувати з інвертованими кольорами"
 
@@ -414,7 +414,7 @@ msgid "Save As..."
 msgstr "Зберегти як..."
 
 #: src/orcshot/ui/destination_picker.py:219
-#: src/orcshot/ui/editor_window.py:5914
+#: src/orcshot/ui/editor_window.py:5955
 msgid "Edit..."
 msgstr "Редагувати..."
 
@@ -525,8 +525,8 @@ msgstr "Помаранчевий"
 msgid "Blue"
 msgstr "Синій"
 
-#: src/orcshot/ui/editor_window.py:489 src/orcshot/ui/editor_window.py:5699
-#: src/orcshot/ui/editor_window.py:5880
+#: src/orcshot/ui/editor_window.py:489 src/orcshot/ui/editor_window.py:5740
+#: src/orcshot/ui/editor_window.py:5921
 msgid "Default"
 msgstr "Типово"
 
@@ -539,7 +539,7 @@ msgid "Horizontal"
 msgstr "Горизонтально"
 
 #: src/orcshot/ui/editor_window.py:517 src/orcshot/ui/editor_window.py:3667
-#: src/orcshot/ui/editor_window.py:5327
+#: src/orcshot/ui/editor_window.py:5329
 msgid "Select"
 msgstr "Вибрати"
 
@@ -646,7 +646,7 @@ msgstr "Вставити"
 msgid "Duplicate"
 msgstr "Дублювати"
 
-#: src/orcshot/ui/editor_window.py:1587 src/orcshot/app.py:1068
+#: src/orcshot/ui/editor_window.py:1587 src/orcshot/app.py:1101
 msgid "Preferences..."
 msgstr "Параметри..."
 
@@ -670,7 +670,7 @@ msgstr "Лічильник"
 msgid "Select All"
 msgstr "Вибрати все"
 
-#: src/orcshot/ui/editor_window.py:1640 src/orcshot/ui/editor_window.py:5915
+#: src/orcshot/ui/editor_window.py:1640 src/orcshot/ui/editor_window.py:5956
 msgid "Delete"
 msgstr "Вилучити"
 
@@ -746,7 +746,7 @@ msgstr "Якість JPEG"
 msgid "Continue"
 msgstr "Продовжити"
 
-#: src/orcshot/ui/editor_window.py:1783 src/orcshot/ui/editor_window.py:5807
+#: src/orcshot/ui/editor_window.py:1783 src/orcshot/ui/editor_window.py:5848
 msgid "JPEG quality:"
 msgstr "Якість JPEG:"
 
@@ -878,7 +878,7 @@ msgstr "Скасувати (Ctrl+Z)"
 msgid "Redo (Ctrl+Y)"
 msgstr "Повторити (Ctrl+Y)"
 
-#: src/orcshot/ui/editor_window.py:2603 src/orcshot/ui/editor_window.py:5360
+#: src/orcshot/ui/editor_window.py:2603 src/orcshot/ui/editor_window.py:5362
 msgid "Preferences"
 msgstr "Параметри"
 
@@ -1220,107 +1220,119 @@ msgstr "Так"
 msgid "No"
 msgstr "Ні"
 
-#: src/orcshot/ui/editor_window.py:5245
-msgid "New install incoming — save your work"
-msgstr "Розпочинається нове встановлення — збережіть свою роботу"
-
-#: src/orcshot/ui/editor_window.py:5262
+#: src/orcshot/ui/editor_window.py:5264
 msgid "Open"
 msgstr "Відкрити"
 
-#: src/orcshot/ui/editor_window.py:5266
+#: src/orcshot/ui/editor_window.py:5268
 msgid "Orcshot files"
 msgstr "Файли Orcshot"
 
-#: src/orcshot/ui/editor_window.py:5299
+#: src/orcshot/ui/editor_window.py:5301
 msgid "Couldn't open file"
 msgstr "Не вдалося відкрити файл"
 
-#: src/orcshot/ui/editor_window.py:5323
+#: src/orcshot/ui/editor_window.py:5325
 msgid "Screenshot Save Location"
 msgstr "Тека для збереження знімків"
 
-#: src/orcshot/ui/editor_window.py:5366
+#: src/orcshot/ui/editor_window.py:5368
 msgid "General"
 msgstr "Загальні"
 
-#: src/orcshot/ui/editor_window.py:5367 src/orcshot/ui/editor_window.py:5607
+#: src/orcshot/ui/editor_window.py:5369 src/orcshot/ui/editor_window.py:5648
 msgid "Capture"
 msgstr "Захоплення"
 
-#: src/orcshot/ui/editor_window.py:5368
+#: src/orcshot/ui/editor_window.py:5370
 msgid "Output"
 msgstr "Виведення"
 
-#: src/orcshot/ui/editor_window.py:5369
+#: src/orcshot/ui/editor_window.py:5371
 msgid "Destinations"
 msgstr "Призначення"
 
-#: src/orcshot/ui/editor_window.py:5370
+#: src/orcshot/ui/editor_window.py:5372
 msgid "Printer"
 msgstr "Принтер"
 
-#: src/orcshot/ui/editor_window.py:5405
-msgid "Application Settings"
-msgstr "Параметри програми"
-
-#: src/orcshot/ui/editor_window.py:5417
-msgid "Language:"
-msgstr "Мова:"
-
-#: src/orcshot/ui/editor_window.py:5419
+#: src/orcshot/ui/editor_window.py:5417 src/orcshot/ui/editor_window.py:5460
 msgid "System Default"
 msgstr "Системний за замовчуванням"
 
+#: src/orcshot/ui/editor_window.py:5421
+msgid "Restart Orcshot now to switch to {}?"
+msgstr "Перезапустити Orcshot зараз, щоб перейти на {}?"
+
 #: src/orcshot/ui/editor_window.py:5423
+msgid "Any unsaved work will be saved first."
+msgstr "Спершу буде збережено всю незбережену роботу."
+
+#: src/orcshot/ui/editor_window.py:5425
+msgid "Later"
+msgstr "Пізніше"
+
+#: src/orcshot/ui/editor_window.py:5426
+msgid "Restart Now"
+msgstr "Перезапустити зараз"
+
+#: src/orcshot/ui/editor_window.py:5446
+msgid "Application Settings"
+msgstr "Параметри програми"
+
+#: src/orcshot/ui/editor_window.py:5458
+msgid "Language:"
+msgstr "Мова:"
+
+#: src/orcshot/ui/editor_window.py:5464
 msgid "Applies after restarting Orcshot."
 msgstr "Набуває чинності після перезапуску Orcshot."
 
-#: src/orcshot/ui/editor_window.py:5434
+#: src/orcshot/ui/editor_window.py:5475
 msgid "Icon size:"
 msgstr "Розмір піктограм:"
 
-#: src/orcshot/ui/editor_window.py:5437
+#: src/orcshot/ui/editor_window.py:5478
 msgid "Takes effect the next time you open a screenshot."
 msgstr "Набуде чинності під час наступного відкриття знімка."
 
-#: src/orcshot/ui/editor_window.py:5448
+#: src/orcshot/ui/editor_window.py:5489
 msgid "Launch Orcshot on startup"
 msgstr "Запускати Orcshot під час входу в систему"
 
-#: src/orcshot/ui/editor_window.py:5479
+#: src/orcshot/ui/editor_window.py:5520
 msgid "External Image Editor:"
 msgstr "Зовнішній редактор зображень:"
 
-#: src/orcshot/ui/editor_window.py:5481
+#: src/orcshot/ui/editor_window.py:5522
 msgid "Auto (Krita, then GIMP)"
 msgstr "Авто (Krita, потім GIMP)"
 
-#: src/orcshot/ui/editor_window.py:5501
+#: src/orcshot/ui/editor_window.py:5542
 msgid "Suppress the save dialog when closing the editor"
 msgstr "Не показувати діалог збереження під час закриття редактора"
 
-#: src/orcshot/ui/editor_window.py:5510
+#: src/orcshot/ui/editor_window.py:5551
 msgid "Hotkeys"
 msgstr "Гарячі клавіші"
 
-#: src/orcshot/ui/editor_window.py:5514
+#: src/orcshot/ui/editor_window.py:5555
 msgid "Configure Hotkeys..."
 msgstr "Налаштувати гарячі клавіші..."
 
-#: src/orcshot/ui/editor_window.py:5526
+#: src/orcshot/ui/editor_window.py:5567
 msgid "Network and Updates"
 msgstr "Мережа та оновлення"
 
-#: src/orcshot/ui/editor_window.py:5535
+#: src/orcshot/ui/editor_window.py:5576
 msgid "Use system default proxy"
 msgstr "Використовувати системний проксі-сервер"
 
-#: src/orcshot/ui/editor_window.py:5541
+#: src/orcshot/ui/editor_window.py:5582
 msgid "Check for updates every"
 msgstr "Перевіряти оновлення кожні"
 
-#: src/orcshot/ui/editor_window.py:5546
+#: src/orcshot/ui/editor_window.py:5587
 msgid ""
 "How often Orcshot checks GitHub for a newer release in the background. 0 = "
 "never check, matching Windows' own UpdateCheckInterval semantics."
@@ -1329,19 +1341,19 @@ msgstr ""
 "випуску. 0 — ніколи не перевіряти, як і в семантиці UpdateCheckInterval у "
 "Windows-версії."
 
-#: src/orcshot/ui/editor_window.py:5552
+#: src/orcshot/ui/editor_window.py:5593
 msgid "days"
 msgstr "днів"
 
-#: src/orcshot/ui/editor_window.py:5616
+#: src/orcshot/ui/editor_window.py:5657
 msgid "Capture mouse cursor"
 msgstr "Захоплювати вказівник миші"
 
-#: src/orcshot/ui/editor_window.py:5628
+#: src/orcshot/ui/editor_window.py:5669
 msgid "Show magnifier while selecting a region"
 msgstr "Показувати лупу під час вибору області"
 
-#: src/orcshot/ui/editor_window.py:5632
+#: src/orcshot/ui/editor_window.py:5673
 msgid ""
 "Applies to X11 and the Wayland portal-fallback path. The Wayland Shell-"
 "native picker's own magnifier doesn't read this setting yet."
@@ -1350,23 +1362,23 @@ msgstr ""
 "вбудованого в Shell засобу вибору для Wayland поки що не враховує цей "
 "параметр."
 
-#: src/orcshot/ui/editor_window.py:5642
+#: src/orcshot/ui/editor_window.py:5683
 msgid "Play camera sound"
 msgstr "Відтворювати звук затвора"
 
-#: src/orcshot/ui/editor_window.py:5647
+#: src/orcshot/ui/editor_window.py:5688
 msgid "Show notification after capture"
 msgstr "Показувати сповіщення після захоплення"
 
-#: src/orcshot/ui/editor_window.py:5671
+#: src/orcshot/ui/editor_window.py:5712
 msgid "Preferred File Settings"
 msgstr "Бажані параметри файлів"
 
-#: src/orcshot/ui/editor_window.py:5687
+#: src/orcshot/ui/editor_window.py:5728
 msgid "Filename pattern:"
 msgstr "Шаблон назви файлу:"
 
-#: src/orcshot/ui/editor_window.py:5691
+#: src/orcshot/ui/editor_window.py:5732
 #, python-format
 msgid ""
 "Both ${...} placeholders and %-codes work in the same pattern. Click ? for "
@@ -1375,11 +1387,11 @@ msgstr ""
 "В одному шаблоні працюють і заповнювачі ${...}, і %-codes. Натисніть «?», "
 "щоб переглянути повний список."
 
-#: src/orcshot/ui/editor_window.py:5713
+#: src/orcshot/ui/editor_window.py:5754
 msgid "Filename pattern placeholders and codes"
 msgstr "Заповнювачі та коди шаблону назви файлу"
 
-#: src/orcshot/ui/editor_window.py:5715
+#: src/orcshot/ui/editor_window.py:5756
 msgid ""
 "${YYYY} year, 4 digits\n"
 "${MM} month, 2 digits\n"
@@ -1420,94 +1432,94 @@ msgstr ""
 "%A/%a назва дня тижня, %B/%b назва місяця\n"
 "%% символ відсотка"
 
-#: src/orcshot/ui/editor_window.py:5747
+#: src/orcshot/ui/editor_window.py:5788
 #, python-brace-format
 msgid "Counter (${NUM} in filename):"
 msgstr "Лічильник (${NUM} у назві файлу):"
 
-#: src/orcshot/ui/editor_window.py:5755
+#: src/orcshot/ui/editor_window.py:5796
 msgid "Primary format:"
 msgstr "Основний формат:"
 
-#: src/orcshot/ui/editor_window.py:5764
+#: src/orcshot/ui/editor_window.py:5805
 msgid "Copy file path to clipboard after saving"
 msgstr "Копіювати шлях до файлу в буфер обміну після збереження"
 
-#: src/orcshot/ui/editor_window.py:5770
+#: src/orcshot/ui/editor_window.py:5811
 msgid "Screenshot Save Location:"
 msgstr "Тека для збереження знімків:"
 
-#: src/orcshot/ui/editor_window.py:5773
+#: src/orcshot/ui/editor_window.py:5814
 msgid "Change..."
 msgstr "Змінити..."
 
-#: src/orcshot/ui/editor_window.py:5785
+#: src/orcshot/ui/editor_window.py:5826
 msgid "Quality Settings"
 msgstr "Параметри якості"
 
-#: src/orcshot/ui/editor_window.py:5793
+#: src/orcshot/ui/editor_window.py:5834
 msgid "Reduce colors to 256 (8-bit)"
 msgstr "Зменшити кількість кольорів до 256 (8 біт)"
 
-#: src/orcshot/ui/editor_window.py:5795
+#: src/orcshot/ui/editor_window.py:5836
 msgid ""
 "Not applied to saves yet - this port has no color-quantization step built."
 msgstr ""
 "Поки що не застосовується під час збереження — у цьому порті немає кроку "
 "квантування кольорів."
 
-#: src/orcshot/ui/editor_window.py:5799
+#: src/orcshot/ui/editor_window.py:5840
 msgid "Always show quality dialog before saving"
 msgstr "Завжди показувати діалог якості перед збереженням"
 
-#: src/orcshot/ui/editor_window.py:5876
+#: src/orcshot/ui/editor_window.py:5917
 msgid "Enabled"
 msgstr "Увімкнено"
 
-#: src/orcshot/ui/editor_window.py:5893
+#: src/orcshot/ui/editor_window.py:5934
 msgid "External"
 msgstr "Зовнішні"
 
-#: src/orcshot/ui/editor_window.py:5913
+#: src/orcshot/ui/editor_window.py:5954
 msgid "Add..."
 msgstr "Додати..."
 
-#: src/orcshot/ui/editor_window.py:5979
+#: src/orcshot/ui/editor_window.py:6020
 msgid "Page Layout Settings"
 msgstr "Параметри розмітки сторінки"
 
-#: src/orcshot/ui/editor_window.py:6012
+#: src/orcshot/ui/editor_window.py:6053
 msgid "Footer pattern:"
 msgstr "Шаблон нижнього колонтитула:"
 
-#: src/orcshot/ui/editor_window.py:6016
+#: src/orcshot/ui/editor_window.py:6057
 msgid ""
 "A Python strftime format, e.g. %B %d, %Y %I:%M %p - printed at the bottom of "
 "the page."
 msgstr ""
 "Формат Python strftime, напр. %d %B %Y %H:%M — друкується внизу сторінки."
 
-#: src/orcshot/ui/editor_window.py:6025
+#: src/orcshot/ui/editor_window.py:6066
 msgid "Color Settings"
 msgstr "Параметри кольору"
 
-#: src/orcshot/ui/editor_window.py:6054
+#: src/orcshot/ui/editor_window.py:6095
 msgid "Show print options dialog every time an image is printed"
 msgstr "Показувати діалог параметрів друку щоразу під час друку зображення"
 
-#: src/orcshot/app.py:318
+#: src/orcshot/app.py:319
 msgid "Orcshot is already running"
 msgstr "Orcshot уже запущено"
 
-#: src/orcshot/app.py:319
+#: src/orcshot/app.py:320
 msgid "Look for its icon in the system tray."
 msgstr "Знайдіть його піктограму в системному лотку."
 
-#: src/orcshot/app.py:549
+#: src/orcshot/app.py:551
 msgid "Screenshot failed"
 msgstr "Не вдалося зробити знімок"
 
-#: src/orcshot/app.py:549
+#: src/orcshot/app.py:551
 msgid ""
 "The screenshot couldn't be taken.\n"
 "\n"
@@ -1517,11 +1529,19 @@ msgstr ""
 "\n"
 "{}"
 
-#: src/orcshot/app.py:778
+#: src/orcshot/app.py:731
+msgid "New install incoming — save your work"
+msgstr "Розпочинається нове встановлення — збережіть свою роботу"
+
+#: src/orcshot/app.py:752
+msgid "Restarting Orcshot — save your work"
+msgstr "Перезапуск Orcshot — збережіть свою роботу"
+
+#: src/orcshot/app.py:811
 msgid "Orcshot's Wayland integration needs a restart"
 msgstr "Інтеграцію Orcshot із Wayland потрібно перезапустити"
 
-#: src/orcshot/app.py:780
+#: src/orcshot/app.py:813
 msgid ""
 "An update changed how Orcshot's Shell extension works, but your session is "
 "still running the previous version. Log out and back in to finish applying "
@@ -1531,11 +1551,11 @@ msgstr ""
 "досі працює попередня версія. Вийдіть із системи та увійдіть знову, щоб "
 "завершити застосування змін."
 
-#: src/orcshot/app.py:790
+#: src/orcshot/app.py:823
 msgid "Orcshot's tray icon fell back to a plain version"
 msgstr "Orcshot перейшов на просту піктограму в лотку"
 
-#: src/orcshot/app.py:792
+#: src/orcshot/app.py:825
 msgid ""
 "Its usual Shell-integrated tray icon couldn't be created, so a plain "
 "fallback is being used instead. This is a bug worth reporting.{}"
@@ -1543,23 +1563,23 @@ msgstr ""
 "Не вдалося створити звичайну піктограму в лотку, інтегровану з Shell, тому "
 "використовується проста запасна. Про цю ваду варто повідомити.{}"
 
-#: src/orcshot/app.py:1008
+#: src/orcshot/app.py:1041
 msgid "Capture Region"
 msgstr "Захопити область"
 
-#: src/orcshot/app.py:1013
+#: src/orcshot/app.py:1046
 msgid "Capture Full Screen"
 msgstr "Захопити весь екран"
 
-#: src/orcshot/app.py:1018
+#: src/orcshot/app.py:1051
 msgid "Capture Active Window"
 msgstr "Захопити активне вікно"
 
-#: src/orcshot/app.py:1023
+#: src/orcshot/app.py:1056
 msgid "Capture Window..."
 msgstr "Захопити вікно..."
 
-#: src/orcshot/app.py:1031
+#: src/orcshot/app.py:1064
 msgid ""
 "Not available on this Wayland session - enable window capture support in "
 "Preferences, or use Capture Region instead."
@@ -1567,42 +1587,42 @@ msgstr ""
 "Недоступно в цьому сеансі Wayland — увімкніть підтримку захоплення вікон у "
 "параметрах або скористайтеся захопленням області."
 
-#: src/orcshot/app.py:1038
+#: src/orcshot/app.py:1071
 msgid "Repeat Last Region"
 msgstr "Повторити останню область"
 
-#: src/orcshot/app.py:1053
+#: src/orcshot/app.py:1086
 msgid "Open File..."
 msgstr "Відкрити файл..."
 
-#: src/orcshot/app.py:1080
+#: src/orcshot/app.py:1113
 msgid "Quit"
 msgstr "Вийти"
 
-#: src/orcshot/app.py:1135
+#: src/orcshot/app.py:1168
 msgid "Orcshot update available"
 msgstr "Доступне оновлення Orcshot"
 
-#: src/orcshot/app.py:1136
+#: src/orcshot/app.py:1169
 msgid ""
 "A newer version of Orcshot is available! Do you want to download Orcshot {}?"
 msgstr "Доступна новіша версія Orcshot! Завантажити Orcshot {}?"
 
-#: src/orcshot/app.py:1168
+#: src/orcshot/app.py:1201
 msgid "Couldn't check for updates"
 msgstr "Не вдалося перевірити наявність оновлень"
 
-#: src/orcshot/app.py:1169
+#: src/orcshot/app.py:1202
 msgid "No response from GitHub - check your network connection and try again."
 msgstr ""
 "Немає відповіді від GitHub — перевірте з’єднання з мережею та спробуйте ще "
 "раз."
 
-#: src/orcshot/app.py:1177
+#: src/orcshot/app.py:1210
 msgid "Orcshot is up to date"
 msgstr "Orcshot має найновішу версію"
 
-#: src/orcshot/app.py:1178
+#: src/orcshot/app.py:1211
 msgid "You're running the latest version ({})."
 msgstr "У вас установлено найновішу версію ({})."
 

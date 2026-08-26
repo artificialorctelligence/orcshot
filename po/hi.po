@@ -5,7 +5,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: orcshot\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-08-25 18:58-0500\n"
+"POT-Creation-Date: 2026-08-26 16:45-0500\n"
 "Language: hi\n"
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
@@ -256,23 +256,23 @@ msgstr "Orcshot के प्रिंट विकल्प"
 msgid "Page layout settings"
 msgstr "पेज लेआउट सेटिंग्स"
 
-#: src/orcshot/ui/printing.py:166 src/orcshot/ui/editor_window.py:5983
+#: src/orcshot/ui/printing.py:166 src/orcshot/ui/editor_window.py:6024
 msgid "Shrink printout to fit paper size"
 msgstr "प्रिंटआउट को कागज़ के आकार में फ़िट करने के लिए छोटा करें"
 
-#: src/orcshot/ui/printing.py:168 src/orcshot/ui/editor_window.py:5988
+#: src/orcshot/ui/printing.py:168 src/orcshot/ui/editor_window.py:6029
 msgid "Enlarge printout to fit paper size"
 msgstr "प्रिंटआउट को कागज़ के आकार में फ़िट करने के लिए बड़ा करें"
 
-#: src/orcshot/ui/printing.py:170 src/orcshot/ui/editor_window.py:5993
+#: src/orcshot/ui/printing.py:170 src/orcshot/ui/editor_window.py:6034
 msgid "Rotate printout to page orientation"
 msgstr "प्रिंटआउट को पेज की दिशा के अनुसार घुमाएँ"
 
-#: src/orcshot/ui/printing.py:172 src/orcshot/ui/editor_window.py:5998
+#: src/orcshot/ui/printing.py:172 src/orcshot/ui/editor_window.py:6039
 msgid "Center printout on page"
 msgstr "प्रिंटआउट को पेज के बीच में रखें"
 
-#: src/orcshot/ui/printing.py:174 src/orcshot/ui/editor_window.py:6003
+#: src/orcshot/ui/printing.py:174 src/orcshot/ui/editor_window.py:6044
 msgid "Print date / time at bottom of page"
 msgstr "पेज के नीचे दिनांक / समय प्रिंट करें"
 
@@ -280,19 +280,19 @@ msgstr "पेज के नीचे दिनांक / समय प्र�
 msgid "Color settings"
 msgstr "रंग सेटिंग्स"
 
-#: src/orcshot/ui/printing.py:184 src/orcshot/ui/editor_window.py:6029
+#: src/orcshot/ui/printing.py:184 src/orcshot/ui/editor_window.py:6070
 msgid "Full color print"
 msgstr "पूर्ण रंगीन प्रिंट"
 
-#: src/orcshot/ui/printing.py:185 src/orcshot/ui/editor_window.py:6030
+#: src/orcshot/ui/printing.py:185 src/orcshot/ui/editor_window.py:6071
 msgid "Force grayscale printing"
 msgstr "ग्रेस्केल में ही प्रिंट करें"
 
-#: src/orcshot/ui/printing.py:186 src/orcshot/ui/editor_window.py:6031
+#: src/orcshot/ui/printing.py:186 src/orcshot/ui/editor_window.py:6072
 msgid "Force black/white printing"
 msgstr "श्वेत-श्याम में ही प्रिंट करें"
 
-#: src/orcshot/ui/printing.py:193 src/orcshot/ui/editor_window.py:6046
+#: src/orcshot/ui/printing.py:193 src/orcshot/ui/editor_window.py:6087
 msgid "Print with inverted colors"
 msgstr "उलटे रंगों के साथ प्रिंट करें"
 
@@ -414,7 +414,7 @@ msgid "Save As..."
 msgstr "इस रूप में सहेजें..."
 
 #: src/orcshot/ui/destination_picker.py:219
-#: src/orcshot/ui/editor_window.py:5914
+#: src/orcshot/ui/editor_window.py:5955
 msgid "Edit..."
 msgstr "संपादित करें..."
 
@@ -522,8 +522,8 @@ msgstr "नारंगी"
 msgid "Blue"
 msgstr "नीला"
 
-#: src/orcshot/ui/editor_window.py:489 src/orcshot/ui/editor_window.py:5699
-#: src/orcshot/ui/editor_window.py:5880
+#: src/orcshot/ui/editor_window.py:489 src/orcshot/ui/editor_window.py:5740
+#: src/orcshot/ui/editor_window.py:5921
 msgid "Default"
 msgstr "डिफ़ॉल्ट"
 
@@ -536,7 +536,7 @@ msgid "Horizontal"
 msgstr "क्षैतिज"
 
 #: src/orcshot/ui/editor_window.py:517 src/orcshot/ui/editor_window.py:3667
-#: src/orcshot/ui/editor_window.py:5327
+#: src/orcshot/ui/editor_window.py:5329
 msgid "Select"
 msgstr "चुनें"
 
@@ -643,7 +643,7 @@ msgstr "पेस्ट करें"
 msgid "Duplicate"
 msgstr "डुप्लिकेट बनाएँ"
 
-#: src/orcshot/ui/editor_window.py:1587 src/orcshot/app.py:1068
+#: src/orcshot/ui/editor_window.py:1587 src/orcshot/app.py:1101
 msgid "Preferences..."
 msgstr "प्राथमिकताएँ..."
 
@@ -667,7 +667,7 @@ msgstr "काउंटर"
 msgid "Select All"
 msgstr "सभी चुनें"
 
-#: src/orcshot/ui/editor_window.py:1640 src/orcshot/ui/editor_window.py:5915
+#: src/orcshot/ui/editor_window.py:1640 src/orcshot/ui/editor_window.py:5956
 msgid "Delete"
 msgstr "मिटाएँ"
 
@@ -743,7 +743,7 @@ msgstr "JPEG गुणवत्ता"
 msgid "Continue"
 msgstr "जारी रखें"
 
-#: src/orcshot/ui/editor_window.py:1783 src/orcshot/ui/editor_window.py:5807
+#: src/orcshot/ui/editor_window.py:1783 src/orcshot/ui/editor_window.py:5848
 msgid "JPEG quality:"
 msgstr "JPEG गुणवत्ता:"
 
@@ -875,7 +875,7 @@ msgstr "पूर्ववत करें (Ctrl+Z)"
 msgid "Redo (Ctrl+Y)"
 msgstr "फिर से करें (Ctrl+Y)"
 
-#: src/orcshot/ui/editor_window.py:2603 src/orcshot/ui/editor_window.py:5360
+#: src/orcshot/ui/editor_window.py:2603 src/orcshot/ui/editor_window.py:5362
 msgid "Preferences"
 msgstr "प्राथमिकताएँ"
 
@@ -1214,107 +1214,119 @@ msgstr "हाँ"
 msgid "No"
 msgstr "नहीं"
 
-#: src/orcshot/ui/editor_window.py:5245
-msgid "New install incoming — save your work"
-msgstr "नया इंस्टॉल आने वाला है — अपना काम सहेज लें"
-
-#: src/orcshot/ui/editor_window.py:5262
+#: src/orcshot/ui/editor_window.py:5264
 msgid "Open"
 msgstr "खोलें"
 
-#: src/orcshot/ui/editor_window.py:5266
+#: src/orcshot/ui/editor_window.py:5268
 msgid "Orcshot files"
 msgstr "Orcshot फ़ाइलें"
 
-#: src/orcshot/ui/editor_window.py:5299
+#: src/orcshot/ui/editor_window.py:5301
 msgid "Couldn't open file"
 msgstr "फ़ाइल नहीं खुल सकी"
 
-#: src/orcshot/ui/editor_window.py:5323
+#: src/orcshot/ui/editor_window.py:5325
 msgid "Screenshot Save Location"
 msgstr "स्क्रीनशॉट सहेजने का स्थान"
 
-#: src/orcshot/ui/editor_window.py:5366
+#: src/orcshot/ui/editor_window.py:5368
 msgid "General"
 msgstr "सामान्य"
 
-#: src/orcshot/ui/editor_window.py:5367 src/orcshot/ui/editor_window.py:5607
+#: src/orcshot/ui/editor_window.py:5369 src/orcshot/ui/editor_window.py:5648
 msgid "Capture"
 msgstr "कैप्चर"
 
-#: src/orcshot/ui/editor_window.py:5368
+#: src/orcshot/ui/editor_window.py:5370
 msgid "Output"
 msgstr "आउटपुट"
 
-#: src/orcshot/ui/editor_window.py:5369
+#: src/orcshot/ui/editor_window.py:5371
 msgid "Destinations"
 msgstr "गंतव्य"
 
-#: src/orcshot/ui/editor_window.py:5370
+#: src/orcshot/ui/editor_window.py:5372
 msgid "Printer"
 msgstr "प्रिंटर"
 
-#: src/orcshot/ui/editor_window.py:5405
-msgid "Application Settings"
-msgstr "एप्लिकेशन सेटिंग्स"
-
-#: src/orcshot/ui/editor_window.py:5417
-msgid "Language:"
-msgstr "भाषा:"
-
-#: src/orcshot/ui/editor_window.py:5419
+#: src/orcshot/ui/editor_window.py:5417 src/orcshot/ui/editor_window.py:5460
 msgid "System Default"
 msgstr "सिस्टम डिफ़ॉल्ट"
 
+#: src/orcshot/ui/editor_window.py:5421
+msgid "Restart Orcshot now to switch to {}?"
+msgstr "{} पर बदलने के लिए अभी Orcshot फिर से शुरू करें?"
+
 #: src/orcshot/ui/editor_window.py:5423
+msgid "Any unsaved work will be saved first."
+msgstr "किसी भी बिना सहेजे गए काम को पहले सहेज लिया जाएगा।"
+
+#: src/orcshot/ui/editor_window.py:5425
+msgid "Later"
+msgstr "बाद में"
+
+#: src/orcshot/ui/editor_window.py:5426
+msgid "Restart Now"
+msgstr "अभी फिर से शुरू करें"
+
+#: src/orcshot/ui/editor_window.py:5446
+msgid "Application Settings"
+msgstr "एप्लिकेशन सेटिंग्स"
+
+#: src/orcshot/ui/editor_window.py:5458
+msgid "Language:"
+msgstr "भाषा:"
+
+#: src/orcshot/ui/editor_window.py:5464
 msgid "Applies after restarting Orcshot."
 msgstr "Orcshot को पुनः आरंभ करने के बाद लागू होता है।"
 
-#: src/orcshot/ui/editor_window.py:5434
+#: src/orcshot/ui/editor_window.py:5475
 msgid "Icon size:"
 msgstr "आइकन का आकार:"
 
-#: src/orcshot/ui/editor_window.py:5437
+#: src/orcshot/ui/editor_window.py:5478
 msgid "Takes effect the next time you open a screenshot."
 msgstr "अगली बार स्क्रीनशॉट खोलने पर यह लागू होगा।"
 
-#: src/orcshot/ui/editor_window.py:5448
+#: src/orcshot/ui/editor_window.py:5489
 msgid "Launch Orcshot on startup"
 msgstr "स्टार्टअप पर Orcshot चालू करें"
 
-#: src/orcshot/ui/editor_window.py:5479
+#: src/orcshot/ui/editor_window.py:5520
 msgid "External Image Editor:"
 msgstr "बाहरी इमेज एडिटर:"
 
-#: src/orcshot/ui/editor_window.py:5481
+#: src/orcshot/ui/editor_window.py:5522
 msgid "Auto (Krita, then GIMP)"
 msgstr "स्वतः (पहले Krita, फिर GIMP)"
 
-#: src/orcshot/ui/editor_window.py:5501
+#: src/orcshot/ui/editor_window.py:5542
 msgid "Suppress the save dialog when closing the editor"
 msgstr "एडिटर बंद करते समय सहेजने का डायलॉग न दिखाएँ"
 
-#: src/orcshot/ui/editor_window.py:5510
+#: src/orcshot/ui/editor_window.py:5551
 msgid "Hotkeys"
 msgstr "हॉटकी"
 
-#: src/orcshot/ui/editor_window.py:5514
+#: src/orcshot/ui/editor_window.py:5555
 msgid "Configure Hotkeys..."
 msgstr "हॉटकी कॉन्फ़िगर करें..."
 
-#: src/orcshot/ui/editor_window.py:5526
+#: src/orcshot/ui/editor_window.py:5567
 msgid "Network and Updates"
 msgstr "नेटवर्क और अपडेट"
 
-#: src/orcshot/ui/editor_window.py:5535
+#: src/orcshot/ui/editor_window.py:5576
 msgid "Use system default proxy"
 msgstr "सिस्टम का डिफ़ॉल्ट प्रॉक्सी उपयोग करें"
 
-#: src/orcshot/ui/editor_window.py:5541
+#: src/orcshot/ui/editor_window.py:5582
 msgid "Check for updates every"
 msgstr "अपडेट जाँचें हर"
 
-#: src/orcshot/ui/editor_window.py:5546
+#: src/orcshot/ui/editor_window.py:5587
 msgid ""
 "How often Orcshot checks GitHub for a newer release in the background. 0 = "
 "never check, matching Windows' own UpdateCheckInterval semantics."
@@ -1322,19 +1334,19 @@ msgstr ""
 "Orcshot पृष्ठभूमि में कितने-कितने समय पर GitHub से नए रिलीज़ की जाँच करता है। 0 = कभी "
 "जाँच न करें, जो Windows के अपने UpdateCheckInterval व्यवहार जैसा ही है।"
 
-#: src/orcshot/ui/editor_window.py:5552
+#: src/orcshot/ui/editor_window.py:5593
 msgid "days"
 msgstr "दिन"
 
-#: src/orcshot/ui/editor_window.py:5616
+#: src/orcshot/ui/editor_window.py:5657
 msgid "Capture mouse cursor"
 msgstr "माउस कर्सर भी कैप्चर करें"
 
-#: src/orcshot/ui/editor_window.py:5628
+#: src/orcshot/ui/editor_window.py:5669
 msgid "Show magnifier while selecting a region"
 msgstr "क्षेत्र चुनते समय आवर्धक दिखाएँ"
 
-#: src/orcshot/ui/editor_window.py:5632
+#: src/orcshot/ui/editor_window.py:5673
 msgid ""
 "Applies to X11 and the Wayland portal-fallback path. The Wayland Shell-"
 "native picker's own magnifier doesn't read this setting yet."
@@ -1342,23 +1354,23 @@ msgstr ""
 "यह X11 और Wayland के पोर्टल-फ़ॉलबैक पथ पर लागू होता है। Wayland के Shell-नेटिव पिकर "
 "का अपना आवर्धक अभी यह सेटिंग नहीं पढ़ता।"
 
-#: src/orcshot/ui/editor_window.py:5642
+#: src/orcshot/ui/editor_window.py:5683
 msgid "Play camera sound"
 msgstr "कैमरा ध्वनि बजाएँ"
 
-#: src/orcshot/ui/editor_window.py:5647
+#: src/orcshot/ui/editor_window.py:5688
 msgid "Show notification after capture"
 msgstr "कैप्चर के बाद सूचना दिखाएँ"
 
-#: src/orcshot/ui/editor_window.py:5671
+#: src/orcshot/ui/editor_window.py:5712
 msgid "Preferred File Settings"
 msgstr "पसंदीदा फ़ाइल सेटिंग्स"
 
-#: src/orcshot/ui/editor_window.py:5687
+#: src/orcshot/ui/editor_window.py:5728
 msgid "Filename pattern:"
 msgstr "फ़ाइल नाम का पैटर्न:"
 
-#: src/orcshot/ui/editor_window.py:5691
+#: src/orcshot/ui/editor_window.py:5732
 #, python-format
 msgid ""
 "Both ${...} placeholders and %-codes work in the same pattern. Click ? for "
@@ -1367,11 +1379,11 @@ msgstr ""
 "एक ही पैटर्न में ${...} प्लेसहोल्डर और %-codes दोनों काम करते हैं। पूरी सूची के लिए ? पर "
 "क्लिक करें।"
 
-#: src/orcshot/ui/editor_window.py:5713
+#: src/orcshot/ui/editor_window.py:5754
 msgid "Filename pattern placeholders and codes"
 msgstr "फ़ाइल नाम पैटर्न के प्लेसहोल्डर और कोड"
 
-#: src/orcshot/ui/editor_window.py:5715
+#: src/orcshot/ui/editor_window.py:5756
 msgid ""
 "${YYYY} year, 4 digits\n"
 "${MM} month, 2 digits\n"
@@ -1411,93 +1423,93 @@ msgstr ""
 "%A/%a सप्ताह के दिन का नाम, %B/%b महीने का नाम\n"
 "%% प्रतिशत का चिह्न स्वयं"
 
-#: src/orcshot/ui/editor_window.py:5747
+#: src/orcshot/ui/editor_window.py:5788
 #, python-brace-format
 msgid "Counter (${NUM} in filename):"
 msgstr "काउंटर (फ़ाइल नाम में ${NUM}):"
 
-#: src/orcshot/ui/editor_window.py:5755
+#: src/orcshot/ui/editor_window.py:5796
 msgid "Primary format:"
 msgstr "प्राथमिक फ़ॉर्मैट:"
 
-#: src/orcshot/ui/editor_window.py:5764
+#: src/orcshot/ui/editor_window.py:5805
 msgid "Copy file path to clipboard after saving"
 msgstr "सहेजने के बाद फ़ाइल का पथ क्लिपबोर्ड पर कॉपी करें"
 
-#: src/orcshot/ui/editor_window.py:5770
+#: src/orcshot/ui/editor_window.py:5811
 msgid "Screenshot Save Location:"
 msgstr "स्क्रीनशॉट सहेजने का स्थान:"
 
-#: src/orcshot/ui/editor_window.py:5773
+#: src/orcshot/ui/editor_window.py:5814
 msgid "Change..."
 msgstr "बदलें..."
 
-#: src/orcshot/ui/editor_window.py:5785
+#: src/orcshot/ui/editor_window.py:5826
 msgid "Quality Settings"
 msgstr "गुणवत्ता सेटिंग्स"
 
-#: src/orcshot/ui/editor_window.py:5793
+#: src/orcshot/ui/editor_window.py:5834
 msgid "Reduce colors to 256 (8-bit)"
 msgstr "रंग घटाकर 256 (8-बिट) करें"
 
-#: src/orcshot/ui/editor_window.py:5795
+#: src/orcshot/ui/editor_window.py:5836
 msgid ""
 "Not applied to saves yet - this port has no color-quantization step built."
 msgstr ""
 "अभी सहेजने पर लागू नहीं होता - इस पोर्ट में रंग-क्वांटाइज़ेशन का चरण अभी बना नहीं है।"
 
-#: src/orcshot/ui/editor_window.py:5799
+#: src/orcshot/ui/editor_window.py:5840
 msgid "Always show quality dialog before saving"
 msgstr "सहेजने से पहले हमेशा गुणवत्ता डायलॉग दिखाएँ"
 
-#: src/orcshot/ui/editor_window.py:5876
+#: src/orcshot/ui/editor_window.py:5917
 msgid "Enabled"
 msgstr "सक्षम"
 
-#: src/orcshot/ui/editor_window.py:5893
+#: src/orcshot/ui/editor_window.py:5934
 msgid "External"
 msgstr "बाहरी"
 
-#: src/orcshot/ui/editor_window.py:5913
+#: src/orcshot/ui/editor_window.py:5954
 msgid "Add..."
 msgstr "जोड़ें..."
 
-#: src/orcshot/ui/editor_window.py:5979
+#: src/orcshot/ui/editor_window.py:6020
 msgid "Page Layout Settings"
 msgstr "पेज लेआउट सेटिंग्स"
 
-#: src/orcshot/ui/editor_window.py:6012
+#: src/orcshot/ui/editor_window.py:6053
 msgid "Footer pattern:"
 msgstr "फ़ुटर का पैटर्न:"
 
-#: src/orcshot/ui/editor_window.py:6016
+#: src/orcshot/ui/editor_window.py:6057
 msgid ""
 "A Python strftime format, e.g. %B %d, %Y %I:%M %p - printed at the bottom of "
 "the page."
 msgstr ""
 "एक Python strftime फ़ॉर्मैट, जैसे %B %d, %Y %I:%M %p - यह पेज के नीचे प्रिंट होता है।"
 
-#: src/orcshot/ui/editor_window.py:6025
+#: src/orcshot/ui/editor_window.py:6066
 msgid "Color Settings"
 msgstr "रंग सेटिंग्स"
 
-#: src/orcshot/ui/editor_window.py:6054
+#: src/orcshot/ui/editor_window.py:6095
 msgid "Show print options dialog every time an image is printed"
 msgstr "हर बार इमेज प्रिंट करते समय प्रिंट विकल्पों का डायलॉग दिखाएँ"
 
-#: src/orcshot/app.py:318
+#: src/orcshot/app.py:319
 msgid "Orcshot is already running"
 msgstr "Orcshot पहले से चल रहा है"
 
-#: src/orcshot/app.py:319
+#: src/orcshot/app.py:320
 msgid "Look for its icon in the system tray."
 msgstr "सिस्टम ट्रे में इसका आइकन देखें।"
 
-#: src/orcshot/app.py:549
+#: src/orcshot/app.py:551
 msgid "Screenshot failed"
 msgstr "स्क्रीनशॉट विफल रहा"
 
-#: src/orcshot/app.py:549
+#: src/orcshot/app.py:551
 msgid ""
 "The screenshot couldn't be taken.\n"
 "\n"
@@ -1507,11 +1519,19 @@ msgstr ""
 "\n"
 "{}"
 
-#: src/orcshot/app.py:778
+#: src/orcshot/app.py:731
+msgid "New install incoming — save your work"
+msgstr "नया इंस्टॉल आने वाला है — अपना काम सहेज लें"
+
+#: src/orcshot/app.py:752
+msgid "Restarting Orcshot — save your work"
+msgstr "Orcshot फिर से शुरू हो रहा है — अपना काम सहेजें"
+
+#: src/orcshot/app.py:811
 msgid "Orcshot's Wayland integration needs a restart"
 msgstr "Orcshot के Wayland एकीकरण को पुनः आरंभ करने की ज़रूरत है"
 
-#: src/orcshot/app.py:780
+#: src/orcshot/app.py:813
 msgid ""
 "An update changed how Orcshot's Shell extension works, but your session is "
 "still running the previous version. Log out and back in to finish applying "
@@ -1521,11 +1541,11 @@ msgstr ""
 "में अभी भी पिछला संस्करण चल रहा है। इसे पूरी तरह लागू करने के लिए लॉग आउट करके फिर से "
 "लॉग इन करें।"
 
-#: src/orcshot/app.py:790
+#: src/orcshot/app.py:823
 msgid "Orcshot's tray icon fell back to a plain version"
 msgstr "Orcshot का ट्रे आइकन सादे संस्करण पर आ गया है"
 
-#: src/orcshot/app.py:792
+#: src/orcshot/app.py:825
 msgid ""
 "Its usual Shell-integrated tray icon couldn't be created, so a plain "
 "fallback is being used instead. This is a bug worth reporting.{}"
@@ -1533,23 +1553,23 @@ msgstr ""
 "इसका सामान्य Shell-एकीकृत ट्रे आइकन नहीं बनाया जा सका, इसलिए उसकी जगह एक सादा "
 "फ़ॉलबैक उपयोग हो रहा है। यह ऐसी बग है जिसकी रिपोर्ट करनी चाहिए।{}"
 
-#: src/orcshot/app.py:1008
+#: src/orcshot/app.py:1041
 msgid "Capture Region"
 msgstr "क्षेत्र कैप्चर करें"
 
-#: src/orcshot/app.py:1013
+#: src/orcshot/app.py:1046
 msgid "Capture Full Screen"
 msgstr "पूरी स्क्रीन कैप्चर करें"
 
-#: src/orcshot/app.py:1018
+#: src/orcshot/app.py:1051
 msgid "Capture Active Window"
 msgstr "सक्रिय विंडो कैप्चर करें"
 
-#: src/orcshot/app.py:1023
+#: src/orcshot/app.py:1056
 msgid "Capture Window..."
 msgstr "विंडो कैप्चर करें..."
 
-#: src/orcshot/app.py:1031
+#: src/orcshot/app.py:1064
 msgid ""
 "Not available on this Wayland session - enable window capture support in "
 "Preferences, or use Capture Region instead."
@@ -1557,41 +1577,41 @@ msgstr ""
 "इस Wayland सत्र में उपलब्ध नहीं है - प्राथमिकताएँ में विंडो कैप्चर का समर्थन सक्षम करें, या "
 "इसके बजाय क्षेत्र कैप्चर करें का उपयोग करें।"
 
-#: src/orcshot/app.py:1038
+#: src/orcshot/app.py:1071
 msgid "Repeat Last Region"
 msgstr "पिछला क्षेत्र दोहराएँ"
 
-#: src/orcshot/app.py:1053
+#: src/orcshot/app.py:1086
 msgid "Open File..."
 msgstr "फ़ाइल खोलें..."
 
-#: src/orcshot/app.py:1080
+#: src/orcshot/app.py:1113
 msgid "Quit"
 msgstr "बाहर निकलें"
 
-#: src/orcshot/app.py:1135
+#: src/orcshot/app.py:1168
 msgid "Orcshot update available"
 msgstr "Orcshot का अपडेट उपलब्ध है"
 
-#: src/orcshot/app.py:1136
+#: src/orcshot/app.py:1169
 msgid ""
 "A newer version of Orcshot is available! Do you want to download Orcshot {}?"
 msgstr "Orcshot का नया संस्करण उपलब्ध है! क्या आप Orcshot {} डाउनलोड करना चाहते हैं?"
 
-#: src/orcshot/app.py:1168
+#: src/orcshot/app.py:1201
 msgid "Couldn't check for updates"
 msgstr "अपडेट की जाँच नहीं हो सकी"
 
-#: src/orcshot/app.py:1169
+#: src/orcshot/app.py:1202
 msgid "No response from GitHub - check your network connection and try again."
 msgstr ""
 "GitHub से कोई प्रतिक्रिया नहीं मिली - अपना नेटवर्क कनेक्शन जाँचें और फिर से कोशिश करें।"
 
-#: src/orcshot/app.py:1177
+#: src/orcshot/app.py:1210
 msgid "Orcshot is up to date"
 msgstr "Orcshot अद्यतित है"
 
-#: src/orcshot/app.py:1178
+#: src/orcshot/app.py:1211
 msgid "You're running the latest version ({})."
 msgstr "आप नवीनतम संस्करण ({}) चला रहे हैं।"
 
