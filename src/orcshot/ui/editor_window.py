@@ -5382,7 +5382,21 @@ def show_preferences_dialog(parent: Gtk.Window = None) -> None:
 # is an endonym, meant to read the same regardless of whatever language
 # the UI happens to currently be in, same convention real desktop
 # language pickers (GNOME's own Region & Language panel included) use.
+#
+# "en" is listed explicitly, not folded into "System Default" (task
+# #183 follow-up, direflail's own live report): "System Default"
+# means "follow whatever the OS locale happens to be," which isn't
+# English for everyone - someone whose system locale is already
+# Spanish still needs an explicit way to force Orcshot into English
+# specifically, the same as forcing it into any other single
+# language. No en.po exists (English is the source language _() is
+# written in) - i18n._resolve_languages()'s existing
+# gettext.translation(..., languages=["en"], fallback=True) call
+# already handles that correctly, falling back to NullTranslations
+# (a plain passthrough) exactly like the no-catalog-found case it
+# already was, so this needed no i18n.py change at all.
 _AVAILABLE_LANGUAGES = (
+    ("en", "English"),
     ("es", "Español"),
     ("fr", "Français"),
     ("de", "Deutsch"),
@@ -5911,6 +5925,14 @@ def _build_destinations_settings_tab(dialog: Gtk.Dialog) -> Gtk.Box:
         set_excluded_destinations(currently_excluded)
 
     def build_checklist(store: Gtk.ListStore, column_label: str) -> Gtk.TreeView:
+        # column_label must already be _()-wrapped by the caller
+        # (both call sites below do this) - tests/unit/_i18n_scan.py's
+        # sink scanner only flags string literals reaching a sink
+        # directly, not ones passed in through a variable one call
+        # frame up, so a bare literal here would ship silently
+        # untranslated with nothing to catch it (task #183 follow-up,
+        # direflail's own live report: "Destination"/"Command" stayed
+        # English in every language).
         tree_view = Gtk.TreeView(model=store)
         toggle_renderer = Gtk.CellRendererToggle()
         toggle_renderer.connect("toggled", lambda _renderer, path: on_toggled(store, path))
@@ -5926,7 +5948,7 @@ def _build_destinations_settings_tab(dialog: Gtk.Dialog) -> Gtk.Box:
     # enough to show all of them with no scrollbar), so the tree just
     # takes its natural size instead of guessing a min-content-height
     # tall enough to fit a row count that never actually changes.
-    _default_tree = build_checklist(default_store, "Destination")
+    _default_tree = build_checklist(default_store, _("Destination"))
     default_inner.pack_start(_default_tree, False, False, 0)
     default_frame.add(default_inner)
     box.pack_start(default_frame, False, False, 0)
@@ -5936,7 +5958,7 @@ def _build_destinations_settings_tab(dialog: Gtk.Dialog) -> Gtk.Box:
     external_inner.set_border_width(8)
     # External's row count is unbounded (however many commands the
     # user has configured), so this one keeps scrolling.
-    external_tree = build_checklist(external_store, "Command")
+    external_tree = build_checklist(external_store, _("Command"))
     external_scroller = Gtk.ScrolledWindow()
     external_scroller.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
     external_scroller.set_min_content_height(110)

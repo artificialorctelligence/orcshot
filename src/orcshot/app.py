@@ -755,18 +755,33 @@ class OrcshotApplication(Gtk.Application):
         self._maybe_restart_after_language_change()
 
     def _maybe_restart_after_language_change(self) -> None:
-        """os.execv rather than quit()+relaunch (task #183 follow-up):
-        quit() only requests the main loop return control
-        asynchronously (see _quit_and_hide_tray_button's own docstring
-        for why that alone isn't reliable), and writes a "stay quit"
-        marker that would incorrectly swallow the very relaunch this
-        is trying to trigger. execv replaces this process's own image
-        in place - same PID, no coordination needed with the systemd
-        unit or the single-instance D-Bus name check a spawn-new-then-
-        quit-old approach would otherwise have to race against.
+        """Task #183 follow-up, second attempt - direflail live-reported
+        the first one ("os.execv in place") just quit instead of
+        restarting. Root-caused outside this app entirely, not
+        guessed: an isolated Type=dbus + BusName= systemd user unit
+        (matching debian/orcshot.service's own config exactly)
+        reproduced the identical failure - the moment execv's process-
+        image replacement makes the D-Bus name transiently vanish,
+        systemd's own Type=dbus tracking considers the unit "stopped"
+        and tears it down before the freshly-exec'd image can get far
+        enough to re-acquire the name and reach do_activate again.
+        Spawning `systemctl --user restart` from inside this same
+        process was tried next and has its own race: that subprocess
+        inherits this unit's own cgroup, so it can be killed as
+        collateral damage of the "stop" half of the very restart
+        command it's trying to run.
+
+        What actually works, confirmed the same way (same test unit,
+        watched via journalctl): exiting with a non-zero status and
+        letting the *existing* Restart=on-failure/RestartSec=2 already
+        in debian/orcshot.service do the relaunch - the one restart
+        path systemd's own Type=dbus supervision is actually built to
+        support. Logged explicitly first since a bare non-zero exit
+        looks identical to a real crash in journalctl otherwise.
         """
         if self._restart_after_editors_close and not self._open_editors:
-            os.execv(sys.executable, [sys.executable, *sys.argv])
+            print("[orcshot] restarting for a language change (exit 1 triggers systemd's Restart=on-failure)")
+            sys.exit(1)
 
     def _check_shell_extension_health(self) -> None:
         """Surfaces two real, ordinary-but-easy-to-miss states
