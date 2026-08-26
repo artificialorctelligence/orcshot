@@ -174,12 +174,29 @@ def _arrow_icon(color: Color) -> cairo.ImageSurface:
 
 
 def _freehand_icon(color: Color) -> cairo.ImageSurface:
+    # render_freehand only ever connects points with straight segments
+    # (no curve/spline support, matching a real mouse-drawn freehand
+    # stroke, which is itself just a polyline of many closely-spaced
+    # points) - the previous 4-point zigzag rendered as a sharp,
+    # angular shape at icon size and read as a line/connector tool,
+    # not a hand-drawn one (direflail's own live report). A genuine
+    # sine-wave squiggle, sampled densely enough that its straight
+    # segments look smooth at 24px, reads as "freehand" the way the
+    # old sparse zigzag never did - same fix approach as every sibling
+    # icon here (a real render_* preview, not a switch to an abstract
+    # pencil/paintbrush pictogram, which every other tool icon in this
+    # list deliberately isn't either).
     surface = _blank_surface()
-    points = (
-        (_MARGIN, ICON_SIZE - _MARGIN),
-        (ICON_SIZE * 0.4, _MARGIN),
-        (ICON_SIZE * 0.6, ICON_SIZE - _MARGIN),
-        (ICON_SIZE - _MARGIN, _MARGIN),
+    left, right = _MARGIN, ICON_SIZE - _MARGIN
+    amplitude = (ICON_SIZE - 2 * _MARGIN) / 4
+    mid_y = ICON_SIZE / 2
+    point_count = 24
+    points = tuple(
+        (
+            left + (right - left) * i / (point_count - 1),
+            mid_y + amplitude * math.sin(i / (point_count - 1) * 2 * math.pi),
+        )
+        for i in range(point_count)
     )
     shape = FreehandShape(points=points, style=_line_art_style(color))
     render_freehand(cairo.Context(surface), shape)
