@@ -1832,6 +1832,80 @@ function _readOrcshotLanguageOverride() {
   }
 }
 
+// Task #183 follow-up, second live-testing round: direflail's own
+// report - "espanol" worked right after a restart, but a *second*
+// language-change restart in the same session ("francais") stayed on
+// the earlier "espanol" text. Root-caused live, not guessed: glibc's
+// dcgettext() caches the resolved catalog after its first real
+// lookup in a process and doesn't reliably re-resolve on a later
+// $LANGUAGE change within that same process, confirmed with gjs
+// probes on the test VM - re-setlocale(), a "bounce" through 'C' and
+// back, and even binding an entirely fresh, never-before-used domain
+// name for the second language all still returned the *first*
+// language's text (or, for the fresh domain, silently fell back to
+// English instead of resolving "fr" at all). gnome-shell is one
+// long-running process for the whole session, so this hits every
+// single language-change restart after the first one, not an edge
+// case - the exact opposite of orcshot.i18n's own Python side, where
+// each restart is a genuinely fresh process gettext.translation()
+// resolves cleanly every time.
+//
+// This sidesteps gettext's own catalog-resolution machinery
+// entirely for the override case rather than fight its caching:
+// parses the target .mo file directly (the standard GNU MO binary
+// format - magic number, string count, then two (length, offset)
+// tables, one for each original string and one for its translation -
+// see https://www.gnu.org/software/gettext/manual/html_node/MO-Files.html)
+// into a plain msgid -> msgstr Map, with no gettext/dgettext/
+// setlocale/$LANGUAGE involved at all. Verified against all 7 real
+// compiled catalogs on the test VM before landing this - every
+// language resolved correctly, all within one gjs process, which is
+// exactly the scenario dgettext() couldn't handle.
+function _parseMoFile(bytes) {
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  const magic = view.getUint32(0, true);
+  let little;
+  if (magic === 0x950412de)
+    little = true;
+  else if (magic === 0xde120495)
+    little = false;
+  else
+    throw new Error(`not a valid .mo file (bad magic number ${magic.toString(16)})`);
+
+  const numStrings = view.getUint32(8, little);
+  const origTableOffset = view.getUint32(12, little);
+  const transTableOffset = view.getUint32(16, little);
+  const decoder = new TextDecoder('utf-8');
+  const catalog = new Map();
+  for (let i = 0; i < numStrings; i++) {
+    const origLength = view.getUint32(origTableOffset + i * 8, little);
+    const origOffset = view.getUint32(origTableOffset + i * 8 + 4, little);
+    const transLength = view.getUint32(transTableOffset + i * 8, little);
+    const transOffset = view.getUint32(transTableOffset + i * 8 + 4, little);
+    const original = decoder.decode(bytes.subarray(origOffset, origOffset + origLength));
+    const translation = decoder.decode(bytes.subarray(transOffset, transOffset + transLength));
+    catalog.set(original, translation);
+  }
+  return catalog;
+}
+
+// Returns null (not an empty Map) on anything that isn't a genuine,
+// parseable catalog for this language - same "just don't override,
+// no error worth surfacing over a menu label" reasoning as
+// _readOrcshotLanguageOverride above. gettext-domain (metadata.json)
+// names the .mo file itself; extensionDir is this.path, passed in
+// rather than re-derived, since the caller (an Extension instance
+// method) already has it.
+function _loadTrayCatalog(extensionDir, domain, language) {
+  const moPath = GLib.build_filenamev([extensionDir, 'locale', language, 'LC_MESSAGES', `${domain}.mo`]);
+  try {
+    const [, bytes] = GLib.file_get_contents(moPath);
+    return _parseMoFile(bytes);
+  } catch (e) {
+    return null;
+  }
+}
+
 // Task #146: same reasoning as _buildTrayButton's own capture-mode
 // items (see _renderIconGeometry's own docstring above) - every menu
 // item that used to carry a stock PopupImageMenuItem icon name
@@ -1965,21 +2039,26 @@ export default class Extension extends ShellExtension {
     if (this._trayButton)
       return;
     this._trayButtonError = '';
-    // Task #183 follow-up: scoped narrowly to just this call, not set
-    // globally for gnome-shell's own process lifetime - $LANGUAGE
-    // drives every dgettext() call process-wide, including gnome-
-    // shell's own UI, so this saves and restores whatever it was
-    // immediately around the one call that actually needs Orcshot's
-    // own override, rather than leaking it into the rest of the
-    // Shell. See _readOrcshotLanguageOverride's own comment for why
-    // this reads Orcshot's config.json directly instead of the real
-    // system locale for this one call.
+    // Task #183 follow-up: when Orcshot has its own explicit language
+    // override, translate from a directly-parsed .mo Map
+    // (_loadTrayCatalog) instead of this.gettext() - see
+    // _parseMoFile's own comment for why: this.gettext() goes through
+    // dgettext(), which does not reliably re-resolve a *second*
+    // $LANGUAGE change within this same long-running gnome-shell
+    // process. "System Default" (no override, the common case) still
+    // uses this.gettext() as before - that only ever needs the one
+    // value initTranslations() already resolved correctly from the
+    // real system locale at this extension's own enable() time, so
+    // gettext's caching is never actually a problem for it.
     const orcshotLanguage = _readOrcshotLanguageOverride();
-    const previousLanguage = GLib.getenv('LANGUAGE');
-    if (orcshotLanguage)
-      GLib.setenv('LANGUAGE', orcshotLanguage, true);
+    const catalog = orcshotLanguage
+      ? _loadTrayCatalog(this.path, this.metadata['gettext-domain'], orcshotLanguage)
+      : null;
+    const translate = catalog
+      ? str => catalog.get(str) ?? str
+      : this.gettext.bind(this);
     try {
-      this._trayButton = this._buildTrayButton();
+      this._trayButton = this._buildTrayButton(translate);
       Main.panel.addToStatusArea('orcshot-tray', this._trayButton);
     } catch (e) {
       console.error(`[orcshot] failed to create Shell-native tray button: ${e}`);
@@ -1987,13 +2066,6 @@ export default class Extension extends ShellExtension {
       this._trayButton = null;
       this._repeatItem = null;
       this._repeatIconArea = null;
-    } finally {
-      if (orcshotLanguage) {
-        if (previousLanguage === null)
-          GLib.unsetenv('LANGUAGE');
-        else
-          GLib.setenv('LANGUAGE', previousLanguage, true);
-      }
     }
   }
 
@@ -2072,25 +2144,27 @@ export default class Extension extends ShellExtension {
     return GLib.build_filenamev([this.path, 'icons', `${name}.png`]);
   }
 
-  _buildTrayButton() {
-    // Task #183 follow-up (direflail's own live report: "in wayland
-    // the taskbar icon menu doesn't translate"). This whole menu is
-    // built inside gnome-shell's own process, a separate GJS runtime
-    // that never touched orcshot.i18n's Python gettext binding at
-    // all - phase 1's xgettext sweep only ever covered src/orcshot/
-    // ui/*.py and app.py. this.gettext is the base Extension class's
-    // own translation method (resource:///.../extension.js), reading
-    // this extension's "gettext-domain" (metadata.json) from its own
-    // locale/ subdirectory - a real, separate gettext domain from
-    // "orcshot", not a second copy of the same one. All 8 msgids
-    // below are byte-identical to ones already translated in po/
-    // *.po for the X11 Gtk.Menu fallback's own equivalent items
-    // (destination_picker.py etc.) - scripts/extract_tray_pot.sh
-    // extracts this domain's own .pot, and its .po files are
-    // generated by copying those existing translations rather than
-    // re-translating from scratch, so this and the X11 menu can
-    // never drift out of sync with each other by accident.
-    const _ = this.gettext.bind(this);
+  // translate: either this.gettext.bind(this) (System Default - see
+  // _ensureTrayButton's own comment) or a lookup backed by a directly-
+  // parsed .mo Map (an explicit Orcshot language override) - always
+  // passed in by the one caller, _ensureTrayButton, rather than
+  // computed here, so this method itself doesn't need to know which
+  // case it's in.
+  //
+  // Task #183 follow-up (direflail's own live report: "in wayland the
+  // taskbar icon menu doesn't translate"). This whole menu is built
+  // inside gnome-shell's own process, a separate GJS runtime that
+  // never touched orcshot.i18n's Python gettext binding at all -
+  // phase 1's xgettext sweep only ever covered src/orcshot/ui/*.py
+  // and app.py. All 8 msgids below are byte-identical to ones already
+  // translated in po/*.po for the X11 Gtk.Menu fallback's own
+  // equivalent items (destination_picker.py etc.) -
+  // scripts/extract_tray_pot.sh extracts this domain's own .pot, and
+  // its .po files are generated by copying those existing
+  // translations rather than re-translating from scratch, so this
+  // and the X11 menu can never drift out of sync with each other by
+  // accident.
+  _buildTrayButton(_) {
     const iconGeometry = _loadIconGeometry();
     const button = new PanelMenu.Button(0.0, 'Orcshot', false);
     // Task #159: see _buildDrawnMenuItem's own comment on why this
