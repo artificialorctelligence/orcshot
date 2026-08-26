@@ -1,3 +1,5 @@
+**English** | [Español](TRANSLATING.es.md) | [Français](TRANSLATING.fr.md) | [Deutsch](TRANSLATING.de.md) | [Українська](TRANSLATING.uk.md) | [हिन्दी](TRANSLATING.hi.md) | [日本語](TRANSLATING.ja.md) | [中文](TRANSLATING.zh.md)
+
 # Translating Orcshot
 
 Orcshot currently ships in these languages:

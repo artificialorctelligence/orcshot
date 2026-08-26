@@ -1,3 +1,5 @@
+**English** | [Español](README.es.md) | [Français](README.fr.md) | [Deutsch](README.de.md) | [Українська](README.uk.md) | [हिन्दी](README.hi.md) | [日本語](README.ja.md) | [中文](README.zh.md)
+
 # Orcshot
 
 A Linux port of [Greenshot](https://getgreenshot.org/), built as a faithful Python + GTK3
