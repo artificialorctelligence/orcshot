@@ -26,6 +26,7 @@ from orcshot.settings import (
     get_filename_counter,
     get_footer_pattern,
     get_icon_size,
+    get_language,
     get_last_update_check,
     get_output_directory,
     get_output_settings,
@@ -52,6 +53,7 @@ from orcshot.settings import (
     set_filename_counter,
     set_footer_pattern,
     set_icon_size,
+    set_language,
     set_last_update_check,
     set_output_directory,
     set_output_settings,
@@ -210,6 +212,27 @@ class TestPlayCaptureSound:
         set_play_capture_sound(True, path=path)
 
         assert get_play_capture_sound(path=path) is True
+
+
+class TestLanguage:
+    def test_defaults_to_empty_string_meaning_follow_system_locale(self, tmp_path):
+        path = tmp_path / "config.json"
+        assert get_language(path=path) == ""
+
+    def test_set_then_get_round_trips(self, tmp_path):
+        path = tmp_path / "config.json"
+
+        set_language("es", path=path)
+
+        assert get_language(path=path) == "es"
+
+    def test_set_back_to_empty_string_restores_system_default(self, tmp_path):
+        path = tmp_path / "config.json"
+        set_language("fr", path=path)
+
+        set_language("", path=path)
+
+        assert get_language(path=path) == ""
 
 
 class TestShowCaptureNotification:

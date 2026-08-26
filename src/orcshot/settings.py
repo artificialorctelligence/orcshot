@@ -42,6 +42,7 @@ _LAST_UPDATE_CHECK_KEY = "last_update_check"
 _OUTPUT_SETTINGS_KEY = "output_settings"
 _EXCLUDED_DESTINATIONS_KEY = "excluded_destinations"
 _SHOW_MAGNIFIER_WHILE_SELECTING_KEY = "show_magnifier_while_selecting"
+_LANGUAGE_KEY = "language"
 _PLAY_CAPTURE_SOUND_KEY = "play_capture_sound"
 _SHOW_CAPTURE_NOTIFICATION_KEY = "show_capture_notification"
 _DEFAULT_OUTPUT_DIRNAME = "Screenshots"
@@ -621,6 +622,31 @@ def set_show_magnifier_while_selecting(enabled: bool, path: Path = None) -> None
         path = config_file_path()
     settings = _load(path)
     settings[_SHOW_MAGNIFIER_WHILE_SELECTING_KEY] = enabled
+    _save(settings, path)
+
+
+def get_language(path: Path = None) -> str:
+    """The user's language override for the Preferences "Language"
+    picker (i18n phase 2) - "" (the default) means "System Default":
+    follow the OS locale via gettext's own standard $LANGUAGE/$LC_ALL/
+    $LC_MESSAGES/$LANG negotiation, same as before this setting
+    existed. A non-empty value is a gettext language code (e.g. "es")
+    read by orcshot.i18n at import time to override that negotiation -
+    see that module's own docstring for why a *running* process can't
+    pick this up live (every module-level _()-bound string, and there
+    are hundreds, is fixed at its own import time), so changing this
+    only takes effect after a restart, not immediately.
+    """
+    if path is None:
+        path = config_file_path()
+    return _load(path).get(_LANGUAGE_KEY, "")
+
+
+def set_language(language: str, path: Path = None) -> None:
+    if path is None:
+        path = config_file_path()
+    settings = _load(path)
+    settings[_LANGUAGE_KEY] = language
     _save(settings, path)
 
 

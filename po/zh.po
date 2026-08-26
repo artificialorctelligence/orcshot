@@ -4,10 +4,36 @@
 msgid ""
 msgstr ""
 "Project-Id-Version: orcshot\n"
+"Report-Msgid-Bugs-To: \n"
+"POT-Creation-Date: 2026-08-25 18:58-0500\n"
+"Language: zh\n"
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
-"Language: zh\n"
 "Plural-Forms: nplurals=1; plural=0;\n"
+
+#: src/orcshot/core/shapes.py:519
+msgid "None"
+msgstr "无"
+
+#: src/orcshot/core/shapes.py:520
+msgid "REDACTED"
+msgstr "已隐去"
+
+#: src/orcshot/core/shapes.py:521
+msgid "CENSORED"
+msgstr "已屏蔽"
+
+#: src/orcshot/core/shapes.py:522
+msgid "CLASSIFIED"
+msgstr "涉密"
+
+#: src/orcshot/core/shapes.py:523
+msgid "CONFIDENTIAL"
+msgstr "机密"
+
+#: src/orcshot/core/shapes.py:524
+msgid "SECRET"
+msgstr "秘密"
 
 #: src/orcshot/ui/color_dialog.py:78
 msgid "Select Color"
@@ -49,1145 +75,6 @@ msgstr "透明"
 #: src/orcshot/ui/color_dialog.py:181
 msgid "Eyedropper"
 msgstr "吸管"
-
-#: src/orcshot/ui/destination_picker.py:184
-msgid "Save Screenshot As"
-msgstr "截图另存为"
-
-#: src/orcshot/ui/destination_picker.py:216
-#: src/orcshot/ui/editor_window.py:1578
-msgid "Copy to Clipboard"
-msgstr "复制到剪贴板"
-
-#: src/orcshot/ui/destination_picker.py:217
-#: src/orcshot/ui/editor_window.py:1576 src/orcshot/ui/editor_window.py:3714
-msgid "Save"
-msgstr "保存"
-
-#: src/orcshot/ui/destination_picker.py:218
-#: src/orcshot/ui/editor_window.py:1577
-msgid "Save As..."
-msgstr "另存为…"
-
-#: src/orcshot/ui/destination_picker.py:219
-#: src/orcshot/ui/editor_window.py:1590
-msgid "Edit"
-msgstr "编辑"
-
-#: src/orcshot/ui/destination_picker.py:220
-#: src/orcshot/ui/editor_window.py:3715
-msgid "Print"
-msgstr "打印"
-
-#: src/orcshot/ui/editor_window.py:367
-msgid "Solid Fill"
-msgstr "纯色填充"
-
-#: src/orcshot/ui/editor_window.py:368
-msgid "Color Scramble"
-msgstr "颜色扰乱"
-
-#: src/orcshot/ui/editor_window.py:369
-msgid "Pixelize"
-msgstr "像素化"
-
-#: src/orcshot/ui/editor_window.py:370
-msgid "Blur"
-msgstr "模糊"
-
-#: src/orcshot/ui/editor_window.py:378
-msgid "most secure"
-msgstr "最安全"
-
-#: src/orcshot/ui/editor_window.py:379
-msgid "moderately secure"
-msgstr "较为安全"
-
-#: src/orcshot/ui/editor_window.py:380 src/orcshot/ui/editor_window.py:381
-msgid "not secure"
-msgstr "不安全"
-
-#: src/orcshot/ui/editor_window.py:386
-msgid ""
-"Completely replaces the covered area with a solid color. Nothing about the "
-"original content can be recovered - the recommended choice for anything "
-"sensitive."
-msgstr "用纯色完全替换所覆盖的区域。原始内容无法以任何方式还原——处理敏感信息时推荐使用此方式。"
-
-#: src/orcshot/ui/editor_window.py:390
-msgid ""
-"Replaces the area with synthetic noise matched to its overall color. Resists "
-"known reconstruction attacks (e.g. Depix), but a dominant hue may still be "
-"inferable."
-msgstr "用与该区域整体色调相匹配的合成噪点替换该区域。可抵御已知的还原攻击（如 Depix），但主色调仍有可能被推断出来。"
-
-#: src/orcshot/ui/editor_window.py:394
-msgid ""
-"Reconstructable with publicly available tools (e.g. Depix, unredacter), even "
-"with this port's own noise hardening. Do not use for sensitive information."
-msgstr "即使本移植版加入了自有的噪点强化，仍可被公开可用的工具（如 Depix、unredacter）还原。请勿用于敏感信息。"
-
-#: src/orcshot/ui/editor_window.py:398
-msgid ""
-"Reconstructable with publicly available tools (e.g. Depix, unredacter). Do "
-"not use for sensitive information."
-msgstr "可被公开可用的工具（如 Depix、unredacter）还原。请勿用于敏感信息。"
-
-#: src/orcshot/ui/editor_window.py:441 src/orcshot/ui/editor_window.py:2007
-#: src/orcshot/ui/editor_window.py:2016
-msgid "Highlight"
-msgstr "高亮"
-
-#: src/orcshot/ui/editor_window.py:442
-msgid "Spotlight Focus"
-msgstr "聚光灯聚焦"
-
-#: src/orcshot/ui/editor_window.py:443
-msgid "Spotlight Colorize"
-msgstr "聚光灯着色"
-
-#: src/orcshot/ui/editor_window.py:444
-msgid "Magnification"
-msgstr "放大"
-
-#: src/orcshot/ui/editor_window.py:465
-msgid "Yellow"
-msgstr "黄色"
-
-#: src/orcshot/ui/editor_window.py:466
-msgid "Green"
-msgstr "绿色"
-
-#: src/orcshot/ui/editor_window.py:467
-msgid "Pink"
-msgstr "粉色"
-
-#: src/orcshot/ui/editor_window.py:468
-msgid "Orange"
-msgstr "橙色"
-
-#: src/orcshot/ui/editor_window.py:469
-msgid "Blue"
-msgstr "蓝色"
-
-#: src/orcshot/ui/editor_window.py:487 src/orcshot/ui/editor_window.py:5701
-#: src/orcshot/ui/editor_window.py:5882
-msgid "Default"
-msgstr "默认"
-
-#: src/orcshot/ui/editor_window.py:488
-msgid "Vertical"
-msgstr "垂直"
-
-#: src/orcshot/ui/editor_window.py:489
-msgid "Horizontal"
-msgstr "水平"
-
-#: src/orcshot/ui/editor_window.py:507
-msgid "None"
-msgstr "无"
-
-#: src/orcshot/ui/editor_window.py:508
-msgid "REDACTED"
-msgstr "已隐去"
-
-#: src/orcshot/ui/editor_window.py:509
-msgid "CENSORED"
-msgstr "已屏蔽"
-
-#: src/orcshot/ui/editor_window.py:510
-msgid "CLASSIFIED"
-msgstr "涉密"
-
-#: src/orcshot/ui/editor_window.py:511
-msgid "CONFIDENTIAL"
-msgstr "机密"
-
-#: src/orcshot/ui/editor_window.py:512
-msgid "SECRET"
-msgstr "秘密"
-
-#: src/orcshot/ui/editor_window.py:538 src/orcshot/ui/editor_window.py:3688
-#: src/orcshot/ui/editor_window.py:5348
-msgid "Select"
-msgstr "选择"
-
-#: src/orcshot/ui/editor_window.py:540 src/orcshot/ui/editor_window.py:1638
-#: src/orcshot/ui/editor_window.py:3689
-msgid "Rectangle"
-msgstr "矩形"
-
-#: src/orcshot/ui/editor_window.py:541 src/orcshot/ui/editor_window.py:1639
-#: src/orcshot/ui/editor_window.py:3690
-msgid "Ellipse"
-msgstr "椭圆"
-
-#: src/orcshot/ui/editor_window.py:542 src/orcshot/ui/editor_window.py:1640
-#: src/orcshot/ui/editor_window.py:3691
-msgid "Line"
-msgstr "直线"
-
-#: src/orcshot/ui/editor_window.py:543 src/orcshot/ui/editor_window.py:1641
-#: src/orcshot/ui/editor_window.py:3693
-msgid "Arrow"
-msgstr "箭头"
-
-#: src/orcshot/ui/editor_window.py:544 src/orcshot/ui/editor_window.py:1642
-#: src/orcshot/ui/editor_window.py:3692
-msgid "Freehand"
-msgstr "自由绘制"
-
-#: src/orcshot/ui/editor_window.py:545 src/orcshot/ui/editor_window.py:1643
-#: src/orcshot/ui/editor_window.py:3694
-msgid "Text"
-msgstr "文本"
-
-#: src/orcshot/ui/editor_window.py:546 src/orcshot/ui/editor_window.py:1644
-#: src/orcshot/ui/editor_window.py:3695
-msgid "Speech Bubble"
-msgstr "对话气泡"
-
-#: src/orcshot/ui/editor_window.py:547 src/orcshot/ui/editor_window.py:3696
-msgid "Step Label"
-msgstr "步骤标签"
-
-#: src/orcshot/ui/editor_window.py:548 src/orcshot/ui/editor_window.py:3700
-msgid "Emoji"
-msgstr "表情符号"
-
-#: src/orcshot/ui/editor_window.py:600 src/orcshot/ui/editor_window.py:2030
-#: src/orcshot/ui/first_run_setup.py:195
-msgid "{} ({})"
-msgstr "{}（{}）"
-
-#: src/orcshot/ui/editor_window.py:728
-msgid "Orcshot image editor"
-msgstr "Orcshot 图像编辑器"
-
-#: src/orcshot/ui/editor_window.py:1555
-msgid "File"
-msgstr "文件"
-
-#: src/orcshot/ui/editor_window.py:1564
-msgid "Open..."
-msgstr "打开…"
-
-#: src/orcshot/ui/editor_window.py:1579
-msgid "Print..."
-msgstr "打印…"
-
-#: src/orcshot/ui/editor_window.py:1581
-msgid "Insert Image..."
-msgstr "插入图像…"
-
-#: src/orcshot/ui/editor_window.py:1582
-msgid "Insert SVG..."
-msgstr "插入 SVG…"
-
-#: src/orcshot/ui/editor_window.py:1585
-msgid "Screenshot Save Location..."
-msgstr "截图保存位置…"
-
-#: src/orcshot/ui/editor_window.py:1588
-msgid "Close"
-msgstr "关闭"
-
-#: src/orcshot/ui/editor_window.py:1591
-msgid "Undo"
-msgstr "撤销"
-
-#: src/orcshot/ui/editor_window.py:1592
-msgid "Redo"
-msgstr "重做"
-
-#: src/orcshot/ui/editor_window.py:1602 src/orcshot/ui/editor_window.py:2617
-msgid "Cut"
-msgstr "剪切"
-
-#: src/orcshot/ui/editor_window.py:1603
-msgid "Copy"
-msgstr "复制"
-
-#: src/orcshot/ui/editor_window.py:1604
-msgid "Paste"
-msgstr "粘贴"
-
-#: src/orcshot/ui/editor_window.py:1606
-msgid "Duplicate"
-msgstr "创建副本"
-
-#: src/orcshot/ui/editor_window.py:1608 src/orcshot/app.py:1068
-msgid "Preferences..."
-msgstr "首选项…"
-
-#: src/orcshot/ui/editor_window.py:1610
-msgid "Insert Window..."
-msgstr "插入窗口…"
-
-#: src/orcshot/ui/editor_window.py:1612
-msgid "Clear All"
-msgstr "全部清除"
-
-#: src/orcshot/ui/editor_window.py:1614
-msgid "Object"
-msgstr "对象"
-
-#: src/orcshot/ui/editor_window.py:1645
-msgid "Counter"
-msgstr "计数器"
-
-#: src/orcshot/ui/editor_window.py:1660
-msgid "Select All"
-msgstr "全选"
-
-#: src/orcshot/ui/editor_window.py:1661 src/orcshot/ui/editor_window.py:5917
-msgid "Delete"
-msgstr "删除"
-
-#: src/orcshot/ui/editor_window.py:1669
-msgid "Arrange"
-msgstr "排列"
-
-#: src/orcshot/ui/editor_window.py:1670
-msgid "Bring to Top"
-msgstr "置于顶层"
-
-#: src/orcshot/ui/editor_window.py:1671
-msgid "Up One Level"
-msgstr "上移一层"
-
-#: src/orcshot/ui/editor_window.py:1672
-msgid "Down One Level"
-msgstr "下移一层"
-
-#: src/orcshot/ui/editor_window.py:1673
-msgid "Send to Bottom"
-msgstr "置于底层"
-
-#: src/orcshot/ui/editor_window.py:1678
-msgid "Save Objects..."
-msgstr "保存对象…"
-
-#: src/orcshot/ui/editor_window.py:1679
-msgid "Load Objects..."
-msgstr "载入对象…"
-
-#: src/orcshot/ui/editor_window.py:1681
-msgid "Zoom"
-msgstr "缩放"
-
-#: src/orcshot/ui/editor_window.py:1684 src/orcshot/ui/editor_window.py:2630
-msgid "Help"
-msgstr "帮助"
-
-#: src/orcshot/ui/editor_window.py:1685
-msgid "Online Help"
-msgstr "在线帮助"
-
-#: src/orcshot/ui/editor_window.py:1690
-msgid "Check for Updates..."
-msgstr "检查更新…"
-
-#: src/orcshot/ui/editor_window.py:1693
-msgid "About Orcshot"
-msgstr "关于 Orcshot"
-
-#: src/orcshot/ui/editor_window.py:1719
-msgid "Zoom In"
-msgstr "放大"
-
-#: src/orcshot/ui/editor_window.py:1720
-msgid "Zoom Out"
-msgstr "缩小"
-
-#: src/orcshot/ui/editor_window.py:1721
-msgid "Best Fit"
-msgstr "适应窗口"
-
-#: src/orcshot/ui/editor_window.py:1725
-msgid "{} - Actual Size"
-msgstr "{} - 实际大小"
-
-#: src/orcshot/ui/editor_window.py:1794
-msgid "JPEG Quality"
-msgstr "JPEG 质量"
-
-#: src/orcshot/ui/editor_window.py:1795
-msgid "Continue"
-msgstr "继续"
-
-#: src/orcshot/ui/editor_window.py:1804 src/orcshot/ui/editor_window.py:5809
-msgid "JPEG quality:"
-msgstr "JPEG 质量："
-
-#: src/orcshot/ui/editor_window.py:1833
-msgid ""
-"A Linux port of Greenshot - not affiliated with or endorsed by the Greenshot "
-"project"
-msgstr "Greenshot 的 Linux 移植版——与 Greenshot 项目并无关联，也未获其认可"
-
-#: src/orcshot/ui/editor_window.py:1905
-msgid "Rotate CW"
-msgstr "顺时针旋转"
-
-#: src/orcshot/ui/editor_window.py:1906
-msgid "Rotate Clockwise (Ctrl+.)"
-msgstr "顺时针旋转 (Ctrl+.)"
-
-#: src/orcshot/ui/editor_window.py:1911
-msgid "Rotate CCW"
-msgstr "逆时针旋转"
-
-#: src/orcshot/ui/editor_window.py:1912
-msgid "Rotate Counterclockwise (Ctrl+,)"
-msgstr "逆时针旋转 (Ctrl+,)"
-
-#: src/orcshot/ui/editor_window.py:1917
-msgid "Resize"
-msgstr "调整大小"
-
-#: src/orcshot/ui/editor_window.py:1917
-msgid "Resize... (Z)"
-msgstr "调整大小… (Z)"
-
-#: src/orcshot/ui/editor_window.py:1973 src/orcshot/ui/editor_window.py:1988
-msgid "Obfuscate"
-msgstr "遮蔽"
-
-#: src/orcshot/ui/editor_window.py:1974
-msgid "Obfuscate (O)"
-msgstr "遮蔽 (O)"
-
-#: src/orcshot/ui/editor_window.py:2008
-msgid "Highlight (H)"
-msgstr "高亮 (H)"
-
-#: src/orcshot/ui/editor_window.py:2197 src/orcshot/ui/editor_window.py:2206
-msgid "Crop"
-msgstr "裁剪"
-
-#: src/orcshot/ui/editor_window.py:2198
-msgid "Crop (C)"
-msgstr "裁剪 (C)"
-
-#: src/orcshot/ui/editor_window.py:2235
-msgid "Auto"
-msgstr "自动"
-
-#: src/orcshot/ui/editor_window.py:2460 src/orcshot/ui/editor_window.py:2476
-msgid "Effects"
-msgstr "效果"
-
-#: src/orcshot/ui/editor_window.py:2528 src/orcshot/ui/editor_window.py:3716
-msgid "Add Border"
-msgstr "添加边框"
-
-#: src/orcshot/ui/editor_window.py:2529 src/orcshot/ui/editor_window.py:3717
-msgid "Add Drop Shadow"
-msgstr "添加投影"
-
-#: src/orcshot/ui/editor_window.py:2530
-msgid "Drop Shadow Settings..."
-msgstr "投影设置…"
-
-#: src/orcshot/ui/editor_window.py:2531
-msgid "Torn Edges"
-msgstr "撕裂边缘"
-
-#: src/orcshot/ui/editor_window.py:2532
-msgid "Torn Edge Settings..."
-msgstr "撕裂边缘设置…"
-
-#: src/orcshot/ui/editor_window.py:2533 src/orcshot/ui/editor_window.py:3719
-msgid "Grayscale"
-msgstr "灰度"
-
-#: src/orcshot/ui/editor_window.py:2534
-msgid "Invert"
-msgstr "反色"
-
-#: src/orcshot/ui/editor_window.py:2536
-msgid "Remove Transparency..."
-msgstr "移除透明度…"
-
-#: src/orcshot/ui/editor_window.py:2542
-msgid "Find & Redact Text..."
-msgstr "查找并遮蔽文本…"
-
-#: src/orcshot/ui/editor_window.py:2609
-msgid "Save (Ctrl+S)"
-msgstr "保存 (Ctrl+S)"
-
-#: src/orcshot/ui/editor_window.py:2610
-msgid "Copy Image to Clipboard (Ctrl+C)"
-msgstr "复制图像到剪贴板 (Ctrl+C)"
-
-#: src/orcshot/ui/editor_window.py:2611
-msgid "Print (Ctrl+P)"
-msgstr "打印 (Ctrl+P)"
-
-#: src/orcshot/ui/editor_window.py:2614
-msgid "Delete (Del)"
-msgstr "删除 (Del)"
-
-#: src/orcshot/ui/editor_window.py:2618
-msgid "Copy Shape"
-msgstr "复制形状"
-
-#: src/orcshot/ui/editor_window.py:2619
-msgid "Paste Shape"
-msgstr "粘贴形状"
-
-#: src/orcshot/ui/editor_window.py:2620
-msgid "Undo (Ctrl+Z)"
-msgstr "撤销 (Ctrl+Z)"
-
-#: src/orcshot/ui/editor_window.py:2621
-msgid "Redo (Ctrl+Y)"
-msgstr "重做 (Ctrl+Y)"
-
-#: src/orcshot/ui/editor_window.py:2624 src/orcshot/ui/editor_window.py:5381
-msgid "Preferences"
-msgstr "首选项"
-
-#: src/orcshot/ui/editor_window.py:2626
-msgid "Open in External Editor"
-msgstr "在外部编辑器中打开"
-
-#: src/orcshot/ui/editor_window.py:2745
-msgid "Line:"
-msgstr "线条："
-
-#: src/orcshot/ui/editor_window.py:2751 src/orcshot/ui/editor_window.py:2797
-#: src/orcshot/ui/editor_window.py:2843
-msgid "Fill:"
-msgstr "填充："
-
-#: src/orcshot/ui/editor_window.py:2757
-msgid "Line Thickness:"
-msgstr "线条粗细："
-
-#: src/orcshot/ui/editor_window.py:2765
-msgid "Shadow"
-msgstr "阴影"
-
-#: src/orcshot/ui/editor_window.py:2785 src/orcshot/ui/editor_window.py:2838
-#: src/orcshot/ui/editor_window.py:2879
-msgid "Mode:"
-msgstr "模式："
-
-#: src/orcshot/ui/editor_window.py:2807
-msgid "Text:"
-msgstr "文本："
-
-#: src/orcshot/ui/editor_window.py:2814
-msgid "Text Color:"
-msgstr "文本颜色："
-
-#: src/orcshot/ui/editor_window.py:2849
-msgid "Brightness:"
-msgstr "亮度："
-
-#: src/orcshot/ui/editor_window.py:2857 src/orcshot/ui/editor_window.py:2921
-msgid "Blur Radius:"
-msgstr "模糊半径："
-
-#: src/orcshot/ui/editor_window.py:2868 src/orcshot/ui/editor_window.py:2924
-msgid "Amount:"
-msgstr "强度："
-
-#: src/orcshot/ui/editor_window.py:2905
-msgid "Confirm"
-msgstr "确认"
-
-#: src/orcshot/ui/editor_window.py:2909
-msgid "Cancel (Esc)"
-msgstr "取消 (Esc)"
-
-#: src/orcshot/ui/editor_window.py:2923
-msgid "Pixel Size:"
-msgstr "像素大小："
-
-#: src/orcshot/ui/editor_window.py:3279
-msgid "Save Objects"
-msgstr "保存对象"
-
-#: src/orcshot/ui/editor_window.py:3285 src/orcshot/ui/editor_window.py:3317
-msgid "Orcshot objects"
-msgstr "Orcshot 对象"
-
-#: src/orcshot/ui/editor_window.py:3314
-msgid "Load Objects"
-msgstr "载入对象"
-
-#: src/orcshot/ui/editor_window.py:3333
-msgid "Couldn't load objects"
-msgstr "无法载入对象"
-
-#: src/orcshot/ui/editor_window.py:3377
-msgid "Save Screenshot"
-msgstr "保存截图"
-
-#: src/orcshot/ui/editor_window.py:3410
-msgid "Save as type:"
-msgstr "保存类型："
-
-#: src/orcshot/ui/editor_window.py:3463
-msgid "Insert Image"
-msgstr "插入图像"
-
-#: src/orcshot/ui/editor_window.py:3466
-msgid "Images"
-msgstr "图像"
-
-#: src/orcshot/ui/editor_window.py:3493
-msgid "Insert SVG"
-msgstr "插入 SVG"
-
-#: src/orcshot/ui/editor_window.py:3496
-msgid "SVG images"
-msgstr "SVG 图像"
-
-#: src/orcshot/ui/editor_window.py:3639
-msgid "No external image editor found"
-msgstr "未找到外部图像编辑器"
-
-#: src/orcshot/ui/editor_window.py:3643
-msgid ""
-"Tried: {} (checked both PATH and Flatpak). Install one of these to use this "
-"button."
-msgstr "已尝试：{}（PATH 与 Flatpak 均已检查）。请安装其中之一以使用此按钮。"
-
-#: src/orcshot/ui/editor_window.py:3687
-msgid "Tools"
-msgstr "工具"
-
-#: src/orcshot/ui/editor_window.py:3697
-msgid "Highlight (whichever mode was last prepared)"
-msgstr "高亮（使用上次设置的模式）"
-
-#: src/orcshot/ui/editor_window.py:3698
-msgid "Obfuscate (whichever mode was last prepared)"
-msgstr "遮蔽（使用上次设置的模式）"
-
-#: src/orcshot/ui/editor_window.py:3699
-msgid "Crop (whichever mode was last prepared)"
-msgstr "裁剪（使用上次设置的模式）"
-
-#: src/orcshot/ui/editor_window.py:3701
-msgid "Resize (a whole-image effect, not a drawing tool)"
-msgstr "调整大小（作用于整幅图像的效果，而非绘图工具）"
-
-#: src/orcshot/ui/editor_window.py:3702
-msgid "For details on each tool's sub-modes, see the <a href=\"{}\">wiki</a>."
-msgstr "各工具子模式的详细说明，请参见 <a href=\"{}\">wiki</a>。"
-
-#: src/orcshot/ui/editor_window.py:3705
-msgid "Editing"
-msgstr "编辑"
-
-#: src/orcshot/ui/editor_window.py:3706
-msgid "Delete the selected shape"
-msgstr "删除选中的形状"
-
-#: src/orcshot/ui/editor_window.py:3707
-msgid "Double-click"
-msgstr "双击"
-
-#: src/orcshot/ui/editor_window.py:3707
-msgid "Re-edit an existing text/speech bubble/emoji shape"
-msgstr "重新编辑已有的文本／对话气泡／表情符号"
-
-#: src/orcshot/ui/editor_window.py:3708
-msgid "Commit a text/speech bubble/emoji edit"
-msgstr "确认文本／对话气泡／表情符号的编辑"
-
-#: src/orcshot/ui/editor_window.py:3709
-msgid ""
-"Cancel a text/speech bubble/emoji edit, or an in-progress crop selection"
-msgstr "取消文本／对话气泡／表情符号的编辑，或正在进行的裁剪选区"
-
-#: src/orcshot/ui/editor_window.py:3711
-msgid "Actions"
-msgstr "操作"
-
-#: src/orcshot/ui/editor_window.py:3712
-msgid "Undo / Redo"
-msgstr "撤销 / 重做"
-
-#: src/orcshot/ui/editor_window.py:3713
-msgid "Copy the whole image to the clipboard"
-msgstr "将整幅图像复制到剪贴板"
-
-#: src/orcshot/ui/editor_window.py:3718
-msgid "Add Torn Edge"
-msgstr "添加撕裂边缘"
-
-#: src/orcshot/ui/editor_window.py:3720
-msgid "Invert Colors"
-msgstr "反转颜色"
-
-#: src/orcshot/ui/editor_window.py:3721
-msgid "Clear (transparent background)"
-msgstr "清除（透明背景）"
-
-#: src/orcshot/ui/editor_window.py:3722
-msgid "Rotate counterclockwise / clockwise"
-msgstr "逆时针 / 顺时针旋转"
-
-#: src/orcshot/ui/editor_window.py:3723
-msgid "Zoom in / out"
-msgstr "放大 / 缩小"
-
-#: src/orcshot/ui/editor_window.py:3724
-msgid "Enlarge / shrink canvas"
-msgstr "扩大 / 缩小画布"
-
-#: src/orcshot/ui/editor_window.py:3725
-msgid "Zoom to actual size"
-msgstr "缩放至实际大小"
-
-#: src/orcshot/ui/editor_window.py:3726
-msgid "Zoom to best fit"
-msgstr "缩放至适应窗口"
-
-#: src/orcshot/ui/editor_window.py:3745
-msgid "Click"
-msgstr "单击"
-
-#: src/orcshot/ui/editor_window.py:3746
-msgid ""
-"Open the tray menu\n"
-"(Wayland has no separate click action - <a href=\"{}\">Why?</a>)"
-msgstr ""
-"打开托盘菜单\n"
-"（Wayland 下没有单独的单击操作——<a href=\"{}\">为什么？</a>）"
-
-#: src/orcshot/ui/editor_window.py:3751
-msgid "Left-click"
-msgstr "左键单击"
-
-#: src/orcshot/ui/editor_window.py:3751
-msgid "Start a region capture immediately"
-msgstr "立即开始区域截图"
-
-#: src/orcshot/ui/editor_window.py:3752
-msgid "Right-click"
-msgstr "右键单击"
-
-#: src/orcshot/ui/editor_window.py:3752
-msgid "Open the tray menu"
-msgstr "打开托盘菜单"
-
-#: src/orcshot/ui/editor_window.py:3757
-msgid "Orcshot Help"
-msgstr "Orcshot 帮助"
-
-#: src/orcshot/ui/editor_window.py:3783
-msgid "<b>{}</b>"
-msgstr "<b>{}</b>"
-
-#: src/orcshot/ui/editor_window.py:3841
-msgid "Tray Icon"
-msgstr "托盘图标"
-
-#: src/orcshot/ui/editor_window.py:4495
-msgid "Remove Transparency"
-msgstr "移除透明度"
-
-#: src/orcshot/ui/editor_window.py:4520
-msgid "Resize Image"
-msgstr "调整图像大小"
-
-#: src/orcshot/ui/editor_window.py:4527
-msgid "Width:"
-msgstr "宽度："
-
-#: src/orcshot/ui/editor_window.py:4531
-msgid "Height:"
-msgstr "高度："
-
-#: src/orcshot/ui/editor_window.py:4535
-msgid "Maintain aspect ratio"
-msgstr "保持宽高比"
-
-#: src/orcshot/ui/editor_window.py:4584
-msgid "Drop Shadow Settings"
-msgstr "投影设置"
-
-#: src/orcshot/ui/editor_window.py:4591
-msgid "Darkness:"
-msgstr "暗度："
-
-#: src/orcshot/ui/editor_window.py:4596
-msgid "Size:"
-msgstr "大小："
-
-#: src/orcshot/ui/editor_window.py:4600
-msgid "Offset X:"
-msgstr "X 偏移："
-
-#: src/orcshot/ui/editor_window.py:4604
-msgid "Offset Y:"
-msgstr "Y 偏移："
-
-#: src/orcshot/ui/editor_window.py:4635
-msgid "Torn Edge Settings"
-msgstr "撕裂边缘设置"
-
-#: src/orcshot/ui/editor_window.py:4642
-msgid "Tooth height:"
-msgstr "锯齿高度："
-
-#: src/orcshot/ui/editor_window.py:4646
-msgid "Horizontal tooth range:"
-msgstr "水平锯齿范围："
-
-#: src/orcshot/ui/editor_window.py:4650
-msgid "Vertical tooth range:"
-msgstr "垂直锯齿范围："
-
-#: src/orcshot/ui/editor_window.py:4656
-msgid "Top"
-msgstr "上"
-
-#: src/orcshot/ui/editor_window.py:4656
-msgid "Right"
-msgstr "右"
-
-#: src/orcshot/ui/editor_window.py:4656
-msgid "Bottom"
-msgstr "下"
-
-#: src/orcshot/ui/editor_window.py:4656
-msgid "Left"
-msgstr "左"
-
-#: src/orcshot/ui/editor_window.py:4666
-msgid "Generate shadow"
-msgstr "生成阴影"
-
-#: src/orcshot/ui/editor_window.py:5233
-msgid "Do you want to save the screenshot?"
-msgstr "是否保存该截图？"
-
-#: src/orcshot/ui/editor_window.py:5235
-msgid "Save image?"
-msgstr "保存图像？"
-
-#: src/orcshot/ui/editor_window.py:5237
-msgid "Yes"
-msgstr "是"
-
-#: src/orcshot/ui/editor_window.py:5238
-msgid "No"
-msgstr "否"
-
-#: src/orcshot/ui/editor_window.py:5239 src/orcshot/ui/external_commands.py:617
-msgid "Cancel"
-msgstr "取消"
-
-#: src/orcshot/ui/editor_window.py:5266
-msgid "New install incoming — save your work"
-msgstr "即将安装新版本——请先保存您的工作"
-
-#: src/orcshot/ui/editor_window.py:5283
-msgid "Open"
-msgstr "打开"
-
-#: src/orcshot/ui/editor_window.py:5287
-msgid "Orcshot files"
-msgstr "Orcshot 文件"
-
-#: src/orcshot/ui/editor_window.py:5320
-msgid "Couldn't open file"
-msgstr "无法打开文件"
-
-#: src/orcshot/ui/editor_window.py:5344
-msgid "Screenshot Save Location"
-msgstr "截图保存位置"
-
-#: src/orcshot/ui/editor_window.py:5387
-msgid "General"
-msgstr "常规"
-
-#: src/orcshot/ui/editor_window.py:5388 src/orcshot/ui/editor_window.py:5609
-msgid "Capture"
-msgstr "截图"
-
-#: src/orcshot/ui/editor_window.py:5389
-msgid "Output"
-msgstr "输出"
-
-#: src/orcshot/ui/editor_window.py:5390
-msgid "Destinations"
-msgstr "输出目标"
-
-#: src/orcshot/ui/editor_window.py:5391
-msgid "Printer"
-msgstr "打印机"
-
-#: src/orcshot/ui/editor_window.py:5409
-msgid "Application Settings"
-msgstr "应用程序设置"
-
-#: src/orcshot/ui/editor_window.py:5421
-msgid "Language:"
-msgstr "语言："
-
-#: src/orcshot/ui/editor_window.py:5423
-msgid "English"
-msgstr "English"
-
-#: src/orcshot/ui/editor_window.py:5426
-msgid "Only English is available - no translations have been contributed yet."
-msgstr "目前仅提供英语——尚未收到任何翻译贡献。"
-
-#: src/orcshot/ui/editor_window.py:5436
-msgid "Icon size:"
-msgstr "图标大小："
-
-#: src/orcshot/ui/editor_window.py:5439
-msgid "Takes effect the next time you open a screenshot."
-msgstr "将在下次打开截图时生效。"
-
-#: src/orcshot/ui/editor_window.py:5450
-msgid "Launch Orcshot on startup"
-msgstr "开机时启动 Orcshot"
-
-#: src/orcshot/ui/editor_window.py:5481
-msgid "External Image Editor:"
-msgstr "外部图像编辑器："
-
-#: src/orcshot/ui/editor_window.py:5483
-msgid "Auto (Krita, then GIMP)"
-msgstr "自动（优先 Krita，其次 GIMP）"
-
-#: src/orcshot/ui/editor_window.py:5503
-msgid "Suppress the save dialog when closing the editor"
-msgstr "关闭编辑器时不显示保存对话框"
-
-#: src/orcshot/ui/editor_window.py:5512
-msgid "Hotkeys"
-msgstr "快捷键"
-
-#: src/orcshot/ui/editor_window.py:5516
-msgid "Configure Hotkeys..."
-msgstr "配置快捷键…"
-
-#: src/orcshot/ui/editor_window.py:5528
-msgid "Network and Updates"
-msgstr "网络与更新"
-
-#: src/orcshot/ui/editor_window.py:5537
-msgid "Use system default proxy"
-msgstr "使用系统默认代理"
-
-#: src/orcshot/ui/editor_window.py:5543
-msgid "Check for updates every"
-msgstr "检查更新间隔"
-
-#: src/orcshot/ui/editor_window.py:5548
-msgid ""
-"How often Orcshot checks GitHub for a newer release in the background. 0 = "
-"never check, matching Windows' own UpdateCheckInterval semantics."
-msgstr "Orcshot 在后台检查 GitHub 上是否有新版本的频率。0 表示从不检查，与 Windows 版的 UpdateCheckInterval 语义一致。"
-
-#: src/orcshot/ui/editor_window.py:5554
-msgid "days"
-msgstr "天"
-
-#: src/orcshot/ui/editor_window.py:5618
-msgid "Capture mouse cursor"
-msgstr "捕获鼠标指针"
-
-#: src/orcshot/ui/editor_window.py:5630
-msgid "Show magnifier while selecting a region"
-msgstr "选择区域时显示放大镜"
-
-#: src/orcshot/ui/editor_window.py:5634
-msgid ""
-"Applies to X11 and the Wayland portal-fallback path. The Wayland Shell-"
-"native picker's own magnifier doesn't read this setting yet."
-msgstr "适用于 X11 以及 Wayland 的 portal 回退方式。Wayland 下 Shell 原生选取器自带的放大镜尚未读取此设置。"
-
-#: src/orcshot/ui/editor_window.py:5644
-msgid "Play camera sound"
-msgstr "播放快门声"
-
-#: src/orcshot/ui/editor_window.py:5649
-msgid "Show notification after capture"
-msgstr "截图后显示通知"
-
-#: src/orcshot/ui/editor_window.py:5673
-msgid "Preferred File Settings"
-msgstr "首选文件设置"
-
-#: src/orcshot/ui/editor_window.py:5689
-msgid "Filename pattern:"
-msgstr "文件名模式："
-
-#: src/orcshot/ui/editor_window.py:5693
-#, python-format
-msgid ""
-"Both ${...} placeholders and %-codes work in the same pattern. Click ? for "
-"the full list."
-msgstr "同一模式中可以同时使用 ${...} 占位符和 %-codes。点击 ? 查看完整列表。"
-
-#: src/orcshot/ui/editor_window.py:5715
-msgid "Filename pattern placeholders and codes"
-msgstr "文件名模式的占位符与代码"
-
-#: src/orcshot/ui/editor_window.py:5717
-msgid ""
-"${YYYY} year, 4 digits\n"
-"${MM} month, 2 digits\n"
-"${DD} day, 2 digits\n"
-"${hh} hour, 2 digits\n"
-"${mm} minute, 2 digits\n"
-"${ss} second, 2 digits\n"
-"${NUM} incrementing number, 6 digits (see Counter below)\n"
-"${RRR...} random alphanumerics, same length as the number of R's\n"
-"${title} capture title, when available\n"
-"${\"affix\"?TOKEN} renders affix+value only when TOKEN has one, e.g. ${\" - "
-"\"?title} for \" - My Window\" - or nothing at all if there's no title\n"
-"\n"
-"%Y year, %y year (2 digits)\n"
-"%m month, %d day\n"
-"%H hour (24h), %I hour (12h), %p AM/PM\n"
-"%M minute, %S second\n"
-"%A/%a weekday name, %B/%b month name\n"
-"%% a literal percent sign"
-msgstr ""
-"${YYYY} 年份，4 位数字\n"
-"${MM} 月份，2 位数字\n"
-"${DD} 日期，2 位数字\n"
-"${hh} 小时，2 位数字\n"
-"${mm} 分钟，2 位数字\n"
-"${ss} 秒，2 位数字\n"
-"${NUM} 递增编号，6 位数字（参见下方的“计数器”）\n"
-"${RRR...} 随机字母数字，长度与 R 的个数相同\n"
-"${title} 截图标题（如果有）\n"
-"${\"affix\"?TOKEN} 仅当 TOKEN 有值时才输出“附加文本＋值”，例如 ${\" - \"?title} 会得到“ - 我的窗口”——若没有标题则什么都不输出\n"
-"\n"
-"%Y 年份，%y 年份（2 位数字）\n"
-"%m 月，%d 日\n"
-"%H 小时（24 小时制），%I 小时（12 小时制），%p 上午/下午\n"
-"%M 分钟，%S 秒\n"
-"%A/%a 星期名称，%B/%b 月份名称\n"
-"%% 一个百分号字面量"
-
-#: src/orcshot/ui/editor_window.py:5749
-#, python-brace-format
-msgid "Counter (${NUM} in filename):"
-msgstr "计数器（文件名中的 ${NUM}）："
-
-#: src/orcshot/ui/editor_window.py:5757
-msgid "Primary format:"
-msgstr "主要格式："
-
-#: src/orcshot/ui/editor_window.py:5766
-msgid "Copy file path to clipboard after saving"
-msgstr "保存后将文件路径复制到剪贴板"
-
-#: src/orcshot/ui/editor_window.py:5772
-msgid "Screenshot Save Location:"
-msgstr "截图保存位置："
-
-#: src/orcshot/ui/editor_window.py:5775
-msgid "Change..."
-msgstr "更改…"
-
-#: src/orcshot/ui/editor_window.py:5787
-msgid "Quality Settings"
-msgstr "质量设置"
-
-#: src/orcshot/ui/editor_window.py:5795
-msgid "Reduce colors to 256 (8-bit)"
-msgstr "将颜色数减少到 256 色（8 位）"
-
-#: src/orcshot/ui/editor_window.py:5797
-msgid ""
-"Not applied to saves yet - this port has no color-quantization step built."
-msgstr "保存时尚未应用此设置——本移植版还没有实现颜色量化步骤。"
-
-#: src/orcshot/ui/editor_window.py:5801
-msgid "Always show quality dialog before saving"
-msgstr "保存前始终显示质量对话框"
-
-#: src/orcshot/ui/editor_window.py:5878
-msgid "Enabled"
-msgstr "已启用"
-
-#: src/orcshot/ui/editor_window.py:5895
-msgid "External"
-msgstr "外部"
-
-#: src/orcshot/ui/editor_window.py:5915
-msgid "Add..."
-msgstr "添加…"
-
-#: src/orcshot/ui/editor_window.py:5916
-msgid "Edit..."
-msgstr "编辑…"
-
-#: src/orcshot/ui/editor_window.py:5981
-msgid "Page Layout Settings"
-msgstr "页面布局设置"
-
-#: src/orcshot/ui/editor_window.py:5985 src/orcshot/ui/printing.py:166
-msgid "Shrink printout to fit paper size"
-msgstr "缩小打印内容以适应纸张大小"
-
-#: src/orcshot/ui/editor_window.py:5990 src/orcshot/ui/printing.py:168
-msgid "Enlarge printout to fit paper size"
-msgstr "放大打印内容以适应纸张大小"
-
-#: src/orcshot/ui/editor_window.py:5995 src/orcshot/ui/printing.py:170
-msgid "Rotate printout to page orientation"
-msgstr "旋转打印内容以匹配页面方向"
-
-#: src/orcshot/ui/editor_window.py:6000 src/orcshot/ui/printing.py:172
-msgid "Center printout on page"
-msgstr "将打印内容在页面上居中"
-
-#: src/orcshot/ui/editor_window.py:6005 src/orcshot/ui/printing.py:174
-msgid "Print date / time at bottom of page"
-msgstr "在页面底部打印日期 / 时间"
-
-#: src/orcshot/ui/editor_window.py:6014
-msgid "Footer pattern:"
-msgstr "页脚模式："
-
-#: src/orcshot/ui/editor_window.py:6018
-msgid ""
-"A Python strftime format, e.g. %B %d, %Y %I:%M %p - printed at the bottom of "
-"the page."
-msgstr "Python 的 strftime 格式，例如 %B %d, %Y %I:%M %p，将打印在页面底部。"
-
-#: src/orcshot/ui/editor_window.py:6027
-msgid "Color Settings"
-msgstr "颜色设置"
-
-#: src/orcshot/ui/editor_window.py:6031 src/orcshot/ui/printing.py:184
-msgid "Full color print"
-msgstr "全彩打印"
-
-#: src/orcshot/ui/editor_window.py:6032 src/orcshot/ui/printing.py:185
-msgid "Force grayscale printing"
-msgstr "强制灰度打印"
-
-#: src/orcshot/ui/editor_window.py:6033 src/orcshot/ui/printing.py:186
-msgid "Force black/white printing"
-msgstr "强制黑白打印"
-
-#: src/orcshot/ui/editor_window.py:6048 src/orcshot/ui/printing.py:193
-msgid "Print with inverted colors"
-msgstr "以反色打印"
-
-#: src/orcshot/ui/editor_window.py:6056
-msgid "Show print options dialog every time an image is printed"
-msgstr "每次打印图像时都显示打印选项对话框"
 
 #: src/orcshot/ui/external_commands.py:506
 msgid "Name is required."
@@ -1252,6 +139,10 @@ msgstr "外部命令"
 msgid "OK"
 msgstr "确定"
 
+#: src/orcshot/ui/external_commands.py:617 src/orcshot/ui/editor_window.py:5218
+msgid "Cancel"
+msgstr "取消"
+
 #: src/orcshot/ui/external_commands.py:637
 msgid "Find App"
 msgstr "查找应用"
@@ -1265,7 +156,9 @@ msgid ""
 "Find App searches your installed apps - Snap, Flatpak, and natively "
 "installed - and fills in the fields below for you. For anything else - a "
 "plain program or a script - use Add Command."
-msgstr "“查找应用”会搜索您已安装的应用——包括 Snap、Flatpak 以及原生安装的应用——并自动为您填写下方的字段。其他情况（普通程序或脚本）请使用“添加命令”。"
+msgstr ""
+"“查找应用”会搜索您已安装的应用——包括 Snap、Flatpak 以及原生安装的应用——并自动"
+"为您填写下方的字段。其他情况（普通程序或脚本）请使用“添加命令”。"
 
 #: src/orcshot/ui/external_commands.py:660
 msgid "App"
@@ -1313,12 +206,16 @@ msgstr "登录时自动启动"
 msgid "{} ({}) — overwrite {}?"
 msgstr "{}（{}）——是否覆盖 {}？"
 
+#: src/orcshot/ui/first_run_setup.py:195 src/orcshot/ui/editor_window.py:579
+#: src/orcshot/ui/editor_window.py:2009
+msgid "{} ({})"
+msgstr "{}（{}）"
+
 #: src/orcshot/ui/first_run_setup.py:210
 msgid ""
 "Automatic keyboard shortcut setup isn't available on this desktop. You can "
 "bind shortcuts to these manually instead:\n"
-msgstr ""
-"此桌面环境不支持自动设置键盘快捷键。您可以手动为以下命令绑定快捷键：\n"
+msgstr "此桌面环境不支持自动设置键盘快捷键。您可以手动为以下命令绑定快捷键：\n"
 
 #: src/orcshot/ui/orcshot_file.py:55
 msgid "Failed to encode the image as PNG"
@@ -1352,9 +249,45 @@ msgstr "Orcshot 打印选项"
 msgid "Page layout settings"
 msgstr "页面布局设置"
 
+#: src/orcshot/ui/printing.py:166 src/orcshot/ui/editor_window.py:5983
+msgid "Shrink printout to fit paper size"
+msgstr "缩小打印内容以适应纸张大小"
+
+#: src/orcshot/ui/printing.py:168 src/orcshot/ui/editor_window.py:5988
+msgid "Enlarge printout to fit paper size"
+msgstr "放大打印内容以适应纸张大小"
+
+#: src/orcshot/ui/printing.py:170 src/orcshot/ui/editor_window.py:5993
+msgid "Rotate printout to page orientation"
+msgstr "旋转打印内容以匹配页面方向"
+
+#: src/orcshot/ui/printing.py:172 src/orcshot/ui/editor_window.py:5998
+msgid "Center printout on page"
+msgstr "将打印内容在页面上居中"
+
+#: src/orcshot/ui/printing.py:174 src/orcshot/ui/editor_window.py:6003
+msgid "Print date / time at bottom of page"
+msgstr "在页面底部打印日期 / 时间"
+
 #: src/orcshot/ui/printing.py:181
 msgid "Color settings"
 msgstr "颜色设置"
+
+#: src/orcshot/ui/printing.py:184 src/orcshot/ui/editor_window.py:6029
+msgid "Full color print"
+msgstr "全彩打印"
+
+#: src/orcshot/ui/printing.py:185 src/orcshot/ui/editor_window.py:6030
+msgid "Force grayscale printing"
+msgstr "强制灰度打印"
+
+#: src/orcshot/ui/printing.py:186 src/orcshot/ui/editor_window.py:6031
+msgid "Force black/white printing"
+msgstr "强制黑白打印"
+
+#: src/orcshot/ui/printing.py:193 src/orcshot/ui/editor_window.py:6046
+msgid "Print with inverted colors"
+msgstr "以反色打印"
 
 #: src/orcshot/ui/printing.py:200
 msgid "Save options as default and do not ask again"
@@ -1451,6 +384,1087 @@ msgid "{} match"
 msgid_plural "{} matches"
 msgstr[0] "{} 个匹配项"
 
+#: src/orcshot/ui/destination_picker.py:184
+msgid "Save Screenshot As"
+msgstr "截图另存为"
+
+#: src/orcshot/ui/destination_picker.py:216
+#: src/orcshot/ui/editor_window.py:1557
+msgid "Copy to Clipboard"
+msgstr "复制到剪贴板"
+
+#: src/orcshot/ui/destination_picker.py:217
+#: src/orcshot/ui/editor_window.py:1555 src/orcshot/ui/editor_window.py:3693
+msgid "Save"
+msgstr "保存"
+
+#: src/orcshot/ui/destination_picker.py:218
+#: src/orcshot/ui/editor_window.py:1556
+msgid "Save As..."
+msgstr "另存为…"
+
+#: src/orcshot/ui/destination_picker.py:219
+#: src/orcshot/ui/editor_window.py:5914
+msgid "Edit..."
+msgstr "编辑…"
+
+#: src/orcshot/ui/destination_picker.py:220
+#: src/orcshot/ui/editor_window.py:3694
+msgid "Print"
+msgstr "打印"
+
+#: src/orcshot/ui/editor_window.py:369
+msgid "Solid Fill"
+msgstr "纯色填充"
+
+#: src/orcshot/ui/editor_window.py:370
+msgid "Color Scramble"
+msgstr "颜色扰乱"
+
+#: src/orcshot/ui/editor_window.py:371
+msgid "Pixelize"
+msgstr "像素化"
+
+#: src/orcshot/ui/editor_window.py:372
+msgid "Blur"
+msgstr "模糊"
+
+#: src/orcshot/ui/editor_window.py:380
+msgid "most secure"
+msgstr "最安全"
+
+#: src/orcshot/ui/editor_window.py:381
+msgid "moderately secure"
+msgstr "较为安全"
+
+#: src/orcshot/ui/editor_window.py:382 src/orcshot/ui/editor_window.py:383
+msgid "not secure"
+msgstr "不安全"
+
+#: src/orcshot/ui/editor_window.py:388
+msgid ""
+"Completely replaces the covered area with a solid color. Nothing about the "
+"original content can be recovered - the recommended choice for anything "
+"sensitive."
+msgstr ""
+"用纯色完全替换所覆盖的区域。原始内容无法以任何方式还原——处理敏感信息时推荐使"
+"用此方式。"
+
+#: src/orcshot/ui/editor_window.py:392
+msgid ""
+"Replaces the area with synthetic noise matched to its overall color. Resists "
+"known reconstruction attacks (e.g. Depix), but a dominant hue may still be "
+"inferable."
+msgstr ""
+"用与该区域整体色调相匹配的合成噪点替换该区域。可抵御已知的还原攻击（如 "
+"Depix），但主色调仍有可能被推断出来。"
+
+#: src/orcshot/ui/editor_window.py:396
+msgid ""
+"Reconstructable with publicly available tools (e.g. Depix, unredacter), even "
+"with this port's own noise hardening. Do not use for sensitive information."
+msgstr ""
+"即使本移植版加入了自有的噪点强化，仍可被公开可用的工具（如 Depix、"
+"unredacter）还原。请勿用于敏感信息。"
+
+#: src/orcshot/ui/editor_window.py:400
+msgid ""
+"Reconstructable with publicly available tools (e.g. Depix, unredacter). Do "
+"not use for sensitive information."
+msgstr "可被公开可用的工具（如 Depix、unredacter）还原。请勿用于敏感信息。"
+
+#: src/orcshot/ui/editor_window.py:443 src/orcshot/ui/editor_window.py:1986
+#: src/orcshot/ui/editor_window.py:1995
+msgid "Highlight"
+msgstr "高亮"
+
+#: src/orcshot/ui/editor_window.py:444
+msgid "Spotlight Focus"
+msgstr "聚光灯聚焦"
+
+#: src/orcshot/ui/editor_window.py:445
+msgid "Spotlight Colorize"
+msgstr "聚光灯着色"
+
+#: src/orcshot/ui/editor_window.py:446
+msgid "Magnification"
+msgstr "放大"
+
+#: src/orcshot/ui/editor_window.py:467
+msgid "Yellow"
+msgstr "黄色"
+
+#: src/orcshot/ui/editor_window.py:468
+msgid "Green"
+msgstr "绿色"
+
+#: src/orcshot/ui/editor_window.py:469
+msgid "Pink"
+msgstr "粉色"
+
+#: src/orcshot/ui/editor_window.py:470
+msgid "Orange"
+msgstr "橙色"
+
+#: src/orcshot/ui/editor_window.py:471
+msgid "Blue"
+msgstr "蓝色"
+
+#: src/orcshot/ui/editor_window.py:489 src/orcshot/ui/editor_window.py:5699
+#: src/orcshot/ui/editor_window.py:5880
+msgid "Default"
+msgstr "默认"
+
+#: src/orcshot/ui/editor_window.py:490
+msgid "Vertical"
+msgstr "垂直"
+
+#: src/orcshot/ui/editor_window.py:491
+msgid "Horizontal"
+msgstr "水平"
+
+#: src/orcshot/ui/editor_window.py:517 src/orcshot/ui/editor_window.py:3667
+#: src/orcshot/ui/editor_window.py:5327
+msgid "Select"
+msgstr "选择"
+
+#: src/orcshot/ui/editor_window.py:519 src/orcshot/ui/editor_window.py:1617
+#: src/orcshot/ui/editor_window.py:3668
+msgid "Rectangle"
+msgstr "矩形"
+
+#: src/orcshot/ui/editor_window.py:520 src/orcshot/ui/editor_window.py:1618
+#: src/orcshot/ui/editor_window.py:3669
+msgid "Ellipse"
+msgstr "椭圆"
+
+#: src/orcshot/ui/editor_window.py:521 src/orcshot/ui/editor_window.py:1619
+#: src/orcshot/ui/editor_window.py:3670
+msgid "Line"
+msgstr "直线"
+
+#: src/orcshot/ui/editor_window.py:522 src/orcshot/ui/editor_window.py:1620
+#: src/orcshot/ui/editor_window.py:3672
+msgid "Arrow"
+msgstr "箭头"
+
+#: src/orcshot/ui/editor_window.py:523 src/orcshot/ui/editor_window.py:1621
+#: src/orcshot/ui/editor_window.py:3671
+msgid "Freehand"
+msgstr "自由绘制"
+
+#: src/orcshot/ui/editor_window.py:524 src/orcshot/ui/editor_window.py:1622
+#: src/orcshot/ui/editor_window.py:3673
+msgid "Text"
+msgstr "文本"
+
+#: src/orcshot/ui/editor_window.py:525 src/orcshot/ui/editor_window.py:1623
+#: src/orcshot/ui/editor_window.py:3674
+msgid "Speech Bubble"
+msgstr "对话气泡"
+
+#: src/orcshot/ui/editor_window.py:526 src/orcshot/ui/editor_window.py:3675
+msgid "Step Label"
+msgstr "步骤标签"
+
+#: src/orcshot/ui/editor_window.py:527 src/orcshot/ui/editor_window.py:3679
+msgid "Emoji"
+msgstr "表情符号"
+
+#: src/orcshot/ui/editor_window.py:707
+msgid "Orcshot image editor"
+msgstr "Orcshot 图像编辑器"
+
+#: src/orcshot/ui/editor_window.py:1534
+msgid "File"
+msgstr "文件"
+
+#: src/orcshot/ui/editor_window.py:1543
+msgid "Open..."
+msgstr "打开…"
+
+#: src/orcshot/ui/editor_window.py:1558
+msgid "Print..."
+msgstr "打印…"
+
+#: src/orcshot/ui/editor_window.py:1560
+msgid "Insert Image..."
+msgstr "插入图像…"
+
+#: src/orcshot/ui/editor_window.py:1561
+msgid "Insert SVG..."
+msgstr "插入 SVG…"
+
+#: src/orcshot/ui/editor_window.py:1564
+msgid "Screenshot Save Location..."
+msgstr "截图保存位置…"
+
+#: src/orcshot/ui/editor_window.py:1567
+msgid "Close"
+msgstr "关闭"
+
+#: src/orcshot/ui/editor_window.py:1569
+msgid "Edit"
+msgstr "编辑"
+
+#: src/orcshot/ui/editor_window.py:1570
+msgid "Undo"
+msgstr "撤销"
+
+#: src/orcshot/ui/editor_window.py:1571
+msgid "Redo"
+msgstr "重做"
+
+#: src/orcshot/ui/editor_window.py:1581 src/orcshot/ui/editor_window.py:2596
+msgid "Cut"
+msgstr "剪切"
+
+#: src/orcshot/ui/editor_window.py:1582
+msgid "Copy"
+msgstr "复制"
+
+#: src/orcshot/ui/editor_window.py:1583
+msgid "Paste"
+msgstr "粘贴"
+
+#: src/orcshot/ui/editor_window.py:1585
+msgid "Duplicate"
+msgstr "创建副本"
+
+#: src/orcshot/ui/editor_window.py:1587 src/orcshot/app.py:1068
+msgid "Preferences..."
+msgstr "首选项…"
+
+#: src/orcshot/ui/editor_window.py:1589
+msgid "Insert Window..."
+msgstr "插入窗口…"
+
+#: src/orcshot/ui/editor_window.py:1591
+msgid "Clear All"
+msgstr "全部清除"
+
+#: src/orcshot/ui/editor_window.py:1593
+msgid "Object"
+msgstr "对象"
+
+#: src/orcshot/ui/editor_window.py:1624
+msgid "Counter"
+msgstr "计数器"
+
+#: src/orcshot/ui/editor_window.py:1639
+msgid "Select All"
+msgstr "全选"
+
+#: src/orcshot/ui/editor_window.py:1640 src/orcshot/ui/editor_window.py:5915
+msgid "Delete"
+msgstr "删除"
+
+#: src/orcshot/ui/editor_window.py:1648
+msgid "Arrange"
+msgstr "排列"
+
+#: src/orcshot/ui/editor_window.py:1649
+msgid "Bring to Top"
+msgstr "置于顶层"
+
+#: src/orcshot/ui/editor_window.py:1650
+msgid "Up One Level"
+msgstr "上移一层"
+
+#: src/orcshot/ui/editor_window.py:1651
+msgid "Down One Level"
+msgstr "下移一层"
+
+#: src/orcshot/ui/editor_window.py:1652
+msgid "Send to Bottom"
+msgstr "置于底层"
+
+#: src/orcshot/ui/editor_window.py:1657
+msgid "Save Objects..."
+msgstr "保存对象…"
+
+#: src/orcshot/ui/editor_window.py:1658
+msgid "Load Objects..."
+msgstr "载入对象…"
+
+#: src/orcshot/ui/editor_window.py:1660
+msgid "Zoom"
+msgstr "缩放"
+
+#: src/orcshot/ui/editor_window.py:1663 src/orcshot/ui/editor_window.py:2609
+msgid "Help"
+msgstr "帮助"
+
+#: src/orcshot/ui/editor_window.py:1664
+msgid "Online Help"
+msgstr "在线帮助"
+
+#: src/orcshot/ui/editor_window.py:1669
+msgid "Check for Updates..."
+msgstr "检查更新…"
+
+#: src/orcshot/ui/editor_window.py:1672
+msgid "About Orcshot"
+msgstr "关于 Orcshot"
+
+#: src/orcshot/ui/editor_window.py:1698
+msgid "Zoom In"
+msgstr "放大"
+
+#: src/orcshot/ui/editor_window.py:1699
+msgid "Zoom Out"
+msgstr "缩小"
+
+#: src/orcshot/ui/editor_window.py:1700
+msgid "Best Fit"
+msgstr "适应窗口"
+
+#: src/orcshot/ui/editor_window.py:1704
+msgid "{} - Actual Size"
+msgstr "{} - 实际大小"
+
+#: src/orcshot/ui/editor_window.py:1773
+msgid "JPEG Quality"
+msgstr "JPEG 质量"
+
+#: src/orcshot/ui/editor_window.py:1774
+msgid "Continue"
+msgstr "继续"
+
+#: src/orcshot/ui/editor_window.py:1783 src/orcshot/ui/editor_window.py:5807
+msgid "JPEG quality:"
+msgstr "JPEG 质量："
+
+#: src/orcshot/ui/editor_window.py:1812
+msgid ""
+"A Linux port of Greenshot - not affiliated with or endorsed by the Greenshot "
+"project"
+msgstr "Greenshot 的 Linux 移植版——与 Greenshot 项目并无关联，也未获其认可"
+
+#: src/orcshot/ui/editor_window.py:1884
+msgid "Rotate CW"
+msgstr "顺时针旋转"
+
+#: src/orcshot/ui/editor_window.py:1885
+msgid "Rotate Clockwise (Ctrl+.)"
+msgstr "顺时针旋转 (Ctrl+.)"
+
+#: src/orcshot/ui/editor_window.py:1890
+msgid "Rotate CCW"
+msgstr "逆时针旋转"
+
+#: src/orcshot/ui/editor_window.py:1891
+msgid "Rotate Counterclockwise (Ctrl+,)"
+msgstr "逆时针旋转 (Ctrl+,)"
+
+#: src/orcshot/ui/editor_window.py:1896
+msgid "Resize"
+msgstr "调整大小"
+
+#: src/orcshot/ui/editor_window.py:1896
+msgid "Resize... (Z)"
+msgstr "调整大小… (Z)"
+
+#: src/orcshot/ui/editor_window.py:1952 src/orcshot/ui/editor_window.py:1967
+msgid "Obfuscate"
+msgstr "遮蔽"
+
+#: src/orcshot/ui/editor_window.py:1953
+msgid "Obfuscate (O)"
+msgstr "遮蔽 (O)"
+
+#: src/orcshot/ui/editor_window.py:1987
+msgid "Highlight (H)"
+msgstr "高亮 (H)"
+
+#: src/orcshot/ui/editor_window.py:2176 src/orcshot/ui/editor_window.py:2185
+msgid "Crop"
+msgstr "裁剪"
+
+#: src/orcshot/ui/editor_window.py:2177
+msgid "Crop (C)"
+msgstr "裁剪 (C)"
+
+#: src/orcshot/ui/editor_window.py:2214
+msgid "Auto"
+msgstr "自动"
+
+#: src/orcshot/ui/editor_window.py:2439 src/orcshot/ui/editor_window.py:2455
+msgid "Effects"
+msgstr "效果"
+
+#: src/orcshot/ui/editor_window.py:2507 src/orcshot/ui/editor_window.py:3695
+msgid "Add Border"
+msgstr "添加边框"
+
+#: src/orcshot/ui/editor_window.py:2508 src/orcshot/ui/editor_window.py:3696
+msgid "Add Drop Shadow"
+msgstr "添加投影"
+
+#: src/orcshot/ui/editor_window.py:2509
+msgid "Drop Shadow Settings..."
+msgstr "投影设置…"
+
+#: src/orcshot/ui/editor_window.py:2510
+msgid "Torn Edges"
+msgstr "撕裂边缘"
+
+#: src/orcshot/ui/editor_window.py:2511
+msgid "Torn Edge Settings..."
+msgstr "撕裂边缘设置…"
+
+#: src/orcshot/ui/editor_window.py:2512 src/orcshot/ui/editor_window.py:3698
+msgid "Grayscale"
+msgstr "灰度"
+
+#: src/orcshot/ui/editor_window.py:2513
+msgid "Invert"
+msgstr "反色"
+
+#: src/orcshot/ui/editor_window.py:2515
+msgid "Remove Transparency..."
+msgstr "移除透明度…"
+
+#: src/orcshot/ui/editor_window.py:2521
+msgid "Find & Redact Text..."
+msgstr "查找并遮蔽文本…"
+
+#: src/orcshot/ui/editor_window.py:2588
+msgid "Save (Ctrl+S)"
+msgstr "保存 (Ctrl+S)"
+
+#: src/orcshot/ui/editor_window.py:2589
+msgid "Copy Image to Clipboard (Ctrl+C)"
+msgstr "复制图像到剪贴板 (Ctrl+C)"
+
+#: src/orcshot/ui/editor_window.py:2590
+msgid "Print (Ctrl+P)"
+msgstr "打印 (Ctrl+P)"
+
+#: src/orcshot/ui/editor_window.py:2593
+msgid "Delete (Del)"
+msgstr "删除 (Del)"
+
+#: src/orcshot/ui/editor_window.py:2597
+msgid "Copy Shape"
+msgstr "复制形状"
+
+#: src/orcshot/ui/editor_window.py:2598
+msgid "Paste Shape"
+msgstr "粘贴形状"
+
+#: src/orcshot/ui/editor_window.py:2599
+msgid "Undo (Ctrl+Z)"
+msgstr "撤销 (Ctrl+Z)"
+
+#: src/orcshot/ui/editor_window.py:2600
+msgid "Redo (Ctrl+Y)"
+msgstr "重做 (Ctrl+Y)"
+
+#: src/orcshot/ui/editor_window.py:2603 src/orcshot/ui/editor_window.py:5360
+msgid "Preferences"
+msgstr "首选项"
+
+#: src/orcshot/ui/editor_window.py:2605
+msgid "Open in External Editor"
+msgstr "在外部编辑器中打开"
+
+#: src/orcshot/ui/editor_window.py:2724
+msgid "Line:"
+msgstr "线条："
+
+#: src/orcshot/ui/editor_window.py:2730 src/orcshot/ui/editor_window.py:2776
+#: src/orcshot/ui/editor_window.py:2822
+msgid "Fill:"
+msgstr "填充："
+
+#: src/orcshot/ui/editor_window.py:2736
+msgid "Line Thickness:"
+msgstr "线条粗细："
+
+#: src/orcshot/ui/editor_window.py:2744
+msgid "Shadow"
+msgstr "阴影"
+
+#: src/orcshot/ui/editor_window.py:2764 src/orcshot/ui/editor_window.py:2817
+#: src/orcshot/ui/editor_window.py:2858
+msgid "Mode:"
+msgstr "模式："
+
+#: src/orcshot/ui/editor_window.py:2786
+msgid "Text:"
+msgstr "文本："
+
+#: src/orcshot/ui/editor_window.py:2793
+msgid "Text Color:"
+msgstr "文本颜色："
+
+#: src/orcshot/ui/editor_window.py:2828
+msgid "Brightness:"
+msgstr "亮度："
+
+#: src/orcshot/ui/editor_window.py:2836 src/orcshot/ui/editor_window.py:2900
+msgid "Blur Radius:"
+msgstr "模糊半径："
+
+#: src/orcshot/ui/editor_window.py:2847 src/orcshot/ui/editor_window.py:2903
+msgid "Amount:"
+msgstr "强度："
+
+#: src/orcshot/ui/editor_window.py:2884
+msgid "Confirm"
+msgstr "确认"
+
+#: src/orcshot/ui/editor_window.py:2888
+msgid "Cancel (Esc)"
+msgstr "取消 (Esc)"
+
+#: src/orcshot/ui/editor_window.py:2902
+msgid "Pixel Size:"
+msgstr "像素大小："
+
+#: src/orcshot/ui/editor_window.py:3258
+msgid "Save Objects"
+msgstr "保存对象"
+
+#: src/orcshot/ui/editor_window.py:3264 src/orcshot/ui/editor_window.py:3296
+msgid "Orcshot objects"
+msgstr "Orcshot 对象"
+
+#: src/orcshot/ui/editor_window.py:3293
+msgid "Load Objects"
+msgstr "载入对象"
+
+#: src/orcshot/ui/editor_window.py:3312
+msgid "Couldn't load objects"
+msgstr "无法载入对象"
+
+#: src/orcshot/ui/editor_window.py:3356
+msgid "Save Screenshot"
+msgstr "保存截图"
+
+#: src/orcshot/ui/editor_window.py:3389
+msgid "Save as type:"
+msgstr "保存类型："
+
+#: src/orcshot/ui/editor_window.py:3442
+msgid "Insert Image"
+msgstr "插入图像"
+
+#: src/orcshot/ui/editor_window.py:3445
+msgid "Images"
+msgstr "图像"
+
+#: src/orcshot/ui/editor_window.py:3472
+msgid "Insert SVG"
+msgstr "插入 SVG"
+
+#: src/orcshot/ui/editor_window.py:3475
+msgid "SVG images"
+msgstr "SVG 图像"
+
+#: src/orcshot/ui/editor_window.py:3618
+msgid "No external image editor found"
+msgstr "未找到外部图像编辑器"
+
+#: src/orcshot/ui/editor_window.py:3622
+msgid ""
+"Tried: {} (checked both PATH and Flatpak). Install one of these to use this "
+"button."
+msgstr "已尝试：{}（PATH 与 Flatpak 均已检查）。请安装其中之一以使用此按钮。"
+
+#: src/orcshot/ui/editor_window.py:3666
+msgid "Tools"
+msgstr "工具"
+
+#: src/orcshot/ui/editor_window.py:3676
+msgid "Highlight (whichever mode was last prepared)"
+msgstr "高亮（使用上次设置的模式）"
+
+#: src/orcshot/ui/editor_window.py:3677
+msgid "Obfuscate (whichever mode was last prepared)"
+msgstr "遮蔽（使用上次设置的模式）"
+
+#: src/orcshot/ui/editor_window.py:3678
+msgid "Crop (whichever mode was last prepared)"
+msgstr "裁剪（使用上次设置的模式）"
+
+#: src/orcshot/ui/editor_window.py:3680
+msgid "Resize (a whole-image effect, not a drawing tool)"
+msgstr "调整大小（作用于整幅图像的效果，而非绘图工具）"
+
+#: src/orcshot/ui/editor_window.py:3681
+msgid "For details on each tool's sub-modes, see the <a href=\"{}\">wiki</a>."
+msgstr "各工具子模式的详细说明，请参见 <a href=\"{}\">wiki</a>。"
+
+#: src/orcshot/ui/editor_window.py:3684
+msgid "Editing"
+msgstr "编辑"
+
+#: src/orcshot/ui/editor_window.py:3685
+msgid "Delete the selected shape"
+msgstr "删除选中的形状"
+
+#: src/orcshot/ui/editor_window.py:3686
+msgid "Double-click"
+msgstr "双击"
+
+#: src/orcshot/ui/editor_window.py:3686
+msgid "Re-edit an existing text/speech bubble/emoji shape"
+msgstr "重新编辑已有的文本／对话气泡／表情符号"
+
+#: src/orcshot/ui/editor_window.py:3687
+msgid "Commit a text/speech bubble/emoji edit"
+msgstr "确认文本／对话气泡／表情符号的编辑"
+
+#: src/orcshot/ui/editor_window.py:3688
+msgid ""
+"Cancel a text/speech bubble/emoji edit, or an in-progress crop selection"
+msgstr "取消文本／对话气泡／表情符号的编辑，或正在进行的裁剪选区"
+
+#: src/orcshot/ui/editor_window.py:3690
+msgid "Actions"
+msgstr "操作"
+
+#: src/orcshot/ui/editor_window.py:3691
+msgid "Undo / Redo"
+msgstr "撤销 / 重做"
+
+#: src/orcshot/ui/editor_window.py:3692
+msgid "Copy the whole image to the clipboard"
+msgstr "将整幅图像复制到剪贴板"
+
+#: src/orcshot/ui/editor_window.py:3697
+msgid "Add Torn Edge"
+msgstr "添加撕裂边缘"
+
+#: src/orcshot/ui/editor_window.py:3699
+msgid "Invert Colors"
+msgstr "反转颜色"
+
+#: src/orcshot/ui/editor_window.py:3700
+msgid "Clear (transparent background)"
+msgstr "清除（透明背景）"
+
+#: src/orcshot/ui/editor_window.py:3701
+msgid "Rotate counterclockwise / clockwise"
+msgstr "逆时针 / 顺时针旋转"
+
+#: src/orcshot/ui/editor_window.py:3702
+msgid "Zoom in / out"
+msgstr "放大 / 缩小"
+
+#: src/orcshot/ui/editor_window.py:3703
+msgid "Enlarge / shrink canvas"
+msgstr "扩大 / 缩小画布"
+
+#: src/orcshot/ui/editor_window.py:3704
+msgid "Zoom to actual size"
+msgstr "缩放至实际大小"
+
+#: src/orcshot/ui/editor_window.py:3705
+msgid "Zoom to best fit"
+msgstr "缩放至适应窗口"
+
+#: src/orcshot/ui/editor_window.py:3724
+msgid "Click"
+msgstr "单击"
+
+#: src/orcshot/ui/editor_window.py:3725
+msgid ""
+"Open the tray menu\n"
+"(Wayland has no separate click action - <a href=\"{}\">Why?</a>)"
+msgstr ""
+"打开托盘菜单\n"
+"（Wayland 下没有单独的单击操作——<a href=\"{}\">为什么？</a>）"
+
+#: src/orcshot/ui/editor_window.py:3730
+msgid "Left-click"
+msgstr "左键单击"
+
+#: src/orcshot/ui/editor_window.py:3730
+msgid "Start a region capture immediately"
+msgstr "立即开始区域截图"
+
+#: src/orcshot/ui/editor_window.py:3731
+msgid "Right-click"
+msgstr "右键单击"
+
+#: src/orcshot/ui/editor_window.py:3731
+msgid "Open the tray menu"
+msgstr "打开托盘菜单"
+
+#: src/orcshot/ui/editor_window.py:3736
+msgid "Orcshot Help"
+msgstr "Orcshot 帮助"
+
+#: src/orcshot/ui/editor_window.py:3762
+msgid "<b>{}</b>"
+msgstr "<b>{}</b>"
+
+#: src/orcshot/ui/editor_window.py:3820
+msgid "Tray Icon"
+msgstr "托盘图标"
+
+#: src/orcshot/ui/editor_window.py:4474
+msgid "Remove Transparency"
+msgstr "移除透明度"
+
+#: src/orcshot/ui/editor_window.py:4499
+msgid "Resize Image"
+msgstr "调整图像大小"
+
+#: src/orcshot/ui/editor_window.py:4506
+msgid "Width:"
+msgstr "宽度："
+
+#: src/orcshot/ui/editor_window.py:4510
+msgid "Height:"
+msgstr "高度："
+
+#: src/orcshot/ui/editor_window.py:4514
+msgid "Maintain aspect ratio"
+msgstr "保持宽高比"
+
+#: src/orcshot/ui/editor_window.py:4563
+msgid "Drop Shadow Settings"
+msgstr "投影设置"
+
+#: src/orcshot/ui/editor_window.py:4570
+msgid "Darkness:"
+msgstr "暗度："
+
+#: src/orcshot/ui/editor_window.py:4575
+msgid "Size:"
+msgstr "大小："
+
+#: src/orcshot/ui/editor_window.py:4579
+msgid "Offset X:"
+msgstr "X 偏移："
+
+#: src/orcshot/ui/editor_window.py:4583
+msgid "Offset Y:"
+msgstr "Y 偏移："
+
+#: src/orcshot/ui/editor_window.py:4614
+msgid "Torn Edge Settings"
+msgstr "撕裂边缘设置"
+
+#: src/orcshot/ui/editor_window.py:4621
+msgid "Tooth height:"
+msgstr "锯齿高度："
+
+#: src/orcshot/ui/editor_window.py:4625
+msgid "Horizontal tooth range:"
+msgstr "水平锯齿范围："
+
+#: src/orcshot/ui/editor_window.py:4629
+msgid "Vertical tooth range:"
+msgstr "垂直锯齿范围："
+
+#: src/orcshot/ui/editor_window.py:4635
+msgid "Top"
+msgstr "上"
+
+#: src/orcshot/ui/editor_window.py:4635
+msgid "Right"
+msgstr "右"
+
+#: src/orcshot/ui/editor_window.py:4635
+msgid "Bottom"
+msgstr "下"
+
+#: src/orcshot/ui/editor_window.py:4635
+msgid "Left"
+msgstr "左"
+
+#: src/orcshot/ui/editor_window.py:4645
+msgid "Generate shadow"
+msgstr "生成阴影"
+
+#: src/orcshot/ui/editor_window.py:5212
+msgid "Do you want to save the screenshot?"
+msgstr "是否保存该截图？"
+
+#: src/orcshot/ui/editor_window.py:5214
+msgid "Save image?"
+msgstr "保存图像？"
+
+#: src/orcshot/ui/editor_window.py:5216
+msgid "Yes"
+msgstr "是"
+
+#: src/orcshot/ui/editor_window.py:5217
+msgid "No"
+msgstr "否"
+
+#: src/orcshot/ui/editor_window.py:5245
+msgid "New install incoming — save your work"
+msgstr "即将安装新版本——请先保存您的工作"
+
+#: src/orcshot/ui/editor_window.py:5262
+msgid "Open"
+msgstr "打开"
+
+#: src/orcshot/ui/editor_window.py:5266
+msgid "Orcshot files"
+msgstr "Orcshot 文件"
+
+#: src/orcshot/ui/editor_window.py:5299
+msgid "Couldn't open file"
+msgstr "无法打开文件"
+
+#: src/orcshot/ui/editor_window.py:5323
+msgid "Screenshot Save Location"
+msgstr "截图保存位置"
+
+#: src/orcshot/ui/editor_window.py:5366
+msgid "General"
+msgstr "常规"
+
+#: src/orcshot/ui/editor_window.py:5367 src/orcshot/ui/editor_window.py:5607
+msgid "Capture"
+msgstr "截图"
+
+#: src/orcshot/ui/editor_window.py:5368
+msgid "Output"
+msgstr "输出"
+
+#: src/orcshot/ui/editor_window.py:5369
+msgid "Destinations"
+msgstr "输出目标"
+
+#: src/orcshot/ui/editor_window.py:5370
+msgid "Printer"
+msgstr "打印机"
+
+#: src/orcshot/ui/editor_window.py:5405
+msgid "Application Settings"
+msgstr "应用程序设置"
+
+#: src/orcshot/ui/editor_window.py:5417
+msgid "Language:"
+msgstr "语言："
+
+#: src/orcshot/ui/editor_window.py:5419
+msgid "System Default"
+msgstr "系统默认"
+
+#: src/orcshot/ui/editor_window.py:5423
+msgid "Applies after restarting Orcshot."
+msgstr "重启 Orcshot 后生效。"
+
+#: src/orcshot/ui/editor_window.py:5434
+msgid "Icon size:"
+msgstr "图标大小："
+
+#: src/orcshot/ui/editor_window.py:5437
+msgid "Takes effect the next time you open a screenshot."
+msgstr "将在下次打开截图时生效。"
+
+#: src/orcshot/ui/editor_window.py:5448
+msgid "Launch Orcshot on startup"
+msgstr "开机时启动 Orcshot"
+
+#: src/orcshot/ui/editor_window.py:5479
+msgid "External Image Editor:"
+msgstr "外部图像编辑器："
+
+#: src/orcshot/ui/editor_window.py:5481
+msgid "Auto (Krita, then GIMP)"
+msgstr "自动（优先 Krita，其次 GIMP）"
+
+#: src/orcshot/ui/editor_window.py:5501
+msgid "Suppress the save dialog when closing the editor"
+msgstr "关闭编辑器时不显示保存对话框"
+
+#: src/orcshot/ui/editor_window.py:5510
+msgid "Hotkeys"
+msgstr "快捷键"
+
+#: src/orcshot/ui/editor_window.py:5514
+msgid "Configure Hotkeys..."
+msgstr "配置快捷键…"
+
+#: src/orcshot/ui/editor_window.py:5526
+msgid "Network and Updates"
+msgstr "网络与更新"
+
+#: src/orcshot/ui/editor_window.py:5535
+msgid "Use system default proxy"
+msgstr "使用系统默认代理"
+
+#: src/orcshot/ui/editor_window.py:5541
+msgid "Check for updates every"
+msgstr "检查更新间隔"
+
+#: src/orcshot/ui/editor_window.py:5546
+msgid ""
+"How often Orcshot checks GitHub for a newer release in the background. 0 = "
+"never check, matching Windows' own UpdateCheckInterval semantics."
+msgstr ""
+"Orcshot 在后台检查 GitHub 上是否有新版本的频率。0 表示从不检查，与 Windows 版"
+"的 UpdateCheckInterval 语义一致。"
+
+#: src/orcshot/ui/editor_window.py:5552
+msgid "days"
+msgstr "天"
+
+#: src/orcshot/ui/editor_window.py:5616
+msgid "Capture mouse cursor"
+msgstr "捕获鼠标指针"
+
+#: src/orcshot/ui/editor_window.py:5628
+msgid "Show magnifier while selecting a region"
+msgstr "选择区域时显示放大镜"
+
+#: src/orcshot/ui/editor_window.py:5632
+msgid ""
+"Applies to X11 and the Wayland portal-fallback path. The Wayland Shell-"
+"native picker's own magnifier doesn't read this setting yet."
+msgstr ""
+"适用于 X11 以及 Wayland 的 portal 回退方式。Wayland 下 Shell 原生选取器自带的"
+"放大镜尚未读取此设置。"
+
+#: src/orcshot/ui/editor_window.py:5642
+msgid "Play camera sound"
+msgstr "播放快门声"
+
+#: src/orcshot/ui/editor_window.py:5647
+msgid "Show notification after capture"
+msgstr "截图后显示通知"
+
+#: src/orcshot/ui/editor_window.py:5671
+msgid "Preferred File Settings"
+msgstr "首选文件设置"
+
+#: src/orcshot/ui/editor_window.py:5687
+msgid "Filename pattern:"
+msgstr "文件名模式："
+
+#: src/orcshot/ui/editor_window.py:5691
+#, python-format
+msgid ""
+"Both ${...} placeholders and %-codes work in the same pattern. Click ? for "
+"the full list."
+msgstr "同一模式中可以同时使用 ${...} 占位符和 %-codes。点击 ? 查看完整列表。"
+
+#: src/orcshot/ui/editor_window.py:5713
+msgid "Filename pattern placeholders and codes"
+msgstr "文件名模式的占位符与代码"
+
+#: src/orcshot/ui/editor_window.py:5715
+msgid ""
+"${YYYY} year, 4 digits\n"
+"${MM} month, 2 digits\n"
+"${DD} day, 2 digits\n"
+"${hh} hour, 2 digits\n"
+"${mm} minute, 2 digits\n"
+"${ss} second, 2 digits\n"
+"${NUM} incrementing number, 6 digits (see Counter below)\n"
+"${RRR...} random alphanumerics, same length as the number of R's\n"
+"${title} capture title, when available\n"
+"${\"affix\"?TOKEN} renders affix+value only when TOKEN has one, e.g. ${\" - "
+"\"?title} for \" - My Window\" - or nothing at all if there's no title\n"
+"\n"
+"%Y year, %y year (2 digits)\n"
+"%m month, %d day\n"
+"%H hour (24h), %I hour (12h), %p AM/PM\n"
+"%M minute, %S second\n"
+"%A/%a weekday name, %B/%b month name\n"
+"%% a literal percent sign"
+msgstr ""
+"${YYYY} 年份，4 位数字\n"
+"${MM} 月份，2 位数字\n"
+"${DD} 日期，2 位数字\n"
+"${hh} 小时，2 位数字\n"
+"${mm} 分钟，2 位数字\n"
+"${ss} 秒，2 位数字\n"
+"${NUM} 递增编号，6 位数字（参见下方的“计数器”）\n"
+"${RRR...} 随机字母数字，长度与 R 的个数相同\n"
+"${title} 截图标题（如果有）\n"
+"${\"affix\"?TOKEN} 仅当 TOKEN 有值时才输出“附加文本＋值”，例如 ${\" - \"?"
+"title} 会得到“ - 我的窗口”——若没有标题则什么都不输出\n"
+"\n"
+"%Y 年份，%y 年份（2 位数字）\n"
+"%m 月，%d 日\n"
+"%H 小时（24 小时制），%I 小时（12 小时制），%p 上午/下午\n"
+"%M 分钟，%S 秒\n"
+"%A/%a 星期名称，%B/%b 月份名称\n"
+"%% 一个百分号字面量"
+
+#: src/orcshot/ui/editor_window.py:5747
+#, python-brace-format
+msgid "Counter (${NUM} in filename):"
+msgstr "计数器（文件名中的 ${NUM}）："
+
+#: src/orcshot/ui/editor_window.py:5755
+msgid "Primary format:"
+msgstr "主要格式："
+
+#: src/orcshot/ui/editor_window.py:5764
+msgid "Copy file path to clipboard after saving"
+msgstr "保存后将文件路径复制到剪贴板"
+
+#: src/orcshot/ui/editor_window.py:5770
+msgid "Screenshot Save Location:"
+msgstr "截图保存位置："
+
+#: src/orcshot/ui/editor_window.py:5773
+msgid "Change..."
+msgstr "更改…"
+
+#: src/orcshot/ui/editor_window.py:5785
+msgid "Quality Settings"
+msgstr "质量设置"
+
+#: src/orcshot/ui/editor_window.py:5793
+msgid "Reduce colors to 256 (8-bit)"
+msgstr "将颜色数减少到 256 色（8 位）"
+
+#: src/orcshot/ui/editor_window.py:5795
+msgid ""
+"Not applied to saves yet - this port has no color-quantization step built."
+msgstr "保存时尚未应用此设置——本移植版还没有实现颜色量化步骤。"
+
+#: src/orcshot/ui/editor_window.py:5799
+msgid "Always show quality dialog before saving"
+msgstr "保存前始终显示质量对话框"
+
+#: src/orcshot/ui/editor_window.py:5876
+msgid "Enabled"
+msgstr "已启用"
+
+#: src/orcshot/ui/editor_window.py:5893
+msgid "External"
+msgstr "外部"
+
+#: src/orcshot/ui/editor_window.py:5913
+msgid "Add..."
+msgstr "添加…"
+
+#: src/orcshot/ui/editor_window.py:5979
+msgid "Page Layout Settings"
+msgstr "页面布局设置"
+
+#: src/orcshot/ui/editor_window.py:6012
+msgid "Footer pattern:"
+msgstr "页脚模式："
+
+#: src/orcshot/ui/editor_window.py:6016
+msgid ""
+"A Python strftime format, e.g. %B %d, %Y %I:%M %p - printed at the bottom of "
+"the page."
+msgstr "Python 的 strftime 格式，例如 %B %d, %Y %I:%M %p，将打印在页面底部。"
+
+#: src/orcshot/ui/editor_window.py:6025
+msgid "Color Settings"
+msgstr "颜色设置"
+
+#: src/orcshot/ui/editor_window.py:6054
+msgid "Show print options dialog every time an image is printed"
+msgstr "每次打印图像时都显示打印选项对话框"
+
 #: src/orcshot/app.py:318
 msgid "Orcshot is already running"
 msgstr "Orcshot 已在运行"
@@ -1482,7 +1496,9 @@ msgid ""
 "An update changed how Orcshot's Shell extension works, but your session is "
 "still running the previous version. Log out and back in to finish applying "
 "it."
-msgstr "某次更新改变了 Orcshot 的 Shell 扩展的工作方式，但您的会话仍在运行旧版本。请注销并重新登录以完成应用。"
+msgstr ""
+"某次更新改变了 Orcshot 的 Shell 扩展的工作方式，但您的会话仍在运行旧版本。请"
+"注销并重新登录以完成应用。"
 
 #: src/orcshot/app.py:790
 msgid "Orcshot's tray icon fell back to a plain version"
@@ -1492,7 +1508,9 @@ msgstr "Orcshot 的托盘图标已回退为普通版本"
 msgid ""
 "Its usual Shell-integrated tray icon couldn't be created, so a plain "
 "fallback is being used instead. This is a bug worth reporting.{}"
-msgstr "无法创建通常使用的 Shell 集成托盘图标，因此改用了普通的回退图标。这是一个值得上报的缺陷。{}"
+msgstr ""
+"无法创建通常使用的 Shell 集成托盘图标，因此改用了普通的回退图标。这是一个值得"
+"上报的缺陷。{}"
 
 #: src/orcshot/app.py:1008
 msgid "Capture Region"
@@ -1514,7 +1532,9 @@ msgstr "窗口截图…"
 msgid ""
 "Not available on this Wayland session - enable window capture support in "
 "Preferences, or use Capture Region instead."
-msgstr "在当前 Wayland 会话中不可用——请在“首选项”中启用窗口捕获支持，或改用“区域截图”。"
+msgstr ""
+"在当前 Wayland 会话中不可用——请在“首选项”中启用窗口捕获支持，或改用“区域截"
+"图”。"
 
 #: src/orcshot/app.py:1038
 msgid "Repeat Last Region"
@@ -1552,3 +1572,10 @@ msgstr "Orcshot 已是最新版本"
 #: src/orcshot/app.py:1178
 msgid "You're running the latest version ({})."
 msgstr "您正在运行最新版本（{}）。"
+
+#~ msgid "English"
+#~ msgstr "English"
+
+#~ msgid ""
+#~ "Only English is available - no translations have been contributed yet."
+#~ msgstr "目前仅提供英语——尚未收到任何翻译贡献。"

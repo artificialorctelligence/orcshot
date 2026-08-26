@@ -1,15 +1,26 @@
-"""gettext wrapper (i18n phase 1, BACKLOG.md's resolved #173 successor
-work) - binds _()/ngettext() once at import time. localedir reuses the
-existing RESOURCES_DIR convention (package-relative, not the system
-/usr/share/locale/) so this resolves identically in a dev checkout and
-an installed .deb, same trick already used for icons/
-magnifier_constants.json.
+"""gettext wrapper (i18n phase 1/2) - binds _()/ngettext() once at
+import time. localedir reuses the existing RESOURCES_DIR convention
+(package-relative, not the system /usr/share/locale/) so this
+resolves identically in a dev checkout and an installed .deb, same
+trick already used for icons/magnifier_constants.json.
 
-No real .mo catalogs ship yet (this phase is infrastructure-only, see
-docs/superpowers/specs/2026-08-23-i18n-phase1-gettext-infrastructure-design.md) -
-fallback=True means _() always returns its argument unchanged for now,
-which is why every existing test's expected UI-text output is
-unaffected by the whole sweep this phase does.
+Language selection: by default (settings.get_language() == ""),
+follows the OS locale via gettext's own standard env-var negotiation
+($LANGUAGE/$LC_ALL/$LC_MESSAGES/$LANG), matching GTK/GNOME desktop
+convention rather than Windows Greenshot's own in-app language
+dropdown. A non-empty settings.get_language() overrides that
+negotiation with an explicit language code, driven by the Preferences
+"Language" picker (phase 2, once real translations existed to pick
+between - see editor_window.py's own _build_general_settings_tab).
+
+That override is read once, here, at this module's own import time -
+same as every other _()-bound value in this codebase (hundreds of
+module-level constants across ui/, all fixed at their own import
+time). Changing the Preferences setting therefore only takes effect
+on the next app start, not live - a real, accepted limitation given
+how pervasively _() is already used at import time throughout this
+codebase; making every one of those live-reloadable would be a much
+larger redesign than this setting needs.
 """
 
 from __future__ import annotations
@@ -17,7 +28,18 @@ from __future__ import annotations
 import gettext
 from pathlib import Path
 
+from orcshot.settings import get_language
+
 _LOCALE_DIR = Path(__file__).parent / "resources" / "locale"
+
+
+def _resolve_languages() -> list[str] | None:
+    """None means "let gettext negotiate from the OS locale env vars,
+    same as always" - the languages= value gettext.translation()
+    itself defaults to.
+    """
+    language = get_language()
+    return [language] if language else None
 
 
 def _load_translation(domain: str, localedir, languages=None) -> gettext.NullTranslations:
@@ -37,6 +59,6 @@ def _load_translation(domain: str, localedir, languages=None) -> gettext.NullTra
         return gettext.NullTranslations()
 
 
-_translation = _load_translation("orcshot", _LOCALE_DIR)
+_translation = _load_translation("orcshot", _LOCALE_DIR, languages=_resolve_languages())
 _ = _translation.gettext
 ngettext = _translation.ngettext

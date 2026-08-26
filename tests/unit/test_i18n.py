@@ -38,6 +38,18 @@ class TestFallbackTranslation:
         finally:
             os.chmod(mo_path, 0o644)
 
+    def test_resolve_languages_returns_none_to_follow_system_locale_by_default(self, monkeypatch):
+        import orcshot.i18n
+
+        monkeypatch.setattr(orcshot.i18n, "get_language", lambda: "")
+        assert orcshot.i18n._resolve_languages() is None
+
+    def test_resolve_languages_honors_a_real_override(self, monkeypatch):
+        import orcshot.i18n
+
+        monkeypatch.setattr(orcshot.i18n, "get_language", lambda: "es")
+        assert orcshot.i18n._resolve_languages() == ["es"]
+
     def test_a_real_catalog_actually_substitutes(self, tmp_path):
         import gettext as gettext_module
 

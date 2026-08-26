@@ -172,6 +172,7 @@ from orcshot.settings import (
     get_filename_counter,
     get_footer_pattern,
     get_icon_size,
+    get_language,
     get_output_directory,
     get_output_settings,
     get_play_capture_sound,
@@ -188,6 +189,7 @@ from orcshot.settings import (
     set_filename_counter,
     set_footer_pattern,
     set_icon_size,
+    set_language,
     set_output_directory,
     set_output_settings,
     set_play_capture_sound,
@@ -5372,6 +5374,23 @@ def show_preferences_dialog(parent: Gtk.Window = None) -> None:
     dialog.run()
     dialog.destroy()
 
+# i18n phase 2's own available real translations (settings.get_language's
+# valid non-"" values - see po/*.po). Native names ("Español", not
+# "Spanish"), deliberately NOT run through _() - a language's own name
+# is an endonym, meant to read the same regardless of whatever language
+# the UI happens to currently be in, same convention real desktop
+# language pickers (GNOME's own Region & Language panel included) use.
+_AVAILABLE_LANGUAGES = (
+    ("es", "Español"),
+    ("fr", "Français"),
+    ("de", "Deutsch"),
+    ("uk", "Українська"),
+    ("hi", "हिन्दी"),
+    ("ja", "日本語"),
+    ("zh", "中文"),
+)
+
+
 def _build_general_settings_tab(parent: Gtk.Window) -> Gtk.Box:
     """Matches real Windows' General tab (SettingsForm.Designer.cs:
     480-482's tab_general.Controls: groupbox_network,
@@ -5388,19 +5407,21 @@ def _build_general_settings_tab(parent: Gtk.Window) -> Gtk.Box:
     app_box.set_border_width(8)
     app_frame.add(app_box)
 
-    # Placeholder - i18n phase 1 (gettext infrastructure) is done,
-    # but phase 2 (authoring real translations) hasn't happened yet,
-    # so there's only ever one real choice. Shown disabled rather
-    # than omitted so the real Windows field this corresponds to
-    # (combobox_language, groupbox_applicationsettings) has a
-    # visible, honest placement already.
+    # i18n phase 2: real translations now exist (po/*.po), so this is a
+    # real, working picker - not the disabled placeholder phase 1 left
+    # here. settings.get_language()'s own docstring (and orcshot.i18n's)
+    # explain why this can't apply live: hundreds of _()-bound module-
+    # level constants across ui/ are already fixed at their own import
+    # time, so changing this only takes effect after a restart.
     language_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
     language_row.pack_start(Gtk.Label(label=_("Language:")), False, False, 0)
     language_combo = Gtk.ComboBoxText()
-    language_combo.append("en", _("English"))
-    language_combo.set_active_id("en")
-    language_combo.set_sensitive(False)
-    language_combo.set_tooltip_text(_("Only English is available - no translations have been contributed yet."))
+    language_combo.append("", _("System Default"))
+    for code, native_name in _AVAILABLE_LANGUAGES:
+        language_combo.append(code, native_name)
+    language_combo.set_active_id(get_language())
+    language_combo.set_tooltip_text(_("Applies after restarting Orcshot."))
+    language_combo.connect("changed", lambda combo: set_language(combo.get_active_id() or ""))
     language_row.pack_start(language_combo, False, False, 0)
     app_box.pack_start(language_row, False, False, 0)
 
