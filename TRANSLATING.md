@@ -42,6 +42,14 @@ blank space for your translation on the right. No code, no syntax to learn.
 2. Open it in Poedit and edit whichever entries need fixing.
 3. Save, then send it back the same way.
 
+## One file covers everything
+
+On a Wayland desktop, Orcshot's tray icon menu is drawn by a separate
+component (a GNOME Shell extension) rather than the main app - but it
+reuses the exact same translations. You don't need to do anything
+differently or fill in a second file: translating `po/<lang>.po`
+covers the tray menu automatically, on both X11 and Wayland.
+
 ## One thing to watch for
 
 Some strings contain a `{}` placeholder, like this:

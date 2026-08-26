@@ -43,6 +43,14 @@ sin sintaxis que aprender.
 2. Ábralo en Poedit y edite las entradas que haya que corregir.
 3. Guárdelo y envíelo de vuelta de la misma manera.
 
+## Un solo archivo lo cubre todo
+
+En un escritorio Wayland, el menú del icono de la bandeja de Orcshot lo dibuja
+un componente aparte (una extensión de GNOME Shell) en lugar de la aplicación
+principal, pero reutiliza exactamente las mismas traducciones. No necesita
+hacer nada distinto ni rellenar un segundo archivo: traducir `po/<lang>.po`
+cubre el menú de la bandeja automáticamente, tanto en X11 como en Wayland.
+
 ## Un detalle al que prestar atención
 
 Algunas cadenas contienen un marcador de posición `{}`, como esta:

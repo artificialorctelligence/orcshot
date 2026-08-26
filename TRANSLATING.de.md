@@ -46,6 +46,15 @@ Syntax, die man lernen müsste.
    werden müssen.
 3. Speichern Sie sie und schicken Sie sie auf demselben Weg zurück.
 
+## Eine Datei deckt alles ab
+
+Auf einem Wayland-Desktop wird Orcshots Menü im Tray-Symbol von einer
+separaten Komponente gezeichnet (einer GNOME-Shell-Erweiterung) statt von der
+Hauptanwendung – verwendet aber genau dieselben Übersetzungen. Sie müssen
+nichts anders machen oder eine zweite Datei ausfüllen: Die Übersetzung von
+`po/<lang>.po` deckt das Tray-Menü automatisch ab, sowohl unter X11 als auch
+unter Wayland.
+
 ## Worauf Sie achten sollten
 
 Manche Texte enthalten einen Platzhalter `{}`, zum Beispiel so:

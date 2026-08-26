@@ -2,6 +2,7 @@
   "name": "Orcshot Clipboard",
   "description": "Exposes D-Bus methods that copy image data to the clipboard and run the interactive capture flow using Shell-side privileged access, plus a Shell-native tray panel button for Orcshot's own capture-mode menu (see the project's own REQUIREMENTS.md for why each piece needs to run inside the Shell process rather than as an ordinary client app).",
   "uuid": "orcshot-clipboard@orcshot.org",
+  "gettext-domain": "orcshot-tray",
   "shell-version": [
     "45",
     "46",

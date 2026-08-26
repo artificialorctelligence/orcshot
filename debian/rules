@@ -41,20 +41,48 @@ override_dh_installsystemduser:
 override_dh_auto_test:
 	PYBUILD_TEST_ARGS='tests -m "not x11 and not wayland"' xvfb-run -a dh_auto_test
 
-# i18n phase 2: compiles every real translation in po/*.po into the
-# package before dh_auto_build runs, so hatchling's own wheel build
-# (packages = ["src/orcshot"], no explicit include list) picks up each
-# compiled .mo the same way it already picks up every other file
-# already sitting under src/orcshot/resources/ - no debian/orcshot.
-# install entry needed, matching orcshot/i18n.py's own RESOURCES_DIR-
-# relative _LOCALE_DIR convention. Loops over whatever *.po files
-# exist rather than hardcoding a language list, so adding a new
-# language later is just adding a new po/<lang>.po file - no rules
-# change needed.
+# i18n phase 2: compiles every real translation in po/<lang>.po into
+# the package before dh_auto_build runs, so hatchling's own wheel
+# build (packages = ["src/orcshot"], no explicit include list) picks
+# up each compiled .mo the same way it already picks up every other
+# file already sitting under src/orcshot/resources/ - no debian/
+# orcshot.install entry needed, matching orcshot/i18n.py's own
+# RESOURCES_DIR-relative _LOCALE_DIR convention. po/??.po (exactly a
+# 2-letter code), not po/*.po - po/ also holds the Wayland tray
+# extension's own separate-domain po/orcshot-tray-<lang>.po files
+# (task #183 follow-up) now, and a bare *.po glob was compiling those
+# into a bogus src/orcshot/resources/locale/orcshot-tray-<lang>/
+# directory that leaked into this wheel too, confirmed live via a
+# real build before this fix. Still no rules change needed for a
+# genuinely new 2-letter-code language.
 override_dh_auto_build:
-	for po in po/*.po; do \
+	for po in po/??.po; do \
 		lang=$$(basename "$$po" .po); \
 		mkdir -p src/orcshot/resources/locale/$$lang/LC_MESSAGES; \
 		msgfmt "$$po" -o src/orcshot/resources/locale/$$lang/LC_MESSAGES/orcshot.mo; \
 	done
 	dh_auto_build
+	# Task #183 follow-up: the Wayland Shell-native tray menu (a
+	# separate GJS runtime inside gnome-shell, not the Python package
+	# hatchling builds above) has its own gettext domain
+	# ("orcshot-tray", metadata.json's "gettext-domain") - compiled
+	# straight into the extension's own source tree, same as the
+	# Python side above, since debian/orcshot.install copies that
+	# whole directory (including this locale/ subdirectory) rather
+	# than enumerating individual files.
+	#
+	# Deliberately NOT a second set of po/orcshot-tray-<lang>.po files
+	# to maintain - all 8 of this domain's msgids are already
+	# translated in po/<lang>.po (the X11 Gtk.Menu fallback has the
+	# exact same items), so msgmerge here just pulls that subset back
+	# out of the one file translators already touch, per language,
+	# every build. A translator finishing po/<lang>.po already
+	# finishes the Wayland tray menu too, with nothing extra to fill
+	# in - including for a genuinely new language, not just these 7.
+	for po in po/??.po; do \
+		lang=$$(basename "$$po" .po); \
+		mkdir -p "src/orcshot/resources/gnome-shell-extensions/orcshot-clipboard@orcshot.org/locale/$$lang/LC_MESSAGES"; \
+		msgmerge --no-fuzzy-matching --quiet "$$po" po/orcshot-tray.pot -o - | \
+			msgattrib --no-obsolete -o - - | \
+			msgfmt - -o "src/orcshot/resources/gnome-shell-extensions/orcshot-clipboard@orcshot.org/locale/$$lang/LC_MESSAGES/orcshot-tray.mo"; \
+	done

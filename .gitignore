@@ -32,3 +32,8 @@ vmpw.txt
 # (compiled from po/*.po into here so hatchling's own wheel build
 # picks them up) - never committed, source of truth is po/*.po.
 src/orcshot/resources/locale/
+
+# Same as above, for the Wayland tray extension's own separate
+# gettext domain (task #183 follow-up) - compiled from
+# po/orcshot-tray-*.po by debian/rules, never committed.
+src/orcshot/resources/gnome-shell-extensions/orcshot-clipboard@orcshot.org/locale/

@@ -46,6 +46,15 @@ syntaxe à apprendre.
    corrigées.
 3. Enregistrez, puis renvoyez-le de la même manière.
 
+## Un seul fichier couvre tout
+
+Sur un bureau Wayland, le menu de l'icône de la zone de notification
+d'Orcshot est dessiné par un composant distinct (une extension GNOME Shell)
+plutôt que par l'application principale, mais il réutilise exactement les
+mêmes traductions. Vous n'avez rien à faire différemment ni à remplir un
+second fichier : traduire `po/<lang>.po` couvre automatiquement le menu de
+la zone de notification, aussi bien sous X11 que sous Wayland.
+
 ## Un point de vigilance
 
 Certaines chaînes contiennent un espace réservé `{}`, comme ceci :
