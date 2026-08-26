@@ -4,6 +4,45 @@ Open items not yet scheduled into a task. Each entry keeps the context that
 led to it - not just "what," but "why this matters" - so picking it up later
 doesn't require re-deriving the reasoning from scratch.
 
+## #183: Language picker has no effect, even after a real restart - .mo files never ship in the package
+
+Found live (direflail, 2026-08-25) testing the Preferences language picker built in task #182's own fix
+wave, on a real installed `.deb`: picking a language and restarting Orcshot has no visible effect - the app
+stays in English regardless of what's selected.
+
+Root-caused, not just reproduced. Ruled out first: `settings.set_language()`/`get_language()` and the
+restart timing are both fine - confirmed live that the picker correctly wrote `"language": "ja"` to
+`~/.config/orcshot/config.json`, and confirmed the actual running process (`systemctl --user status
+orcshot.service`, a fresh PID) started *after* that config write - so this was a genuinely new process
+that should have picked the setting up.
+
+The real break: the installed package ships with **no locale files at all**. Confirmed via
+`dpkg -L orcshot | grep locale` (empty) and `dpkg-deb -c orcshot_*.deb | grep locale` (empty) -
+`/usr/lib/python3/dist-packages/orcshot/resources/` has no `locale/` subdirectory whatsoever, even though
+`debian/rules`' `override_dh_auto_build` genuinely does compile every `po/*.po` to a real `.mo` in the
+source tree before `dh_auto_build` runs (confirmed those `.mo` files exist on disk under
+`src/orcshot/resources/locale/`).
+
+The gap: `pyproject.toml`'s `[tool.hatch.build.targets.wheel]` uses `packages = ["src/orcshot"]` with no
+explicit `include`/`artifacts` list. Task #182's own REQUIREMENTS.md write-up assumed this auto-bundles the
+compiled `.mo` files "the same way it already bundles icons" - that was never actually verified against a
+real installed package, only against `dpkg-buildpackage` succeeding and `pytest` passing, neither of which
+inspects the final wheel/deb contents. Hatchling's default wheel build respects `.gitignore` when no
+explicit include list is given, and `src/orcshot/resources/locale/` is deliberately gitignored (as a build
+artifact, per task #182's own reasoning) - so hatchling silently drops the whole directory from the wheel
+even though the files are sitting right there on disk at build time. A direct, self-inflicted conflict
+between two decisions made in the same task.
+
+**Fix**: add an explicit `artifacts` (or `force-include`) entry to `pyproject.toml`'s
+`[tool.hatch.build.targets.wheel]` for `src/orcshot/resources/locale/**/*.mo` - the standard hatchling
+mechanism for a generated file that's intentionally untracked by git but must still ship. Verify this time
+against a real `dpkg -L`/`dpkg-deb -c` listing, not just a successful build - that gap is exactly what let
+this ship unnoticed in the first place.
+
+**Bundled UX request (direflail, same session):** once this actually works, switching languages in the
+Preferences picker should prompt to restart Orcshot (with confirmation), rather than relying on the passive
+"Applies after restarting Orcshot" tooltip and the user remembering to restart manually.
+
 ## #178: Insert Window never uses the nicer Wayland Shell-native window-picker overlay
 
 Found by a REQUIREMENTS.md sweep (2026-08-23, task #99's own original write-up), re-checked against current
