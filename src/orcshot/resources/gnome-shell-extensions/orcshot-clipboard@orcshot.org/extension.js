@@ -1800,6 +1800,38 @@ function _loadIconGeometry() {
   return JSON.parse(new TextDecoder().decode(bytes));
 }
 
+// Task #183 follow-up, direflail's own live report: Orcshot's own
+// Preferences language picker (settings.py's get_language/
+// set_language, "" meaning System Default) overrides the Python
+// side's language independently of the real system locale - but this
+// extension is a separate GJS process with no visibility into that
+// choice at all, so it kept following the real system locale even
+// when Orcshot itself had been switched to something else. Read
+// straight from Orcshot's own config.json, the same file
+// settings.config_file_path() reads/writes and the exact same
+// $XDG_CONFIG_HOME resolution (GLib.get_user_config_dir() already
+// does this) - this extension is built specifically for Orcshot, not
+// a general-purpose one, and already reads two of its other JSON
+// files this same way (icon_geometry.json, magnifier_constants.json)
+// as an already-established pattern. Returns null (not "") for "no
+// override, follow the real system locale" so callers can use a
+// plain truthiness check - matches settings.get_language()'s own "no
+// override" sentinel being the empty string, just adapted to JS's
+// own null-vs-falsy-string conventions. Never throws: a missing file
+// (Orcshot never launched on this system yet), malformed JSON, or a
+// missing/blank "language" key are all just "no override" too, not
+// errors worth surfacing to the user over a menu label.
+function _readOrcshotLanguageOverride() {
+  const configPath = GLib.build_filenamev([GLib.get_user_config_dir(), 'orcshot', 'config.json']);
+  try {
+    const [, bytes] = GLib.file_get_contents(configPath);
+    const config = JSON.parse(new TextDecoder().decode(bytes));
+    return config['language'] || null;
+  } catch (e) {
+    return null;
+  }
+}
+
 // Task #146: same reasoning as _buildTrayButton's own capture-mode
 // items (see _renderIconGeometry's own docstring above) - every menu
 // item that used to carry a stock PopupImageMenuItem icon name
@@ -1933,6 +1965,19 @@ export default class Extension extends ShellExtension {
     if (this._trayButton)
       return;
     this._trayButtonError = '';
+    // Task #183 follow-up: scoped narrowly to just this call, not set
+    // globally for gnome-shell's own process lifetime - $LANGUAGE
+    // drives every dgettext() call process-wide, including gnome-
+    // shell's own UI, so this saves and restores whatever it was
+    // immediately around the one call that actually needs Orcshot's
+    // own override, rather than leaking it into the rest of the
+    // Shell. See _readOrcshotLanguageOverride's own comment for why
+    // this reads Orcshot's config.json directly instead of the real
+    // system locale for this one call.
+    const orcshotLanguage = _readOrcshotLanguageOverride();
+    const previousLanguage = GLib.getenv('LANGUAGE');
+    if (orcshotLanguage)
+      GLib.setenv('LANGUAGE', orcshotLanguage, true);
     try {
       this._trayButton = this._buildTrayButton();
       Main.panel.addToStatusArea('orcshot-tray', this._trayButton);
@@ -1942,6 +1987,13 @@ export default class Extension extends ShellExtension {
       this._trayButton = null;
       this._repeatItem = null;
       this._repeatIconArea = null;
+    } finally {
+      if (orcshotLanguage) {
+        if (previousLanguage === null)
+          GLib.unsetenv('LANGUAGE');
+        else
+          GLib.setenv('LANGUAGE', previousLanguage, true);
+      }
     }
   }
 
