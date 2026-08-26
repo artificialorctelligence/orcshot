@@ -53,24 +53,6 @@ testing specifically - real Wayland hardware, or a non-VM Wayland session,
 wouldn't hit this at all, so it may only ever matter for this project's own
 dev-testing setup, not real users.
 
-## #182: i18n phase 2 - author real `.po` translations for specific languages
-
-Phase 1 (task #173, closed 2026-08-24, see REQUIREMENTS.md's own entry for the full writeup) built the
-gettext infrastructure - `orcshot.i18n`'s `_()`/`ngettext()`, the whole-tree sweep wrapping every
-user-facing string across `ui/` and `app.py`, `scripts/extract_pot.sh`'s dev-only `.pot` extraction, and
-`tests/unit/test_i18n_coverage.py`'s AST-based sink-list scanner guarding every string-setting call site
-against future regressions - but ships zero real translation catalogs. `_()` currently always returns its
-argument unchanged (`fallback=True`, no `.mo` files anywhere), so the app is English-only today regardless
-of the host system's locale.
-
-Phase 2 is producing and maintaining actual `.po` files for specific target languages (translate every
-`msgid` in `po/orcshot.pot`, compile to `.mo` via `msgfmt`, wire the compiled catalogs into the packaged
-build) - a dedicated effort of its own, deliberately scoped out of phase 1 from the original task #93
-split (2026-08-10). Same open question as before: which languages to target hasn't been decided, and
-whoever picks this up should confirm that with direflail first rather than guessing. Also inherits phase
-1's own explicitly-deferred loose ends noted during its final review: the `msgfmt` shell-out dependency
-this'll actually need wiring up, and the unquoted `$(find ...)` in `scripts/extract_pot.sh`.
-
 ## #181: Crop-offset origin assumption unverified specifically for non-GNOME Wayland compositors
 
 Narrowed successor to the old #175 (closed for GNOME - see REQUIREMENTS.md's Task #175 entry for the full

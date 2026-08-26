@@ -7546,6 +7546,80 @@ just mentioned, otherwise unchanged; every other fix here is behavior-preserving
 still-inert passthrough. See BACKLOG.md's `#182` entry for phase 2 (authoring real translations), the
 deliberately-deferred remainder this phase never claimed to cover.
 
+## Task #182: i18n phase 2 - real translations for 7 languages, language picker, and packaging (2026-08-25)
+
+Closes the deliberately-deferred remainder of task #173. `_()`/`ngettext()` are no longer an inert
+passthrough for anyone but English speakers: `po/{es,fr,de,uk,hi,ja,zh}.po` (Spanish, French, German,
+Ukrainian, Hindi, Japanese, Chinese - direflail's own explicit list) each translate all 357 real msgids
+from `po/orcshot.pot` (358 `msgid` entries including the header), verified clean via
+`msgfmt --check-format --check-domain -o /dev/null` on every file. `po/orcshot.pot` itself is now a real
+committed contribution template rather than a gitignored dev artifact (`.gitignore`'s old `po/*.pot` line
+removed); `src/orcshot/resources/locale/` (the compiled `.mo` output) is gitignored instead, matching every
+other build artifact in this repo - source of truth stays the `.po` files.
+
+**Translation authorship**: seven independent agents, one per language (`superpowers:dispatching-parallel-agents`),
+each given the full `.pot`, the exact `Plural-Forms` header for its language (French's `nplurals=2;
+plural=(n > 1);` - 0 is grammatically singular in French, unlike English; Ukrainian's full three-way Slavic
+plural rule; Japanese/Chinese's `nplurals=1; plural=0;` - no grammatical plural at all), and instructed to
+preserve `{}` placeholders and never translate "Orcshot." All seven re-verified directly by the controller
+afterward, not just trusted.
+
+**Packaging**: `debian/rules` gained `override_dh_auto_build`, compiling every `po/*.po` to
+`src/orcshot/resources/locale/<lang>/LC_MESSAGES/orcshot.mo` via `msgfmt` before the real `dh_auto_build`
+runs; `debian/control`'s `Build-Depends` gained `gettext` (deliberately deferred in phase 1 since nothing
+was compiled at build time then). No `debian/orcshot.install` entry needed - hatchling's existing
+`packages = ["src/orcshot"]` already bundles the compiled `.mo` files the same way it bundles icons.
+
+**Contribution workflow**: `TRANSLATING.md` documents a Poedit-based process (download the `.pot` or an
+existing `.po`, edit in the free Poedit GUI, send back via PR or `<orc.shot@yahoo.com>` for non-GitHub
+contributors) - chosen specifically so contributing a translation never requires reading source code or
+raw `.po` syntax, per direflail's own stated goal ("i'd rather not make someone dig through the source
+code").
+
+**A real language picker, not just catalogs**: phase 1 had already added a "Language" row to Preferences,
+permanently disabled with a tooltip claiming no translations existed - now that real ones do, all seven
+translator agents independently flagged that same dropdown as stale/misleading. `settings.py` gained
+`get_language()`/`set_language()` (`""` = "System Default"); `i18n.py`'s `_resolve_languages()` reads that
+once at the module's own import time and, if non-empty, overrides gettext's normal OS-locale env-var
+negotiation. Default behavior is unchanged - Orcshot still follows the Linux system locale unless a user
+explicitly picks something else in Preferences. The override only takes effect after a restart (documented
+honestly in the dropdown's own tooltip and in `i18n.py`'s docstring), the same known limitation as every
+other `_()`-bound module-level constant in this codebase, not a new one this feature introduced.
+
+**Two more real cross-language bugs, surfaced independently by multiple translator agents while actually
+reading the render code, not guessed**: (1) `ObfuscateShape.fill_text` was both a stable storage key
+(persisted in `.orcshot` files, used as a dict key in `editor_window.py`) and, previously, the literal text
+drawn onto the image - conflating "internal key" with "displayed text" meant the redaction stamp itself
+(`"REDACTED"`, `"CENSORED"`, etc.) never actually translated. Fixed by moving
+`OBFUSCATE_FILL_TEXT_PRESETS`/`OBFUSCATE_FILL_TEXT_LABELS` to `core/shapes.py` so `render.py`'s
+`render_obfuscate` can translate the key to its display label at the point of drawing, while the stored key
+itself stays stable and untranslated. (2) `msgid "Edit"` collided between the Edit menu and the destination
+picker's "open in editor" button - grammatically fine as a menu label but reads as a fragment on a button.
+Resolved by pointing `destination_picker.py` at an already-existing, already-translated msgid (`"Edit..."`,
+used elsewhere for an external-editor button) instead of introducing `msgctxt`/`pgettext` for one string.
+
+**A real production bug, not hypothetical**: `gettext.translation(..., fallback=True)` only protects
+against `find()` returning no candidate `.mo` at all - once a candidate path exists but can't be opened
+(permission denied, corrupt file), it raises `OSError` uncaught even with `fallback=True` set. Found live
+during VM verification: a root-owned `.mo` file crash-looped the whole app on every startup instead of
+silently staying in English. Fixed with `i18n.py`'s new `_load_translation()`, wrapping the call in
+`try/except OSError: return gettext.NullTranslations()`.
+
+**Two real build-breaking bugs, found via an actual `dpkg-buildpackage -us -uc -b` run, not caught by
+`pytest` alone**: `test_i18n_coverage.py` and `test_extract_pot.py` both assumed `Path(__file__).parent.parent.parent`
+resolves to the repo root - true in a dev checkout, false inside `dh_auto_test`'s pybuild build tree, where
+hatchling flattens `src/orcshot/` to a plain `orcshot/` package and doesn't copy `scripts/` at all. Fixed by
+resolving via `Path(orcshot.__file__).parent` (same trick `RESOURCES_DIR` already uses) and by skipping the
+`extract_pot.sh`-dependent test when that dev-only script isn't present. Also fixed `scripts/extract_pot.sh`'s
+unquoted `$(find ...)` (word-split/glob risk, noted as a loose end in phase 1's own final review) with
+`find ... -print0 | xargs -0`.
+
+Verified live end-to-end on a real Ubuntu 26.04 Wayland VM with the system language actually switched to
+Spanish (not an env-var shortcut) - Preferences and the tray menu both rendered in Spanish. Full suite
+green: 1143 passed, 3 skipped. Documentation translation (README/docs into the same 7 languages, and how to
+make GitHub display multiple documentation languages) remains an explicit, separate follow-up - raised by
+direflail but deliberately not part of this task's scope.
+
 ## Licensing
 
 **Status: decided — GPLv3.** Greenshot (Windows) is GPLv3; this is a derivative work — same feature
