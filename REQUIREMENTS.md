@@ -7620,6 +7620,86 @@ green: 1143 passed, 3 skipped. Documentation translation (README/docs into the s
 make GitHub display multiple documentation languages) remains an explicit, separate follow-up - raised by
 direflail but deliberately not part of this task's scope.
 
+## Task #183: the language picker actually working, end to end (2026-08-26)
+
+BACKLOG.md's own `#183` entry already carries the root cause and fix for the core packaging bug (hatchling's
+wheel build silently dropping `src/orcshot/resources/locale/` because it's gitignored, with no `artifacts`
+entry telling it otherwise) - this closes it out along with everything direflail's own live re-testing found
+on top of that first fix, across several rounds on the same real Ubuntu 26.04 Wayland VM. Every fix below
+was verified against real evidence gathered live (journalctl, a real installed `.deb`, GNOME Shell's own
+extracted source, real `gjs` runs) before landing, not assumed correct from the surrounding code reading
+right.
+
+**Packaging fix**: `pyproject.toml`'s `[tool.hatch.build.targets.wheel]` gained `artifacts =
+["src/orcshot/resources/locale/**/*.mo"]`. Also surfaced a real test-isolation gap: with real compiled `.mo`
+catalogs now sitting in the dev tree and a real language set in `~/.config/orcshot/config.json` from
+live-testing this exact bug, the whole pytest suite silently started running in Japanese - 4 tests failed
+asserting on English text. `tests/conftest.py` (new) points `XDG_CONFIG_HOME` at an isolated temp directory
+before any test module is imported, so the suite no longer depends on the developer's own machine state.
+
+**Restart-for-language-change, three attempts, each root-caused before moving to the next**: the first
+implementation (`os.execv` re-exec in place) just quit instead of restarting - reproduced outside this app
+entirely with an isolated `Type=dbus`/`BusName=` systemd user unit matching `debian/orcshot.service`'s own
+config exactly: the moment `execv`'s process-image replacement makes the D-Bus name transiently vanish,
+systemd's own `Type=dbus` tracking considers the unit stopped and tears it down before the freshly-exec'd
+image can reacquire the name. Spawning `systemctl --user restart` from inside the same process was tried
+next and has its own race (that subprocess inherits the unit's own cgroup and can be killed as collateral
+damage of the "stop" half of its own restart command). What actually works, confirmed the same way: exiting
+with a non-zero status and letting the *already-configured* `Restart=on-failure`/`RestartSec=2` do the
+relaunch - the one restart path `Type=dbus` supervision is actually built to support.
+
+**Two more real i18n gaps found live**: no explicit "English" option in the picker (only "System Default" -
+added `("en", "English")`, no `i18n.py` change needed since `gettext.translation(languages=["en"],
+fallback=True)` already falls back to a plain passthrough with no `en.po` catalog); Preferences >
+Destinations' "Destination"/"Command" column headers stayed English in every language, a real coverage gap
+in `tests/unit/_i18n_scan.py`'s AST scanner (it only flags string literals reaching a sink directly, not
+ones threaded through a variable a frame up, via the `build_checklist(store, column_label)` helper) - fixed
+at both call sites, with a comment at the helper's own definition explaining the scanner's blind spot for
+next time.
+
+**The Wayland tray menu, four more rounds, each with real evidence gathered on the VM**:
+
+1. The tray menu (built by `extension.js`, GNOME Shell's own extension mechanism - a separate GJS runtime
+   inside `gnome-shell` itself) was never part of phase 1's Python-only `xgettext` sweep at all. Gave it its
+   own gettext domain (`orcshot-tray`, `metadata.json`'s `gettext-domain`), confirmed correct against GNOME
+   Shell 50.1's own actual source (extracted live from `libshell-18.so` on the test VM via `gresource
+   extract`, not assumed from documentation) and proven with a real `gjs` script exercising the same
+   `bindtextdomain`/`dgettext` calls `ExtensionBase.initTranslations()` uses. All 8 msgids are byte-identical
+   to ones already translated in `po/<lang>.po` for the X11 fallback menu's own equivalent items, so
+   `debian/rules` derives this domain's `.mo` files from `po/<lang>.po` via `msgmerge` at build time - no
+   second `po/orcshot-tray-<lang>.po` set to maintain, and no new step for translators (documented in
+   `TRANSLATING.md`, all 8 language versions, per direflail's own request).
+2. "Orcshot worked. translation of tray menu didn't" - the tray menu only ever followed the real system
+   locale, with no visibility into Orcshot's own Preferences language override
+   (`settings.get_language()`), which is deliberately independent of the OS locale. Fixed by having the
+   extension read Orcshot's `config.json` directly (`GLib.get_user_config_dir()`, the same
+   `$XDG_CONFIG_HOME` resolution `settings.config_file_path()` uses) - an established pattern for this
+   extension, which already reads two of Orcshot's other JSON files the same way.
+3. "Restarted. tray menu does not match." - root-caused with hard timestamp evidence
+   (`ps -o lstart= -C gnome-shell` vs. `stat` on `config.json`): the tray panel button is only ever built
+   once per `gnome-shell` session (`_ensureTrayButton`'s own `if (this._trayButton) return;` guard);
+   Orcshot restarting on its own never touched it again. Fixed by reusing `Quitting()` (the D-Bus method
+   `_quit_and_hide_tray_button` already calls before a normal quit, which destroys the button and lets
+   `_ensureTrayButton` rebuild it fresh next time Orcshot's name reappears) from the language-restart path
+   too, via a new shared `_notify_tray_extension_quitting()`.
+4. "Changed to espanol, restarted, tray menu was in espanol. Changed to francais, restarted, tray menu
+   still in espanol" - the *first* language switch each session worked, every one after that silently
+   didn't. Root-caused with three separate `gjs` probes on the VM, each disproving a hypothesis before the
+   real one: re-`setlocale()`, "bouncing" through `'C'` and back, and even a brand-new never-used gettext
+   domain name all still returned the *first* language's text (the fresh-domain case fell back to English
+   instead of resolving French at all, proving this wasn't a per-domain cache but glibc's `dcgettext()`
+   itself not re-reading `$LANGUAGE` after its first real resolution in a process - `gnome-shell` is one
+   long-running process for the whole session, so this hit every language change after the first, unlike
+   `orcshot.i18n`'s own Python side, where each restart is a genuinely fresh process). Fixed by sidestepping
+   gettext's own catalog resolution entirely for this case: `_parseMoFile` reads the target `.mo` file's
+   binary format directly (the documented GNU MO format) into a plain lookup Map, with no
+   `dgettext`/`setlocale`/`$LANGUAGE` involved. Verified by replaying the exact reported sequence
+   (`default -> es -> fr -> de -> es -> ja`) in one `gjs` process - every transition resolved correctly,
+   including switching back to a previously-used language.
+
+Confirmed working live by direflail on the real VM after all four tray-menu rounds. Full suite green
+throughout every round: 1143 passed, 3 skipped.
+
 ## Licensing
 
 **Status: decided — GPLv3.** Greenshot (Windows) is GPLv3; this is a derivative work — same feature
