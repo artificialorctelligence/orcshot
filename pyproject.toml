@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "orcshot"
-version = "0.1.1"
+version = "0.2.0"
 description = "A Linux port of Greenshot"
 readme = "README.md"
 license = "GPL-3.0-or-later"
