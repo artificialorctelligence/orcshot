@@ -9,12 +9,17 @@ finden Sie in [REQUIREMENTS.md](REQUIREMENTS.md).
 
 ## Installation
 
-Für Orcshot gibt es noch keine veröffentlichte Version, daher bauen und installieren Sie das `.deb`
-vorerst selbst. Es ist ein ganz normales Debian-Paket – einmal installiert, verhält es sich wie jede
-andere Anwendung (es erscheint im Anwendungsmenü, lässt sich mit `apt remove` sauber deinstallieren
-usw.).
+**Über das PPA** (Ubuntu 24.04 LTS, Ubuntu 26.04 LTS und Ubuntu-basierte Distributionen wie Linux
+Mint):
 
-Getestet auf: Linux Mint (Cinnamon), Ubuntu 24.04 LTS und Ubuntu 26.04 LTS.
+```
+sudo add-apt-repository ppa:artificialorctelligence/orcshot
+sudo apt update
+sudo apt install orcshot
+```
+
+**Aus dem Quellcode** (jede andere Debian-basierte Distribution, oder wenn Sie es lieber selbst
+bauen möchten):
 
 ```
 sudo apt install dpkg-dev debhelper dh-python pybuild-plugin-pyproject python3-all \
@@ -28,15 +33,19 @@ dpkg-buildpackage -us -uc -b
 sudo apt install ../orcshot_*_all.deb
 ```
 
+So oder so ist es ein ganz normales Debian-Paket – einmal installiert, verhält es sich wie jede
+andere Anwendung (es erscheint im Anwendungsmenü, lässt sich mit `apt remove` sauber deinstallieren
+usw.). Getestet auf: Linux Mint (Cinnamon), Ubuntu 24.04 LTS und Ubuntu 26.04 LTS.
+
 Beim ersten Start bietet Orcshot an, Tastenkürzel für Aufnahmen und den Start bei der Anmeldung
 einzurichten (die Tastenkürzel nur unter Cinnamon – für andere Desktop-Umgebungen siehe den Hinweis
 in `debian/control`). Sie können das jederzeit über die Einstellungen im Tray-Symbol erneut aufrufen.
 
-Für spätere Aktualisierungen: die neuesten Änderungen holen, neu bauen und mit demselben
-`apt install`-Befehl von oben erneut installieren (eine Neuinstallation rührt Ihre Tastenbelegungen,
-die Autostart-Einstellung und alle anderen Einstellungen niemals an – die liegen in Ihrer eigenen
-Benutzerkonfiguration, nicht im Paket). Sobald es eine echte Veröffentlichung gibt, meldet Ihnen
-Hilfe > Nach Updates suchen, wenn eine neuere verfügbar ist.
+Für spätere Aktualisierungen: `sudo apt update && sudo apt upgrade` (bei PPA-Installation), oder die
+neuesten Änderungen holen und neu bauen/installieren (aus dem Quellcode) – eine Neuinstallation
+rührt Ihre Tastenbelegungen, die Autostart-Einstellung und alle anderen Einstellungen niemals an,
+die liegen in Ihrer eigenen Benutzerkonfiguration, nicht im Paket. Hilfe > Nach Updates suchen meldet
+Ihnen ebenfalls, wenn eine neuere Version verfügbar ist.
 
 ## Entwicklungsumgebung einrichten
 

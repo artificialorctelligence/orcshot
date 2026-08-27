@@ -9,11 +9,17 @@ de plataforma y las decisiones de arquitectura.
 
 ## Instalación
 
-Orcshot todavía no tiene una versión publicada, así que por ahora tendrá que compilar e instalar el
-`.deb` usted mismo. Es un paquete Debian normal: una vez instalado, se comporta como cualquier otra
-aplicación (aparece en el menú de aplicaciones, se desinstala limpiamente con `apt remove`, etc.).
+**Desde el PPA** (Ubuntu 24.04 LTS, Ubuntu 26.04 LTS, y distribuciones basadas en Ubuntu como Linux
+Mint):
 
-Verificado en: Linux Mint (Cinnamon), Ubuntu 24.04 LTS y Ubuntu 26.04 LTS.
+```
+sudo add-apt-repository ppa:artificialorctelligence/orcshot
+sudo apt update
+sudo apt install orcshot
+```
+
+**Desde el código fuente** (cualquier otra distribución basada en Debian, o si prefiere compilarlo
+usted mismo):
 
 ```
 sudo apt install dpkg-dev debhelper dh-python pybuild-plugin-pyproject python3-all \
@@ -27,16 +33,20 @@ dpkg-buildpackage -us -uc -b
 sudo apt install ../orcshot_*_all.deb
 ```
 
+En cualquier caso, es un paquete Debian normal: una vez instalado, se comporta como cualquier otra
+aplicación (aparece en el menú de aplicaciones, se desinstala limpiamente con `apt remove`, etc.).
+Verificado en: Linux Mint (Cinnamon), Ubuntu 24.04 LTS y Ubuntu 26.04 LTS.
+
 La primera vez que inicie Orcshot, le ofrecerá configurar los atajos de teclado de captura y el
 inicio automático al iniciar sesión (los atajos solo en Cinnamon: consulte la nota en
 `debian/control` para otros escritorios). Puede volver a esta configuración en cualquier momento
 desde las Preferencias del icono de la bandeja.
 
-Para actualizar más adelante: descargue los últimos cambios, vuelva a compilar y reinstale con el
-mismo comando `apt install` de arriba (reinstalar nunca toca sus atajos de teclado, la opción de
-inicio automático ni ninguna otra preferencia: estas residen en su propia configuración de usuario,
-no en el paquete). Cuando exista una versión publicada de verdad, Ayuda > Buscar actualizaciones le
-avisará cuando haya una más reciente disponible.
+Para actualizar más adelante: `sudo apt update && sudo apt upgrade` (instalación por PPA), o
+descargue los últimos cambios y vuelva a compilar/reinstalar (desde el código fuente) - reinstalar
+nunca toca sus atajos de teclado, la opción de inicio automático ni ninguna otra preferencia: estas
+residen en su propia configuración de usuario, no en el paquete. Ayuda > Buscar actualizaciones
+también le avisará cuando haya una versión más reciente disponible.
 
 ## Configuración del entorno de desarrollo
 

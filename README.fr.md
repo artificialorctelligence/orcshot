@@ -9,12 +9,17 @@ décisions d'architecture.
 
 ## Installation
 
-Orcshot n'a pas encore de version publiée ; pour l'instant, vous compilez et installez le `.deb`
-vous-même. C'est un paquet Debian ordinaire - une fois installé, il se comporte comme n'importe
-quelle autre application (il apparaît dans votre menu d'applications, se désinstalle proprement avec
-`apt remove`, etc.).
+**Depuis le PPA** (Ubuntu 24.04 LTS, Ubuntu 26.04 LTS, et les distributions basées sur Ubuntu comme
+Linux Mint) :
 
-Vérifié sur : Linux Mint (Cinnamon), Ubuntu 24.04 LTS et Ubuntu 26.04 LTS.
+```
+sudo add-apt-repository ppa:artificialorctelligence/orcshot
+sudo apt update
+sudo apt install orcshot
+```
+
+**Depuis les sources** (toute autre distribution basée sur Debian, ou si vous préférez le compiler
+vous-même) :
 
 ```
 sudo apt install dpkg-dev debhelper dh-python pybuild-plugin-pyproject python3-all \
@@ -28,16 +33,21 @@ dpkg-buildpackage -us -uc -b
 sudo apt install ../orcshot_*_all.deb
 ```
 
+Dans les deux cas, c'est un paquet Debian ordinaire - une fois installé, il se comporte comme
+n'importe quelle autre application (il apparaît dans votre menu d'applications, se désinstalle
+proprement avec `apt remove`, etc.). Vérifié sur : Linux Mint (Cinnamon), Ubuntu 24.04 LTS et Ubuntu
+26.04 LTS.
+
 Au premier lancement d'Orcshot, celui-ci vous propose de configurer les raccourcis clavier de capture
 et le lancement à l'ouverture de session (Cinnamon uniquement pour les raccourcis - voir la note dans
 `debian/control` pour les autres environnements de bureau). Vous pouvez y revenir à tout moment
 depuis les Préférences de l'icône de la zone de notification.
 
-Pour mettre à jour plus tard : récupérez les dernières modifications, recompilez et réinstallez avec
-la même commande `apt install` ci-dessus (une réinstallation ne touche jamais à vos raccourcis
-clavier, à votre réglage de lancement au démarrage ni à aucune autre préférence - ceux-ci résident
-dans votre propre configuration utilisateur, pas dans le paquet). Une fois qu'une véritable version
-sera publiée, Aide > Rechercher des mises à jour vous indiquera quand une version plus récente est
+Pour mettre à jour plus tard : `sudo apt update && sudo apt upgrade` (installation via le PPA), ou
+récupérez les dernières modifications et recompilez/réinstallez (depuis les sources) - une
+réinstallation ne touche jamais à vos raccourcis clavier, à votre réglage de lancement au démarrage
+ni à aucune autre préférence, ceux-ci résident dans votre propre configuration utilisateur, pas dans
+le paquet. Aide > Rechercher des mises à jour vous indiquera aussi quand une version plus récente est
 disponible.
 
 ## Environnement de développement

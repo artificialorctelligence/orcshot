@@ -8,11 +8,15 @@ Greenshot 项目没有从属关系，也未获得其认可。完整的功能范�
 
 ## 安装
 
-Orcshot 目前还没有正式发布的版本，因此现阶段需要您自行构建并安装 `.deb` 包。它是一个普通的 Debian
-软件包——安装之后，它的表现与其他任何应用无异（会出现在应用程序菜单中，可用 `apt remove` 干净地卸载，
-等等）。
+**通过 PPA**（Ubuntu 24.04 LTS、Ubuntu 26.04 LTS，以及 Linux Mint 等基于 Ubuntu 的发行版）：
 
-已在以下系统上验证：Linux Mint（Cinnamon）、Ubuntu 24.04 LTS 和 Ubuntu 26.04 LTS。
+```
+sudo add-apt-repository ppa:artificialorctelligence/orcshot
+sudo apt update
+sudo apt install orcshot
+```
+
+**从源代码构建**（其他任何基于 Debian 的发行版，或者您想自行构建）：
 
 ```
 sudo apt install dpkg-dev debhelper dh-python pybuild-plugin-pyproject python3-all \
@@ -26,12 +30,16 @@ dpkg-buildpackage -us -uc -b
 sudo apt install ../orcshot_*_all.deb
 ```
 
+无论哪种方式，它都是一个普通的 Debian 软件包——安装之后，它的表现与其他任何应用无异（会出现在应用
+程序菜单中，可用 `apt remove` 干净地卸载，等等）。已在以下系统上验证：Linux Mint（Cinnamon）、
+Ubuntu 24.04 LTS 和 Ubuntu 26.04 LTS。
+
 首次启动 Orcshot 时，它会提示您设置截图快捷键以及登录时自动启动（快捷键仅支持 Cinnamon——其他桌面
 环境请参阅 `debian/control` 中的说明）。您随时可以从托盘图标的“首选项”中重新进行设置。
 
-日后更新：拉取最新改动、重新构建，然后用上面同样的 `apt install` 命令重新安装（重新安装绝不会改动
-您的快捷键、自动启动设置或任何其他首选项——它们保存在您自己的用户配置中，而不在软件包里）。等到真正
-的发布版本出现后，“帮助 > 检查更新”会在有更新版本可用时告知您。
+日后更新：`sudo apt update && sudo apt upgrade`（PPA 安装方式），或拉取最新改动后重新构建/安装
+（源代码方式）——重新安装绝不会改动您的快捷键、自动启动设置或任何其他首选项，它们保存在您自己的
+用户配置中，而不在软件包里。“帮助 > 检查更新”也会在有更新版本可用时告知您。
 
 ## 开发环境搭建
 

@@ -6,9 +6,15 @@
 
 ## インストール
 
-Orcshot にはまだ公開リリースがないため、現時点では `.deb` を自分でビルドしてインストールします。ごく普通の Debian パッケージなので、インストール後は他のアプリと同じように扱えます（アプリケーションメニューに表示され、`apt remove` できれいにアンインストールできます）。
+**PPA から**（Ubuntu 24.04 LTS、Ubuntu 26.04 LTS、および Linux Mint など Ubuntu ベースのディストリビューション向け）:
 
-動作確認済みの環境: Linux Mint (Cinnamon)、Ubuntu 24.04 LTS、Ubuntu 26.04 LTS。
+```
+sudo add-apt-repository ppa:artificialorctelligence/orcshot
+sudo apt update
+sudo apt install orcshot
+```
+
+**ソースから**（その他の Debian ベースのディストリビューション、または自分でビルドしたい場合）:
 
 ```
 sudo apt install dpkg-dev debhelper dh-python pybuild-plugin-pyproject python3-all \
@@ -22,9 +28,11 @@ dpkg-buildpackage -us -uc -b
 sudo apt install ../orcshot_*_all.deb
 ```
 
+どちらの方法でも、ごく普通の Debian パッケージなので、インストール後は他のアプリと同じように扱えます（アプリケーションメニューに表示され、`apt remove` できれいにアンインストールできます）。動作確認済みの環境: Linux Mint (Cinnamon)、Ubuntu 24.04 LTS、Ubuntu 26.04 LTS。
+
 Orcshot を初めて起動すると、キャプチャ用のキーボードショートカットとログイン時の自動起動を設定するか尋ねられます（ショートカットの自動設定に対応しているのは Cinnamon のみです。他のデスクトップ環境については `debian/control` の注記を参照してください）。この設定は、トレイアイコンの「設定」からいつでも変更できます。
 
-後で更新する場合: 最新の変更を取得し、ビルドし直して、上記と同じ `apt install` コマンドで再インストールします（再インストールしても、キーバインド、自動起動の設定、その他の設定が変更されることはありません。これらはパッケージではなく、ユーザー自身の設定に保存されています）。正式なリリースが公開されれば、「ヘルプ」>「更新を確認」で新しいバージョンの有無を確認できるようになります。
+後で更新する場合: `sudo apt update && sudo apt upgrade`（PPA でインストールした場合）、または最新の変更を取得してビルドし直し、再インストールします（ソースからの場合）。再インストールしても、キーバインド、自動起動の設定、その他の設定が変更されることはありません。これらはパッケージではなく、ユーザー自身の設定に保存されています。「ヘルプ」>「更新を確認」でも新しいバージョンの有無を確認できます。
 
 ## 開発環境のセットアップ
 
