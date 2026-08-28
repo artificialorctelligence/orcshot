@@ -4,6 +4,42 @@ Open items not yet scheduled into a task. Each entry keeps the context that
 led to it - not just "what," but "why this matters" - so picking it up later
 doesn't require re-deriving the reasoning from scratch.
 
+## #187: Prove (or disprove) whether `fallback-x11` gives real, unrestricted X11 capture under Flatpak
+
+Surfaced directly questioning #185's "Wayland-only" framing (direflail, 2026-08-28): "you're SURE we can't
+just use that fallback socket to run it in x11 anyway?" Good pushback - the honest answer right now is
+reasoned, not proven, and the reasoning actually points the other way from what #185 assumed.
+
+**The case for it working, not just as a redirect dialog but as real capture**: X11 itself has no
+per-client security model at all - Flatpak's own sandbox-permissions docs say outright, "X11 lacks GUI
+isolation, making any attempt of sandboxing futile." Once a `fallback-x11` socket is actually live (which
+it is on a genuine pure-X11 session - only revoked when Wayland is also present, confirmed earlier for
+#185), the connected client should have the exact same unrestricted X11 protocol access an unsandboxed
+client would - there's no mechanism for Flatpak to selectively block screen-content reads while allowing
+window drawing, because X11 doesn't support that granularity to begin with. If that holds, Orcshot's
+existing `X11CaptureBackend` should work completely unmodified through that socket, no portal involved.
+
+**Why this isn't already assumed true**: the original Flatpak rejection in this doc's own Packaging
+section uses the word "tendency," not a documented technical wall - reads more like it may have been
+ecosystem convention (portable capture libraries often auto-detect Flatpak sandboxing via
+`/.flatpak-info` and route to the portal unconditionally as a *design choice*, independent of whether
+direct X11 access happens to also work) than something actually verified for this specific case. Worth
+being honest that swapping one unverified claim for another isn't progress - this needs a real test.
+
+**The actual test, cheap and already possible on this machine**: a minimal `flatpak-builder` manifest
+declaring only `wayland` + `fallback-x11` sockets (nothing else), making one real X11 capture call from
+inside the sandbox on this host's own X11 (Mint/Cinnamon) session, and checking whether it succeeds or
+hits some sandbox-level restriction. Direct, empirical, no VM needed - Flatpak's already confirmed
+available here.
+
+**Why this matters beyond curiosity**: if it works, #185's whole "Wayland-only, X11 users redirected
+elsewhere" framing may be unnecessarily narrow - a single Flatpak build might genuinely work on both X11
+(via fallback-x11, full native capture) and Wayland (via the portal or #184's redesigned path), using the
+same kind of session-type branching `backend_select.py` already does in the `.deb` today, instead of
+needing the listing-link/runtime-redirect mitigations #185 currently plans for.
+
+direflail's own sequencing (2026-08-28): after #184 (the Snap-capable Wayland redesign), which is next up.
+
 ## #186: Find out what download/install metrics are actually available, across every channel
 
 direflail's own request (2026-08-28): "find out what metrics we can get about how many downloads we
