@@ -142,9 +142,9 @@ dependency **by that exact name** does vary (the `gir1.2-ayatanaappindicator3-0.
 For each target below: copy the `.deb` over, install it fresh, and confirm apt dependency resolution
 succeeds *and* the installed binary (`/usr/bin/orcshot`, not a dev venv) actually launches.
 
-- [ ] **Mint/Cinnamon** (this host) - `sudo apt install ./orcshot_X.Y.Z-1_all.deb`
-- [ ] **Ubuntu 26.04 LTS** (task #50, verified) - re-check on each new version regardless
-- [ ] **Ubuntu 24.04 LTS / GNOME** (task #38, verified) - re-check on each new version regardless;
+- [x] **Mint/Cinnamon** (this host) - `sudo apt install ./orcshot_X.Y.Z-1_all.deb`
+- [x] **Ubuntu 26.04 LTS** (task #50, verified) - re-check on each new version regardless
+- [x] **Ubuntu 24.04 LTS / GNOME** (task #38, verified) - re-check on each new version regardless;
       confirm the actual login session is Wayland before trusting the result (see
       REQUIREMENTS.md's task #38 section for why this isn't a safe assumption)
 - [ ] *(later, task #37)* other Debian-family targets - pure Debian, Pop!_OS, etc.
