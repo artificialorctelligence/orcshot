@@ -53,6 +53,62 @@ testing specifically - real Wayland hardware, or a non-VM Wayland session,
 wouldn't hit this at all, so it may only ever matter for this project's own
 dev-testing setup, not real users.
 
+## #184: Explore a Wayland capture path that doesn't depend on the bundled GNOME Shell extension, to open up Snap and Flatpak
+
+Surfaced during a conversation with direflail (2026-08-28) about why Orcshot isn't discoverable via GNOME
+Software/App stores on Ubuntu - confirmed live that GNOME Software's browsable catalog doesn't surface
+plain apt/PPA packages at all on either 24.04 or 26.04, regardless of caching state, and the only way in
+is Snap or Flatpak.
+
+The bundled GNOME Shell extension (`orcshot-clipboard@orcshot.org`) is what currently powers the
+Wayland-native fast path: the window picker, the translated tray menu on Wayland, Shell-native region
+select. Real research this session (not assumed) found the sandboxing story is more nuanced than first
+guessed:
+
+- Flatpak's rejection in this doc's own Packaging section ("avoids Flatpak's sandbox tendency to force
+  portal-mediated capture even under X11") is specifically about X11 - doesn't automatically rule out
+  Wayland-only Flatpak/Snap builds.
+- Snap's strict confinement can get *direct* X11 access via the plain `x11` interface (confirmed against
+  Flameshot's real, published `strict`-confinement snapcraft.yaml) - not portal-forced the way Flatpak is.
+- The Shell extension itself doesn't strictly require the system-wide `/usr/share/gnome-shell/extensions/`
+  path that only `.deb`'s root-privileged postinst can write to - GNOME Shell has always supported a
+  per-user path (`~/.local/share/gnome-shell/extensions/<uuid>`, confirmed via GNOME's own admin docs),
+  reachable with the ordinary `home`/`--filesystem=home` grants both Flatpak and Snap commonly hand out.
+  Not yet proven for Orcshot specifically - would need an actual prototype.
+
+**What this task is actually about**: rather than relying on that per-user-path workaround to keep the
+existing Shell-extension architecture alive inside a sandbox, consider whether the Wayland fast path
+could be redesigned to not depend on a GNOME Shell extension at all - something portable across
+compositors and packaging formats, not just GNOME-Shell-specific machinery smuggled through a permission
+grant. Worth weighing against what's actually lost: the Shell extension is also what gets you the
+translated tray menu, the Shell-native window picker, and per [[feedback-extension-reload-caching]],
+whatever replaces it needs its own answer to "how does a code change actually take effect" that doesn't
+require a full logout/login either.
+
+Not scoped, not designed, no decision made - direflail wants to think it over.
+
+## #185: A Wayland-only Flatpak build, alongside the existing dual-mode (X11+Wayland) `.deb`/PPA release
+
+Same conversation as #184 (2026-08-28), a narrower and more incremental alternative to it. Rather than
+redesigning the Wayland capture path, ship a *second*, separate build specifically for Flatpak that drops
+X11 support entirely, while leaving the current `.deb`/PPA release exactly as it is today (full X11 +
+Wayland, direct X11 access, the Shell extension, everything).
+
+**Why this sidesteps the original Flatpak rejection cleanly**: that rejection was specifically about
+Flatpak forcing X11 captures through the portal, fighting the direct-X11-access priority. A build with no
+X11 support at all has nothing for that objection to apply to - its only capture path would go through
+the XDG portal, which is exactly what `WaylandCaptureBackend` already does as Orcshot's own non-extension
+Wayland fallback today, sandboxed or not. Not a new cost Flatpak introduces, just the existing fallback
+becoming the only path in that specific build.
+
+**Real cost, not hidden**: X11 users (Mint/Cinnamon, X11-session Ubuntu) would need the `.deb`/PPA
+instead, same as today - this build wouldn't replace anything, it'd sit alongside it as a second,
+narrower distribution channel aimed specifically at Wayland users who want Flathub discoverability. The
+Shell-extension-features question from #184 (per-user install path, unproven for Orcshot) applies here
+too, if this build wants feature parity rather than portal-only capture.
+
+Not scoped, not designed, no decision made - direflail wants to think it over.
+
 ## #181: Crop-offset origin assumption unverified specifically for non-GNOME Wayland compositors
 
 Narrowed successor to the old #175 (closed for GNOME - see REQUIREMENTS.md's Task #175 entry for the full
