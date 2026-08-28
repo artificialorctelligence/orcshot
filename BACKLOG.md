@@ -4,6 +4,29 @@ Open items not yet scheduled into a task. Each entry keeps the context that
 led to it - not just "what," but "why this matters" - so picking it up later
 doesn't require re-deriving the reasoning from scratch.
 
+## #186: Find out what download/install metrics are actually available, across every channel
+
+direflail's own request (2026-08-28): "find out what metrics we can get about how many downloads we
+get. i don't want anything but numbers to make myself feel good." Explicit constraint, not just phrasing
+- this is about checking what the existing distribution channels already expose, not about adding any
+kind of tracking, telemetry, or analytics to Orcshot itself. No phone-home code, no third-party analytics
+script on the wiki, nothing that reports on real users - just reading whatever numbers Launchpad/GitHub
+already publish on their own.
+
+**Already confirmed real, no research needed**: GitHub Releases exposes a genuine per-asset download
+counter today - `gh release view v0.2.0 --json assets` (used earlier this same session to verify the
+`.deb` attached correctly) returned a real `downloadCount` field per asset, currently `0` since the
+release just went live. Trivial to check any time with that same command.
+
+**Not yet checked**: whether Launchpad exposes any public download/install statistics for PPA packages
+at all - historically a well-known gap/frustration in the Launchpad community (unlike Debian's opt-in
+popularity-contest mechanism), but not confirmed one way or the other for this project's own PPA, not
+assumed. Also unchecked: whether `apt install` from the PPA is even the kind of thing Launchpad *could*
+count (PPA downloads happen from Launchpad's own mirror infrastructure, not a single tracked endpoint the
+way a GitHub Release asset is).
+
+Not investigated yet - direflail wants this recorded as a task, not resolved right now.
+
 ## #178: Insert Window never uses the nicer Wayland Shell-native window-picker overlay
 
 Found by a REQUIREMENTS.md sweep (2026-08-23, task #99's own original write-up), re-checked against current
