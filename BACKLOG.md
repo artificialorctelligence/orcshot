@@ -163,6 +163,17 @@ level - put a link in the Flathub description pointing X11 users at the full dua
 eliminate the failure-on-launch risk for someone who installs anyway without reading the description, but
 is a real, cheap piece of the mitigation, decided rather than left open.
 
+**Second layer, also decided rather than left open**: add a real runtime X11 check too, not just the
+listing-level mitigation - same link, shown as an in-app message rather than a launch failure. Confirmed
+technically sound, not a contradiction of the "no display socket at all" problem above: the manifest would
+declare `--socket=wayland` **and** `--socket=fallback-x11` together (Flatpak's own docs recommend exactly
+this pairing for Wayland-primary apps), and per the sandbox mechanism already found for this task,
+`fallback-x11` only gets revoked when Wayland *is* available - on a genuine pure-X11 session it stays
+granted, enough to open one bare window and show the "won't work here, get the full version" message
+before any real capture code ever engages. No new detection to build: `app.py:117` already computes
+`session_type` (`wayland`/`x11`) for its own startup log line - this is a new branch on existing plumbing,
+not new capability.
+
 Not scoped, not designed, no decision made - direflail wants to think it over.
 
 ## #132: RPM-family distros (Fedora, openSUSE) and Arch/AUR - real scope, not yet started
