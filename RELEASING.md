@@ -176,3 +176,9 @@ returns something once a real, non-draft, non-prerelease release exists.
 
 Once published, confirm task #103 actually sees it: Help > Check for Updates... on a build one
 version behind should report the new release; on the just-built version itself, "up to date."
+
+For `0.2.0`: covered incidentally rather than via a dedicated re-test - the 24.04 VM was still on
+the prior release (about a week old) going into step 7's install-test, and installing `0.2.0-1`
+over it is the same real "one version behind" transition this step asks for. Accepted as
+sufficient (direflail, 2026-08-27) rather than reinstalling an old build just to click the menu
+item separately.
