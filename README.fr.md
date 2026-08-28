@@ -3,9 +3,10 @@
 # Orcshot
 
 Un portage Linux de [Greenshot](https://getgreenshot.org/), conçu comme un portage comportemental
-fidèle en Python + GTK3 - sans affiliation avec le projet Greenshot ni approbation de sa part. Voir
-[REQUIREMENTS.md](REQUIREMENTS.md) pour la portée complète, les priorités de plateformes et les
-décisions d'architecture.
+fidèle en Python + GTK3 - sans affiliation avec le projet Greenshot ni approbation de sa part. Il n'a
+non plus aucun lien avec le projet [Apache ORC](https://orc.apache.org/) : la coïncidence sur « Orc »
+est fortuite. Voir [REQUIREMENTS.md](REQUIREMENTS.md) pour la portée complète, les priorités de
+plateformes et les décisions d'architecture.
 
 ## Installation
 

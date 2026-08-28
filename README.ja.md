@@ -2,7 +2,7 @@
 
 # Orcshot
 
-[Greenshot](https://getgreenshot.org/) の Linux 移植版で、Python + GTK3 による忠実な動作の移植として作られています。Greenshot プロジェクトとの提携関係はなく、同プロジェクトによる承認も受けていません。全体の対応範囲、プラットフォームの優先順位、アーキテクチャ上の決定については [REQUIREMENTS.md](REQUIREMENTS.md) を参照してください。
+[Greenshot](https://getgreenshot.org/) の Linux 移植版で、Python + GTK3 による忠実な動作の移植として作られています。Greenshot プロジェクトとの提携関係はなく、同プロジェクトによる承認も受けていません。また、[Apache ORC](https://orc.apache.org/) プロジェクトとも関係がなく、名前に含まれる「Orc」の一致は偶然です。全体の対応範囲、プラットフォームの優先順位、アーキテクチャ上の決定については [REQUIREMENTS.md](REQUIREMENTS.md) を参照してください。
 
 ## インストール
 

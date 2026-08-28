@@ -4,8 +4,9 @@
 
 Eine Linux-Portierung von [Greenshot](https://getgreenshot.org/), umgesetzt als originalgetreue
 Verhaltensportierung in Python + GTK3 – nicht mit dem Greenshot-Projekt verbunden und nicht von ihm
-unterstützt. Den vollständigen Umfang, die Plattformprioritäten und die Architekturentscheidungen
-finden Sie in [REQUIREMENTS.md](REQUIREMENTS.md).
+unterstützt. Es steht außerdem in keiner Verbindung zum Projekt [Apache ORC](https://orc.apache.org/)
+– die Übereinstimmung bei „Orc" ist zufällig. Den vollständigen Umfang, die Plattformprioritäten und
+die Architekturentscheidungen finden Sie in [REQUIREMENTS.md](REQUIREMENTS.md).
 
 ## Installation
 

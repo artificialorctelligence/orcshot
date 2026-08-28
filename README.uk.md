@@ -3,7 +3,8 @@
 # Orcshot
 
 Порт [Greenshot](https://getgreenshot.org/) для Linux — точне відтворення його поведінки
-на Python + GTK3; проєкт не пов’язаний із Greenshot і не схвалений ним. Повний обсяг,
+на Python + GTK3; проєкт не пов’язаний із Greenshot і не схвалений ним. Проєкт також не пов’язаний
+з [Apache ORC](https://orc.apache.org/) — збіг у слові «Orc» випадковий. Повний обсяг,
 пріоритети платформ та архітектурні рішення описано в [REQUIREMENTS.md](REQUIREMENTS.md).
 
 ## Встановлення

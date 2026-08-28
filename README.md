@@ -3,7 +3,8 @@
 # Orcshot
 
 A Linux port of [Greenshot](https://getgreenshot.org/), built as a faithful Python + GTK3
-behavioral port - not affiliated with or endorsed by the Greenshot project. See
+behavioral port - not affiliated with or endorsed by the Greenshot project. It's also unrelated
+to the [Apache ORC](https://orc.apache.org/) project - the shared "Orc" is coincidental. See
 [REQUIREMENTS.md](REQUIREMENTS.md) for full scope, platform priorities, and architecture decisions.
 
 ## Installing
