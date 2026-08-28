@@ -78,6 +78,11 @@ dev-testing setup, not real users.
 
 ## #184: Explore a Wayland capture path that doesn't depend on the bundled GNOME Shell extension, to open up Snap and Flatpak
 
+**Confirmed wanted (direflail, 2026-08-28): "we definitely want to do this."** Ready to move past the
+thinking-it-over stage whenever picked up - next step is the brainstorming skill's normal process
+(questions, approaches, a real design) before any implementation, given the scope here (redesigning a
+core capture subsystem) is squarely architectural, not a small bounded change.
+
 Surfaced during a conversation with direflail (2026-08-28) about why Orcshot isn't discoverable via GNOME
 Software/App stores on Ubuntu - confirmed live that GNOME Software's browsable catalog doesn't surface
 plain apt/PPA packages at all on either 24.04 or 26.04, regardless of caching state, and the only way in
@@ -129,6 +134,18 @@ instead, same as today - this build wouldn't replace anything, it'd sit alongsid
 narrower distribution channel aimed specifically at Wayland users who want Flathub discoverability. The
 Shell-extension-features question from #184 (per-user install path, unproven for Orcshot) applies here
 too, if this build wants feature parity rather than portal-only capture.
+
+**Why "Wayland-only" isn't just the simpler option, it's close to the only real option**: direflail asked
+directly whether *also* declaring X11 support in the same Flatpak build alongside Wayland would exclude
+it from Flathub - confirmed via Flatpak's own sandbox-permissions docs that it's not a store-policy
+rejection, it's a sandbox mechanism: "if an application works with Wayland natively, access to the x11
+socket and the fallback-x11 socket will be explicitly revoked to force the application to run in a
+Wayland window at all times." So a dual-mode manifest would only ever actually exercise its X11 path on
+sessions with no Wayland present at all - on any session that can reach Wayland (the exact audience a
+Flathub listing is trying to reach), Flatpak strips the X11 socket regardless of what's declared. Not
+confirmed either way: whether an X11-only manifest (no Wayland socket declared at all) still forces
+screenshot-specific captures through the portal separately from general X11 window access, or whether raw
+capture works directly there - unresearched, flagged rather than guessed at.
 
 Not scoped, not designed, no decision made - direflail wants to think it over.
 
