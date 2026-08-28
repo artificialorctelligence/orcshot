@@ -119,6 +119,20 @@ thinking-it-over stage whenever picked up - next step is the brainstorming skill
 (questions, approaches, a real design) before any implementation, given the scope here (redesigning a
 core capture subsystem) is squarely architectural, not a small bounded change.
 
+**Hard constraint, stated explicitly (direflail, 2026-08-28): "whatever the plan is, it must include being
+compatible with snap, flatpak, software manager, and apt. i don't want any more surprises at distribution
+time."** Not a nice-to-have - the design needs to hold up across all four from the start, not get
+retrofitted after landing on one and discovering it breaks another (which is exactly what happened with
+the original Flatpak rejection, and what #187 is now re-litigating with real evidence instead of
+assumption). "Software Manager" here likely means Mint's own `mintinstall`, not GNOME Software
+specifically - worth confirming which the whole "surprises" list actually means before designing, since
+GNOME Software's own discoverability ceiling (confirmed earlier: won't show a plain apt/PPA package at
+all, only Snap/Flatpak) isn't something this redesign can independently fix - it's already covered by
+"Snap" and "Flatpak" being separately on the list.
+
+**Direct sequencing from direflail (2026-08-28): this is next, ahead of #187 and #185's own further
+design.**
+
 Surfaced during a conversation with direflail (2026-08-28) about why Orcshot isn't discoverable via GNOME
 Software/App stores on Ubuntu - confirmed live that GNOME Software's browsable catalog doesn't surface
 plain apt/PPA packages at all on either 24.04 or 26.04, regardless of caching state, and the only way in
