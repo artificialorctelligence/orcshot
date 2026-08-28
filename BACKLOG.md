@@ -147,7 +147,60 @@ confirmed either way: whether an X11-only manifest (no Wayland socket declared a
 screenshot-specific captures through the portal separately from general X11 window access, or whether raw
 capture works directly there - unresearched, flagged rather than guessed at.
 
+**Real risk, confirmed rather than assumed: no store-level filtering exists for this.** Checked
+specifically whether Flathub/GNOME Software/Mint's Software Manager hide a Wayland-only app from X11
+sessions at browse time - found no evidence any such filtering exists. Mint ships Flatpak/Flathub by
+default (unlike Ubuntu), so a Wayland-only Orcshot would show up in search on a plain X11 Mint session
+exactly the same as anywhere else, install fine, and then most likely fail outright on launch - no
+`x11`/`fallback-x11` socket declared at all means no display connection to fall back to, and without any
+socket the app can't even draw an error dialog explaining why. Real tension with this project's own "if
+it can't work correctly, don't ship it looking like it works" bar (same standard behind the greyed-out
+Window Picker item when the Shell extension isn't available).
+
+**direflail's own leaning on this (2026-08-28)**: mitigate at the *listing* level rather than the runtime
+level - put a link in the Flathub description pointing X11 users at the full dual-mode version (the
+`.deb`/PPA, via the GitHub README) rather than trying to detect-and-explain the failure at runtime. Doesn't
+eliminate the failure-on-launch risk for someone who installs anyway without reading the description, but
+is a real, cheap piece of the mitigation, decided rather than left open.
+
 Not scoped, not designed, no decision made - direflail wants to think it over.
+
+## #132: RPM-family distros (Fedora, openSUSE) and Arch/AUR - real scope, not yet started
+
+Already referenced in passing in `RELEASING.md` step 7 ("a separate, later effort") with zero detail
+anywhere - this entry is the actual sizing, worked through with direflail (2026-08-28) after the Snap/
+Flatpak conversation raised the natural follow-up question. Explicitly a "maybe at some point" - not
+committed to, not scheduled, just no longer a bare cross-reference to nothing.
+
+**Why this is a genuinely separate track, not a fourth target alongside the existing three**: Mint,
+Ubuntu 24.04, and Ubuntu 26.04 all share one `.deb` today precisely because they're all Debian-family -
+`RELEASING.md` step 6 says outright that `Architecture: all` with no series-specific build-deps means one
+upload covers everything, no per-target packaging work. Fedora breaks that assumption entirely:
+
+- **New packaging format**: an RPM `.spec` file, different tooling (`rpmbuild`/`rpmlint` vs.
+  `dpkg-buildpackage`/`lintian`) - though Fedora's `%pyproject_*` macros are a real, mature equivalent to
+  Debian's `pybuild` for a `pyproject.toml`+hatchling project like this one, not exotic territory.
+- **Real dependency-name research, not assumed**: every line of `debian/control`'s deps needs its actual
+  Fedora name found and verified - `python3-gi` → `python3-gobject`, `gir1.2-gtk-3.0` → Fedora's own
+  GTK3/typelib split, and down the rest of the list (hatchling, pytest, hypothesis, scipy, numpy, shapely,
+  xlib, rsvg, gdkpixbuf, pango, glib). Almost certainly all exist given Fedora's own strong Python
+  packaging culture, but "almost certainly" isn't this project's bar for anything else, and shouldn't be
+  here either.
+- **Its own hosting**: Fedora's PPA-equivalent is COPR - a new one-time setup, parallel to the existing
+  Launchpad PPA config.
+- **Its own live compat round, not a rerun of the existing one**: Fedora Workstation defaults to
+  GNOME/Wayland even more consistently than Ubuntu, so the existing Shell-extension architecture should
+  carry over conceptually - but Fedora ships newer GNOME Shell versions faster than Ubuntu LTS does, the
+  same axis (GNOME Shell version drift) that already caused real, documented bugs between 24.04 and 26.04
+  this project has directly hit. A real Fedora VM and its own logout/login reload-testing cycle
+  ([[feedback-extension-reload-caching]]) is needed, not assumed to just work.
+
+**Net assessment**: comparable in scope to the *original* `.deb` packaging effort, not a cheap addition
+to what already exists. openSUSE (also RPM-based) and Arch/AUR would each need their own version of this
+same research even if the RPM spec itself carries over partially to openSUSE - not free just because
+Fedora's done first.
+
+Not scoped, not designed, no decision made - explicitly lower priority than #184/#185.
 
 ## #181: Crop-offset origin assumption unverified specifically for non-GNOME Wayland compositors
 
