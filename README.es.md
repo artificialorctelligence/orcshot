@@ -2,6 +2,12 @@
 
 # Orcshot
 
+**Instalación rápida** (Ubuntu 24.04/26.04, Mint y otras distribuciones basadas en Ubuntu):
+```bash
+sudo add-apt-repository ppa:artificialorctelligence/orcshot
+sudo apt update && sudo apt install orcshot
+```
+
 Una adaptación a Linux de [Greenshot](https://getgreenshot.org/), desarrollada como una réplica fiel
 de su comportamiento en Python + GTK3, sin afiliación con el proyecto Greenshot ni respaldo por su
 parte. Tampoco tiene relación con el proyecto [Apache ORC](https://orc.apache.org/): la coincidencia

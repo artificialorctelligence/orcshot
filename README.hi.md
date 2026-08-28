@@ -2,6 +2,12 @@
 
 # Orcshot
 
+**त्वरित इंस्टॉल** (Ubuntu 24.04/26.04, Mint, और अन्य Ubuntu-आधारित डिस्ट्रो):
+```bash
+sudo add-apt-repository ppa:artificialorctelligence/orcshot
+sudo apt update && sudo apt install orcshot
+```
+
 [Greenshot](https://getgreenshot.org/) का एक Linux पोर्ट, जिसे Python + GTK3 में व्यवहार के स्तर पर
 निष्ठापूर्वक पोर्ट किया गया है - यह Greenshot परियोजना से संबद्ध नहीं है और न ही उसके द्वारा समर्थित है।
 यह [Apache ORC](https://orc.apache.org/) परियोजना से भी संबद्ध नहीं है - नाम में "Orc" का मेल संयोग
