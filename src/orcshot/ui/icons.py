@@ -1034,3 +1034,21 @@ def stock_icon_image(name: str, color: Color = _DEFAULT_COLOR, size: int = 16) -
     already there.
     """
     return _drawn_icon_image(name, color, size)
+
+
+def stock_icon_gicon(name: str, color: Color = _DEFAULT_COLOR, size: int = 16) -> Gio.Icon:
+    """Gio.Icon counterpart to stock_icon_image, for the Wayland tray
+    menu's D-Bus-exported Gio.Menu (see gnome_tray_export.py) - same
+    hand-drawn Adwaita-lookalike geometry, same task #146 requirement.
+
+    Task 7 live-verification finding: the Wayland tray menu originally
+    only called capture_mode_gicon for the 5 capture-mode items,
+    leaving Open File/Preferences/Quit with no icon at all - a real,
+    direct violation of task #146's "every icon in the wayland version
+    [must] look like the x11 version, no exceptions" (the X11
+    `_build_tray_menu` gives all three of those items an icon via
+    stock_icon_image, e.g. "preferences-system-symbolic"). Caught live
+    by direflail pointing out the X11 version has them; confirmed by
+    reading `_build_tray_menu`'s own icon_name= calls.
+    """
+    return _drawn_icon_gicon(name, color, size)

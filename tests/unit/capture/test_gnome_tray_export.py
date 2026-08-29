@@ -46,6 +46,18 @@ class TestBuildTrayMenu:
             icon_value = menu.get_item_attribute_value(i, "icon", None)
             assert icon_value is not None, f"item {i} has no icon"
 
+    def test_open_file_preferences_and_quit_also_have_an_icon_attribute(self):
+        # Task 7 live-verification finding: the X11 `_build_tray_menu`
+        # gives all 8 items an icon (5 hand-drawn capture-mode icons +
+        # 3 stock_icon_image lookalikes for Open File/Preferences/
+        # Quit) - task #146's "every icon in the wayland version must
+        # look like the x11 version, no exceptions" means these three
+        # need one too, not just the 5 capture modes.
+        menu = build_tray_menu(_LABELS, (60, 60, 60, 255))
+        for i in range(5, 8):
+            icon_value = menu.get_item_attribute_value(i, "icon", None)
+            assert icon_value is not None, f"item {i} has no icon"
+
     def test_quit_is_the_last_item_with_the_right_action(self):
         menu = build_tray_menu(_LABELS, (60, 60, 60, 255))
         n = menu.get_n_items()

@@ -20,9 +20,20 @@ gi.require_version("Gio", "2.0")
 from gi.repository import Gio
 
 from orcshot.core.shapes import Color
-from orcshot.ui.icons import capture_mode_gicon
+from orcshot.ui.icons import capture_mode_gicon, stock_icon_gicon
 
 TRAY_MENU_PATH = "/org/orcshot/Orcshot/TrayMenu"
+
+# Same stock icon names app.py's _build_tray_menu (the X11/AppIndicator3
+# Gtk.Menu builder) already uses via icons.py's stock_icon_image - task
+# #146's "every icon in the wayland version must look like the x11
+# version, no exceptions" applies to these three fixed items too, not
+# just the 5 hand-drawn capture-mode icons above.
+_FIXED_ITEM_ICON_NAMES = {
+    "open_file": "document-open-symbolic",
+    "preferences": "preferences-system-symbolic",
+    "quit": "application-exit-symbolic",
+}
 
 # Same 5 capture modes as app.py's _tray_action_handlers(), same
 # order _build_tray_menu (the X11/AppIndicator3 Gtk.Menu builder)
@@ -43,9 +54,14 @@ def build_tray_menu(labels: dict[str, str], color: Color) -> Gio.Menu:
         item.set_icon(capture_mode_gicon(mode, color))
         menu.append_item(item)
 
-    menu.append_item(Gio.MenuItem.new(labels["open_file"], "app.tray-open-file"))
-    menu.append_item(Gio.MenuItem.new(labels["preferences"], "app.tray-preferences"))
-    menu.append_item(Gio.MenuItem.new(labels["quit"], "app.tray-quit"))
+    for key, action in (
+        ("open_file", "app.tray-open-file"),
+        ("preferences", "app.tray-preferences"),
+        ("quit", "app.tray-quit"),
+    ):
+        item = Gio.MenuItem.new(labels[key], action)
+        item.set_icon(stock_icon_gicon(_FIXED_ITEM_ICON_NAMES[key], color))
+        menu.append_item(item)
     return menu
 
 
