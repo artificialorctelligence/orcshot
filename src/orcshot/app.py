@@ -639,18 +639,15 @@ class OrcshotApplication(Gtk.Application):
         restarts." (task #150 follow-up). self.quit() alone already
         fully terminates this process when nothing else is running a
         nested main loop - confirmed live, nothing was left in
-        `ps aux` after a plain quit - but the Shell-native tray panel
-        button is owned by the extension, a separate process, and
-        only ever *dims* on its own when this process's D-Bus name
-        vanishes (the same reaction a crash gets, since the extension
-        can't otherwise tell a deliberate quit apart from one). Calling
-        the extension's own Quitting() method first, best-effort, is
-        what makes it actually disappear instead of sticking around
-        dimmed - see extension.js's own Quitting() docstring for the
-        full reasoning. Wrapped in try/except: the extension might not
-        be the active tray at all (X11, or Wayland before it's ever
-        been enabled), and quitting must never be blocked by a Shell
-        extension call failing.
+        `ps aux` after a plain quit. No longer applicable: the old
+        orcshot-clipboard@orcshot.org extension's own Shell-native tray
+        panel button used to need an explicit best-effort Quitting()
+        D-Bus call here so it would actually disappear instead of
+        sticking around dimmed. The new orcshot-tray@orcshot.org
+        extension (task #186 follow-up) tears its own button down on
+        its own via Gio.bus_watch_name's vanished callback the moment
+        this process's D-Bus name drops, so there's nothing left for
+        this method to notify.
 
         Task #169: live-confirmed (direflail, 2026-08-22) that Quit did
         nothing at all with Preferences open - root-caused via a
