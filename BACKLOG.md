@@ -248,11 +248,22 @@ verified live, not theorized:**
     construction rather than fixed. Also finally fixes the icon-alignment bug for real, since Orcshot would
     control the entire rendering path end to end - no third-party `dbusMenu.js` hard-coding
     `xAlign: Clutter.ActorAlign.END` to work around.
-  - **Real, not-yet-resolved remaining question**: the precise mechanics of how this new extension actually
-    discovers/connects to Orcshot's own exported menu - whether it still goes through some form of SNI
-    registration for the icon part specifically while the menu part is custom, or bypasses SNI entirely
-    (e.g. `Gio.bus_watch_name` for Orcshot's own well-known name directly). Needs real prototyping to
-    settle, not resolvable from documentation alone - this is where actual implementation work starts.
+  - **Core mechanism proven live (2026-08-28), not just reasoned about.** Built a minimal real test: a
+    Python script exporting a `Gio.Menu` + `Gio.SimpleActionGroup` over D-Bus on its own well-known name
+    (`Gio.DBusConnection.export_menu_model`/`export_action_group`), and a bare `gjs` script (same
+    methodology this project already used to verify the tray-menu gettext bug in task #183) consuming it
+    via `Gio.DBusMenuModel`/`Gio.DBusActionGroup` - the exact runtime `gnome-shell` itself uses. Real data
+    round-tripped correctly: labels, action names, and **the icon attribute** all arrived intact
+    (`icon=test-icon-1`, exactly as published). Actions become available via `action-added` signals with
+    correct bare names (not the menu's own `group.action` prefixed form - that prefix is a local
+    menu-mounting convention, not part of the wire format) after some real async proxy-sync latency - a
+    normal D-Bus proxy behavior a real implementation handles by reacting to signals, not a defect.
+  - **Still open, and now the actual next real question**: this test used a plain custom bus name
+    (`org.orcshot.TrayTest`), not real SNI/`StatusNotifierWatcher` registration for the tray *icon* itself
+    - the menu-export mechanism is proven, but how the new extension actually discovers "this is Orcshot's
+    indicator, here's where its menu lives" in a real tray-icon context (some form of SNI registration for
+    the icon specifically, vs. bypassing SNI entirely via `Gio.bus_watch_name` for Orcshot's own name) is
+    still unresolved - the next real prototyping step, not resolvable from documentation alone.
   - **Unrelated, permanent, already-true-today limitation worth remembering regardless of any of this**:
     AppIndicator-family icons have no distinct left-click ("activate") action once a menu is attached - a
     real, documented, upstream protocol limitation (`app.py`'s own comment on `_build_tray_icon`, citing
