@@ -23,6 +23,12 @@ class OrcshotTrayButton extends PanelMenu.Button {
 
         this._rebuild();
         this._itemsChangedId = this._menuModel.connect('items-changed', () => this._rebuild());
+        // Standard Clutter.Actor 'destroy' signal, matching this
+        // project's own orcshot-clipboard@orcshot.org convention for
+        // cleanup-on-destroy - not a `_destroy_impl` vfunc override,
+        // which isn't a real GJS-exposed hook on this class hierarchy
+        // and would silently leak this signal connection.
+        this.connect('destroy', () => this._menuModel.disconnect(this._itemsChangedId));
     }
 
     _rebuild() {
@@ -66,11 +72,6 @@ class OrcshotTrayButton extends PanelMenu.Button {
         }
     }
 
-    _destroy_impl() {
-        if (this._itemsChangedId)
-            this._menuModel.disconnect(this._itemsChangedId);
-        super._destroy_impl?.();
-    }
 });
 
 export default class OrcshotTrayExtension extends Extension {
