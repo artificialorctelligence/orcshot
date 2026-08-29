@@ -174,6 +174,14 @@ manual enable action is ever added there). A real, user-visible regression on up
 first-install polish gap - should probably be resolved before this branch's release, not deferred
 indefinitely.
 
+**Noted by the final whole-branch review, worth carrying into whatever design pass this gets**:
+`first_run_setup.py`'s `enable_extension_live()` call is itself a D-Bus call *into* `org.gnome.Shell`
+(pre-existing, already best-effort `try`/`except`, not new). Under Snap or Flatpak confinement, that call
+would be denied for all three bundled extensions, not just the tray one - a confined build would silently
+degrade to "enabled at next login" rather than immediately, for every extension this wizard handles. Worth
+folding into whatever upgrade-consent design gets built here, since it's the same "confined app can't poke
+`org.gnome.Shell` directly" class of constraint #184's own redesign exists to route around elsewhere.
+
 ## #184: Explore a Wayland capture path that doesn't depend on the bundled GNOME Shell extension, to open up Snap and Flatpak
 
 **Confirmed wanted (direflail, 2026-08-28): "we definitely want to do this."** Ready to move past the
@@ -404,10 +412,19 @@ on Wayland; region-select, clipboard, and Window Picker were unaffected per the 
 - Also found and fixed inline (not part of the original 7-task plan): `debian/control` still required
   `gir1.2-ayatanaappindicator3-0.1` even though nothing imports `AyatanaAppIndicator3` anymore.
 
+**One thing this result does NOT prove, caught by the final whole-branch review**: Task 7's Snap test
+covered only `export_menu_model()` surviving confinement - it never exercised actually *installing* the
+`orcshot-tray@orcshot.org` extension's files from inside a Snap or Flatpak sandbox at all (the throwaway
+snap only shipped the app, not the extension). The "not yet proven for Orcshot specifically - would need
+an actual prototype" caveat on the per-user extension-install path (this entry's own text, above) is still
+exactly as unproven as it was before this branch. #185 and the real Snap package need that prototype
+before either can be considered genuinely unblocked - it is not automatically covered by this result.
+
 **Next step**: this branch (Tasks 1-7 complete, live-verified) is ready for final whole-branch review and
-merge. #185 (Flatpak) and the real, non-throwaway Snap package are now unblocked by this result - the
-upgrade-path gap above and the not-yet-closed reboot-vs-logout finding are the two loose ends worth
-carrying into whatever picks this up next.
+merge. #185 (Flatpak) and the real, non-throwaway Snap package are meaningfully closer given this result
+(the actual D-Bus/AppArmor mechanism is proven), but NOT fully unblocked - the extension-install-from-
+sandbox step above is still an open prototype, alongside the upgrade-path gap (#188) and the not-yet-
+closed reboot-vs-logout finding.
 
 ## #185: A Wayland-only Flatpak build, alongside the existing dual-mode (X11+Wayland) `.deb`/PPA release
 
