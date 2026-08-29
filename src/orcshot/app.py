@@ -615,6 +615,27 @@ class OrcshotApplication(Gtk.Application):
         to render - see gnome_tray_export.py's own module docstring
         for why this doesn't need a new bus name or action group, just
         the menu structure itself.
+
+        Task 7 live-verification bug, root-caused: the built Gio.Menu
+        must be kept alive for as long as it stays exported -
+        g_dbus_connection_export_menu_model's own docs are explicit
+        that "the data is owned by the caller of the method" (not
+        the connection), and every known-good example of this API
+        (this project's own earlier GMenu/GActionGroup prototype,
+        gjs.guide's own D-Bus documentation) keeps the model as a
+        persistent reference for exactly this reason. The first
+        version of this method built `menu` as a plain local variable
+        with nothing keeping it alive past this function returning -
+        live-confirmed as the actual cause of a real bug: a
+        Gio.DBusMenuModel client (orcshot-tray@orcshot.org's own
+        panel button, and independently a brand-new test proxy
+        created straight from Looking Glass) both got stuck at
+        get_n_items() == 0 forever, never populating, despite a raw
+        `gdbus call ... org.gtk.Menus.Start` against the same object
+        path returning fully correct data - the export's answer to a
+        one-off synchronous call still worked, but real GMenuModel
+        client-side subscription/sync never completed. Storing it on
+        self is what every other real usage of this API already does.
         """
         from orcshot.capture.gnome_tray_export import build_tray_menu, export_tray_menu
 
@@ -629,8 +650,11 @@ class OrcshotApplication(Gtk.Application):
             "quit": _("Quit"),
         }
         color = _rgba_to_color(Gtk.Window().get_style_context().get_color(Gtk.StateFlags.NORMAL))
-        menu = build_tray_menu(labels, color)
-        export_tray_menu(self, menu)
+        # Kept alive on self for the app's whole lifetime - see this
+        # method's own docstring above for why a local variable isn't
+        # enough.
+        self._tray_menu = build_tray_menu(labels, color)
+        export_tray_menu(self, self._tray_menu)
 
     def _quit_and_hide_tray_button(self, write_marker: bool = True) -> None:
         """direflail: "when the user selects quit, i want all parts of
