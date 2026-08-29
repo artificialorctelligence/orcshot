@@ -216,7 +216,16 @@ class OrcshotApplication(Gtk.Application):
             # all never run.
             try:
                 self._export_tray_menu()
-            except GLib.Error as e:
+            except (GLib.Error, AttributeError) as e:
+                # AttributeError alongside GLib.Error: a None
+                # get_dbus_connection() (this comment's own named
+                # scenario above) raises AttributeError from
+                # gnome_tray_export.export_tray_menu's own
+                # connection.export_menu_model(...) call, not a
+                # GLib.Error - confirmed by reading that function,
+                # not assumed (final-review re-review finding: the
+                # original except clause here didn't actually cover
+                # this).
                 print(f"[orcshot] _export_tray_menu() failed: {e}", file=sys.stderr)
         self._tray_icon = self._build_tray_icon()
         self._check_shell_extension_health()
