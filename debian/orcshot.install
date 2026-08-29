@@ -8,5 +8,14 @@ src/orcshot/resources/gnome-shell-extensions/orcshot-clipboard@orcshot.org/metad
 src/orcshot/resources/gnome-shell-extensions/orcshot-clipboard@orcshot.org/icon_geometry.json usr/share/gnome-shell/extensions/orcshot-clipboard@orcshot.org/
 src/orcshot/resources/gnome-shell-extensions/orcshot-clipboard@orcshot.org/magnifier_constants.json usr/share/gnome-shell/extensions/orcshot-clipboard@orcshot.org/
 src/orcshot/resources/gnome-shell-extensions/orcshot-clipboard@orcshot.org/icons/*.png usr/share/gnome-shell/extensions/orcshot-clipboard@orcshot.org/icons/
+# No orcshot-clipboard@orcshot.org/locale line here on purpose: it used to
+# ship orcshot-tray.mo (debian/rules used to derive it into that directory
+# at build time), but that catalog and its derivation step were removed as
+# dead weight when the Wayland tray redesign gave orcshot-tray@orcshot.org
+# its own extension with no gettext domain of its own (translation moved
+# Python-side, see app.py's _export_tray_menu). The clipboard extension's
+# own JS never called gettext, so nothing of its own was ever in that
+# directory - removing this line only drops a reference to a directory
+# nothing generates anymore.
 src/orcshot/resources/gnome-shell-extensions/orcshot-tray@orcshot.org/extension.js usr/share/gnome-shell/extensions/orcshot-tray@orcshot.org/
 src/orcshot/resources/gnome-shell-extensions/orcshot-tray@orcshot.org/metadata.json usr/share/gnome-shell/extensions/orcshot-tray@orcshot.org/
