@@ -1991,6 +1991,13 @@ theme, same rationale as `resources.py`'s existing docstring). New `.deb` runtim
 `gir1.2-ayatanaappindicator3-0.1` (not a build dependency - imported lazily, only inside the Wayland
 branch, so the test suite/build doesn't need it).
 
+**Superseded**: `AyatanaAppIndicator3` was replaced twice since this entry - first by a Shell-native
+panel button (task #137 follow-up, further down this file), then removed entirely by the 2026-08-28
+Wayland tray redesign (see "The Wayland tray menu rebuilt as a GMenu/GAction export" near the end of
+this file) in favor of `orcshot-tray@orcshot.org` exporting a `Gio.Menu`/`Gio.SimpleAction` structure
+over D-Bus on Orcshot's own connection. `gir1.2-ayatanaappindicator3-0.1` is no longer a runtime
+dependency (removed from `debian/control`).
+
 **A real regression this surfaced, not caused**: "Repeat Last Region"'s sensitivity was refreshed via
 `menu.connect("show", ...)`, which worked fine for `Gtk.StatusIcon` (a real local GTK popup) but never
 fires a second time for an AppIndicator-hosted menu - confirmed live via tracing: the "show" signal
@@ -3586,10 +3593,16 @@ choice, so it's generated at runtime (same `XDG_SESSION_TYPE` check `app.py`'s o
 already uses to pick which tray implementation to build) rather than describing both unconditionally:
 
 - **X11** (`Gtk.StatusIcon`): left-click starts a region capture immediately; right-click opens the menu.
-- **Wayland** (`AyatanaAppIndicator3.Indicator`): every click opens the same menu - no distinct
-  left-click action exists, a real upstream AppIndicator limitation once a menu is attached
-  ([launchpad.net/bugs/1910521](https://bugs.launchpad.net/bugs/1910521)), not a bug in this app or
-  something fixable from here - see `app.py`'s own `_build_tray_icon` docstring for the full citation.
+- **Wayland**: every click opens the same menu - no distinct left-click action. True at the time this was
+  written because of a real upstream `AyatanaAppIndicator3` limitation once a menu is attached
+  ([launchpad.net/bugs/1910521](https://bugs.launchpad.net/bugs/1910521)); the underlying mechanism has
+  since changed (`AyatanaAppIndicator3` was removed entirely by the 2026-08-28 Wayland tray redesign - see
+  the entry near the end of this file), but the end-user behavior itself is unchanged: `orcshot-tray@
+  orcshot.org`'s `PanelMenu.Button` also has no distinct left-click action, by ordinary GNOME panel-button
+  design rather than an AppIndicator-specific limitation. `editor_window.py`'s own `_tray_icon_help_rows`
+  still cites the old AppIndicator reasoning in its docstring - not incorrect about current behavior, just
+  citing an outdated mechanism for it; left as-is here since fixing that comment is outside this note's own
+  scope.
 
 Verified live: unit tests still pass (no existing coverage of `_TOOL_KEYS`/`_on_key_press` to update -
 this file has no dedicated test module at all, consistent with how the rest of its interactive behavior
@@ -5353,6 +5366,17 @@ actually redrawn, not just set.
 left-aligned, both capture and window-picker capture confirmed working end-to-end through the new
 GAction path, "Repeat Last Region" correctly dims/undims and its icon redraws to match. direflail's
 own words once it finally worked: "finally."
+
+**Superseded (2026-08-28)**: this whole architecture - the tray button living inside
+`orcshot-clipboard@orcshot.org`, hand-rolled `PopupMenu`/`PopupBaseMenuItem` widgets read directly from
+Orcshot's own JSON config files, and `AyatanaAppIndicator3` kept as a deliberate fallback - was replaced
+by the Wayland tray redesign (see the entry near the end of this file). The new `orcshot-tray@orcshot.org`
+extension exports/consumes a real `Gio.Menu`/`Gio.SimpleActionGroup` structure over D-Bus instead of
+reading Orcshot's config files directly, and `AyatanaAppIndicator3` is gone entirely, not kept as a
+fallback - direct motivation was Snap/Flatpak sandboxing (`org.gnome.Shell` D-Bus calls are denied under
+strict confinement; a GMenu Orcshot exports on its own connection is not), not a further icon/alignment
+fix - this section's own left-alignment/icon-color work continues to describe accurate, still-relevant
+history of *why* the redesign approached rendering the way it did, not code that's still running.
 
 ## Multiple editor windows allowed at once (task #138, complete 2026-08-15)
 
@@ -7699,6 +7723,86 @@ next time.
 
 Confirmed working live by direflail on the real VM after all four tray-menu rounds. Full suite green
 throughout every round: 1143 passed, 3 skipped.
+
+**Superseded (2026-08-28)**: the tray menu described above - built by `extension.js` inside
+`orcshot-clipboard@orcshot.org`, with its own `orcshot-tray` gettext domain and `po/orcshot-tray-<lang>.po`
+derivation via `msgmerge` - no longer exists. The Wayland tray redesign (see the entry below) moved the
+tray menu to a separate `orcshot-tray@orcshot.org` extension that renders labels it receives already-
+translated over D-Bus (`gnome_tray_export.py`'s `build_tray_menu`, called with Python's own already-
+`_()`-translated strings) - `extension.js` itself has no `_()`/`dgettext` calls left needing a domain of
+its own, so the `orcshot-tray` gettext domain, its `.pot`/`.mo` derivation, and the
+`po/orcshot-tray-<lang>.po` naming convention this section describes were all deleted (Task 5 of that
+redesign). `gettext-domain` was also removed from `metadata.json` (both the old `orcshot-clipboard@
+orcshot.org` entry this section describes and the unrelated stale copy left in the *new*
+`orcshot-clipboard@orcshot.org`'s own `metadata.json` afterward - see this branch's final-review-fix
+round). None of the four numbered rounds above are wrong about what was true in the moment; the mechanism
+they fixed just doesn't exist anymore.
+
+## The Wayland tray menu rebuilt as a GMenu/GAction export, replacing AyatanaAppIndicator3 entirely
+(2026-08-28/29)
+
+BACKLOG.md's `#184` entry carries the full research trail and stays the canonical source for *why* -
+this entry is REQUIREMENTS.md's own close-out, matching this file's established convention of recording
+every completed task here too, not just in BACKLOG.md (per `becced3`, `c7f9911`). Full detail lives in
+`docs/superpowers/specs/2026-08-28-wayland-capture-redesign-design.md` (the design) and
+`docs/superpowers/plans/2026-08-28-wayland-tray-redesign.md` (the 7-task implementation plan,
+subagent-driven-development) rather than being re-explained inline here, matching how this file already
+tends to point at specs/plans for a change this size instead of duplicating them.
+
+**What changed**: `AyatanaAppIndicator3` - obsolete upstream (its own GitHub description says so) and,
+more importantly, the reason Orcshot's Wayland tray couldn't run confined at all (`org.gnome.Shell`
+D-Bus calls, which the Shell extension hosting AppIndicator menus itself depends on, are denied outright
+under Snap's strict confinement) - is gone from this codebase entirely, not kept as a fallback the way
+the previous (task #137) rearchitecture kept it. A new, Orcshot-specific extension,
+`orcshot-tray@orcshot.org`, renders a `Gio.Menu`/`Gio.SimpleAction` structure that `app.py` exports on
+its own already-owned D-Bus connection (`gnome_tray_export.py`, `_export_tray_menu`,
+`_register_tray_actions`) - the extension only ever reads *from* Orcshot's own connection, never calls
+*into* `org.gnome.Shell` itself, which is what makes this compatible with strict confinement where the
+old mechanism wasn't.
+
+**The actual bug this whole redesign fixes**: the icon-alignment problem tasks #137/#146 chased at length
+(see those sections above) was never fully fixable under `AyatanaAppIndicator3` - `ubuntu-appindicators@
+ubuntu.com`'s own `dbusMenu.js` hard-codes `xAlign: Clutter.ActorAlign.END` for every menu item's icon,
+confirmed by reading its source, with no DBusMenu property a client can override. `orcshot-tray@
+orcshot.org` controls its own rendering end to end (`PopupMenu.PopupMenuItem`, native GNOME Shell widgets)
+so icons are left-aligned by construction, matching the destination picker, with no per-platform hack
+needed.
+
+**Live-verified, not just built** (Task 7, real Ubuntu 26.04/GNOME Shell 50.1 VM, real logout/login):
+tray icon renders with Orcshot's own real logo (not a menu-item icon reused as a stand-in - direflail
+caught this live and it's now a standing memory,
+[[feedback_no_unilateral_branding_changes]]), all 8 menu items show correct, correctly-translated labels
+and icons, Preferences/Open File/Quit/every capture mode work through the new GAction path end to end,
+and switching Orcshot's own Preferences language (independent of the OS locale) is reflected in the tray
+menu on the next restart.
+
+**Real Snap-confinement proof, done for real, not just reasoned about**: a throwaway strict-confinement
+`snapcraft.yaml` (`base: core24`, `extensions: [gnome]`, a `dbus` slot for `org.orcshot.Orcshot`) built
+and installed on the Ubuntu 26.04 VM under real AppArmor confinement. `export_menu_model()` succeeded
+with **zero** `apparmor="DENIED"` lines near `TrayMenu`/`org.gtk.Menus`/`export_menu`, confirmed by a live
+`gdbus call` against the confined process's own exported object returning real, correct menu data. The
+(unrelated, unchanged) clipboard extension's own `Ping()`-to-`org.gnome.Shell` call *was* denied in the
+same run - expected, the exact disqualifying pattern this redesign exists to route around, not yet
+applied to clipboard/region-select (out of this work's scope). This does **not** by itself prove a real
+Snap package works end to end - it only proves the D-Bus export mechanism survives confinement, not that
+`orcshot-tray@orcshot.org`'s own extension files can be installed from inside a sandboxed app in the
+first place; that remains an open prototype for `#185`/a real Snap package, tracked in BACKLOG.md, not
+closed by this result.
+
+**Still open, honestly recorded, not papered over**: after a plain reinstall+logout/login on the same VM,
+the tray menu occasionally failed to populate or respond to clicks at all (diagnostics proved
+`items-changed` never fired and the button was inert even to raw click events) - only a full VM *reboot*,
+not just logout/login, reliably fixed it. Matches the general class of issue this file already documents
+under extension-reload caching ([[feedback_extension_reload_caching]]), but this is the first time
+logout/login alone wasn't sufficient. direflail: "we didn't have this issue before. i'm guessing we'll
+see it again." Diagnostic logging (tagged `orcshot-tray-diag`) was deliberately left in `extension.js`
+rather than removed, for exactly this reason. **Not resolved** - if this recurs on a genuinely fresh boot,
+it needs real investigation, not another reboot-and-move-on. Separately, existing Orcshot installs
+upgrading to this version never get `orcshot-tray@orcshot.org` enabled automatically (BACKLOG.md `#188`)
+- deliberately not auto-fixed, since enabling an extension must only ever follow the user's own
+confirmation click, never happen as a side effect of an upgrade.
+
+Full suite green throughout all 7 tasks and the subsequent final-review-fix round: 1154 passed, 3 skipped.
 
 ## Licensing
 
