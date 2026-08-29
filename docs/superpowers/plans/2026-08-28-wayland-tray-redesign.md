@@ -371,6 +371,26 @@ class OrcshotTrayButton extends PanelMenu.Button {
     _init() {
         super._init(0.0, 'Orcshot');
 
+        // Orcshot's own real app logo, not a menu-item icon reused as
+        // a stand-in (direflail live-caught this on Task 7's first
+        // real-VM look, expected a real logo, not the region-capture
+        // glyph) - "orcshot" is a fixed, unique PNG this project
+        // installs at usr/share/icons/hicolor/128x128/apps/orcshot.png
+        // (debian/orcshot.install), the same icon-theme name app.py's
+        // own notifications already use (Gio.ThemedIcon.new("orcshot"),
+        // app.py's _notify). Not a task #146
+        // violation: that rule is about generic action icons (no
+        // canonical per-app design to diverge on) needing to look
+        // identical everywhere - this is the app's own one-of-a-kind
+        // logo, which resolves to the exact same file regardless of
+        // the user's icon theme since no theme ships a replacement
+        // for a name it's never heard of.
+        this.add_child(new St.Icon({
+            gicon: Gio.ThemedIcon.new('orcshot'),
+            style_class: 'system-status-icon',
+            icon_size: 16,
+        }));
+
         this._menuModel = Gio.DBusMenuModel.get(Gio.DBus.session, BUS_NAME, MENU_PATH);
         this._actionGroup = Gio.DBusActionGroup.get(Gio.DBus.session, BUS_NAME, ACTIONS_PATH);
         this.menu.actionGroup = this._actionGroup;
@@ -405,13 +425,6 @@ class OrcshotTrayButton extends PanelMenu.Button {
                     // xAlign: Clutter.ActorAlign.END, the bug this
                     // whole redesign exists to route around.
                     item.insert_child_below(iconWidget, item.label);
-                    // First item's icon is also the panel button's
-                    // own icon (Orcshot's own hand-drawn "region"
-                    // icon, task #146 - never a system theme name).
-                    if (i === 0 && !this._panelIconSet) {
-                        this.add_child(new St.Icon({ gicon, style_class: 'system-status-icon', icon_size: 16 }));
-                        this._panelIconSet = true;
-                    }
                 } catch (e) {
                     logError(e, 'orcshot-tray: bad icon data');
                 }
@@ -465,16 +478,16 @@ export default class OrcshotTrayExtension extends Extension {
 }
 ```
 
-Note on the panel-icon logic: the extension above reuses the first menu item's icon (Orcshot's own
-hand-drawn "region" icon) for the panel button itself, rather than matching AppIndicator3's current choice
-of `LOGO_PATH` (Orcshot's app logo). Decision: keep the reused capture-mode icon, don't add a second export
-path just for the panel button. Reasoning: `LOGO_PATH` is a PNG file on disk, not something
-`gnome_tray_export.py` currently exports over D-Bus at all (Task 2 only exports the menu structure) - adding
-a second, logo-specific export path purely to match AppIndicator3's cosmetic choice is exactly the kind of
-unrequested extra surface this project avoids elsewhere (see `[[feedback_root_cause_not_bandaid]]`'s own
-sibling principle against solving more than what's asked). If this cosmetic difference matters once seen
-live in Task 7, swapping to the real logo is a two-line follow-up (export `LOGO_PATH` as a second `Gio.Icon`
-in Task 2, reference it here instead of item 0's icon) - not a redesign.
+Note on the panel-icon logic (superseded by a Task 7 live-verification finding, see the plan's own commit
+history): the extension originally reused the first menu item's icon (Orcshot's own hand-drawn "region"
+icon) for the panel button itself, rather than matching AppIndicator3's `LOGO_PATH` (Orcshot's real app
+logo) - reasoning at the time was that adding a second, logo-specific D-Bus export path purely to match a
+cosmetic choice was unrequested extra surface. Once seen live, direflail confirmed this mattered and asked
+for the real logo. The fix turned out not to need the anticipated second export path at all: `extension.js`
+now sets the panel button's own icon directly via `Gio.ThemedIcon.new('orcshot')` (the exact same icon-theme
+name `app.py`'s own notifications already use) - no Python-side export needed, since Orcshot's app icon is
+already installed system-wide at a fixed path (`debian/orcshot.install`) and resolves identically regardless
+of the user's icon theme. The code block above already reflects this fix.
 
 - [ ] **Step 3: Commit**
 

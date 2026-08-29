@@ -17,6 +17,26 @@ class OrcshotTrayButton extends PanelMenu.Button {
     _init() {
         super._init(0.0, 'Orcshot');
 
+        // Orcshot's own real app logo, not a menu-item icon reused as
+        // a stand-in (direflail live-caught this on Task 7's first
+        // real-VM look, expected a real logo, not the region-capture
+        // glyph) - "orcshot" is a fixed, unique PNG this project
+        // installs at usr/share/icons/hicolor/128x128/apps/orcshot.png
+        // (debian/orcshot.install), the same icon-theme name app.py's
+        // own notifications already use (Gio.ThemedIcon.new("orcshot"),
+        // app.py's _notify). Not a task #146
+        // violation: that rule is about generic action icons (no
+        // canonical per-app design to diverge on) needing to look
+        // identical everywhere - this is the app's own one-of-a-kind
+        // logo, which resolves to the exact same file regardless of
+        // the user's icon theme since no theme ships a replacement
+        // for a name it's never heard of.
+        this.add_child(new St.Icon({
+            gicon: Gio.ThemedIcon.new('orcshot'),
+            style_class: 'system-status-icon',
+            icon_size: 16,
+        }));
+
         this._menuModel = Gio.DBusMenuModel.get(Gio.DBus.session, BUS_NAME, MENU_PATH);
         this._actionGroup = Gio.DBusActionGroup.get(Gio.DBus.session, BUS_NAME, ACTIONS_PATH);
         this.menu.actionGroup = this._actionGroup;
@@ -51,13 +71,6 @@ class OrcshotTrayButton extends PanelMenu.Button {
                     // xAlign: Clutter.ActorAlign.END, the bug this
                     // whole redesign exists to route around.
                     item.insert_child_below(iconWidget, item.label);
-                    // First item's icon is also the panel button's
-                    // own icon (Orcshot's own hand-drawn "region"
-                    // icon, task #146 - never a system theme name).
-                    if (i === 0 && !this._panelIconSet) {
-                        this.add_child(new St.Icon({ gicon, style_class: 'system-status-icon', icon_size: 16 }));
-                        this._panelIconSet = true;
-                    }
                 } catch (e) {
                     logError(e, 'orcshot-tray: bad icon data');
                 }
