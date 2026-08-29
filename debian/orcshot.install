@@ -8,4 +8,5 @@ src/orcshot/resources/gnome-shell-extensions/orcshot-clipboard@orcshot.org/metad
 src/orcshot/resources/gnome-shell-extensions/orcshot-clipboard@orcshot.org/icon_geometry.json usr/share/gnome-shell/extensions/orcshot-clipboard@orcshot.org/
 src/orcshot/resources/gnome-shell-extensions/orcshot-clipboard@orcshot.org/magnifier_constants.json usr/share/gnome-shell/extensions/orcshot-clipboard@orcshot.org/
 src/orcshot/resources/gnome-shell-extensions/orcshot-clipboard@orcshot.org/icons/*.png usr/share/gnome-shell/extensions/orcshot-clipboard@orcshot.org/icons/
-src/orcshot/resources/gnome-shell-extensions/orcshot-clipboard@orcshot.org/locale usr/share/gnome-shell/extensions/orcshot-clipboard@orcshot.org/
+src/orcshot/resources/gnome-shell-extensions/orcshot-tray@orcshot.org/extension.js usr/share/gnome-shell/extensions/orcshot-tray@orcshot.org/
+src/orcshot/resources/gnome-shell-extensions/orcshot-tray@orcshot.org/metadata.json usr/share/gnome-shell/extensions/orcshot-tray@orcshot.org/
