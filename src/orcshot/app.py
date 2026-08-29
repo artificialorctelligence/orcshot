@@ -201,6 +201,8 @@ class OrcshotApplication(Gtk.Application):
         _log_session_info()
         Gtk.Window.set_default_icon_from_file(str(LOGO_PATH))
         self._register_tray_actions()
+        if os.environ.get("XDG_SESSION_TYPE") == "wayland":
+            self._export_tray_menu()
         self._tray_icon = self._build_tray_icon()
         self._check_shell_extension_health()
         maybe_run_first_run_setup()
@@ -216,7 +218,6 @@ class OrcshotApplication(Gtk.Application):
         # run for existing installs regardless of whether the user ever
         # touches the Preferences autostart checkbox again.
         remove_legacy_autostart_entry()
-        self._recheck_tray_icon_after_extension_change()
 
         # "app.open-uri" backs every notification's default (click)
         # action below - Gio.Notification can only target a
@@ -577,12 +578,11 @@ class OrcshotApplication(Gtk.Application):
         interface, since this app is already a registered Gio.
         Application with a fixed application_id (see this file's own
         docstring). The Shell-native tray panel button
-        (orcshot-clipboard@orcshot.org, built when
-        gnome_region_select.shell_tray_button_active() - see
-        _build_tray_icon) lives in a separate process and activates
-        these by name via Gio.DBusActionGroup instead of calling into
-        this process directly - see that extension's own
-        _activateTrayAction.
+        (orcshot-tray@orcshot.org, rendering the menu
+        _export_tray_menu publishes for it - see _build_tray_icon)
+        lives in a separate process and activates these by name via
+        Gio.DBusActionGroup instead of calling into this process
+        directly - see that extension's own _activateTrayAction.
         """
         for mode, handler in self._tray_action_handlers().items():
             action = Gio.SimpleAction.new(f"tray-{mode}", None)
@@ -617,6 +617,28 @@ class OrcshotApplication(Gtk.Application):
         play_capture_sound_action = Gio.SimpleAction.new("play-capture-sound", None)
         play_capture_sound_action.connect("activate", lambda *_args: play_capture_sound())
         self.add_action(play_capture_sound_action)
+
+    def _export_tray_menu(self) -> None:
+        """Publishes the Wayland tray menu for orcshot-tray@orcshot.org
+        to render - see gnome_tray_export.py's own module docstring
+        for why this doesn't need a new bus name or action group, just
+        the menu structure itself.
+        """
+        from orcshot.capture.gnome_tray_export import build_tray_menu, export_tray_menu
+
+        labels = {
+            "region": _("Capture Region"),
+            "full_screen": _("Capture Full Screen"),
+            "active_window": _("Capture Active Window"),
+            "window_picker": _("Capture Window..."),
+            "repeat_region": _("Repeat Last Region"),
+            "open_file": _("Open File..."),
+            "preferences": _("Preferences..."),
+            "quit": _("Quit"),
+        }
+        color = _rgba_to_color(Gtk.Window().get_style_context().get_color(Gtk.StateFlags.NORMAL))
+        menu = build_tray_menu(labels, color)
+        export_tray_menu(self, menu)
 
     def _quit_and_hide_tray_button(self, write_marker: bool = True) -> None:
         """direflail: "when the user selects quit, i want all parts of
@@ -817,27 +839,18 @@ class OrcshotApplication(Gtk.Application):
             sys.exit(1)
 
     def _check_shell_extension_health(self) -> None:
-        """Surfaces two real, ordinary-but-easy-to-miss states
+        """Surfaces one real, ordinary-but-easy-to-miss state
         _log_session_info can only log to a terminal nobody's watching
-        (task #137 follow-up):
-
-        1. The extension is running, but it's a *stale* cached copy
-           from before an update - GNOME Shell caches an extension's JS
-           module for the whole login session (see
-           gnome_extension_setup.py's own docstring), so a package
-           upgrade that changes extension.js leaves an already-running
-           Shell serving the old module, Ping() included, until the
-           user logs out and back in. First-run setup already tells a
-           *new* user this ("Both require logging out and back in to
-           take effect.") - nothing told an *existing*, upgrading user
-           the same thing before this.
-        2. The extension is current, but its own tray panel button
-           construction threw (see extension.js's own enable(), which
-           catches that specifically so it can't take the whole
-           extension down) - _build_tray_icon already falls back to
-           AyatanaAppIndicator3 for this, so the user isn't left
-           without a tray icon, but the underlying failure is still
-           worth surfacing rather than silently swallowing.
+        (task #137 follow-up): the extension is running, but it's a
+        *stale* cached copy from before an update - GNOME Shell caches
+        an extension's JS module for the whole login session (see
+        gnome_extension_setup.py's own docstring), so a package upgrade
+        that changes extension.js leaves an already-running Shell
+        serving the old module, Ping() included, until the user logs
+        out and back in. First-run setup already tells a *new* user
+        this ("Both require logging out and back in to take effect.")
+        - nothing told an *existing*, upgrading user the same thing
+        before this.
 
         Not installed/enabled at all is deliberately left alone here -
         that's the ordinary state on X11, or on Wayland before first-
@@ -846,9 +859,7 @@ class OrcshotApplication(Gtk.Application):
         if os.environ.get("XDG_SESSION_TYPE") != "wayland":
             return
         from orcshot.capture.gnome_clipboard import EXPECTED_API_VERSION, get_live_api_version
-        from orcshot.capture.gnome_region_select import (
-            get_tray_button_error, is_available, shell_tray_button_active,
-        )
+        from orcshot.capture.gnome_region_select import is_available
 
         if not is_available():
             return
@@ -862,149 +873,24 @@ class OrcshotApplication(Gtk.Application):
                     "still running the previous version. Log out and back in to finish applying it."
                 ),
             )
-            return  # explains a missing/stale tray button too - no separate report needed
-
-        if not shell_tray_button_active():
-            error = get_tray_button_error()
-            detail = f"\n\n{error}" if error else ""
-            self._notify(
-                _("Orcshot's tray icon fell back to a plain version"),
-                _(
-                    "Its usual Shell-integrated tray icon couldn't be created, so a plain fallback "
-                    "is being used instead. This is a bug worth reporting.{}"
-                ).format(detail),
-            )
-
-    def _recheck_tray_icon_after_extension_change(self) -> None:
-        """Task #144: `_build_tray_icon` makes its AppIndicator3-vs-None
-        decision once, synchronously, in `do_startup` - before
-        `maybe_run_first_run_setup` has even run. For a brand-new
-        Wayland user who says yes to GNOME-native capture during that
-        wizard, `enable_extension` (first_run_setup.py) flips
-        orcshot-clipboard@orcshot.org on *after* that decision was
-        already made - live-confirmed (screenshot: two identical tray
-        icons) that both the AppIndicator3 fallback built moments
-        earlier and the extension's own now-active Shell-native panel
-        button end up on screen at once, with nothing ever tearing the
-        first one down.
-
-        Called once, right after `maybe_run_first_run_setup` returns in
-        `do_startup`. Polls rather than checking exactly once more:
-        `enable_extension` only flips a GSettings key, and GNOME Shell
-        picks that up and actually activates the extension
-        asynchronously, not necessarily by the time the wizard's own
-        blocking `dialog.run()` returns - confirmed live this can still
-        lag a checkable amount. Gives up silently after ~3 seconds
-        (`_check_shell_extension_health`, called earlier in the same
-        `do_startup`, already covers the case where it never comes up
-        at all - nothing more to add here for that outcome).
-
-        Deliberately scoped to this one concrete, common trigger rather
-        than a general poll for every possible later way the extension
-        could become active (e.g. toggling it by hand in the GNOME
-        Extensions app while Orcshot happens to already be running) -
-        real, but much rarer than every new user's own first-run wizard.
-        """
-        if self._tray_icon is None or os.environ.get("XDG_SESSION_TYPE") != "wayland":
-            return
-        attempts_left = [6]
-
-        def _poll() -> bool:
-            from orcshot.capture.gnome_region_select import shell_tray_button_active
-
-            if shell_tray_button_active():
-                import gi
-
-                gi.require_version("AyatanaAppIndicator3", "0.1")
-                from gi.repository import AyatanaAppIndicator3
-
-                self._tray_icon.set_status(AyatanaAppIndicator3.IndicatorStatus.PASSIVE)
-                self._tray_icon = None
-                return False
-            attempts_left[0] -= 1
-            return attempts_left[0] > 0
-
-        GLib.timeout_add(500, _poll)
 
     def _build_tray_icon(self):
-        """Returns a Gtk.StatusIcon (X11), an AyatanaAppIndicator3.
-        Indicator (Wayland fallback), or None (Wayland with
-        orcshot-clipboard@orcshot.org available - the extension's own
-        Shell-native PanelMenu.Button owns the tray instead, built
-        from _register_tray_actions' GActions rather than any local
-        widget here at all; see REQUIREMENTS.md's task #137 follow-up
-        for why the fallback stays rather than requiring the
-        extension unconditionally - first boot before a relogin,
-        Shell-version skew, or the user disabling extensions are all
-        real, ordinary ways it can be temporarily or persistently
-        unavailable).
-
-        Deliberately not unified onto one
-        mechanism for both platforms, see the branch below for why.
+        """Returns a Gtk.StatusIcon (X11), or None (Wayland - see the
+        branch below for why there's no local widget there at all).
         """
         if os.environ.get("XDG_SESSION_TYPE") == "wayland":
-            from orcshot.capture.gnome_region_select import shell_tray_button_active
-
-            if shell_tray_button_active():
-                # No local widget at all - orcshot-clipboard@orcshot.org's
-                # own PanelMenu.Button owns the tray for this run, talking
-                # back to _register_tray_actions' GActions. Checking the
-                # button's own success (not just is_available()'s Ping())
-                # matters here: is_available() would also return True
-                # against a stale cached module from before an update, or
-                # one whose panel-button construction threw and was
-                # caught (see extension.js's own enable()) - either way
-                # there'd be no real button to hand off to, and returning
-                # None here would leave the user with no tray icon at
-                # all. _check_shell_extension_health surfaces both of
-                # those cases separately instead of silently falling
-                # through to here.
-                return None
+            # No local widget at all, same reasoning as the old
+            # Shell-native panel-button path this replaces (see
+            # docs/superpowers/specs/2026-08-28-wayland-capture-redesign-design.md) -
+            # orcshot-tray@orcshot.org owns the tray unconditionally
+            # on Wayland now; unlike the extension it replaces, there
+            # is no AppIndicator3 fallback to fall through to if it's
+            # unavailable (first boot before a relogin, or the user
+            # disabling extensions) - see _export_tray_menu's own
+            # docstring for how that gap is surfaced instead.
+            return None
 
         menu = self._build_tray_menu()
-
-        if os.environ.get("XDG_SESSION_TYPE") == "wayland":
-            # Gtk.StatusIcon relies on XEmbed, which doesn't exist
-            # under Wayland - confirmed live it never actually embeds
-            # (is_embedded() == False), and its internal icon-scaling
-            # code throws a Gtk-CRITICAL (gtk_widget_get_scale_factor:
-            # assertion 'GTK_IS_WIDGET' failed) trying to render an
-            # icon with no real widget behind it (task #66). Ayatana
-            # AppIndicator3 is the portable, D-Bus-based
-            # (StatusNotifierItem) replacement that actually works
-            # here - confirmed live, icon renders and the menu opens.
-            #
-            # Deliberately kept X11-only for Gtk.StatusIcon rather
-            # than switching both platforms to this: confirmed live
-            # that AppIndicator has no distinct left-click ("activate")
-            # action once a menu is attached - the real desktop
-            # indicator host shows the same menu regardless of which
-            # button was clicked (a long-documented AppIndicator
-            # design limitation, not something fixable from here - see
-            # https://bugs.launchpad.net/bugs/1910521). Switching X11
-            # over too would lose the left-click-for-instant-capture
-            # shortcut that already works correctly there today
-            # (matching Windows Greenshot's own tray default - see
-            # start_capture's docstring) for no benefit, since nothing
-            # is broken on X11 to begin with.
-            import gi
-
-            gi.require_version("AyatanaAppIndicator3", "0.1")
-            from gi.repository import AyatanaAppIndicator3
-
-            indicator = AyatanaAppIndicator3.Indicator.new(
-                "orcshot", LOGO_PATH.stem, AyatanaAppIndicator3.IndicatorCategory.APPLICATION_STATUS,
-            )
-            # set_icon (not set_icon_full/an installed icon-theme name):
-            # this app ships one bundled PNG rather than installing
-            # into the system icon theme - set_icon_theme_path points
-            # the indicator at that file's own directory so the plain
-            # name (no extension) it was constructed with resolves.
-            indicator.set_icon_theme_path(str(LOGO_PATH.parent))
-            indicator.set_title("Orcshot")  # noqa: i18n (proper noun)
-            indicator.set_status(AyatanaAppIndicator3.IndicatorStatus.ACTIVE)
-            indicator.set_menu(menu)
-            return indicator
 
         icon = Gtk.StatusIcon()
         icon.set_from_file(str(LOGO_PATH))
