@@ -1,6 +1,6 @@
 """Enabling this project's bundled GNOME Shell extensions (window-calls,
-see THIRD_PARTY_NOTICES.md; orcshot-clipboard, this project's
-own original code) - the equivalent of what hotkey_setup.py does for
+see THIRD_PARTY_NOTICES.md; orcshot-clipboard and orcshot-tray, this
+project's own original code) - the equivalent of what hotkey_setup.py does for
 Cinnamon keybindings: a real write to the user's desktop settings that
 must only ever happen from their own confirmation click, never as a
 side effect of installing or running the app. The .deb only places the
@@ -33,6 +33,7 @@ from __future__ import annotations
 
 WINDOW_CALLS_EXTENSION_UUID = "window-calls@domandoman.xyz"
 CLIPBOARD_EXTENSION_UUID = "orcshot-clipboard@orcshot.org"
+TRAY_EXTENSION_UUID = "orcshot-tray@orcshot.org"
 _SHELL_SCHEMA = "org.gnome.shell"
 _ENABLED_EXTENSIONS_KEY = "enabled-extensions"
 

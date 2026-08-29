@@ -78,6 +78,7 @@ from gi.repository import GLib, Gtk
 from orcshot.autostart import enable_autostart
 from orcshot.gnome_extension_setup import (
     CLIPBOARD_EXTENSION_UUID,
+    TRAY_EXTENSION_UUID,
     WINDOW_CALLS_EXTENSION_UUID,
     enable_extension,
     enable_extension_live,
@@ -275,6 +276,7 @@ def _run_dialog(parent, executable: str, settings_backend) -> None:
         if is_gnome_wayland:
             enable_extension(settings_backend, WINDOW_CALLS_EXTENSION_UUID)
             enable_extension(settings_backend, CLIPBOARD_EXTENSION_UUID)
+            enable_extension(settings_backend, TRAY_EXTENSION_UUID)
             # enable_extension above only persists the setting for a
             # future login - enable_extension_live (task #150 follow-
             # up, see its own docstring for the live-reproduced bug)
@@ -282,9 +284,9 @@ def _run_dialog(parent, executable: str, settings_backend) -> None:
             # Shell right now. Each wrapped separately and best-effort:
             # autostart/hotkeys/the gsettings writes above already
             # succeeded by this point, and a transient D-Bus hiccup on
-            # one extension shouldn't take the other down with it or
+            # one extension shouldn't take the others down with it or
             # leave the wizard looking like it crashed.
-            for uuid in (WINDOW_CALLS_EXTENSION_UUID, CLIPBOARD_EXTENSION_UUID):
+            for uuid in (WINDOW_CALLS_EXTENSION_UUID, CLIPBOARD_EXTENSION_UUID, TRAY_EXTENSION_UUID):
                 try:
                     enable_extension_live(uuid)
                 except GLib.Error as e:
