@@ -1,11 +1,12 @@
 """The one-time first-run prompt: offers to enable autostart-on-login,
 configure the four capture hotkeys (asking per-binding whether to
 overwrite anything already using that key combo), and - on a GNOME
-Wayland session specifically - enable the two bundled GNOME Shell
-extensions this project ships: window-calls ("Capture Window" mode)
-and orcshot-clipboard (reliable "Copy to Clipboard") - see
-gnome_extension_setup.py and REQUIREMENTS.md's Wayland window-picker
-and "Clipboard under Wayland" sections. See hotkey_setup.py's module
+Wayland session specifically - enable the three bundled GNOME Shell
+extensions this project ships: window-calls ("Capture Window" mode),
+orcshot-clipboard (reliable "Copy to Clipboard"), and orcshot-tray
+(the Wayland tray icon/menu) - see gnome_extension_setup.py and
+REQUIREMENTS.md's Wayland window-picker and "Clipboard under Wayland"
+sections. See hotkey_setup.py's module
 docstring for how real conflicts on the dev machine (every one of the
 four defaults collided with something) motivated that question
 existing at all - this dialog is the only place in this codebase where
@@ -47,11 +48,12 @@ resolve_hotkey_choices, configure_all_hotkeys) can be fully unit
 tested there without a live GTK dialog or a real desktop in the loop;
 this file is just the thin GTK glue wiring user clicks to that logic.
 
-Both extension checkboxes only appear at all on a session where they
-could plausibly work (Wayland + gnome_extension_setup.gnome_shell_present())
-- checked, not assumed, same empirical-first precedent as the hotkeys
-section. Enabling either here only flips the gsettings flag; it does
-NOT take effect in the current session - confirmed live that GNOME
+None of the three extensions is offered as a checkbox at all - they're only
+ever enabled on a session where they could plausibly work (Wayland +
+gnome_extension_setup.gnome_shell_present()) - checked, not assumed, same
+empirical-first precedent as the hotkeys section. Enabling one here only
+flips the gsettings flag; it does NOT take effect in the current session -
+confirmed live that GNOME
 Shell caches an extension's JS module and needs a full logout/login to
 pick up a freshly-enabled one, not just a Shell restart or a
 disable/enable toggle - hence the explicit note in the dialog rather
@@ -214,20 +216,24 @@ def _run_dialog(parent, executable: str, settings_backend) -> None:
             wrap=True, xalign=0,
         ), False, False, 0)
 
-    # Neither GNOME Wayland extension is offered as a checkbox - both
-    # are unconditionally enabled below whenever this dialog completes
-    # with OK on a session where they'd apply (is_gnome_wayland),
-    # checked live rather than assumed (see gnome_extension_setup.
-    # gnome_shell_present's docstring), same as autostart/hotkeys
-    # aren't re-litigated as individually skippable app-core-
-    # functionality choices either. direflail, on why: "it's ALWAYS
-    # going to be enabled, otherwise the program won't work... why
-    # else would you install this program if you didn't want clipboard
-    # support? it's a screenshot app" - and the same reasoning was
-    # extended to window-calls (needed for "Capture Window" mode to
-    # work correctly under Wayland at all - see REQUIREMENTS.md's
-    # Wayland window-picker section) once it was clear neither checkbox
-    # was protecting anyone who wasn't already going to check it.
+    # None of the three GNOME Wayland extensions is offered as a
+    # checkbox - all three are unconditionally enabled below whenever
+    # this dialog completes with OK on a session where they'd apply
+    # (is_gnome_wayland), checked live rather than assumed (see
+    # gnome_extension_setup.gnome_shell_present's docstring), same as
+    # autostart/hotkeys aren't re-litigated as individually skippable
+    # app-core-functionality choices either. direflail, on why: "it's
+    # ALWAYS going to be enabled, otherwise the program won't work...
+    # why else would you install this program if you didn't want
+    # clipboard support? it's a screenshot app" - and the same
+    # reasoning was extended to window-calls (needed for "Capture
+    # Window" mode to work correctly under Wayland at all - see
+    # REQUIREMENTS.md's Wayland window-picker section) and to
+    # orcshot-tray (Task 7's own fix, added after this reasoning was
+    # first settled - the tray icon/menu is exactly as core to "why
+    # you'd install a screenshot app" as clipboard support) once it was
+    # clear none of these checkboxes was protecting anyone who wasn't
+    # already going to check it.
     #
     # No "requires logging out" warning either (removed, not just
     # never added here) - it was stale: gnome_clipboard.is_available()
@@ -242,14 +248,21 @@ def _run_dialog(parent, executable: str, settings_backend) -> None:
     # available. Even a capture attempted within that sub-second window
     # just gracefully falls back to the portal/invisible-window path
     # instead of failing, so there was never a real "won't work without
-    # a restart" case to warn about.
+    # a restart" case to warn about. orcshot-tray has neither property
+    # (no Ping()-style live probe, no fallback if it hasn't activated
+    # yet this session) - this reasoning doesn't cover it, a real,
+    # already-ledgered gap (BACKLOG.md, Task 4/5 Ruling) this comment
+    # isn't relitigating, just flagging so a future reader doesn't
+    # assume the paragraph above also justifies skipping the warning
+    # for the tray extension.
     #
-    # orcshot-clipboard@orcshot.org is this project's own wholly
-    # original extension.js (see that file's own header comment);
-    # window-calls@domandoman.xyz is a bundled *third-party* patched
-    # fork, already documented in THIRD_PARTY_NOTICES.md and
-    # debian/copyright - real provenance worth documenting there,
-    # unlike a checkbox that most users have no context to evaluate.
+    # orcshot-clipboard@orcshot.org and orcshot-tray@orcshot.org are
+    # this project's own wholly original extension.js files (see each
+    # one's own header comment); window-calls@domandoman.xyz is a
+    # bundled *third-party* patched fork, already documented in
+    # THIRD_PARTY_NOTICES.md and debian/copyright - real provenance
+    # worth documenting there, unlike a checkbox that most users have
+    # no context to evaluate.
     is_gnome_wayland = os.environ.get("XDG_SESSION_TYPE") == "wayland" and gnome_shell_present()
 
     dialog.show_all()

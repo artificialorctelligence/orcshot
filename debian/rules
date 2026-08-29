@@ -48,12 +48,18 @@ override_dh_auto_test:
 # file already sitting under src/orcshot/resources/ - no debian/
 # orcshot.install entry needed, matching orcshot/i18n.py's own
 # RESOURCES_DIR-relative _LOCALE_DIR convention. po/??.po (exactly a
-# 2-letter code), not po/*.po - po/ also holds the Wayland tray
+# 2-letter code), not po/*.po - po/ used to also hold the Wayland tray
 # extension's own separate-domain po/orcshot-tray-<lang>.po files
-# (task #183 follow-up) now, and a bare *.po glob was compiling those
-# into a bogus src/orcshot/resources/locale/orcshot-tray-<lang>/
-# directory that leaked into this wheel too, confirmed live via a
-# real build before this fix. Still no rules change needed for a
+# (task #183 follow-up), and a bare *.po glob was compiling those into
+# a bogus src/orcshot/resources/locale/orcshot-tray-<lang>/ directory
+# that leaked into this wheel too, confirmed live via a real build
+# before this fix. Those files were deleted along with the rest of
+# that gettext domain by the 2026-08-28 Wayland tray redesign (Task 5)
+# - orcshot-tray@orcshot.org now renders labels it receives already-
+# translated over D-Bus, no domain of its own - but the ??.po glob
+# stays exactly this specific regardless, still the correct discipline
+# against po/ picking up any other non-2-letter-code file (po/orcshot.
+# pot included) by accident. Still no rules change needed for a
 # genuinely new 2-letter-code language.
 override_dh_auto_build:
 	for po in po/??.po; do \

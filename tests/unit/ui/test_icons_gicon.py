@@ -7,7 +7,18 @@ gi.require_version("Gio", "2.0")
 gi.require_version("GdkPixbuf", "2.0")
 from gi.repository import Gio, GdkPixbuf
 
-from orcshot.ui.icons import capture_mode_gicon
+from orcshot.ui.icons import capture_mode_gicon, stock_icon_gicon
+
+
+class TestStockIconGicon:
+    def test_bytes_are_a_valid_decodable_png_at_the_requested_size(self):
+        icon = stock_icon_gicon("document-open-symbolic", size=32)
+        assert isinstance(icon, Gio.BytesIcon)
+        pixbuf = GdkPixbuf.Pixbuf.new_from_stream(
+            Gio.MemoryInputStream.new_from_bytes(icon.get_bytes()), None,
+        )
+        assert pixbuf.get_width() == 32
+        assert pixbuf.get_height() == 32
 
 
 class TestCaptureModeGicon:

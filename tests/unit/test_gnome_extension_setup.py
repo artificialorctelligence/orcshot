@@ -7,6 +7,7 @@ click, never a test.
 
 from orcshot.gnome_extension_setup import (
     CLIPBOARD_EXTENSION_UUID,
+    TRAY_EXTENSION_UUID,
     WINDOW_CALLS_EXTENSION_UUID,
     enable_extension,
     enabled_extensions_after_adding,
@@ -55,10 +56,11 @@ class TestEnableExtension:
         enable_extension(backend, WINDOW_CALLS_EXTENSION_UUID)
         assert backend.get_strv("org.gnome.shell", "/", "enabled-extensions") == [WINDOW_CALLS_EXTENSION_UUID]
 
-    def test_can_enable_both_bundled_extensions_independently(self):
+    def test_can_enable_all_three_bundled_extensions_independently(self):
         backend = FakeSettingsBackend()
         enable_extension(backend, WINDOW_CALLS_EXTENSION_UUID)
         enable_extension(backend, CLIPBOARD_EXTENSION_UUID)
+        enable_extension(backend, TRAY_EXTENSION_UUID)
         assert backend.get_strv("org.gnome.shell", "/", "enabled-extensions") == [
-            WINDOW_CALLS_EXTENSION_UUID, CLIPBOARD_EXTENSION_UUID,
+            WINDOW_CALLS_EXTENSION_UUID, CLIPBOARD_EXTENSION_UUID, TRAY_EXTENSION_UUID,
         ]

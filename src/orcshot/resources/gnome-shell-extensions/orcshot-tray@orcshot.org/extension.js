@@ -40,7 +40,6 @@ class OrcshotTrayButton extends PanelMenu.Button {
 
         this._menuModel = Gio.DBusMenuModel.get(Gio.DBus.session, BUS_NAME, MENU_PATH);
         this._actionGroup = Gio.DBusActionGroup.get(Gio.DBus.session, BUS_NAME, ACTIONS_PATH);
-        this.menu.actionGroup = this._actionGroup;
 
         // TEMPORARY diagnostics (Task 7 live debugging, direflail
         // asked for click-behavior visibility) - remove once the
@@ -187,7 +186,18 @@ export default class OrcshotTrayExtension extends Extension {
                     return;
                 try {
                     this._button = new OrcshotTrayButton();
-                    Main.panel.addToStatusArea('orcshot-tray', this._button);
+                    // Role name deliberately distinct from the old,
+                    // now-removed orcshot-clipboard@orcshot.org tray
+                    // button, which used to register itself under the
+                    // plain 'orcshot-tray' role - if a stale, cached
+                    // copy of that old extension's JS module is still
+                    // resident in a GNOME Shell process during an
+                    // upgrade (see [[feedback_extension_reload_caching]]),
+                    // reusing the same role name here would throw
+                    // "there is already a status indicator for role
+                    // 'orcshot-tray'" (caught below, so it fails safely,
+                    // but this button would then silently never appear).
+                    Main.panel.addToStatusArea('orcshot-tray-button', this._button);
                     log('orcshot-tray-diag: button constructed and added to status area');
                 } catch (e) {
                     logError(e, 'orcshot-tray: failed to build tray button');

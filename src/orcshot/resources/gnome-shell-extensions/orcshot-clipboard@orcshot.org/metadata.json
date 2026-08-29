@@ -1,8 +1,7 @@
 {
   "name": "Orcshot Clipboard",
-  "description": "Exposes D-Bus methods that copy image data to the clipboard and run the interactive capture flow using Shell-side privileged access, plus a Shell-native tray panel button for Orcshot's own capture-mode menu (see the project's own REQUIREMENTS.md for why each piece needs to run inside the Shell process rather than as an ordinary client app).",
+  "description": "Exposes D-Bus methods that copy image data to the clipboard and run the interactive capture flow using Shell-side privileged access (see the project's own REQUIREMENTS.md for why this needs to run inside the Shell process rather than as an ordinary client app). The tray panel button moved to the separate orcshot-tray@orcshot.org extension as of the 2026-08-28 Wayland tray redesign.",
   "uuid": "orcshot-clipboard@orcshot.org",
-  "gettext-domain": "orcshot-tray",
   "shell-version": [
     "45",
     "46",
