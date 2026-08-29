@@ -39,7 +39,9 @@ import gi
 gi.require_version("Gtk", "3.0")
 gi.require_version("Gdk", "3.0")
 gi.require_version("GdkPixbuf", "2.0")
-from gi.repository import Gdk, GdkPixbuf, Gtk
+gi.require_version("Gio", "2.0")
+gi.require_version("GLib", "2.0")
+from gi.repository import Gdk, GdkPixbuf, Gio, GLib, Gtk
 
 from orcshot.core.geometry import Rect
 from orcshot.core.shapes import (
@@ -922,6 +924,26 @@ def _drawn_icon_image(geometry_key: str, color: Color, size: int) -> Gtk.Image:
     return Gtk.Image.new_from_pixbuf(pixbuf)
 
 
+def _drawn_icon_gicon(geometry_key: str, color: Color, size: int) -> Gio.Icon:
+    """Same Cairo drawing as _drawn_icon_image, but wrapped as a real
+    Gio.Icon (raw PNG bytes) instead of a Gtk.Image widget - for
+    contexts that need to hand an icon to something outside this
+    process (a D-Bus-exported Gio.Menu item), where a live widget
+    reference is meaningless. Deliberately still Orcshot's own
+    hand-drawn geometry, never a system icon-theme name - see this
+    module's own stock_icon_image docstring (task #146) for why
+    that's a hard requirement, not a style preference.
+    """
+    surface = cairo.ImageSurface(cairo.FORMAT_ARGB32, size, size)
+    ctx = cairo.Context(surface)
+    r, g, b, a = color
+    ctx.set_source_rgba(r / 255, g / 255, b / 255, a / 255)
+    _render_icon_geometry(ctx, _icon_geometry()[geometry_key], size)
+    pixbuf = Gdk.pixbuf_get_from_surface(surface, 0, 0, surface.get_width(), surface.get_height())
+    _, png_bytes = pixbuf.save_to_bufferv("png", [], [])
+    return Gio.BytesIcon.new(GLib.Bytes.new(png_bytes))
+
+
 def capture_mode_icon_image(mode: str, color: Color = _DEFAULT_COLOR) -> Gtk.Image:
     """Icon for a tray-menu capture-mode item (task #137) - one of
     "region"/"full_screen"/"active_window"/"window_picker"/
@@ -939,6 +961,15 @@ def capture_mode_icon_image(mode: str, color: Color = _DEFAULT_COLOR) -> Gtk.Ima
     identical geometry data either way.
     """
     return _drawn_icon_image(mode, color, ICON_SIZE)
+
+
+def capture_mode_gicon(mode: str, color: Color = _DEFAULT_COLOR, size: int = ICON_SIZE) -> Gio.Icon:
+    """Gio.Icon counterpart to capture_mode_icon_image, for the
+    Wayland tray menu's D-Bus-exported Gio.Menu (see
+    gnome_tray_export.py) - same modes, same geometry data, same
+    hand-drawn requirement.
+    """
+    return _drawn_icon_gicon(mode, color, size)
 
 
 _EXTERNAL_COMMAND_ICON_KEY = "external-command-symbolic"
