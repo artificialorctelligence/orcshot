@@ -163,7 +163,57 @@ translated tray menu, the Shell-native window picker, and per [[feedback-extensi
 whatever replaces it needs its own answer to "how does a code change actually take effect" that doesn't
 require a full logout/login either.
 
-Not scoped, not designed, no decision made - direflail wants to think it over.
+**Design progress (2026-08-28), from a real brainstorming session with direflail - most of this is now
+verified live, not theorized:**
+
+- **Region-select and clipboard are already solved, today, with zero extension dependency.** Read the
+  actual code rather than assumed: `WaylandCaptureBackend` (portal-based pixel grab) +
+  `region_select_wayland.py` (Orcshot's own client-side overlay, loupe included - `draw_magnifier`,
+  `_show_magnifier`, real and active) is *already* the automatic fallback whenever the Shell extension
+  isn't available, already confirmed live against the real portal backend. Same story for
+  `WaylandClipboardBackend`. Neither needs redesigning - they're already the portable answer.
+- **The `org.gnome.Shell` D-Bus wall is real, confirmed via direct precedent**: a strict-confinement Snap
+  trying to call GNOME Shell's own D-Bus interfaces (same class of call Orcshot's bundled extension uses -
+  `BUS_NAME = "org.gnome.Shell"`, confirmed in `gnome_clipboard.py`) got denied by AppArmor with no
+  interface to fix it - a Snap maintainer's own words: "the trust model of snaps (untrusted and hence
+  confined) is not compatible with gnome-shell extensions (trusted, deeply integrated with the desktop,
+  unconfined...)." Anything still calling `org.gnome.Shell` directly carries this same risk under strict
+  confinement; anything using only the standard portal (`org.freedesktop.portal.Desktop`) shouldn't, since
+  portals are the actual sanctioned bridge for confined apps.
+- **The XDG portal's `Screenshot` interface has a `target` option (v3: Screen/Window/Area/Active Window)
+  that Orcshot's own `wayland_portal.py` already defines constants for but never uses** (only
+  `TARGET_SCREEN` is called anywhere). Live-tested `target=Area`: works, renders GNOME's own native
+  Screenshot UI (Selection/Screen/Window tabs) - genuinely GNOME's real screenshot tool, not a bare portal
+  placeholder, confirmed via a live VirtualBox screenshot of the actual rendered UI.
+- **`target=Window` was tested twice.** First attempt showed a black screen - traced to a real crash
+  (`xdg-desktop-portal-gnome.service: Main process exited, code=dumped, status=11/SEGV`), but a clean
+  retest (session confirmed awake, not idle/locked first) rendered fine with zero portal errors in the
+  journal - the crash was session-timeout interference, not a real bug in the feature. Corrected from an
+  earlier wrong conclusion that `target=Window` was broken.
+- **`target=Window` was rejected anyway, on a real product principle, not a technical one.** Even working,
+  it hands the entire window-picking interaction to GNOME's own native Screenshot app - GNOME-branded
+  chrome, not Orcshot's. The portal owns that UI end-to-end opaquely; there's no way to get raw window
+  data back for Orcshot to render its own picker on top of it. direflail's own words: "i do not want to
+  use another screenshot app. that's why we developed orcshot." Recorded as a standing principle -
+  [[feedback-no-delegating-to-other-screenshot-apps]] - not just a decision local to this task: Orcshot
+  must never hand any piece of its own UX to another screenshot app's own interface, even via a sanctioned,
+  portable mechanism like a portal.
+
+**Resulting shape of the design, not yet fully written up as a spec:**
+
+- Region-select, clipboard: unchanged, already extension-free, already proven.
+- Window Picker: stays on the third-party `window-calls` extension - not replaced by the portal, per the
+  principle above. This is the one piece that keeps the real `org.gnome.Shell` dependency and its
+  associated Snap-confinement risk; everything else avoids it.
+- Tray menu translation: believed rebuildable against AppIndicator3's own menu directly in Python (the app
+  already loads the same gettext catalog elsewhere) instead of the Shell extension's `.mo`-parsing hack -
+  not yet designed in detail.
+- Net effect: the bundled `orcshot-clipboard@orcshot.org` extension's role shrinks to *only* whatever
+  Window Picker still needs, rather than powering region-select/clipboard/tray too. Whether that's "keep a
+  narrower version of the extension just for Window Picker" or "Window Picker only works when the
+  extension happens to be present, degrades gracefully otherwise" is still open.
+
+Not yet written up as a formal design doc - still mid-brainstorm.
 
 ## #185: A Wayland-only Flatpak build, alongside the existing dual-mode (X11+Wayland) `.deb`/PPA release
 
