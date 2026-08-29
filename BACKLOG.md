@@ -205,15 +205,69 @@ verified live, not theorized:**
 - Window Picker: stays on the third-party `window-calls` extension - not replaced by the portal, per the
   principle above. This is the one piece that keeps the real `org.gnome.Shell` dependency and its
   associated Snap-confinement risk; everything else avoids it.
-- Tray menu translation: believed rebuildable against AppIndicator3's own menu directly in Python (the app
-  already loads the same gettext catalog elsewhere) instead of the Shell extension's `.mo`-parsing hack -
-  not yet designed in detail.
-- Net effect: the bundled `orcshot-clipboard@orcshot.org` extension's role shrinks to *only* whatever
-  Window Picker still needs, rather than powering region-select/clipboard/tray too. Whether that's "keep a
-  narrower version of the extension just for Window Picker" or "Window Picker only works when the
-  extension happens to be present, degrades gracefully otherwise" is still open.
+- **Tray icon/menu - redesigned further (2026-08-28), not just "translate the existing AppIndicator3
+  menu."** direflail pushed back hard on settling for AppIndicator3's known icon-alignment limitation,
+  correctly identifying that the underlying stack is genuinely legacy tech, not just "proven and safe."
+  Verified, not assumed:
+  - `libayatana-appindicator` (what Orcshot uses today, the "3" in `AyatanaAppIndicator3`) is **officially
+    declared obsolete by its own upstream** - its own GitHub description: "Gtk-based, DBusMenu-based,
+    OBSOLETE, please use libayatana-appindicator-glib for new implementations."
+  - The real successor, `libayatana-appindicator-glib` (2.0.3, actively released), drops dbusmenu entirely
+    in favor of `org.gtk.Menus`/`org.gtk.Actions` (GMenuModel/GActionGroup) - confirmed no dbusmenu
+    fallback/compat mode exists.
+  - **Orcshot doesn't need that library as a dependency at all** - `Gio.DBusConnection.export_menu_model()`/
+    `export_action_group()` are core, official PyGObject/Gio APIs (confirmed against
+    api.pygobject.gnome.org's own class docs), already the same `Gio` module used throughout this
+    codebase. Publishing a GMenu-based tray menu is achievable with zero new dependencies.
+  - **The real gap, confirmed by checking actual source, not assumed**: no GNOME Shell extension anywhere
+    renders GMenu-model-published SNI menus. Checked the Ayatana org's own repo list (no GNOME Shell
+    extension maintained by them at all - their only confirmed renderer is `qmenumodel`, a Qt5/KDE one);
+    checked both real GNOME candidates' actual source directly (`ubuntu-appindicators@ubuntu.com` and
+    `status-tray`) - zero GMenu-handling code in either. The SNI spec's own `Menu` property is just an
+    untyped D-Bus object path (`<property name="Menu" type="o"/>`, confirmed from
+    `notification-item.xml`) - "dbusmenu lives there" has only ever been convention, never something the
+    interface itself declares, so a *general* watcher has no standard way to know when to expect GMenu
+    instead.
+  - **Snap compatibility, confirmed against real policy source, not assumed**: `org.kde.StatusNotifierWatcher`
+    (the actual tray-icon registration mechanism, itself implemented by a Shell extension today) is
+    explicitly on the sanctioned list for Snap's standard `desktop` interface (`snapd`'s own
+    `interfaces/builtin/desktop.go`). This is concrete proof that "a Shell extension is involved" was never
+    the disqualifying factor - what got denied before (`org.gnome.Shell` itself, confirmed via the
+    Extension Manager AppArmor precedent) is a *different*, unsanctioned name, called in the *opposite
+    direction* (Orcshot's confined code reaching out to it). A new design where Orcshot only ever exports
+    on its own connection, and an unconfined Shell extension reads *from* Orcshot rather than Orcshot
+    calling *into* anything privileged, doesn't hit that wall - Shell extensions are never Snap-confined
+    in the first place, regardless of which direction anything points.
+  - **Decision: build a new, Orcshot-specific GNOME Shell extension for this, not a general-purpose one.**
+    direflail's own call, backed by real technical reasoning, not just scope discipline: scoping narrowly
+    sidesteps the SNI `Menu`-property ambiguity above entirely (a general watcher has to guess/negotiate
+    protocol for arbitrary apps; an Orcshot-specific one just already knows what to expect from Orcshot)
+    and avoids competing for `StatusNotifierWatcher` ownership at all (no need to be a general watcher,
+    just needs to find and render Orcshot's own indicator) - the same ownership-race problem that makes
+    `status-tray` silently inert against `ubuntu-appindicators` on real Ubuntu/Mint targets, sidestepped by
+    construction rather than fixed. Also finally fixes the icon-alignment bug for real, since Orcshot would
+    control the entire rendering path end to end - no third-party `dbusMenu.js` hard-coding
+    `xAlign: Clutter.ActorAlign.END` to work around.
+  - **Real, not-yet-resolved remaining question**: the precise mechanics of how this new extension actually
+    discovers/connects to Orcshot's own exported menu - whether it still goes through some form of SNI
+    registration for the icon part specifically while the menu part is custom, or bypasses SNI entirely
+    (e.g. `Gio.bus_watch_name` for Orcshot's own well-known name directly). Needs real prototyping to
+    settle, not resolvable from documentation alone - this is where actual implementation work starts.
+  - **Unrelated, permanent, already-true-today limitation worth remembering regardless of any of this**:
+    AppIndicator-family icons have no distinct left-click ("activate") action once a menu is attached - a
+    real, documented, upstream protocol limitation (`app.py`'s own comment on `_build_tray_icon`, citing
+    https://bugs.launchpad.net/bugs/1910521), not something GMenu vs. dbusmenu changes either way. X11's
+    `Gtk.StatusIcon` keeps its own separate left-click-for-instant-capture shortcut specifically because of
+    this - deliberately not unified onto one tray mechanism for both platforms, and that reasoning doesn't
+    change here.
+- Net effect of the whole #184 design as it now stands: the bundled `orcshot-clipboard@orcshot.org`
+  extension's role shrinks to *only* whatever Window Picker still needs (via the separate third-party
+  `window-calls` extension it already depends on) - region-select, clipboard, and the tray icon/menu all
+  move to mechanisms with no `org.gnome.Shell` dependency at all, via the portal and a new, narrowly-scoped,
+  Orcshot-specific Shell extension respectively.
 
-Not yet written up as a formal design doc - still mid-brainstorm.
+Not yet written up as a formal design doc - still mid-brainstorm, but the shape is now real and detailed
+enough that formalizing it into `docs/superpowers/specs/` is the natural next step whenever picked up.
 
 ## #185: A Wayland-only Flatpak build, alongside the existing dual-mode (X11+Wayland) `.deb`/PPA release
 
