@@ -204,7 +204,20 @@ class OrcshotApplication(Gtk.Application):
         Gtk.Window.set_default_icon_from_file(str(LOGO_PATH))
         self._register_tray_actions()
         if os.environ.get("XDG_SESSION_TYPE") == "wayland":
-            self._export_tray_menu()
+            # Best-effort, same reasoning as every other D-Bus call site
+            # in this file (see first_run_setup.py's own
+            # enable_extension_live calls for the same pattern): a
+            # transient D-Bus hiccup here (get_dbus_connection()
+            # returning None, or export_menu_model() raising) must not
+            # silently skip everything else in do_startup - PyGObject
+            # swallows an uncaught exception out of this vfunc, and this
+            # call sits early enough that _build_tray_icon,
+            # _check_shell_extension_health, and first-run setup would
+            # all never run.
+            try:
+                self._export_tray_menu()
+            except GLib.Error as e:
+                print(f"[orcshot] _export_tray_menu() failed: {e}", file=sys.stderr)
         self._tray_icon = self._build_tray_icon()
         self._check_shell_extension_health()
         maybe_run_first_run_setup()
