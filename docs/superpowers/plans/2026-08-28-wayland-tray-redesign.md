@@ -627,31 +627,83 @@ git commit -m "Wire the Wayland tray onto the new Gio.Menu export, drop AppIndic
 
 ### Task 5: Remove the old extension's now-dead tray code
 
+**Plan amendment (recorded in the SDD ledger):** the originally dispatched implementer correctly
+refused to execute Step 1 literally and reported BLOCKED with two concrete, evidence-backed findings:
+(1) `app.py` still has a live caller of the exact `TRAY_IFACE`/`OrcshotTray` D-Bus interface Step 1
+says to delete wholesale (`_notify_tray_extension_quitting()`, called from `_quit_and_hide_tray_button`
+and `_maybe_restart_after_language_change`, invoking the `Quitting` method Step 1's own XML block
+defines) - the same class of oversight Task 4's Step 4 already fixed for three sibling functions, just
+missed for this fourth one; (2) Step 1's 8-identifier list undersizes the real dead-code surface by
+roughly 150 lines - a whole self-contained tray-button subsystem (`_buildTrayButton` and everything it
+alone calls) that Step 1 as originally written would leave behind as unreachable code with a dangling
+reference to the deleted `TRAY_MODE_ITEMS` constant.
+
+**Ruling:** both findings are real and load-bearing, not the implementer being overcautious. Removing
+`_notify_tray_extension_quitting()` is correct and safe: the new `orcshot-tray@orcshot.org` extension
+(Task 3) already tears its own button down automatically via `Gio.bus_watch_name`'s vanished-callback
+when Orcshot's bus name drops at quit, so there is nothing left for an explicit `Quitting()` D-Bus call
+to accomplish once the old extension's tray machinery is gone. Task 5 is expanded (below) to remove the
+full tray-button subsystem, not just the original 8 identifiers, and to remove
+`_notify_tray_extension_quitting` and its two `app.py` call sites. Cost if this ruling is wrong: the
+`Quitting()` call was serving some purpose invisible to this plan/spec (none found in the design doc or
+git history during this ruling) - if Task 7's live verification ever shows a stale tray icon lingering
+briefly after quit that this removal caused, that's the signal this ruling was wrong; recorded here for
+that live-verification pass to watch for.
+
 **Files:**
 - Modify: `src/orcshot/resources/gnome-shell-extensions/orcshot-clipboard@orcshot.org/extension.js`
 - Modify: `src/orcshot/capture/gnome_region_select.py`
+- Modify: `src/orcshot/app.py` (only `_notify_tray_extension_quitting` and its two call sites, plus the
+  `_remember_region` call site to `notify_repeat_available` Step 2 already covers - nothing else in this
+  large file)
 - Modify: `debian/rules`
 - Delete: `po/orcshot-tray.pot`
 
 **Interfaces:**
-- Consumes: nothing new. This task only removes code Task 3/4 made unreachable - by the time this task
-  starts, Task 4's Step 4 has already removed every caller of `shell_tray_button_active()`,
-  `get_tray_button_error()`, and `notify_repeat_available()` (see that step for the two extra call sites
-  found during this plan's own pre-flight review, beyond `_build_tray_icon` itself). If any of the three
-  functions this task removes still has a live caller when this task starts, treat that as a real,
-  load-bearing finding - stop and confirm Task 4 actually landed its Step 4, don't silently remove a
-  function something still calls.
+- Consumes: nothing new. This task only removes code Task 3/4 made unreachable, plus (per the ruling
+  above) the one caller Task 4 missed. If any function this task removes still has a live caller beyond
+  what this amended text already accounts for, treat that as a new, separate load-bearing finding - stop
+  and confirm before removing, don't silently remove a function something still calls.
 
-- [ ] **Step 1: Remove the tray-button code from the old extension**
+- [ ] **Step 1: Remove the old extension's entire tray-button subsystem**
 
-In `orcshot-clipboard@orcshot.org/extension.js`, remove: `TRAY_OBJECT_PATH`, `TRAY_INTERFACE`, the
-`TRAY_MODE_ITEMS` constant, `_ensureTrayButton`, `_activateTrayAction`, `SetRepeatAvailable`,
-`HasTrayButton`, `GetTrayButtonError`, and their D-Bus interface XML declarations - search each of these
-exact identifiers in the file first (`grep -n "TRAY_OBJECT_PATH\|TRAY_INTERFACE\|TRAY_MODE_ITEMS\|_ensureTrayButton\|_activateTrayAction\|SetRepeatAvailable\|HasTrayButton\|GetTrayButtonError"
-"src/orcshot/resources/gnome-shell-extensions/orcshot-clipboard@orcshot.org/extension.js"`) to find every
-call site before removing the definitions, since some of these are referenced from `enable()`/`disable()`
-directly. Keep everything related to region-select (`StartRegionSelect`) and clipboard
+In `orcshot-clipboard@orcshot.org/extension.js`, remove the full tray-button subsystem, confirmed by the
+blocked implementer's own full read of the file:
+
+- `TRAY_OBJECT_PATH`, the D-Bus interface XML block (named `TRAY_IFACE` in the live file; contains
+  `SetRepeatAvailable`, `HasTrayButton`, `GetTrayButtonError`, and `Quitting` method declarations),
+  `TRAY_MODE_ITEMS`
+- `_ensureTrayButton`, `_activateTrayAction`, `_buildTrayButton`, `_setAppAvailable`, `_trayIconPath`
+- The D-Bus method implementations: `SetRepeatAvailable`, `HasTrayButton`, `GetTrayButtonError`,
+  `Quitting`
+- The `_appWatchId`/`Gio.bus_watch_name(...)` block inside `enable()`/`disable()` (exists solely to
+  drive tray-button sensitivity - nothing else depends on it)
+- `_loadTrayCatalog`, `_parseMoFile`, `_readOrcshotLanguageOverride` (called only from inside
+  `_ensureTrayButton`)
+- `_extractionOnlyTrayModeLabels`, `_trayRoundedRectPath`, `_TRAY_ICON_SIZE`
+- Instance fields: `_trayButton`, `_trayButtonError`, `_appAvailable`, `_repeatAvailable`,
+  `_enabledAtUs`, `_repeatItem`, `_repeatIconArea`, `_appGatedItems`, `_logoIcon`
+- The `this._trayDbus` wrap/export/unexport calls in `enable()`/`disable()`
+
+**Must be kept - shared with the still-live destination picker, do NOT remove:** `_loadIconGeometry()`
+(also called by `pickDestinationAsync`), `_buildDrawnMenuItem()` (also called by `pickDestinationAsync`),
+`_renderIconGeometry()` (called transitively via `_buildDrawnMenuItem`'s own drawing-area repaint
+handler). Grep each removal candidate for callers before deleting it - if a name you're about to remove
+turns out to have a caller outside the tray-button subsystem, stop and treat that as a new finding rather
+than removing it anyway.
+
+Keep everything related to region-select (`StartRegionSelect`) and clipboard
 (`org.orcshot.Orcshot.Clipboard`-style interfaces) exactly as-is - only tray-button code is dead here.
+
+- [ ] **Step 1b: Remove `app.py`'s now-dead `Quitting()` caller**
+
+Remove `_notify_tray_extension_quitting` in full (`app.py`, confirmed at lines 701-725 as of the blocked
+implementer's read - re-confirm the live range) and both its call sites: inside
+`_quit_and_hide_tray_button` (around line 698) and inside `_maybe_restart_after_language_change` (around
+line 837). These calls invoke the `Quitting` D-Bus method Step 1 deletes from the old extension's
+`TRAY_IFACE` - once that method no longer exists on the other end, calling it would raise a live D-Bus
+error at quit time and at every language-change restart, so this removal isn't optional cleanup, it's
+required for Step 1 to be safe to land at all.
 
 - [ ] **Step 2: Remove the now-dead Python wrapper functions**
 
@@ -687,7 +739,7 @@ import/collection error, not a silent gap.
 
 ```bash
 git add "src/orcshot/resources/gnome-shell-extensions/orcshot-clipboard@orcshot.org/extension.js" \
-        src/orcshot/capture/gnome_region_select.py debian/rules
+        src/orcshot/capture/gnome_region_select.py src/orcshot/app.py debian/rules
 git commit -m "Remove the old extension's now-dead tray-button code and its .mo derivation"
 ```
 
