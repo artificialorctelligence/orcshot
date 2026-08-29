@@ -201,29 +201,6 @@ const CAPTURE_IFACE = `
    </interface>
 </node>`;
 
-// A third distinct object path (task #137 follow-up), same reasoning as
-// CAPTURE_IFACE's own comment above - this is a separate D-Bus
-// capability from either of the other two. app.py's own
-// notify_repeat_available() calls this whenever last_region changes, so
-// the panel button built below can track sensitivity without polling a
-// process it has no other visibility into.
-const TRAY_IFACE = `
-<node>
-   <interface name="org.gnome.Shell.Extensions.OrcshotTray">
-      <method name="SetRepeatAvailable">
-         <arg type="b" direction="in" name="available" />
-      </method>
-      <method name="HasTrayButton">
-         <arg type="b" direction="out" name="active" />
-      </method>
-      <method name="GetTrayButtonError">
-         <arg type="s" direction="out" name="error" />
-      </method>
-      <method name="Quitting">
-      </method>
-   </interface>
-</node>`;
-
 // Bumped whenever the D-Bus contract any of the interfaces above expose
 // changes shape - lets app.py's own _check_shell_extension_health tell
 // "not running at all" apart from "running, but an already-open Shell
@@ -231,8 +208,8 @@ const TRAY_IFACE = `
 // update" (see gnome_extension_setup.py's own docstring for why that's
 // a real, ordinary state and not a hypothetical one - GNOME Shell never
 // reloads an extension's .js on its own, only a full logout/login does).
-// Bump this alongside any future change to CLIPBOARD_IFACE/CAPTURE_IFACE/
-// TRAY_IFACE, not just this file's own version control history.
+// Bump this alongside any future change to CLIPBOARD_IFACE/CAPTURE_IFACE,
+// not just this file's own version control history.
 const API_VERSION = 2;
 
 const VERSION_IFACE = `
@@ -324,11 +301,9 @@ function _fetchDestinations() {
 // automatically over D-Bus at /org/orcshot/Orcshot, no custom
 // interface needed on that side. Fire-and-forget: activate_action has
 // no return value, and there's nothing useful to do here if Orcshot
-// isn't running to receive it. Module-level (not Extension.prototype.
-// _activateTrayAction, despite doing the exact same thing) because
-// pickDestinationAsync below is also module-level, with no `this` of
-// its own to call a method through - both now share this one
-// implementation rather than duplicating the D-Bus lookup.
+// isn't running to receive it. Module-level (not an Extension instance
+// method) because pickDestinationAsync below is also module-level,
+// with no `this` of its own to call a method through.
 function _activateOrcshotAction(name) {
   const actionGroup = Gio.DBusActionGroup.get(Gio.DBus.session, 'org.orcshot.Orcshot', '/org/orcshot/Orcshot');
   actionGroup.activate_action(name, null);
@@ -1640,64 +1615,6 @@ class EyedropperOverlay extends St.Widget {
   }
 }
 
-// Task #137 follow-up (see REQUIREMENTS.md): the tray icon's own
-// capture-mode menu moved here from app.py's AyatanaAppIndicator3 on
-// Wayland, because AppIndicator hands menu rendering off to a *different*
-// extension (ubuntu-appindicators@ubuntu.com) that hard-codes right-
-// aligned icons with no override - confirmed by reading its own
-// dbusMenu.js. This file's menu is built with GNOME Shell's own
-// PopupMenu.PopupImageMenuItem directly, same as the destination picker
-// above, which already renders left-aligned (confirmed live) - reading
-// GNOME Shell's own js/ui/popupMenu.js source (gnome-shell 50 branch)
-// confirmed why: PopupImageMenuItem adds its St.Icon as the *first*
-// child, before the label, so the icon column sits ahead of the text
-// regardless of the icon's own x_align (that only positions the icon
-// within its own reserved column, not which side of the row it's on) -
-// a structurally different construction from ubuntu-appindicators'
-// bespoke reimplementation, which appends its icon *after* an
-// x_expand'd label.
-const TRAY_MODE_ITEMS = [
-  ['Capture Region', 'region', 'tray-region'],
-  ['Capture Full Screen', 'full_screen', 'tray-full_screen'],
-  ['Capture Active Window', 'active_window', 'tray-active_window'],
-  ['Capture Window...', 'window_picker', 'tray-window_picker'],
-  ['Repeat Last Region', 'repeat_region', 'tray-repeat_region'],
-];
-
-// xgettext (scripts/extract_tray_pot.sh) only sees a string literal
-// passed directly to _() - it can't trace TRAY_MODE_ITEMS's own
-// labels back from the variable _buildTrayButton's loop actually
-// calls _() on, same limitation Python's own AST-based scanner has
-// for this identical class of indirection (core/shapes.py's
-// OBFUSCATE_FILL_TEXT_LABELS hits this too, for the same reason).
-// Never called - exists only so every msgid above has one place
-// xgettext can actually see it as a literal.
-function _extractionOnlyTrayModeLabels() {
-  const _ = (s) => s;
-  _('Capture Region');
-  _('Capture Full Screen');
-  _('Capture Active Window');
-  _('Capture Window...');
-  _('Repeat Last Region');
-}
-
-// These five icons are drawn live with Cairo (task #137 follow-up, see
-// REQUIREMENTS.md for the full trail) rather than loaded from a pre-
-// rendered PNG - a real theme could be light, dark, or something else
-// entirely, and there turned out to be no working way to get a file-
-// based Gio.FileIcon auto-recolored to match it: `-st-icon-style:
-// symbolic` (the mechanism real symbolic icon *names* like
-// preferences-system-symbolic/application-exit-symbolic below get this
-// for free from) had no effect on one, confirmed live with a CSS
-// background-color test that proved the stylesheet itself loads fine.
-// Drawing directly into an St.DrawingArea's own 'repaint' handler
-// sidesteps all of that: the color is read from
-// area.get_theme_node().get_foreground_color() *at paint time*, the
-// exact same color the row's own label text uses, so it's correct for
-// whatever theme is actually active - not just light vs dark, any
-// theme - with no static file, no CSS trick, and no guessing.
-const _TRAY_ICON_SIZE = 16;
-
 function _trayRoundedRectPath(cr, x, y, w, h, r) {
   cr.newSubPath();
   cr.arc(x + w - r, y + r, r, -Math.PI / 2, 0);
@@ -1800,123 +1717,14 @@ function _loadIconGeometry() {
   return JSON.parse(new TextDecoder().decode(bytes));
 }
 
-// Task #183 follow-up, direflail's own live report: Orcshot's own
-// Preferences language picker (settings.py's get_language/
-// set_language, "" meaning System Default) overrides the Python
-// side's language independently of the real system locale - but this
-// extension is a separate GJS process with no visibility into that
-// choice at all, so it kept following the real system locale even
-// when Orcshot itself had been switched to something else. Read
-// straight from Orcshot's own config.json, the same file
-// settings.config_file_path() reads/writes and the exact same
-// $XDG_CONFIG_HOME resolution (GLib.get_user_config_dir() already
-// does this) - this extension is built specifically for Orcshot, not
-// a general-purpose one, and already reads two of its other JSON
-// files this same way (icon_geometry.json, magnifier_constants.json)
-// as an already-established pattern. Returns null (not "") for "no
-// override, follow the real system locale" so callers can use a
-// plain truthiness check - matches settings.get_language()'s own "no
-// override" sentinel being the empty string, just adapted to JS's
-// own null-vs-falsy-string conventions. Never throws: a missing file
-// (Orcshot never launched on this system yet), malformed JSON, or a
-// missing/blank "language" key are all just "no override" too, not
-// errors worth surfacing to the user over a menu label.
-function _readOrcshotLanguageOverride() {
-  const configPath = GLib.build_filenamev([GLib.get_user_config_dir(), 'orcshot', 'config.json']);
-  try {
-    const [, bytes] = GLib.file_get_contents(configPath);
-    const config = JSON.parse(new TextDecoder().decode(bytes));
-    return config['language'] || null;
-  } catch (e) {
-    return null;
-  }
-}
-
-// Task #183 follow-up, second live-testing round: direflail's own
-// report - "espanol" worked right after a restart, but a *second*
-// language-change restart in the same session ("francais") stayed on
-// the earlier "espanol" text. Root-caused live, not guessed: glibc's
-// dcgettext() caches the resolved catalog after its first real
-// lookup in a process and doesn't reliably re-resolve on a later
-// $LANGUAGE change within that same process, confirmed with gjs
-// probes on the test VM - re-setlocale(), a "bounce" through 'C' and
-// back, and even binding an entirely fresh, never-before-used domain
-// name for the second language all still returned the *first*
-// language's text (or, for the fresh domain, silently fell back to
-// English instead of resolving "fr" at all). gnome-shell is one
-// long-running process for the whole session, so this hits every
-// single language-change restart after the first one, not an edge
-// case - the exact opposite of orcshot.i18n's own Python side, where
-// each restart is a genuinely fresh process gettext.translation()
-// resolves cleanly every time.
-//
-// This sidesteps gettext's own catalog-resolution machinery
-// entirely for the override case rather than fight its caching:
-// parses the target .mo file directly (the standard GNU MO binary
-// format - magic number, string count, then two (length, offset)
-// tables, one for each original string and one for its translation -
-// see https://www.gnu.org/software/gettext/manual/html_node/MO-Files.html)
-// into a plain msgid -> msgstr Map, with no gettext/dgettext/
-// setlocale/$LANGUAGE involved at all. Verified against all 7 real
-// compiled catalogs on the test VM before landing this - every
-// language resolved correctly, all within one gjs process, which is
-// exactly the scenario dgettext() couldn't handle.
-function _parseMoFile(bytes) {
-  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
-  const magic = view.getUint32(0, true);
-  let little;
-  if (magic === 0x950412de)
-    little = true;
-  else if (magic === 0xde120495)
-    little = false;
-  else
-    throw new Error(`not a valid .mo file (bad magic number ${magic.toString(16)})`);
-
-  const numStrings = view.getUint32(8, little);
-  const origTableOffset = view.getUint32(12, little);
-  const transTableOffset = view.getUint32(16, little);
-  const decoder = new TextDecoder('utf-8');
-  const catalog = new Map();
-  for (let i = 0; i < numStrings; i++) {
-    const origLength = view.getUint32(origTableOffset + i * 8, little);
-    const origOffset = view.getUint32(origTableOffset + i * 8 + 4, little);
-    const transLength = view.getUint32(transTableOffset + i * 8, little);
-    const transOffset = view.getUint32(transTableOffset + i * 8 + 4, little);
-    const original = decoder.decode(bytes.subarray(origOffset, origOffset + origLength));
-    const translation = decoder.decode(bytes.subarray(transOffset, transOffset + transLength));
-    catalog.set(original, translation);
-  }
-  return catalog;
-}
-
-// Returns null (not an empty Map) on anything that isn't a genuine,
-// parseable catalog for this language - same "just don't override,
-// no error worth surfacing over a menu label" reasoning as
-// _readOrcshotLanguageOverride above. gettext-domain (metadata.json)
-// names the .mo file itself; extensionDir is this.path, passed in
-// rather than re-derived, since the caller (an Extension instance
-// method) already has it.
-function _loadTrayCatalog(extensionDir, domain, language) {
-  const moPath = GLib.build_filenamev([extensionDir, 'locale', language, 'LC_MESSAGES', `${domain}.mo`]);
-  try {
-    const [, bytes] = GLib.file_get_contents(moPath);
-    return _parseMoFile(bytes);
-  } catch (e) {
-    return null;
-  }
-}
-
-// Task #146: same reasoning as _buildTrayButton's own capture-mode
-// items (see _renderIconGeometry's own docstring above) - every menu
-// item that used to carry a stock PopupImageMenuItem icon name
-// (Open File/Preferences/Quit below, and pickDestinationAsync's own
-// items further down) gets one of these instead, so nothing in this
-// extension ever depends on which icon theme happens to be
-// installed. `geometryKey` is the exact stock icon name each item
-// used to pass to PopupImageMenuItem's constructor - also the
-// icon_geometry.json key, so swapping call sites was a pure
-// substitution.
-function _buildDrawnMenuItem(iconGeometry, geometryKey, label, size = _TRAY_ICON_SIZE) {
+// Task #146: every menu item that used to carry a stock
+// PopupImageMenuItem icon name (pickDestinationAsync's own items below)
+// gets one of these instead, so nothing in this extension ever depends
+// on which icon theme happens to be installed. `geometryKey` is the
+// exact stock icon name each item used to pass to PopupImageMenuItem's
+// constructor - also the icon_geometry.json key, so swapping call sites
+// was a pure substitution.
+function _buildDrawnMenuItem(iconGeometry, geometryKey, label, size = 16) {
   const item = new PopupMenu.PopupBaseMenuItem();
   // Task #159: named (not left as GNOME Shell's own "unnamed" default)
   // - a real Clutter allocation-assertion crash turned up live in the
@@ -1970,103 +1778,8 @@ export default class Extension extends ShellExtension {
     this._dbus.export(Gio.DBus.session, '/org/gnome/Shell/Extensions/OrcshotClipboard');
     this._captureDbus = Gio.DBusExportedObject.wrapJSObject(CAPTURE_IFACE, this);
     this._captureDbus.export(Gio.DBus.session, '/org/gnome/Shell/Extensions/OrcshotCapture');
-    this._trayDbus = Gio.DBusExportedObject.wrapJSObject(TRAY_IFACE, this);
-    this._trayDbus.export(Gio.DBus.session, '/org/gnome/Shell/Extensions/OrcshotTray');
     this._versionDbus = Gio.DBusExportedObject.wrapJSObject(VERSION_IFACE, this);
     this._versionDbus.export(Gio.DBus.session, '/org/gnome/Shell/Extensions/OrcshotVersion');
-
-    // Wrapped separately from the D-Bus exports above: those back the
-    // whole Wayland capture flow (region-select, destination picker),
-    // not just this tray button - a bug in panel-button construction
-    // must not take the rest of enable() down with it and get the
-    // entire extension auto-disabled by Shell over a cosmetic feature.
-    // The error (if any) is kept, not just logged, so app.py's own
-    // _check_shell_extension_health can show the user something more
-    // useful than a silently missing tray icon (task #137 follow-up) -
-    // GetTrayButtonError below is how it gets there.
-    // direflail, live-reported: the tray menu opens fine and looks
-    // completely normal even when Orcshot's own Python process isn't
-    // running to receive clicks (most commonly right after a fresh
-    // login, before anything has launched it this session) - every
-    // item's own _activateTrayAction is genuinely fire-and-forget (see
-    // its own comment below), so nothing ever told the user *why*
-    // nothing happened. This is the missing half of the existing
-    // health-check story: _check_shell_extension_health (app.py) can
-    // only ever run *from* a live Python process, so it can tell you
-    // "the Shell extension is broken," but there's no way for Python
-    // to warn about itself being dead - only the Shell side can
-    // observe that. Set *before* _buildTrayButton runs, so the menu
-    // is built already-correctly-insensitive from the start rather
-    // than flashing enabled-then-disabled - Gio.bus_watch_name's own
-    // first callback (appeared or vanished, whichever matches the
-    // real current state) fires asynchronously moments later and
-    // corrects this either way, so starting pessimistic here costs
-    // nothing and a false "looks fine" is exactly the bug being fixed.
-    this._appAvailable = false;
-    this._repeatAvailable = false;
-    // direflail: "might want to time how long it takes that thing to
-    // load... might help debug" - GLib.get_monotonic_time() (µs,
-    // immune to wall-clock/timezone changes, the correct clock for
-    // measuring an elapsed duration) captured here and compared
-    // against in _setAppAvailable's own appeared branch below.
-    this._enabledAtUs = GLib.get_monotonic_time();
-
-    this._ensureTrayButton();
-
-    // Reacts in real time (not a poll) to Python's own D-Bus name
-    // (org.orcshot.Orcshot, auto-owned by its GApplication)
-    // appearing/vanishing - confirmed live via `gjs -m` that both
-    // callbacks fire with the expected (connection, name[, nameOwner])
-    // signature on this GJS version. _ensureTrayButton on the
-    // appeared side too (not just enable() above) - Quitting() below
-    // can have destroyed the button entirely since the last time
-    // Python was seen, and a rebuild is needed before there's
-    // anything for _setAppAvailable to update the sensitivity/opacity
-    // of.
-    this._appWatchId = Gio.bus_watch_name(
-      Gio.BusType.SESSION, 'org.orcshot.Orcshot', Gio.BusNameWatcherFlags.NONE,
-      () => { this._ensureTrayButton(); this._setAppAvailable(true); },
-      () => this._setAppAvailable(false),
-    );
-  }
-
-  // Split out of enable() (task #150 follow-up) so it can also run
-  // later, from the appeared-name watcher, after Quitting() has
-  // destroyed the button - a no-op if the button already exists
-  // (enable()'s own original call site, and every ordinary appeared
-  // event once the button's already up).
-  _ensureTrayButton() {
-    if (this._trayButton)
-      return;
-    this._trayButtonError = '';
-    // Task #183 follow-up: when Orcshot has its own explicit language
-    // override, translate from a directly-parsed .mo Map
-    // (_loadTrayCatalog) instead of this.gettext() - see
-    // _parseMoFile's own comment for why: this.gettext() goes through
-    // dgettext(), which does not reliably re-resolve a *second*
-    // $LANGUAGE change within this same long-running gnome-shell
-    // process. "System Default" (no override, the common case) still
-    // uses this.gettext() as before - that only ever needs the one
-    // value initTranslations() already resolved correctly from the
-    // real system locale at this extension's own enable() time, so
-    // gettext's caching is never actually a problem for it.
-    const orcshotLanguage = _readOrcshotLanguageOverride();
-    const catalog = orcshotLanguage
-      ? _loadTrayCatalog(this.path, this.metadata['gettext-domain'], orcshotLanguage)
-      : null;
-    const translate = catalog
-      ? str => catalog.get(str) ?? str
-      : this.gettext.bind(this);
-    try {
-      this._trayButton = this._buildTrayButton(translate);
-      Main.panel.addToStatusArea('orcshot-tray', this._trayButton);
-    } catch (e) {
-      console.error(`[orcshot] failed to create Shell-native tray button: ${e}`);
-      this._trayButtonError = e.stack ? `${e}\n${e.stack}` : String(e);
-      this._trayButton = null;
-      this._repeatItem = null;
-      this._repeatIconArea = null;
-    }
   }
 
   disable() {
@@ -2076,216 +1789,9 @@ export default class Extension extends ShellExtension {
     this._captureDbus.flush();
     this._captureDbus.unexport();
     delete this._captureDbus;
-    this._trayDbus.flush();
-    this._trayDbus.unexport();
-    delete this._trayDbus;
     this._versionDbus.flush();
     this._versionDbus.unexport();
     delete this._versionDbus;
-
-    if (this._appWatchId) {
-      Gio.bus_unwatch_name(this._appWatchId);
-      this._appWatchId = null;
-    }
-
-    if (this._trayButton) {
-      this._trayButton.destroy();
-      this._trayButton = null;
-    }
-    this._repeatItem = null;
-    this._appGatedItems = null;
-    this._logoIcon = null;
-  }
-
-  // Task #147: dims the top-bar logo and disables every menu item
-  // that would otherwise silently do nothing - direflail's own
-  // question ("should we grey the orcshot logo out until it IS
-  // loaded?") answered directly: yes, this is exactly that. Repeat
-  // Last Region needs *both* this and its own existing
-  // SetRepeatAvailable gate to be enabled - recomputed here from
-  // both stored booleans rather than trusting whichever call came
-  // last, so a stale SetRepeatAvailable from just before Python
-  // vanished can't leave it wrongly clickable.
-  _setAppAvailable(available) {
-    if (available) {
-      const elapsedSeconds = (GLib.get_monotonic_time() - this._enabledAtUs) / 1e6;
-      console.log(`[orcshot] org.orcshot.Orcshot appeared on the session bus ${elapsedSeconds.toFixed(1)}s after this extension's own enable()`);
-    }
-    this._appAvailable = available;
-    for (const item of this._appGatedItems ?? [])
-      item.setSensitive(available);
-    if (this._repeatItem)
-      this._repeatItem.setSensitive(available && !!this._repeatAvailable);
-    if (this._logoIcon)
-      this._logoIcon.opacity = available ? 255 : 100;
-    // direflail: "when orcshot is greyed out, don't let it open
-    // popups" - greyed-out menu items alone (above) still let the
-    // menu itself open empty-looking-but-technically-fine, same as
-    // clicking a disabled toolbar button shouldn't drop its dropdown
-    // either. reactive=false stops the click/touch press that
-    // PanelMenu.Button's own built-in toggle relies on from reaching
-    // this actor at all, so the menu never opens in the first place -
-    // simpler and flash-free compared to reopening open-state-changed
-    // to immediately re-close it.
-    if (this._trayButton)
-      this._trayButton.reactive = available;
-    this._repeatIconArea?.queue_repaint();
-  }
-
-  // See _activateOrcshotAction's own comment (module-level, above
-  // pickDestinationAsync) for the full reasoning - same call, kept as
-  // a method here too since every existing call site already reaches
-  // it as this._activateTrayAction(...).
-  _activateTrayAction(name) {
-    _activateOrcshotAction(name);
-  }
-
-  _trayIconPath(name) {
-    return GLib.build_filenamev([this.path, 'icons', `${name}.png`]);
-  }
-
-  // translate: either this.gettext.bind(this) (System Default - see
-  // _ensureTrayButton's own comment) or a lookup backed by a directly-
-  // parsed .mo Map (an explicit Orcshot language override) - always
-  // passed in by the one caller, _ensureTrayButton, rather than
-  // computed here, so this method itself doesn't need to know which
-  // case it's in.
-  //
-  // Task #183 follow-up (direflail's own live report: "in wayland the
-  // taskbar icon menu doesn't translate"). This whole menu is built
-  // inside gnome-shell's own process, a separate GJS runtime that
-  // never touched orcshot.i18n's Python gettext binding at all -
-  // phase 1's xgettext sweep only ever covered src/orcshot/ui/*.py
-  // and app.py. All 8 msgids below are byte-identical to ones already
-  // translated in po/*.po for the X11 Gtk.Menu fallback's own
-  // equivalent items (destination_picker.py etc.) -
-  // scripts/extract_tray_pot.sh extracts this domain's own .pot, and
-  // its .po files are generated by copying those existing
-  // translations rather than re-translating from scratch, so this
-  // and the X11 menu can never drift out of sync with each other by
-  // accident.
-  _buildTrayButton(_) {
-    const iconGeometry = _loadIconGeometry();
-    const button = new PanelMenu.Button(0.0, 'Orcshot', false);
-    // Task #159: see _buildDrawnMenuItem's own comment on why this
-    // extension's actors are explicitly named. PanelMenu.Button's
-    // second constructor arg above is an accessible-name string, not
-    // necessarily this actor's own `.name` (the property Clutter's
-    // crash logs actually print) - set explicitly to remove that
-    // ambiguity too.
-    button.name = 'orcshot-tray-button';
-    // Matches _setAppAvailable's own reactive toggle - starts in sync
-    // with this._appAvailable (already forced pessimistic-false in
-    // enable() before this method runs) rather than defaulting
-    // reactive (the St.Button/PanelMenu.Button default), so there's no
-    // brief window where a fresh button opens its popup before the
-    // first _setAppAvailable call corrects it.
-    button.reactive = this._appAvailable;
-    this._logoIcon = new St.Icon({
-      gicon: Gio.icon_new_for_string(this._trayIconPath('orcshot')),
-      style_class: 'system-status-icon',
-      opacity: this._appAvailable ? 255 : 100,
-    });
-    button.add_child(this._logoIcon);
-
-    // Every item below except Repeat Last Region (which has its own
-    // separate SetRepeatAvailable gate, combined with this one in
-    // _setAppAvailable) goes here so a single loop can grey all of
-    // them out together - task #147.
-    this._appGatedItems = [];
-
-    for (const [label, iconMode, actionName] of TRAY_MODE_ITEMS) {
-      // Manually built rather than PopupImageMenuItem (see the block
-      // comment above TRAY_MODE_ITEMS for the full why): these icons
-      // paint themselves live with Cairo, not from a loaded Gio.Icon.
-      const { item, iconArea } = _buildDrawnMenuItem(iconGeometry, iconMode, _(label));
-      item.connect('activate', () => this._activateTrayAction(actionName));
-      button.menu.addMenuItem(item);
-      if (iconMode === 'repeat_region') {
-        // Starts disabled, same as app.py's own self._repeat_item -
-        // nothing's been captured yet this run. SetRepeatAvailable
-        // (below) tracks it from there via app.py's
-        // notify_repeat_available, called from the same
-        // _remember_region site that updates the local Gtk.Menu
-        // fallback's own item. queue_repaint() on sensitivity change
-        // matters here specifically (unlike the other four, static
-        // once drawn): get_foreground_color() itself returns a dimmer
-        // shade automatically once :insensitive applies, but only a
-        // fresh 'repaint' picks that up - see SetRepeatAvailable.
-        item.setSensitive(false);
-        this._repeatItem = item;
-        this._repeatIconArea = iconArea;
-      } else {
-        item.setSensitive(this._appAvailable);
-        this._appGatedItems.push(item);
-      }
-    }
-
-    button.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
-    // Task #140: real Windows' own tray context menu has always had this
-    // (contextmenu_openfile, MainForm.Designer.cs:92), right after the
-    // capture items in the real AddRange order (MainForm.Designer.cs:
-    // 83-103).
-    const openFile = _buildDrawnMenuItem(iconGeometry, 'document-open-symbolic', _('Open File...'));
-    openFile.item.connect('activate', () => this._activateTrayAction('tray-open-file'));
-    openFile.item.setSensitive(this._appAvailable);
-    this._appGatedItems.push(openFile.item);
-    button.menu.addMenuItem(openFile.item);
-
-    button.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
-    const preferences = _buildDrawnMenuItem(iconGeometry, 'preferences-system-symbolic', _('Preferences...'));
-    preferences.item.connect('activate', () => this._activateTrayAction('tray-preferences'));
-    preferences.item.setSensitive(this._appAvailable);
-    this._appGatedItems.push(preferences.item);
-    button.menu.addMenuItem(preferences.item);
-
-    button.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
-    const quit = _buildDrawnMenuItem(iconGeometry, 'application-exit-symbolic', _('Quit'));
-    quit.item.connect('activate', () => this._activateTrayAction('tray-quit'));
-    quit.item.setSensitive(this._appAvailable);
-    this._appGatedItems.push(quit.item);
-    button.menu.addMenuItem(quit.item);
-
-    return button;
-  }
-
-  SetRepeatAvailable(available) {
-    this._repeatAvailable = available;
-    this._repeatItem?.setSensitive(available && !!this._appAvailable);
-    this._repeatIconArea?.queue_repaint();
-  }
-
-  HasTrayButton() {
-    return !!this._trayButton;
-  }
-
-  GetTrayButtonError() {
-    return this._trayButtonError ?? '';
-  }
-
-  // direflail: "when the user selects quit, i want all parts of the
-  // program to quit and vanish. it should not be running anymore...
-  // it should remain this way until the user uninstalls" (task #150
-  // follow-up). Called by app.py's own Quit handler, right before it
-  // calls Gio.Application.quit() - the vanished-name watcher alone
-  // can't tell a deliberate quit apart from a crash, both look
-  // identical from here (Python's bus name just disappears either
-  // way), and a crash should keep the existing dim-but-present
-  // behavior (it might come back on its own; a deliberate quit
-  // shouldn't look like it might). Fully destroys the panel button,
-  // unlike _setAppAvailable(false)'s ordinary dimming -
-  // _ensureTrayButton rebuilds it fresh the next time Python's own
-  // bus name actually reappears (a fresh launch, autostart at the
-  // next login, etc.), not before.
-  Quitting() {
-    if (this._trayButton) {
-      this._trayButton.destroy();
-      this._trayButton = null;
-    }
-    this._repeatItem = null;
-    this._repeatIconArea = null;
-    this._appGatedItems = null;
-    this._logoIcon = null;
   }
 
   GetApiVersion() {

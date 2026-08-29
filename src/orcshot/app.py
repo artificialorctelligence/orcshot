@@ -375,14 +375,6 @@ class OrcshotApplication(Gtk.Application):
         # changes works identically on both platforms instead.
         if self._repeat_item is not None:
             self._repeat_item.set_sensitive(True)
-        # Best-effort push to the Shell-native tray panel button, if that's
-        # what's active (see _build_tray_icon) - it lives in a different
-        # process with no way to poll self._repeat_item itself, and
-        # notify_repeat_available already no-ops safely when the extension
-        # isn't running (X11, or Wayland without it).
-        from orcshot.capture.gnome_region_select import notify_repeat_available
-
-        notify_repeat_available(True)
 
     def topmost_editor(self):
         """The most-recently-opened still-open editor, or None - the
@@ -695,34 +687,7 @@ class OrcshotApplication(Gtk.Application):
         if write_marker:
             write_quit_marker()
         self._close_open_modal_dialogs()
-        self._notify_tray_extension_quitting()
         self.quit()
-
-    def _notify_tray_extension_quitting(self) -> None:
-        """Shared by _quit_and_hide_tray_button above and
-        _maybe_restart_after_language_change below - both cases end
-        with this process's D-Bus name disappearing and (for the
-        restart case) reappearing again shortly after, and either way
-        the extension needs the same heads-up: destroy the tray
-        button now rather than just dimming it, so _ensureTrayButton
-        rebuilds it fresh - with whatever's current by then, language
-        included - the next time the name actually reappears, instead
-        of leaving the pre-restart menu sitting there dimmed-then-
-        un-dimmed with stale labels. Wrapped in try/except: the
-        extension might not be the active tray at all (X11, or
-        Wayland before it's ever been enabled), and neither quitting
-        nor restarting may ever be blocked by a Shell extension call
-        failing.
-        """
-        try:
-            proxy = Gio.DBusProxy.new_for_bus_sync(
-                Gio.BusType.SESSION, Gio.DBusProxyFlags.NONE, None,
-                "org.gnome.Shell", "/org/gnome/Shell/Extensions/OrcshotTray",
-                "org.gnome.Shell.Extensions.OrcshotTray", None,
-            )
-            proxy.call_sync("Quitting", None, Gio.DBusCallFlags.NONE, -1, None)
-        except GLib.Error:
-            pass
 
     def _close_open_modal_dialogs(self) -> None:
         """Forces every currently-visible Gtk.Dialog to respond (as if
@@ -819,22 +784,17 @@ class OrcshotApplication(Gtk.Application):
         support. Logged explicitly first since a bare non-zero exit
         looks identical to a real crash in journalctl otherwise.
 
-        Third attempt, same live-testing round: the language actually
-        switching (this method, above) and the Wayland tray menu
-        actually reflecting it (extension.js's own
-        _readOrcshotLanguageOverride) both turned out correct in
-        isolation, yet direflail still saw a stale tray menu after a
-        real restart - because _ensureTrayButton only ever builds the
-        panel button once per gnome-shell session and _setAppAvailable
-        only dims/undims that same button on every disappear/reappear
-        after that, never rebuilding it. _notify_tray_extension_quitting
-        (shared with _quit_and_hide_tray_button) tells the extension to
-        destroy the button before this process actually disappears, so
-        the fresh appear right after gets a fresh _ensureTrayButton
-        call with nothing left to short-circuit on.
+        Third attempt, same live-testing round, no longer applicable: the
+        old orcshot-clipboard@orcshot.org extension used to need an
+        explicit _notify_tray_extension_quitting() D-Bus heads-up here so
+        its own long-lived panel button would rebuild fresh on the next
+        appear rather than staying stale. The new orcshot-tray@orcshot.org
+        extension (task #186 follow-up) has no such stale-build problem -
+        it reads the tray menu live from the exported Gio.Menu/
+        items-changed on every appear - so there's nothing left for this
+        method to notify.
         """
         if self._restart_after_editors_close and not self._open_editors:
-            self._notify_tray_extension_quitting()
             print("[orcshot] restarting for a language change (exit 1 triggers systemd's Restart=on-failure)")
             sys.exit(1)
 

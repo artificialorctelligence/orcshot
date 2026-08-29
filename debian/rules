@@ -62,27 +62,3 @@ override_dh_auto_build:
 		msgfmt "$$po" -o src/orcshot/resources/locale/$$lang/LC_MESSAGES/orcshot.mo; \
 	done
 	dh_auto_build
-	# Task #183 follow-up: the Wayland Shell-native tray menu (a
-	# separate GJS runtime inside gnome-shell, not the Python package
-	# hatchling builds above) has its own gettext domain
-	# ("orcshot-tray", metadata.json's "gettext-domain") - compiled
-	# straight into the extension's own source tree, same as the
-	# Python side above, since debian/orcshot.install copies that
-	# whole directory (including this locale/ subdirectory) rather
-	# than enumerating individual files.
-	#
-	# Deliberately NOT a second set of po/orcshot-tray-<lang>.po files
-	# to maintain - all 8 of this domain's msgids are already
-	# translated in po/<lang>.po (the X11 Gtk.Menu fallback has the
-	# exact same items), so msgmerge here just pulls that subset back
-	# out of the one file translators already touch, per language,
-	# every build. A translator finishing po/<lang>.po already
-	# finishes the Wayland tray menu too, with nothing extra to fill
-	# in - including for a genuinely new language, not just these 7.
-	for po in po/??.po; do \
-		lang=$$(basename "$$po" .po); \
-		mkdir -p "src/orcshot/resources/gnome-shell-extensions/orcshot-clipboard@orcshot.org/locale/$$lang/LC_MESSAGES"; \
-		msgmerge --no-fuzzy-matching --quiet "$$po" po/orcshot-tray.pot -o - | \
-			msgattrib --no-obsolete -o - - | \
-			msgfmt - -o "src/orcshot/resources/gnome-shell-extensions/orcshot-clipboard@orcshot.org/locale/$$lang/LC_MESSAGES/orcshot-tray.mo"; \
-	done
