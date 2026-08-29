@@ -644,7 +644,7 @@ class OrcshotApplication(Gtk.Application):
         panel button used to need an explicit best-effort Quitting()
         D-Bus call here so it would actually disappear instead of
         sticking around dimmed. The new orcshot-tray@orcshot.org
-        extension (task #186 follow-up) tears its own button down on
+        extension (Backlog #184 follow-up) tears its own button down on
         its own via Gio.bus_watch_name's vanished callback the moment
         this process's D-Bus name drops, so there's nothing left for
         this method to notify.
@@ -786,7 +786,7 @@ class OrcshotApplication(Gtk.Application):
         explicit _notify_tray_extension_quitting() D-Bus heads-up here so
         its own long-lived panel button would rebuild fresh on the next
         appear rather than staying stale. The new orcshot-tray@orcshot.org
-        extension (task #186 follow-up) has no such stale-build problem -
+        extension (Backlog #184 follow-up) has no such stale-build problem -
         it reads the tray menu live from the exported Gio.Menu/
         items-changed on every appear - so there's nothing left for this
         method to notify.
