@@ -572,13 +572,50 @@ here - the two menus must show the same English text so `po/<lang>.po` already c
 translator work, matching this project's own established "no new strings to translate for a menu that
 already exists elsewhere" precedent (task #183's own tray-menu translation work took the same approach).
 
-- [ ] **Step 4: Manual verification (no automated test - needs a real Wayland session)**
+- [ ] **Step 4: Remove the two other methods whose entire premise depended on the AppIndicator3 fallback**
+
+Found during this plan's own pre-flight review, not in the original task scope - two more methods call
+`shell_tray_button_active()`/`get_tray_button_error()` beyond `_build_tray_icon` itself, and both become
+obsolete once Step 2 removes the AppIndicator3 fallback entirely:
+
+**Remove `_recheck_tray_icon_after_extension_change` in full** (its own method body, roughly lines 878-927 -
+confirm the exact range by reading the method, it runs from its own `def` to the `GLib.timeout_add(500,
+_poll)` line immediately before `_build_tray_icon`). Its entire purpose was tearing down a fallback
+AppIndicator3 icon once the Shell-native one caught up - with no more fallback icon to ever build in the
+first place, this can't happen anymore. Also remove its call site: `self._recheck_tray_icon_after_extension_change()`
+in `do_startup`.
+
+**Narrow `_check_shell_extension_health` - keep its version-staleness check, remove its tray-button check.**
+This method currently does two unrelated things: (1) warns if the extension's clipboard/region-select API
+is stale after an upgrade (`EXPECTED_API_VERSION`/`get_live_api_version()`, still valid - clipboard and
+region-select keep using `orcshot-clipboard@orcshot.org` unchanged per this plan's own scope), and (2) warns
+if the tray button specifically failed to activate (`shell_tray_button_active()`/`get_tray_button_error()`).
+Remove only part (2) - the `if not shell_tray_button_active(): ...` block and its notification - keeping
+part (1) (the staleness check and its own notification) exactly as-is, including its own `is_available()`
+guard and early-return structure above the removed block.
+
+**Ruling, recorded because it's a real, deliberate scope decision, not a silent gap:** this removal drops
+the "your tray icon fell back to a plain version" notification with no replacement. There is no longer a
+fallback to report on the *Wayland* side - the new `orcshot-tray@orcshot.org` extension is unconditional -
+and building an equivalent health-check for it would mean Orcshot querying back into extension-hosted state,
+which is a real, separate design question this plan doesn't take on. If `orcshot-tray@orcshot.org` doesn't
+activate (first boot before a relogin, a user disabling extensions, a stale cache after upgrade - the same
+real scenarios the removed code already enumerated), the user now gets no tray icon *and* no notification
+explaining why, whereas before they got a degraded-but-present icon with a notification. Cost if this
+matters: a real, silent UX regression for whichever of those scenarios actually occurs; recorded in this
+plan's own Task 7 as something to watch for during live verification, and worth its own BACKLOG.md follow-up
+if Task 7 confirms it's a real, frequent enough gap to need its own fix.
+
+Run: `.venv/bin/pytest tests/ -q` after this step - same expectation as Step 5 below, confirms nothing else
+references the removed methods.
+
+- [ ] **Step 5: Manual verification (no automated test - needs a real Wayland session)**
 
 Run: `.venv/bin/pytest tests/ -q`
 Expected: full suite still green - this task doesn't add new testable pure logic, it wires together
 Tasks 1-3, so the safety net here is "nothing else broke," not new coverage.
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 6: Commit**
 
 ```bash
 git add src/orcshot/app.py
@@ -596,7 +633,13 @@ git commit -m "Wire the Wayland tray onto the new Gio.Menu export, drop AppIndic
 - Delete: `po/orcshot-tray.pot`
 
 **Interfaces:**
-- Consumes: nothing new. This task only removes code Task 3/4 made unreachable.
+- Consumes: nothing new. This task only removes code Task 3/4 made unreachable - by the time this task
+  starts, Task 4's Step 4 has already removed every caller of `shell_tray_button_active()`,
+  `get_tray_button_error()`, and `notify_repeat_available()` (see that step for the two extra call sites
+  found during this plan's own pre-flight review, beyond `_build_tray_icon` itself). If any of the three
+  functions this task removes still has a live caller when this task starts, treat that as a real,
+  load-bearing finding - stop and confirm Task 4 actually landed its Step 4, don't silently remove a
+  function something still calls.
 
 - [ ] **Step 1: Remove the tray-button code from the old extension**
 
