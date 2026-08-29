@@ -1,6 +1,7 @@
 import St from 'gi://St';
 import Gio from 'gi://Gio';
 import GObject from 'gi://GObject';
+import Clutter from 'gi://Clutter';
 import * as PanelMenu from 'resource:///org/gnome/shell/ui/panelMenu.js';
 import * as PopupMenu from 'resource:///org/gnome/shell/ui/popupMenu.js';
 import * as Main from 'resource:///org/gnome/shell/ui/main.js';
@@ -41,8 +42,30 @@ class OrcshotTrayButton extends PanelMenu.Button {
         this._actionGroup = Gio.DBusActionGroup.get(Gio.DBus.session, BUS_NAME, ACTIONS_PATH);
         this.menu.actionGroup = this._actionGroup;
 
+        // TEMPORARY diagnostics (Task 7 live debugging, direflail
+        // asked for click-behavior visibility) - remove once the
+        // menu-doesn't-open bug is actually found. All go through
+        // log() with a fixed, greppable prefix so `journalctl
+        // GLIB_DOMAIN=GNOME Shell` or a plain grep for
+        // "orcshot-tray-diag" finds every line.
+        log(`orcshot-tray-diag: _init starting, get_n_items()=${this._menuModel.get_n_items()}`);
+        this.connect('button-press-event', () => {
+            log('orcshot-tray-diag: button-press-event fired');
+            return Clutter.EVENT_PROPAGATE;
+        });
+        this.connect('touch-event', () => {
+            log('orcshot-tray-diag: touch-event fired');
+            return Clutter.EVENT_PROPAGATE;
+        });
+        this.menu.connect('open-state-changed', (menu, open) => {
+            log(`orcshot-tray-diag: menu open-state-changed, open=${open}, numMenuItems=${this.menu.numMenuItems}`);
+        });
+
         this._rebuild();
-        this._itemsChangedId = this._menuModel.connect('items-changed', () => this._rebuild());
+        this._itemsChangedId = this._menuModel.connect('items-changed', (model, pos, removed, added) => {
+            log(`orcshot-tray-diag: items-changed pos=${pos} removed=${removed} added=${added}, get_n_items()=${model.get_n_items()}`);
+            this._rebuild();
+        });
         // Standard Clutter.Actor 'destroy' signal, matching this
         // project's own orcshot-clipboard@orcshot.org convention for
         // cleanup-on-destroy - not a `_destroy_impl` vfunc override,
@@ -54,6 +77,7 @@ class OrcshotTrayButton extends PanelMenu.Button {
     _rebuild() {
         this.menu.removeAll();
         let n = this._menuModel.get_n_items();
+        log(`orcshot-tray-diag: _rebuild running, n=${n}`);
         for (let i = 0; i < n; i++) {
             let label = this._menuModel.get_item_attribute_value(i, 'label', null)?.deep_unpack() ?? '';
             let action = this._menuModel.get_item_attribute_value(i, 'action', null)?.deep_unpack();
@@ -83,6 +107,7 @@ class OrcshotTrayButton extends PanelMenu.Button {
             }
             this.menu.addMenuItem(item);
         }
+        log(`orcshot-tray-diag: _rebuild finished, menu.numMenuItems=${this.menu.numMenuItems}`);
     }
 
 });
@@ -93,16 +118,19 @@ export default class OrcshotTrayExtension extends Extension {
         this._watchId = Gio.bus_watch_name(
             Gio.BusType.SESSION, BUS_NAME, Gio.BusNameWatcherFlags.NONE,
             () => {
+                log('orcshot-tray-diag: bus name appeared');
                 if (this._button)
                     return;
                 try {
                     this._button = new OrcshotTrayButton();
                     Main.panel.addToStatusArea('orcshot-tray', this._button);
+                    log('orcshot-tray-diag: button constructed and added to status area');
                 } catch (e) {
                     logError(e, 'orcshot-tray: failed to build tray button');
                 }
             },
             () => {
+                log('orcshot-tray-diag: bus name vanished');
                 if (this._button) {
                     this._button.destroy();
                     this._button = null;

@@ -112,6 +112,38 @@ testing specifically - real Wayland hardware, or a non-VM Wayland session,
 wouldn't hit this at all, so it may only ever matter for this project's own
 dev-testing setup, not real users.
 
+## #188: Existing Orcshot installs upgrading to the Wayland tray redesign never get `orcshot-tray@orcshot.org` enabled
+
+Surfaced during #184's own Task 7 live verification (2026-08-29), not something the original 7-task plan
+anticipated. `gnome_extension_setup.py`/`first_run_setup.py`'s enable-on-first-run wizard now correctly
+lists the new `orcshot-tray@orcshot.org` extension alongside `window-calls@domandoman.xyz` and
+`orcshot-clipboard@orcshot.org` - but that wizard is gated on `is_first_run_setup_done()`, which is
+already `true` for anyone who installed Orcshot before this redesign. On a real upgrade (not a fresh
+install), the new extension's files land on disk (`debian/orcshot.install`), but nothing ever tells
+GNOME Shell to turn it on - confirmed live: exactly this state on the test VM (`gnome-extensions info
+orcshot-tray@orcshot.org` reported `Enabled: No` right after a real `apt install --reinstall` on an
+already-configured install), and the wizard did not re-show.
+
+**Why not just auto-enable it on upgrade**: `gnome_extension_setup.py`'s own docstring is explicit and
+deliberate - enabling an extension is "a real write to the user's desktop settings that must only ever
+happen from their own confirmation click, never as a side effect of installing or running the app." Silently
+flipping this on during a `postinst`/upgrade would violate that standing product principle, not just be
+lazy engineering.
+
+**What this needs**: some new, upgrade-specific consent path - e.g. a one-time "we've changed how the
+Wayland tray works, want to enable it?" prompt shown once on the first run after an upgrade where
+`orcshot-clipboard@orcshot.org` is already enabled but `orcshot-tray@orcshot.org` isn't - not a silent
+flip, and not just re-running the whole first-run wizard from scratch (autostart/hotkeys are presumably
+already configured and shouldn't be re-asked). A real, scoped design question, not a one-line fix -
+needs its own brainstorming pass before implementation.
+
+**Consequence if left unfixed**: every real user who upgrades an existing Orcshot install to this version
+on GNOME Wayland loses their tray icon entirely on upgrade, with no in-app explanation why, until they
+manually run `gnome-extensions enable orcshot-tray@orcshot.org` themselves or reach Preferences (if a
+manual enable action is ever added there). A real, user-visible regression on upgrade, not just a
+first-install polish gap - should probably be resolved before this branch's release, not deferred
+indefinitely.
+
 ## #184: Explore a Wayland capture path that doesn't depend on the bundled GNOME Shell extension, to open up Snap and Flatpak
 
 **Confirmed wanted (direflail, 2026-08-28): "we definitely want to do this."** Ready to move past the
@@ -279,6 +311,73 @@ verified live, not theorized:**
 
 Not yet written up as a formal design doc - still mid-brainstorm, but the shape is now real and detailed
 enough that formalizing it into `docs/superpowers/specs/` is the natural next step whenever picked up.
+
+**RESOLVED (2026-08-28/29) - the Snap-compatibility question that motivated this entry is now answered,
+live, not just reasoned about.** Formalized as
+`docs/superpowers/specs/2026-08-28-wayland-capture-redesign-design.md` and implemented via
+`docs/superpowers/plans/2026-08-28-wayland-tray-redesign.md` (7 tasks, subagent-driven-development, all
+merged to `worktree-wayland-tray-redesign`): a new `orcshot-tray@orcshot.org` extension (GMenu/GAction
+over D-Bus, exported on Orcshot's own already-owned connection) replaces `AyatanaAppIndicator3` entirely
+on Wayland; region-select, clipboard, and Window Picker were unaffected per the design's own scope.
+
+- **The actual proof point, done for real**: a throwaway `snapcraft.yaml` (`confinement: strict`,
+  `base: core24`, `extensions: [gnome]`, a `dbus` slot for `org.orcshot.Orcshot`) built and installed on
+  both a Linux Mint host (`snapcraft pack --destructive-mode` doesn't work cross-distro - built via a real
+  LXD-managed build instead) and the Ubuntu 26.04 Wayland VM. On the VM, under real strict AppArmor
+  confinement: `gnome_tray_export.export_tray_menu()`'s `export_menu_model()` call succeeded with **zero**
+  `apparmor="DENIED"` lines anywhere near `TrayMenu`/`org.gtk.Menus`/`export_menu` - confirmed not just by
+  absence of denials but by a live `gdbus call` against the confined process's own exported object
+  returning real, correct menu data (label, action, icon bytes all intact). The standard `desktop`
+  interface plus one `dbus` slot declaration is all a real Snap package would need - no special AppArmor
+  carve-out required. This is the exact mechanism (a confined process registering objects on its own
+  already-owned D-Bus connection, never calling *out* to an unsanctioned bus name like `org.gnome.Shell`)
+  the whole redesign was architected around, now proven under real confinement, not just read from
+  `snapd`'s AppArmor policy source.
+- **Expected, not a new problem**: the (out-of-scope, unchanged) clipboard extension's own
+  `Ping()`-to-`org.gnome.Shell` availability check *was* denied under confinement in the same test run -
+  exactly the disqualifying pattern this whole redesign exists to route around for the tray, just not yet
+  applied to clipboard/region-select (tracked separately, not part of this entry's own scope).
+- **Real bugs live-caught during Task 7 verification, neither Tasks 1-6 nor their reviews caught**: (1)
+  the Wayland tray menu was missing icons on Open File/Preferences/Quit, a direct violation of task #146's
+  existing "every icon in the wayland version must look like the x11 version" rule - fixed
+  (`stock_icon_gicon()`, hand-drawn Adwaita-lookalike geometry, same as the X11 builder already used).
+  (2) The panel button's own icon reused the "region" capture-mode glyph instead of Orcshot's real logo -
+  a deliberate, plan-documented tradeoff direflail asked to change once actually seen live ("please don't
+  change the branding on the app without talking to me first" - now a standing memory). Fixed via
+  `Gio.ThemedIcon.new('orcshot')`, no new D-Bus export needed. (3) A real, root-caused bug where the
+  exported `Gio.Menu` was built as a dead local variable with nothing keeping it alive -
+  `g_dbus_connection_export_menu_model`'s own docs say "the data is owned by the caller of the method,"
+  and every known-good example of this API (including this project's own earlier prototype) keeps it
+  alive as a persistent reference. Fixed by storing it on `self._tray_menu`.
+- **Open, unresolved risk, not papered over**: after the above fixes, the tray menu still failed to
+  populate/respond to clicks following a plain reinstall+logout/login cycle - only a full VM *reboot*
+  fixed it. Diagnostic logging (temporarily left in `extension.js`, tagged `orcshot-tray-diag`) proved
+  `items-changed` never fired and the button was inert to `button-press-event`/`touch-event` entirely on
+  the broken boot, while a clean reboot showed the complete correct sequence. Matches the general class of
+  issue already documented in `REQUIREMENTS.md` and the `feedback-extension-reload-caching` memory
+  (extension-reload cycling causing session-level corruption reaching beyond the reloaded code itself),
+  but this is the first time it's been severe enough that logout/login alone wasn't sufficient - full
+  reboot was needed. direflail's own read: "we didn't have this issue before. i'm guessing we'll see it
+  again." **Not closed out as solved** - if this recurs on a genuinely fresh boot (not a session that's
+  been through many reinstalls/logouts like today's testing), it needs real investigation, not another
+  reboot-and-move-on.
+- **A second, separate gap found and only partly fixed**: the new extension's UUID
+  (`orcshot-tray@orcshot.org`) was missing from `gnome_extension_setup.py`/`first_run_setup.py`'s
+  enable-on-first-run wizard entirely - fixed for *fresh* installs. Still open: an **existing** install
+  upgrading from before this redesign already has `is_first_run_setup_done() = true`, so the wizard won't
+  re-show and the new extension has no path to get enabled short of a Preferences action or a new
+  upgrade-specific consent flow - deliberately not invented as part of this work, since
+  `gnome_extension_setup.py`'s own docstring is explicit that enabling must only ever happen from the
+  user's own confirmation click, never as a side effect of an upgrade. Real UX gap for anyone upgrading an
+  existing Orcshot install to this version on GNOME Wayland - worth its own follow-up task before this
+  ships as a real release.
+- Also found and fixed inline (not part of the original 7-task plan): `debian/control` still required
+  `gir1.2-ayatanaappindicator3-0.1` even though nothing imports `AyatanaAppIndicator3` anymore.
+
+**Next step**: this branch (Tasks 1-7 complete, live-verified) is ready for final whole-branch review and
+merge. #185 (Flatpak) and the real, non-throwaway Snap package are now unblocked by this result - the
+upgrade-path gap above and the not-yet-closed reboot-vs-logout finding are the two loose ends worth
+carrying into whatever picks this up next.
 
 ## #185: A Wayland-only Flatpak build, alongside the existing dual-mode (X11+Wayland) `.deb`/PPA release
 
