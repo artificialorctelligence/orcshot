@@ -112,6 +112,36 @@ testing specifically - real Wayland hardware, or a non-VM Wayland session,
 wouldn't hit this at all, so it may only ever matter for this project's own
 dev-testing setup, not real users.
 
+## #189: Audit the X11 tray path for the same "deprecated tech" problem that motivated #184
+
+direflail (2026-08-29), right after #184's Wayland redesign landed: "add a task to check the x11 side to
+make sure it's using modern packaging/techniques." Direct follow-through on the same standing concern
+that started #184 in the first place - direflail's own words from that earlier conversation: "you've
+explicitly told me we can't put the app on Snap the way it is. combine that with the technologies being
+17 years deprecated in cases, and i'm thinking nobody's going to want to install this app... find out if
+[modern GNOME tech] can be used to make the version of this app... that will work properly and be
+accepted by snap, flatpak, and apt." #184 answered that for Wayland (`AyatanaAppIndicator3` → GMenu/GAction
+over D-Bus). The X11 side was never audited against the same standard.
+
+**What's already known, not yet acted on**: `app.py`'s `_build_tray_icon` X11 branch uses `Gtk.StatusIcon`
+- confirmed still in place after #184's redesign (X11's branch was deliberately left untouched, out of
+that plan's scope). `Gtk.StatusIcon` has been deprecated since GTK 3.14 (2014) with **no direct GTK4
+replacement at all** - GTK4 removed the API entirely, pushing every app toward exactly the
+StatusNotifierItem/AppIndicator-style mechanisms #184 just finished moving Orcshot's Wayland side *away*
+from. Worth checking directly (not assuming either "it's fine, GTK3 still supports it" or "it's exactly
+the same problem #184 just solved") whether this specific deprecation actually causes any of the same
+real, concrete problems #184 found for Wayland - Snap/Flatpak packaging friction, distro-level removal
+plans, or actual runtime breakage on any of this project's three real test targets - or whether it's a
+harmless "deprecated but still fully functional and unlikely to be removed" situation, which
+`Gtk.StatusIcon` genuinely might be, given GTK3 itself (not just this one API) is the thing actually aging
+out project-wide.
+
+**Scope check needed before this becomes a plan**: is this really about `Gtk.StatusIcon` specifically, or
+a broader "is anything else in this app's X11 path resting on similarly old GTK3/legacy APIs" audit?
+direflail's request as given is general ("make sure it's using modern packaging/techniques"), not scoped
+to the tray icon alone - worth a clarifying pass before writing an implementation plan, same as #184 got
+before its own plan was written.
+
 ## #188: Existing Orcshot installs upgrading to the Wayland tray redesign never get `orcshot-tray@orcshot.org` enabled
 
 Surfaced during #184's own Task 7 live verification (2026-08-29), not something the original 7-task plan
