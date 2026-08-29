@@ -47,12 +47,24 @@ def build_tray_menu(labels: dict[str, str], color: Color) -> Gio.Menu:
     fixed items below the capture modes - same set app.py's
     _build_tray_menu (the Gtk.Menu builder) already needs, so callers
     typically already have all of these translated strings on hand.
+
+    Built as 4 sections (5 capture modes, then Open File, Preferences,
+    Quit each alone), not one flat 8-item menu - Gio.Menu.append_section
+    is the standard GMenu idiom for "render a divider between these
+    groups", matching X11's own _build_tray_menu (three
+    Gtk.SeparatorMenuItems between the same four groups) and the old,
+    now-deleted Shell-native menu it replaced. extension.js walks these
+    section links to insert a PopupSeparatorMenuItem between each group -
+    see its own _rebuild for the consuming side.
     """
-    menu = Gio.Menu()
+    capture_modes = Gio.Menu()
     for mode in _CAPTURE_MODES:
         item = Gio.MenuItem.new(labels[mode], f"app.tray-{mode}")
         item.set_icon(capture_mode_gicon(mode, color))
-        menu.append_item(item)
+        capture_modes.append_item(item)
+
+    menu = Gio.Menu()
+    menu.append_section(None, capture_modes)
 
     for key, action in (
         ("open_file", "app.tray-open-file"),
@@ -61,7 +73,9 @@ def build_tray_menu(labels: dict[str, str], color: Color) -> Gio.Menu:
     ):
         item = Gio.MenuItem.new(labels[key], action)
         item.set_icon(stock_icon_gicon(_FIXED_ITEM_ICON_NAMES[key], color))
-        menu.append_item(item)
+        section = Gio.Menu()
+        section.append_item(item)
+        menu.append_section(None, section)
     return menu
 
 

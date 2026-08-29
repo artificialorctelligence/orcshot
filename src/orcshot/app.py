@@ -191,6 +191,8 @@ class OrcshotApplication(Gtk.Application):
         )
         self.last_region = None
         self._repeat_item = None
+        self._tray_repeat_action = None
+        self._tray_menu = None
         self._open_editors = []
         self._has_activated_before = False
         self._quit_after_editors_close = False
@@ -365,16 +367,21 @@ class OrcshotApplication(Gtk.Application):
 
     def _remember_region(self, rect) -> None:
         self.last_region = rect
-        # Eager, not deferred to the tray menu's own "show" signal:
-        # confirmed live that AppIndicator3 (Wayland) exports the menu
-        # structure to the shell once and renders its own copy from
-        # then on, so our local Gtk.Menu's "show" only ever fires at
-        # construction time, never on a real subsequent open - "show"
-        # is not a reliable place to refresh state for that mechanism.
-        # Updating the item directly the moment last_region actually
-        # changes works identically on both platforms instead.
+        # Eager, not deferred to the tray menu's own "show" signal: X11's
+        # local Gtk.Menu only ever fires "show" at construction time, not
+        # on a real subsequent open when exported to a remote renderer -
+        # not a reliable place to refresh state. Updating the item
+        # directly the moment last_region actually changes works
+        # identically on both platforms instead - on Wayland this means
+        # flipping the GAction's own `enabled` property, which propagates
+        # to orcshot-tray@orcshot.org automatically over the org.gtk.
+        # Actions D-Bus interface (Gio.SimpleAction.set_enabled), no
+        # export/refresh step of our own needed the way the menu
+        # structure itself (_export_tray_menu) does.
         if self._repeat_item is not None:
             self._repeat_item.set_sensitive(True)
+        if self._tray_repeat_action is not None:
+            self._tray_repeat_action.set_enabled(True)
 
     def topmost_editor(self):
         """The most-recently-opened still-open editor, or None - the
@@ -546,12 +553,11 @@ class OrcshotApplication(Gtk.Application):
     def _tray_action_handlers(self) -> dict:
         """One handler per capture mode, keyed by the same mode string
         icons.py's capture_mode_icon_image() already uses - shared
-        between _build_tray_menu's local Gtk.Menu (X11 and the
-        AppIndicator3 Wayland fallback below) and
-        _register_tray_actions' GActions (activated by the Shell-
-        native panel button in a *different* process, see that
-        method's own docstring), rather than defining the same five
-        closures twice.
+        between _build_tray_menu's local Gtk.Menu (X11-only - see
+        _build_tray_icon) and _register_tray_actions' GActions
+        (activated by the Shell-native tray panel button in a
+        *different* process on Wayland, see that method's own
+        docstring), rather than defining the same five closures twice.
         """
         return {
             "region": lambda: self.start_region_capture(capture_mouse_cursor=False),
@@ -580,6 +586,14 @@ class OrcshotApplication(Gtk.Application):
             action = Gio.SimpleAction.new(f"tray-{mode}", None)
             action.connect("activate", lambda _action, _param, h=handler: _defer(h))
             self.add_action(action)
+            if mode == "repeat_region":
+                # Matches X11's own self._repeat_item.set_sensitive(False)
+                # below - no region captured yet, nothing to repeat.
+                # _remember_region flips this to enabled the moment a
+                # real region capture actually happens (see its own
+                # comment).
+                self._tray_repeat_action = action
+                action.set_enabled(False)
         open_file_action = Gio.SimpleAction.new("tray-open-file", None)
         open_file_action.connect("activate", lambda *_args: self.open_file_from_tray())
         self.add_action(open_file_action)
@@ -900,51 +914,48 @@ class OrcshotApplication(Gtk.Application):
 
         def menu_item(label: str, handler, *, icon_mode: str = None, icon_name: str = None) -> Gtk.MenuItem:
             # Gtk.ImageMenuItem, not a Gtk.MenuItem wrapping a hand-built
-            # Gtk.Box(icon+label) - this menu (unlike editor_window.py's
-            # own menu_item helper, which builds a purely local, X11/
-            # Wayland-both-fine Gtk.Menu) gets exported over the
-            # DBusMenu protocol by AyatanaAppIndicator3.Indicator.
-            # set_menu() under Wayland, rendered by a *remote* process
-            # (the Shell's own AppIndicator support), not drawn locally
-            # at all. Confirmed live (task #137): the Box+Image+Label
-            # version showed icons correctly on X11 (real local Gtk.Menu
-            # rendering, understands arbitrary child widgets) but showed
-            # none at all on Wayland/Ubuntu 26.04 - the DBusMenu exporter
-            # only knows how to serialize icons from recognized GTK
-            # properties (ImageMenuItem's own `image`), not by
-            # introspecting a menu item's freeform widget tree. Same
-            # underlying "cross-process menu rendering has its own rules"
-            # class of issue task #133 already hit for the destination
-            # picker, just a different mechanism (DBusMenu export here,
-            # vs. that one's Shell-native PopupMenu). Deprecated since
-            # GTK 3.10 but still functional - the deprecation is *why*
+            # Gtk.Box(icon+label) - this menu is X11-only now (see
+            # _build_tray_icon: Wayland returns None before this method
+            # is ever called), but historically (task #137, before the
+            # 2026-08-28 Wayland tray redesign replaced it entirely with
+            # orcshot-tray@orcshot.org's Gio.Menu/GAction export) this
+            # same Gtk.Menu was also handed to
+            # AyatanaAppIndicator3.Indicator.set_menu() under Wayland and
+            # rendered by a *remote* process (the Shell's own AppIndicator
+            # support) over the DBusMenu protocol, not drawn locally at
+            # all - that's why Gtk.ImageMenuItem was picked over a hand-
+            # built Gtk.Box(icon+label): the DBusMenu exporter only knew
+            # how to serialize icons from recognized GTK properties
+            # (ImageMenuItem's own `image`), not by introspecting a menu
+            # item's freeform widget tree. Deprecated since GTK 3.10 but
+            # still functional - the deprecation is *why*
             # editor_window.py/destination_picker.py moved away from it
-            # for their own (local-only) menus, not evidence it's broken.
+            # for their own (local-only) menus, not evidence it's broken -
+            # and X11 still needs it kept for consistent icon rendering
+            # here regardless of the Wayland history above.
             item = Gtk.ImageMenuItem(label=label)
             if icon_mode is not None:
                 item.set_image(capture_mode_icon_image(icon_mode, icon_color))
             elif icon_name is not None:
                 item.set_image(stock_icon_image(icon_name, icon_color, size=16))
             item.set_always_show_image(True)
-            # Icon side wants to be left on both platforms (task #137).
-            # On Wayland this menu is DBusMenu-exported (see the comment
-            # above) and ubuntu-appindicators@ubuntu.com's dbusMenu.js
-            # hard-codes Clutter.ActorAlign.END for every item's icon,
-            # with no DBusMenu property a client can set to override it
-            # - confirmed by reading its actual source, not fixable from
-            # here. An earlier attempt to force RTL direction on this
-            # item to compensate broke icon display entirely on Wayland
+            # Forcing LTR here is X11-only (this branch never runs on
+            # Wayland - see _build_tray_icon). Historical context for why
+            # this exists at all (task #137): back when this same
+            # Gtk.Menu was also DBusMenu-exported to Wayland (see the
+            # comment above - no longer true today), an attempt to force
+            # RTL direction on these items to match Wayland's then
+            # right-aligned icons broke icon display entirely there
             # (reverted - RTL evidently reorders GtkImageMenuItem's
             # internal image+label children, not just their rendering,
-            # and the DBusMenu exporter's icon-extraction is order-
-            # dependent). On X11 this menu is a genuine local Gtk.Menu
-            # (never exported), and GtkImageMenuItem's icon side is
-            # governed by gtk_widget_get_direction() - nothing here was
-            # setting it explicitly, so it fell back to whatever the
-            # live session's process-wide default resolved to. Forcing
-            # LTR here is the opposite change from the one that broke
-            # Wayland and is scoped to the X11-only branch, so it can't
-            # repeat that regression.
+            # and the DBusMenu exporter's icon-extraction was order-
+            # dependent). GtkImageMenuItem's icon side is governed by
+            # gtk_widget_get_direction() - nothing here was setting it
+            # explicitly, so it fell back to whatever the live session's
+            # process-wide default resolved to, which on X11/Mint put
+            # icons on the right. Forcing LTR here is what actually fixes
+            # that for X11, and stays scoped to the X11-only branch below
+            # regardless of how Wayland's own tray icon is built.
             if os.environ.get("XDG_SESSION_TYPE") != "wayland":
                 item.set_direction(Gtk.TextDirection.LTR)
             item.connect("activate", lambda _item: handler())
@@ -1021,10 +1032,10 @@ class OrcshotApplication(Gtk.Application):
 
         # _quit_and_hide_tray_button, not bare self.quit - task #150
         # follow-up's quit marker (main()'s own comment) has to be
-        # written on every quit path, and this local X11/AppIndicator3
-        # menu item was the one path that bypassed it (the Shell-native
-        # panel button's own "tray-quit" GAction already routes through
-        # it correctly).
+        # written on every quit path, and this local X11-only menu item
+        # was the one path that bypassed it (the Shell-native panel
+        # button's own "tray-quit" GAction already routes through it
+        # correctly).
         quit_item = menu_item(_("Quit"), self._quit_and_hide_tray_button, icon_name="application-exit-symbolic")
         menu.append(quit_item)
         menu.show_all()

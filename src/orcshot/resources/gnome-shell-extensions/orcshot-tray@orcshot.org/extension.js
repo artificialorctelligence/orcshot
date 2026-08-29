@@ -61,9 +61,21 @@ class OrcshotTrayButton extends PanelMenu.Button {
             log(`orcshot-tray-diag: menu open-state-changed, open=${open}, numMenuItems=${this.menu.numMenuItems}`);
         });
 
+        this._sectionSignalIds = [];
         this._rebuild();
         this._itemsChangedId = this._menuModel.connect('items-changed', (model, pos, removed, added) => {
             log(`orcshot-tray-diag: items-changed pos=${pos} removed=${removed} added=${added}, get_n_items()=${model.get_n_items()}`);
+            this._rebuild();
+        });
+        this._actionEnabledChangedId = this._actionGroup.connect('action-enabled-changed', (group, name, enabled) => {
+            log(`orcshot-tray-diag: action-enabled-changed name=${name} enabled=${enabled}`);
+            // A full rebuild, not a targeted item lookup: this fires
+            // rarely (once per capture, for "repeat_region" only, see
+            // app.py's _remember_region) so the cost of re-walking the
+            // whole menu is not a real concern, and it's the same
+            // "just re-render everything" approach 'items-changed'
+            // above already takes rather than maintaining a parallel
+            // name-to-item map.
             this._rebuild();
         });
         // Standard Clutter.Actor 'destroy' signal, matching this
@@ -71,17 +83,68 @@ class OrcshotTrayButton extends PanelMenu.Button {
         // cleanup-on-destroy - not a `_destroy_impl` vfunc override,
         // which isn't a real GJS-exposed hook on this class hierarchy
         // and would silently leak this signal connection.
-        this.connect('destroy', () => this._menuModel.disconnect(this._itemsChangedId));
+        this.connect('destroy', () => {
+            this._menuModel.disconnect(this._itemsChangedId);
+            this._actionGroup.disconnect(this._actionEnabledChangedId);
+            this._disconnectSectionSignals();
+        });
+    }
+
+    _disconnectSectionSignals() {
+        for (let [model, id] of this._sectionSignalIds)
+            model.disconnect(id);
+        this._sectionSignalIds = [];
     }
 
     _rebuild() {
+        this._disconnectSectionSignals();
         this.menu.removeAll();
-        let n = this._menuModel.get_n_items();
-        log(`orcshot-tray-diag: _rebuild running, n=${n}`);
+        log(`orcshot-tray-diag: _rebuild running, n=${this._menuModel.get_n_items()}`);
+        this._addModelItems(this._menuModel);
+        log(`orcshot-tray-diag: _rebuild finished, menu.numMenuItems=${this.menu.numMenuItems}`);
+    }
+
+    // Walks a Gio.MenuModel's items, recursing into any 'section' link
+    // (see gnome_tray_export.py's build_tray_menu - the top-level model
+    // is now section-only, 4 sections wrapping the 8 real items) and
+    // inserting a separator between groups, matching X11's own
+    // _build_tray_menu (three Gtk.SeparatorMenuItems between the same
+    // four groups).
+    //
+    // Each section link resolves to its own Gio.DBusMenuModel proxy,
+    // not a plain already-populated Gio.MenuModel - genuinely uncertain
+    // (no live GNOME Shell session available to confirm either way,
+    // see final-review-fix-brief.md Item 1's own note on this) whether
+    // it's synchronously populated once the top-level model's own
+    // 'items-changed' has already fired, since the whole structure is
+    // exported as one atomic Gio.Menu object in one Start() call
+    // server-side (gnome_tray_export.py's export_tray_menu) - or
+    // whether each link genuinely needs its own async
+    // subscribe-then-populate round trip the way the org.gtk.Menus
+    // wire protocol's Start()/Changed mechanism is documented to work
+    // per (group, id) pair. Took the brief's own suggested safe
+    // fallback rather than guessing: every section model gets its own
+    // 'items-changed' listener too (tracked in _sectionSignalIds,
+    // disconnected and rebuilt fresh at the top of every _rebuild()
+    // call, since get_item_link() is not guaranteed to hand back the
+    // same proxy object on a later call). Slightly more code, no
+    // behavioral downside either way this resolves live.
+    _addModelItems(model) {
+        let n = model.get_n_items();
         for (let i = 0; i < n; i++) {
-            let label = this._menuModel.get_item_attribute_value(i, 'label', null)?.deep_unpack() ?? '';
-            let action = this._menuModel.get_item_attribute_value(i, 'action', null)?.deep_unpack();
-            let iconValue = this._menuModel.get_item_attribute_value(i, 'icon', null);
+            let section = model.get_item_link(i, Gio.MENU_LINK_SECTION);
+            if (section) {
+                if (this.menu.numMenuItems > 0)
+                    this.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
+                let id = section.connect('items-changed', () => this._rebuild());
+                this._sectionSignalIds.push([section, id]);
+                this._addModelItems(section);
+                continue;
+            }
+
+            let label = model.get_item_attribute_value(i, 'label', null)?.deep_unpack() ?? '';
+            let action = model.get_item_attribute_value(i, 'action', null)?.deep_unpack();
+            let iconValue = model.get_item_attribute_value(i, 'icon', null);
 
             let item = new PopupMenu.PopupMenuItem(label);
             if (iconValue) {
@@ -99,15 +162,16 @@ class OrcshotTrayButton extends PanelMenu.Button {
                     logError(e, 'orcshot-tray: bad icon data');
                 }
             }
+            let bareAction = null;
             if (action) {
                 // Bare name, no "app." prefix - see this file's own
                 // Interfaces note above for why.
-                let bareAction = action.includes('.') ? action.split('.').slice(1).join('.') : action;
+                bareAction = action.includes('.') ? action.split('.').slice(1).join('.') : action;
                 item.connect('activate', () => this._actionGroup.activate_action(bareAction, null));
+                item.setSensitive(this._actionGroup.get_action_enabled(bareAction));
             }
             this.menu.addMenuItem(item);
         }
-        log(`orcshot-tray-diag: _rebuild finished, menu.numMenuItems=${this.menu.numMenuItems}`);
     }
 
 });
