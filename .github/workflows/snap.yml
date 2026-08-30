@@ -7,7 +7,8 @@ on:
     branches: [main]
 
 jobs:
-  build:
+  build-snap:
+    name: snap / build
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
@@ -22,8 +23,9 @@ jobs:
           name: orcshot-snap
           path: ${{ steps.build.outputs.snap }}
 
-  verify:
-    needs: build
+  verify-snap:
+    name: snap / verify
+    needs: build-snap
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
