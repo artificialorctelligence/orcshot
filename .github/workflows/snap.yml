@@ -112,6 +112,15 @@ jobs:
             || { echo "gnome-shell never logged its startup line"; cat /tmp/shell.log; exit 1; }
           pgrep -af gnome-shell || (echo "gnome-shell did not stay running" && cat /tmp/shell.log && exit 1)
 
+      - name: "Diagnostic: does snap run --shell survive at all once gnome-shell/dbus-daemon are running in the background (BACKLOG #192)"
+        run: |
+          # Isolating one variable: no custom env exported here at all -
+          # just the bare minimum snap run --shell call, to check whether
+          # ANY such call breaks once the previous step's background
+          # dbus-daemon/gnome-shell processes exist, independent of
+          # anything this PR has changed about DBUS_SESSION_BUS_ADDRESS.
+          snap run --shell orcshot -c "echo ok from inside confinement"
+
       - name: "Exercise Orcshot's own enable_extension() write, confined, and confirm it persists (BACKLOG #192)"
         run: |
           # gnome_shell_present() resolving the schema (earlier step) only
