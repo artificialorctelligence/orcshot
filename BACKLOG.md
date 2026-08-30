@@ -4,50 +4,50 @@ Open items not yet scheduled into a task. Each entry keeps the context that
 led to it - not just "what," but "why this matters" - so picking it up later
 doesn't require re-deriving the reasoning from scratch.
 
-## #192: Snap channel - gnome_shell_present() crashes under strict confinement, likely making the tray extension unreachable
+## #192: Snap channel - gnome_shell_present() crash, and whether the tray extension actually works under strict confinement (RESOLVED 2026-08-30)
 
-**HIGH PRIORITY - a real crash risk, confirmed live, not a hypothesis.** Final whole-branch review of
-`docs/superpowers/plans/2026-08-30-snap-channel.md` (2026-08-30, PR #9) raised a real, unverified
-concern: does `gnome_shell_present()` (`src/orcshot/gnome_extension_setup.py`) survive Snap's strict
-confinement at all? A diagnostic CI probe added directly to that same PR (`snap run --shell orcshot
--c "python3 -c '... gnome_shell_present() ...'"`, run 33302639728) answered it for real, and the
-answer is worse than the reviewer's own hypothesis:
+Started as a real crash risk (`Gio.SettingsSchemaSource.get_default()` returning `None` under strict
+confinement, causing an unhandled `AttributeError` in `gnome_shell_present()`), confirmed live via a
+diagnostic CI probe on PR #9. Two separable questions followed: (1) the crash fix itself, and (2) the
+larger question direflail explicitly asked to be tackled next - does the Wayland tray extension
+actually *function* under Snap at all, not just fail gracefully. Both are now resolved, PR #10, each
+finding confirmed live in real CI, not guessed:
 
-```
-Traceback (most recent call last):
-  File "/snap/orcshot/x1/lib/python3.12/site-packages/orcshot/gnome_extension_setup.py", line 52, in gnome_shell_present
-    return Gio.SettingsSchemaSource.get_default().lookup(_SHELL_SCHEMA, True) is not None
-AttributeError: 'NoneType' object has no attribute 'lookup'
-```
+1. **The crash**: fixed - `gnome_shell_present()` now treats `get_default()` returning `None` as
+   "schema not found" (`False`), same as apt/.deb's own already-correct behavior.
+2. **The schema itself was genuinely unresolvable under confinement**, not just returning `False` on
+   a real check: `gnome-shell-common`'s schema wasn't staged in `snapcraft.yaml` at all, and even once
+   staged, Snapcraft's staging never runs the `.deb`'s own postinst/dpkg-trigger machinery, so the raw
+   XML never got compiled into `gschemas.compiled` - fixed with an explicit `glib-compile-schemas`
+   step (same class of gap as this file's existing BLAS/LAPACK workaround).
+3. **Even correctly staged and compiled, nothing made it discoverable at runtime**: this snap uses no
+   desktop-integration extension (`extensions: [gnome]` was deliberately set aside in Task 3 for a
+   minimal manual-plugs approach), so nothing sets `XDG_DATA_DIRS`/`GSETTINGS_SCHEMA_DIR` the way a
+   `desktop-launch` wrapper would - fixed by setting `GSETTINGS_SCHEMA_DIR` explicitly, same pattern
+   already used for `PYTHONPATH`/`GI_TYPELIB_PATH`.
+4. **The confined write itself (`enable_extension()`) silently fell back to GLib's keyfile backend**
+   and failed outright, because the dconf GSettingsBackend GIO module (`dconf-gsettings-backend`'s
+   `libdconfsettings.so`) was never staged either - fixed by staging it and adding `GIO_EXTRA_MODULES`.
+5. **CI itself broke `snap run` entirely** once a session D-Bus bus existed
+   (`... is not a snap cgroup for tag snap.orcshot.orcshot`) - a documented, `core24`-specific snapd
+   bug (https://bugs.launchpad.net/snapd/+bug/2075560): a bare `dbus-daemon --session` has no real
+   `systemd --user` behind it, and `snap run` needs `org.freedesktop.systemd1.Manager` on that bus to
+   create its own confinement scope. Fixed by starting the real `systemd --user` instance instead.
+6. **The deeper functional question**: `gnome_extension_setup.enable_extension_live()` (the direct
+   `org.gnome.Shell.Extensions.EnableExtension` D-Bus call that normally makes the extension activate
+   *this session*, not just on next login) is confirmed AppArmor-blocked under Snap's strict
+   confinement (`AccessDenied`, live-tested) - no interface this snap plugs grants that call, and none
+   safely could. **This turned out not to matter**: live-tested against the real, representative
+   scenario (GNOME Shell already running, matching how the first-run dialog is actually ever used),
+   the already-running Shell picks up `enable_extension()`'s persisted gsettings write on its own,
+   with no live D-Bus call at all - confirmed via the same headless-Shell-load check the apt channel's
+   own CI already relies on. `extensions: [gnome]` was not needed after all.
 
-`Gio.SettingsSchemaSource.get_default()` itself returns `None` inside strict confinement - there's no
-default schema source object at all in the snap's mount namespace (the schema file ships in
-`gnome-shell-common`, not currently staged; this snap doesn't use `extensions: [gnome]` either, which
-would mount a real GNOME platform content snap that provides it). The reviewer's hypothesis was "it
-returns `False`, so the Snap extension-install code path silently never runs." The real behavior is
-worse: `src/orcshot/ui/first_run_setup.py`'s `is_gnome_wayland = os.environ.get("XDG_SESSION_TYPE")
-== "wayland" and gnome_shell_present()` line has no `try`/`except` around it anywhere between there
-and the dialog's response handler - on a real Wayland session under Snap, this line itself would
-**crash first-run setup**, not gracefully skip anything.
-
-**Two separable decisions, not one:**
-1. **Immediate, cheap, unambiguously-correct:** make `gnome_shell_present()` itself defensive - treat
-   `get_default()` returning `None` the same as "schema not found" (return `False`), not an unhandled
-   exception. This never regresses any real desktop (apt/.deb always has at least an empty default
-   schema source; only Snap's confinement can produce a hard `None`), and turns a crash into the
-   already-correct-for-this-case behavior of "GNOME Shell integration isn't available here."
-2. **Larger, real architectural decision:** should this be left there (Snap correctly reports "no
-   GNOME Shell integration," and Wayland tray/clipboard/window-picker extensions simply never work
-   under Snap), or should Snap actually gain real GNOME Shell schema access (staging
-   `gnome-shell-common`'s schema file specifically, or adopting Canonical's own `extensions: [gnome]`
-   - a bigger manifest change with broader implications already set aside once during this same
-   plan's Task 3 work) so the Wayland-tray feature this whole plan exists to support actually
-   functions under Snap at all? Left to direflail's own call - not decided unilaterally here.
-
-Until resolved, this channel's Wayland tray-extension support (`#184`'s own redesign - the whole
-reason `channel_detect.py`/`install_bundled_extension_if_needed` exist) is disclosed here as an
-UNVERIFIED-WORKING, likely-broken-or-crashing feature under Snap specifically, not a working one -
-apt's own equivalent path is unaffected (`.deb` always has a real default schema source).
+**Net result**: the Wayland tray extension genuinely functions under the Snap channel end-to-end -
+schema resolves, the real production write persists, GNOME Shell loads it. All of this is now a
+permanent, non-throwaway part of `.github/workflows/snap.yml`'s verify job, exercising Orcshot's own
+real production code (`enable_extension`, `install_bundled_extension_if_needed`) through actual strict
+confinement, not a stand-in.
 
 ## #191: Snap channel - deferred findings from the final review (version scheme, extension upgrades, minors)
 
