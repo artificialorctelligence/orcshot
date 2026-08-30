@@ -1,0 +1,75 @@
+name: orcshot
+base: core24
+confinement: strict
+grade: stable
+summary: Screenshot capture and annotation tool
+description: |
+  A Linux port of Windows Greenshot (not affiliated with or endorsed by the
+  Greenshot project): region, window, and full-screen capture; an annotation
+  editor; configurable global capture hotkeys; and autostart-on-login
+  integration.
+version: git
+
+apps:
+  orcshot:
+    command: bin/orcshot
+    plugs:
+      - x11
+      - wayland
+      - desktop
+      - desktop-legacy
+      - gsettings
+      - dot-local-share-gnome-shell
+
+slots:
+  dbus-orcshot:
+    interface: dbus
+    bus: session
+    name: org.orcshot.Orcshot
+
+plugs:
+  dot-local-share-gnome-shell:
+    interface: personal-files
+    write:
+      - $HOME/.local/share/gnome-shell/extensions
+
+parts:
+  orcshot:
+    plugin: python
+    source: .
+    # PyGObject and pycairo deliberately ship no PyPI wheels (they must link
+    # the build machine's own libcairo/gobject-introspection), so pip builds
+    # them from source unless it can see them as already satisfied. These
+    # build-packages (matching the apt names already in stage-packages)
+    # install the same bindings into the build container's system Python;
+    # PARTS_PYTHON_VENV_ARGS below makes the part's venv see them, and pip's
+    # default only-if-needed upgrade strategy then leaves them alone instead
+    # of fetching and compiling PyPI's newest release against a mismatched
+    # GObject-Introspection ABI (confirmed live: without this, pip pulled
+    # PyGObject 3.58 which needs girepository-2.0, not core24's classic
+    # girepository-1.0 that apt's own python3-gi is built against).
+    build-packages:
+      - python3-gi
+      - python3-gi-cairo
+      - python3-cairo
+    build-environment:
+      - PARTS_PYTHON_VENV_ARGS: "--system-site-packages"
+    stage-packages:
+      - python3-gi
+      - python3-gi-cairo
+      - python3-cairo
+      - python3-numpy
+      - python3-shapely
+      - python3-xlib
+      - gir1.2-gtk-3.0
+      - gir1.2-rsvg-2.0
+      - gir1.2-gdkpixbuf-2.0
+      - gir1.2-pango-1.0
+      - gir1.2-glib-2.0
+      - gir1.2-gsound-1.0
+
+  bundled-extensions:
+    plugin: dump
+    source: src/orcshot/resources/gnome-shell-extensions
+    organize:
+      "*": share/orcshot/gnome-shell-extensions/
