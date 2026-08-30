@@ -41,6 +41,12 @@ jobs:
       - name: Connect personal-files (manual connect against a local install needs no Canonical review)
         run: sudo snap connect orcshot:dot-local-share-gnome-shell
 
+      - name: "Diagnostic: dump the real confined env around schema resolution (BACKLOG #192)"
+        run: |
+          snap run --shell orcshot -c "env | grep -E '^(SNAP|XDG_DATA_DIRS|GSETTINGS_SCHEMA_DIR)='"
+          snap run --shell orcshot -c "ls -la \$SNAP/usr/share/glib-2.0/schemas/ 2>&1"
+          snap run --shell orcshot -c "python3 -c 'import gi; gi.require_version(\"Gio\", \"2.0\"); from gi.repository import Gio; print(\"get_default():\", Gio.SettingsSchemaSource.get_default())'"
+
       - name: "Assert gnome_shell_present() resolves org.gnome.shell under confinement (BACKLOG #192)"
         run: |
           snap run --shell orcshot -c "python3 -c 'from orcshot.gnome_extension_setup import gnome_shell_present; result = gnome_shell_present(); print(\"gnome_shell_present() ->\", result); assert result is True, \"schema unresolvable - gnome-shell-common staging/compile regressed\"'"
