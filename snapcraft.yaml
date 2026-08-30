@@ -77,9 +77,9 @@ parts:
       # numpy/scipy need symlinks at the standard location, not in the blas/
       # subdirectory. The alternatives system that normally creates these
       # doesn't run in Snapcraft's build container, so create them manually.
-      mkdir -p "$CRAFT_PRIME/usr/lib/x86_64-linux-gnu"
-      ln -sf blas/libblas.so.3 "$CRAFT_PRIME/usr/lib/x86_64-linux-gnu/libblas.so.3" || true
-      ln -sf lapack/liblapack.so.3 "$CRAFT_PRIME/usr/lib/x86_64-linux-gnu/liblapack.so.3" || true
+      mkdir -p "$CRAFT_PRIME/usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR"
+      ln -sf blas/libblas.so.3 "$CRAFT_PRIME/usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR/libblas.so.3" || true
+      ln -sf lapack/liblapack.so.3 "$CRAFT_PRIME/usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR/liblapack.so.3" || true
 
   bundled-extensions:
     plugin: dump
