@@ -41,12 +41,6 @@ jobs:
       - name: Connect personal-files (manual connect against a local install needs no Canonical review)
         run: sudo snap connect orcshot:dot-local-share-gnome-shell
 
-      - name: "Diagnostic: dump the real confined env around schema resolution (BACKLOG #192)"
-        run: |
-          snap run --shell orcshot -c "env | grep -E '^(SNAP|XDG_DATA_DIRS|GSETTINGS_SCHEMA_DIR)='"
-          snap run --shell orcshot -c "ls -la \$SNAP/usr/share/glib-2.0/schemas/ 2>&1"
-          snap run --shell orcshot -c "python3 -c 'import gi; gi.require_version(\"Gio\", \"2.0\"); from gi.repository import Gio; print(\"get_default():\", Gio.SettingsSchemaSource.get_default())'"
-
       - name: "Assert gnome_shell_present() resolves org.gnome.shell under confinement (BACKLOG #192)"
         run: |
           snap run --shell orcshot -c "python3 -c 'from orcshot.gnome_extension_setup import gnome_shell_present; result = gnome_shell_present(); print(\"gnome_shell_present() ->\", result); assert result is True, \"schema unresolvable - gnome-shell-common staging/compile regressed\"'"
@@ -141,34 +135,40 @@ jobs:
             || { echo "gnome-shell never logged its startup line"; cat /tmp/shell.log; exit 1; }
           pgrep -af gnome-shell || (echo "gnome-shell did not stay running" && cat /tmp/shell.log && exit 1)
 
-      - name: "SPIKE (BACKLOG #192): exercise enable_extension()'s write, confined (gnome-shell already running, matching real usage)"
+      - name: "Exercise Orcshot's own enable_extension() write, confined, and confirm it persists (BACKLOG #192)"
         run: |
+          # The exact production call ui/first_run_setup.py makes,
+          # confined, with gnome-shell (and dconf-service) already running
+          # - matching real usage, where the first-run dialog only ever
+          # runs while the user's desktop session is already up. Confirmed
+          # live: attempting this same write *before* anything has started
+          # dconf-service gets AppArmor-denied (a confined snap can't
+          # D-Bus-activate it from cold) - ordering here matters and is
+          # deliberate, not incidental.
           export XDG_RUNTIME_DIR=/run/user/$(id -u)
           snap run --shell orcshot -c "python3 -c 'import os; os.environ[\"DBUS_SESSION_BUS_ADDRESS\"] = \"unix:path=/run/user/\" + str(os.getuid()) + \"/bus\"; from orcshot.hotkey_setup import GioSettingsBackend; from orcshot.gnome_extension_setup import enable_extension, TRAY_EXTENSION_UUID; enable_extension(GioSettingsBackend(), TRAY_EXTENSION_UUID)'"
           snap run --shell orcshot -c "python3 -c 'import os; os.environ[\"DBUS_SESSION_BUS_ADDRESS\"] = \"unix:path=/run/user/\" + str(os.getuid()) + \"/bus\"; from orcshot.hotkey_setup import GioSettingsBackend; current = GioSettingsBackend().get_strv(\"org.gnome.shell\", \"/\", \"enabled-extensions\"); print(\"enabled-extensions ->\", current); assert \"orcshot-tray@orcshot.org\" in current, \"enable_extension write did not persist\"'"
 
-      - name: "SPIKE (BACKLOG #192): does the already-running Shell pick up the write on its own, with no enable_extension_live() call at all?"
+      - name: "Confirm the already-running Shell loads the extension from that write alone (BACKLOG #192)"
         run: |
-          # This is the actual finding this spike exists to get, against
-          # the real, representative scenario (Shell already running, the
-          # write already proven to persist). enable_extension_live() is
-          # confirmed AppArmor-blocked under Snap confinement (prior CI
-          # run: AccessDenied calling org.gnome.Shell.Extensions.
-          # EnableExtension) - this checks whether that actually matters:
-          # pass means Shell notices the gsettings change on its own within
-          # a reasonable window, no live D-Bus call needed. Fail means this
-          # project's prior documented finding (a persisted write alone
-          # wasn't reliably picked up, even on a fresh boot, for a
-          # different UUID/incident) holds here too, and the Snap channel
-          # has a real, unresolved gap - not a minor one.
+          # gnome_extension_setup.enable_extension_live() - the direct
+          # org.gnome.Shell.Extensions.EnableExtension D-Bus call - is
+          # confirmed AppArmor-blocked under Snap's strict confinement
+          # (AccessDenied, live-tested). This confirms that doesn't
+          # actually matter for Snap: the persisted gsettings write above
+          # is picked up by the already-running Shell on its own, live-
+          # confirmed, no D-Bus nudge needed. BACKLOG #192's functional
+          # question is resolved by this - the extension genuinely works
+          # under Snap, just via GSettings' own change notification
+          # instead of an instant D-Bus call.
           timeout 60 bash -c 'until grep -q "orcshot-tray-diag" /tmp/shell.log; do sleep 1; done' \
-            || { echo "SPIKE RESULT: the already-running Shell never picked up the persisted write on its own - no live D-Bus call was made"; cat /tmp/shell.log; exit 1; }
+            || { echo "extension never logged its diagnostic line - did not load"; cat /tmp/shell.log; exit 1; }
           if grep -qi "JS ERROR\|Gjs-CRITICAL" /tmp/shell.log; then
             echo "A real JS error was logged - see the log below"
             cat /tmp/shell.log
             exit 1
           fi
-          echo "SPIKE RESULT: the already-running Shell picked up the persisted gsettings write on its own - no live D-Bus call needed"
+          echo "Extension loaded from the persisted write alone, no JS errors logged"
 
       - name: Always upload the shell log for diagnosis
         if: always()
