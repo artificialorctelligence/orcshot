@@ -99,13 +99,30 @@ jobs:
           sudo apt-get update -qq
           sudo apt-get install -y gnome-shell dbus-x11
 
-      - name: Launch gnome-shell headless against a fixed D-Bus session bus
+      - name: Launch gnome-shell headless against a real systemd --user session bus
         run: |
-          mkdir -p /run/user/$(id -u)
-          chmod 700 /run/user/$(id -u)
-          dbus-daemon --session --address=unix:path=/run/user/$(id -u)/bus --fork
+          # A bare `dbus-daemon --session` (this step's original approach)
+          # isn't enough once `snap run` needs to work afterward:
+          # `snap run` asks systemd over the session bus to create its own
+          # confinement scope, which needs org.freedesktop.systemd1.Manager
+          # actually registered there - a bare dbus-daemon has no
+          # systemd --user attached to it at all. Confirmed live (this
+          # PR's own CI): once any listening socket exists at the
+          # conventional $XDG_RUNTIME_DIR/bus path, snap-confine probes it
+          # and attempts that handshake regardless of whether
+          # DBUS_SESSION_BUS_ADDRESS is explicitly exported in the calling
+          # shell - a bare dbus-daemon there broke every later `snap run`
+          # call in the job with "... is not a snap cgroup for tag
+          # snap.orcshot.orcshot". This is a documented, core24-specific
+          # snapd bug with a documented fix: start the real systemd --user
+          # instance for this UID instead, which provides a real session
+          # bus with that interface actually present.
+          # https://bugs.launchpad.net/snapd/+bug/2075560
+          sudo systemctl start user@$(id -u).service
           export XDG_RUNTIME_DIR=/run/user/$(id -u)
           export DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/$(id -u)/bus
+          timeout 30 bash -c 'until [ -S "/run/user/$(id -u)/bus" ]; do sleep 0.5; done' \
+            || { echo "systemd --user session bus never appeared"; exit 1; }
           nohup gnome-shell --headless --virtual-monitor 1024x768 > /tmp/shell.log 2>&1 &
           disown
           timeout 60 bash -c 'until grep -q "GNOME Shell started" /tmp/shell.log; do sleep 1; done' \
