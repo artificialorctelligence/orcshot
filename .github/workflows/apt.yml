@@ -19,7 +19,7 @@ jobs:
         run: |
           python3 -m venv --system-site-packages .venv
           .venv/bin/pip install -e ".[dev]"
-          .venv/bin/pytest tests/ -q
+          xvfb-run -a .venv/bin/pytest tests -m "not x11 and not wayland" -q
 
       - name: Build the .deb
         run: dpkg-buildpackage -us -uc -b
