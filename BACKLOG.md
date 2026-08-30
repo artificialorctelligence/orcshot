@@ -4,6 +4,43 @@ Open items not yet scheduled into a task. Each entry keeps the context that
 led to it - not just "what," but "why this matters" - so picking it up later
 doesn't require re-deriving the reasoning from scratch.
 
+## #190: apt CI workflow hardening - deferred Minor findings from the final review
+
+Final whole-branch review of `docs/superpowers/plans/2026-08-29-apt-ci-automation.md` (2026-08-29,
+review saved to that plan's now-deleted SDD workspace - see `git log` on `.github/workflows/apt.yml`
+for the underlying commits) came back clean on Critical/Important (those were fixed in the same
+pass - see the plan's own commit history for the fix wave), but flagged several Minor,
+non-blocking hardening items worth doing as a small follow-up rather than expanding that plan's own
+scope:
+
+- **No top-level `permissions:` block.** The repo default is already `read` (verified live via the
+  API), so there's no current exposure, but that's a repo *setting* someone could change later, not
+  a property of the file. `permissions: { contents: read }` at the top of `apt.yml` makes the intent
+  explicit - one line.
+- **No `concurrency:` group and no `timeout-minutes:`.** Pushing multiple times to a PR branch runs
+  every push's full ~4-minute build in parallel instead of cancelling the superseded one. A standard
+  `concurrency: { group: ${{ github.workflow }}-${{ github.ref }}, cancel-in-progress: true }` fixes
+  that. Separately, a hung `gnome-shell` step would currently burn the default 6-hour job timeout -
+  `timeout-minutes: 20` on `verify` bounds it.
+- **The test suite runs twice in `build`** - once explicitly (`pytest`), once again inside
+  `dpkg-buildpackage` via `debian/rules`' own `override_dh_auto_test`. `RELEASING.md` already
+  accepts this duplication for the manual release flow ("a failure here just means finding out later
+  instead of now"), but that rationale is much weaker in CI, where "later" is under a minute in the
+  same job. The explicit step does buy one distinct signal (PyPI-resolved dev deps via
+  `pip install -e ".[dev]"` vs. the distro's `python3-pytest`), so it isn't pure waste - worth a
+  deliberate keep-or-drop decision rather than just inheriting it unexamined.
+- **Mixed merge styles in `main`'s history** (some PRs landed as merge commits, some as squash
+  merges) - cosmetic, but worth picking one convention going forward; squash is arguably the better
+  default here since it keeps the plan's own deliberate break-then-revert verification commits out
+  of `main`'s permanent history.
+- **A clarifying comment on what the headless-Shell check actually proves** - it proves the
+  extension loads, initializes, and its D-Bus name-watcher wires up correctly; it does not exercise
+  menu construction or rendering (`_rebuild`, the button actually appearing in the status area). That
+  scope is reasonable (it matches the spec's own original live-tested recipe) but isn't obvious from
+  the step's name alone - a one-line comment would keep a future reader from over-trusting the check.
+
+None of these are urgent; none affect whether the current CI is safe or correct today.
+
 ## #187: Prove (or disprove) whether `fallback-x11` gives real, unrestricted X11 capture under Flatpak
 
 Surfaced directly questioning #185's "Wayland-only" framing (direflail, 2026-08-28): "you're SURE we can't

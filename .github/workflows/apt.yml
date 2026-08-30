@@ -43,30 +43,21 @@ jobs:
     needs: build
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
-
       - name: Download the built .deb
         uses: actions/download-artifact@v4
         with:
           name: orcshot-deb
 
       - name: Install it
-        run: sudo apt-get install -y ./orcshot_*_all.deb
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y ./orcshot_*_all.deb
 
       - name: Confirm the installed binary launches without crashing
         run: orcshot --help
 
       - name: Install gnome-shell and headless deps
-        run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y gnome-shell dbus-x11
-
-      - name: Copy the real extension into the per-user extensions path
-        run: |
-          mkdir -p ~/.local/share/gnome-shell/extensions/orcshot-tray@orcshot.org
-          cp src/orcshot/resources/gnome-shell-extensions/orcshot-tray@orcshot.org/extension.js \
-             src/orcshot/resources/gnome-shell-extensions/orcshot-tray@orcshot.org/metadata.json \
-             ~/.local/share/gnome-shell/extensions/orcshot-tray@orcshot.org/
+        run: sudo apt-get install -y gnome-shell dbus-x11
 
       - name: Launch gnome-shell headless against a fixed D-Bus session bus
         run: |
@@ -77,15 +68,17 @@ jobs:
           export DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/$(id -u)/bus
           nohup gnome-shell --headless --virtual-monitor 1024x768 > /tmp/shell.log 2>&1 &
           disown
-          sleep 8
+          timeout 60 bash -c 'until grep -q "GNOME Shell started" /tmp/shell.log; do sleep 1; done' \
+            || { echo "gnome-shell never logged its startup line"; cat /tmp/shell.log; exit 1; }
           pgrep -af gnome-shell || (echo "gnome-shell did not stay running" && cat /tmp/shell.log && exit 1)
 
-      - name: Enable the real extension and confirm it loads with no errors
+      - name: Enable the extension (already installed system-wide by the .deb) and confirm it loads with no errors
         run: |
           export XDG_RUNTIME_DIR=/run/user/$(id -u)
           export DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/$(id -u)/bus
           gnome-extensions enable orcshot-tray@orcshot.org
-          sleep 2
+          timeout 60 bash -c 'until grep -q "orcshot-tray-diag" /tmp/shell.log; do sleep 1; done' \
+            || { echo "extension never logged its diagnostic line - did not load"; cat /tmp/shell.log; exit 1; }
           if grep -qi "JS ERROR\|Gjs-CRITICAL" /tmp/shell.log; then
             echo "A real JS error was logged - see the log below"
             cat /tmp/shell.log
