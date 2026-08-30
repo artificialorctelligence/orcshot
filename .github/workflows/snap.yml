@@ -54,14 +54,23 @@ jobs:
           # confined process - a bare `python3` call in this shell step
           # would have neither var set at all (Plan Amendment 1 below).
           #
-          # The check script is written under $HOME, not /tmp: strict
-          # confinement gives the confined shell its own private, empty
-          # /tmp via a per-snap mount namespace (confirmed live - a file
-          # written to the host's /tmp is simply not there inside `snap
-          # run --shell`), but $SNAP_REAL_HOME/the real host home
-          # directory is mounted through unchanged, so a file placed
-          # there is visible from both sides.
-          cat > "$HOME/install_check.py" << 'PYEOF'
+          # The check script is written under $HOME/.local/share/gnome-shell/extensions,
+          # not /tmp and not bare $HOME: strict confinement gives the
+          # confined shell its own private, empty /tmp via a per-snap
+          # mount namespace (confirmed live - a file written to the
+          # host's /tmp is simply not there inside `snap run --shell`),
+          # ruling out /tmp entirely. Bare $HOME doesn't work either: the
+          # mount namespace does show the real host home directory (a
+          # file placed there is visible), but reading it from inside
+          # confinement fails with EACCES (confirmed live), because this
+          # app's snapcraft.yaml plugs only `personal-files`
+          # (dot-local-share-gnome-shell) - a narrow AppArmor grant
+          # limited to exactly $HOME/.local/share/gnome-shell/extensions -
+          # not the broad `home` interface. Writing the check script
+          # inside that one already-granted directory keeps it inside
+          # the path AppArmor actually allows this snap to read.
+          mkdir -p "$HOME/.local/share/gnome-shell/extensions"
+          cat > "$HOME/.local/share/gnome-shell/extensions/install_check.py" << 'PYEOF'
           from orcshot.channel_detect import install_bundled_extension_if_needed
           from pathlib import Path
           import os
@@ -71,7 +80,7 @@ jobs:
           print(f'install_bundled_extension_if_needed -> {ok}')
           assert ok, 'extension install failed even with personal-files connected'
           PYEOF
-          snap run --shell orcshot -c 'python3 $SNAP_REAL_HOME/install_check.py'
+          snap run --shell orcshot -c 'python3 $SNAP_REAL_HOME/.local/share/gnome-shell/extensions/install_check.py'
 
       - name: Install gnome-shell and headless deps
         run: |
