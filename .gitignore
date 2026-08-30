@@ -22,6 +22,10 @@ debian/orcshot.postrm.debhelper
 debian/orcshot.prerm.debhelper
 debian/orcshot.substvars
 
+# snapcraft build artifact - regenerated fresh by `snapcraft pack`, never
+# the hand-written snapcraft.yaml itself
+*.snap
+
 # VM login credentials for local VBoxManage guestcontrol testing - never committed
 vmpw.txt
 

@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-08-26 17:23-0500\n"
+"POT-Creation-Date: 2026-08-30 13:56-0500\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -17,6 +17,108 @@ msgstr ""
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
 "Plural-Forms: nplurals=INTEGER; plural=EXPRESSION;\n"
+
+#: src/orcshot/app.py:344
+msgid "Orcshot is already running"
+msgstr ""
+
+#: src/orcshot/app.py:345
+msgid "Look for its icon in the system tray."
+msgstr ""
+
+#: src/orcshot/app.py:573
+msgid "Screenshot failed"
+msgstr ""
+
+#: src/orcshot/app.py:573
+msgid ""
+"The screenshot couldn't be taken.\n"
+"\n"
+"{}"
+msgstr ""
+
+#: src/orcshot/app.py:679 src/orcshot/app.py:989
+msgid "Capture Region"
+msgstr ""
+
+#: src/orcshot/app.py:680 src/orcshot/app.py:994
+msgid "Capture Full Screen"
+msgstr ""
+
+#: src/orcshot/app.py:681 src/orcshot/app.py:999
+msgid "Capture Active Window"
+msgstr ""
+
+#: src/orcshot/app.py:682 src/orcshot/app.py:1004
+msgid "Capture Window..."
+msgstr ""
+
+#: src/orcshot/app.py:683 src/orcshot/app.py:1019
+msgid "Repeat Last Region"
+msgstr ""
+
+#: src/orcshot/app.py:684 src/orcshot/app.py:1034
+msgid "Open File..."
+msgstr ""
+
+#: src/orcshot/app.py:685 src/orcshot/app.py:1049
+#: src/orcshot/ui/editor_window.py:1587
+msgid "Preferences..."
+msgstr ""
+
+#: src/orcshot/app.py:686 src/orcshot/app.py:1061
+msgid "Quit"
+msgstr ""
+
+#: src/orcshot/app.py:793
+msgid "New install incoming — save your work"
+msgstr ""
+
+#: src/orcshot/app.py:814
+msgid "Restarting Orcshot — save your work"
+msgstr ""
+
+#: src/orcshot/app.py:887
+msgid "Orcshot's Wayland integration needs a restart"
+msgstr ""
+
+#: src/orcshot/app.py:889
+msgid ""
+"An update changed how Orcshot's Shell extension works, but your session is "
+"still running the previous version. Log out and back in to finish applying "
+"it."
+msgstr ""
+
+#: src/orcshot/app.py:1012
+msgid ""
+"Not available on this Wayland session - enable window capture support in "
+"Preferences, or use Capture Region instead."
+msgstr ""
+
+#: src/orcshot/app.py:1116
+msgid "Orcshot update available"
+msgstr ""
+
+#: src/orcshot/app.py:1117
+msgid ""
+"A newer version of Orcshot is available! Do you want to download Orcshot {}?"
+msgstr ""
+
+#: src/orcshot/app.py:1149
+msgid "Couldn't check for updates"
+msgstr ""
+
+#: src/orcshot/app.py:1150
+msgid "No response from GitHub - check your network connection and try again."
+msgstr ""
+
+#: src/orcshot/app.py:1158
+msgid "Orcshot is up to date"
+msgstr ""
+
+#: src/orcshot/app.py:1159
+msgid "You're running the latest version ({})."
+msgstr ""
 
 #: src/orcshot/core/shapes.py:519
 msgid "None"
@@ -82,311 +184,6 @@ msgstr ""
 #: src/orcshot/ui/color_dialog.py:181
 msgid "Eyedropper"
 msgstr ""
-
-#: src/orcshot/ui/external_commands.py:506
-msgid "Name is required."
-msgstr ""
-
-#: src/orcshot/ui/external_commands.py:509
-msgid "A command with this name already exists."
-msgstr ""
-
-#: src/orcshot/ui/external_commands.py:511
-msgid "Command is required."
-msgstr ""
-
-#: src/orcshot/ui/external_commands.py:519
-msgid ""
-"This looks like a full command line - put just the program name here, and "
-"the rest in Arguments."
-msgstr ""
-
-#: src/orcshot/ui/external_commands.py:520
-msgid "Command not found - check the path, or that it's on your PATH."
-msgstr ""
-
-#: src/orcshot/ui/external_commands.py:525
-msgid "Invalid arguments: {}"
-msgstr ""
-
-#: src/orcshot/ui/external_commands.py:558
-msgid "Name:"
-msgstr ""
-
-#: src/orcshot/ui/external_commands.py:563
-msgid "Command:"
-msgstr ""
-
-#: src/orcshot/ui/external_commands.py:565
-msgid "Browse..."
-msgstr ""
-
-#: src/orcshot/ui/external_commands.py:569
-msgid "Select Command"
-msgstr ""
-
-#: src/orcshot/ui/external_commands.py:583
-#, python-brace-format
-msgid "{0} is replaced with the screenshot's exported file path."
-msgstr ""
-
-#: src/orcshot/ui/external_commands.py:584
-msgid "Arguments:"
-msgstr ""
-
-#: src/orcshot/ui/external_commands.py:587
-msgid "Run in background"
-msgstr ""
-
-#: src/orcshot/ui/external_commands.py:615
-msgid "External Command"
-msgstr ""
-
-#: src/orcshot/ui/external_commands.py:616
-msgid "OK"
-msgstr ""
-
-#: src/orcshot/ui/external_commands.py:617 src/orcshot/ui/editor_window.py:5218
-msgid "Cancel"
-msgstr ""
-
-#: src/orcshot/ui/external_commands.py:637
-msgid "Find App"
-msgstr ""
-
-#: src/orcshot/ui/external_commands.py:638
-msgid "Add Command"
-msgstr ""
-
-#: src/orcshot/ui/external_commands.py:643
-msgid ""
-"Find App searches your installed apps - Snap, Flatpak, and natively "
-"installed - and fills in the fields below for you. For anything else - a "
-"plain program or a script - use Add Command."
-msgstr ""
-
-#: src/orcshot/ui/external_commands.py:660
-msgid "App"
-msgstr ""
-
-#: src/orcshot/ui/external_commands.py:705
-msgid ""
-"No installed apps could be found to search.\n"
-"Use Add Command instead."
-msgstr ""
-
-#: src/orcshot/ui/external_commands.py:732
-msgid "Search the list of installed applications."
-msgstr ""
-
-#: src/orcshot/ui/first_run_setup.py:157
-msgid "Orcshot Setup"
-msgstr ""
-
-#: src/orcshot/ui/first_run_setup.py:159
-msgid "Not Now"
-msgstr ""
-
-#: src/orcshot/ui/first_run_setup.py:160
-msgid "Enable"
-msgstr ""
-
-#: src/orcshot/ui/first_run_setup.py:175
-msgid ""
-"Set up Orcshot to start automatically at login, and enable its capture "
-"keyboard shortcuts?"
-msgstr ""
-
-#: src/orcshot/ui/first_run_setup.py:177
-msgid "Set up Orcshot to start automatically at login?"
-msgstr ""
-
-#: src/orcshot/ui/first_run_setup.py:180
-msgid "Start automatically at login"
-msgstr ""
-
-#: src/orcshot/ui/first_run_setup.py:192
-msgid "{} ({}) — overwrite {}?"
-msgstr ""
-
-#: src/orcshot/ui/first_run_setup.py:195 src/orcshot/ui/editor_window.py:579
-#: src/orcshot/ui/editor_window.py:2009
-msgid "{} ({})"
-msgstr ""
-
-#: src/orcshot/ui/first_run_setup.py:210
-msgid ""
-"Automatic keyboard shortcut setup isn't available on this desktop. You can "
-"bind shortcuts to these manually instead:\n"
-msgstr ""
-
-#: src/orcshot/ui/orcshot_file.py:55
-msgid "Failed to encode the image as PNG"
-msgstr ""
-
-#: src/orcshot/ui/orcshot_file.py:74
-msgid "{} has no .orcshot trailer - not a file this format wrote"
-msgstr ""
-
-#: src/orcshot/ui/orcshot_file.py:81
-msgid "{}'s trailer claims a shape-layer length longer than the file itself"
-msgstr ""
-
-#: src/orcshot/ui/orcshot_file.py:92
-msgid "{}'s image portion isn't a valid PNG"
-msgstr ""
-
-#: src/orcshot/ui/orcshot_file.py:98
-msgid "{}'s shape-layer blob isn't valid JSON"
-msgstr ""
-
-#: src/orcshot/ui/orcshot_file.py:136
-msgid "{} isn't a valid Save Objects file or .orcshot file"
-msgstr ""
-
-#: src/orcshot/ui/printing.py:157
-msgid "Orcshot print options"
-msgstr ""
-
-#: src/orcshot/ui/printing.py:163
-msgid "Page layout settings"
-msgstr ""
-
-#: src/orcshot/ui/printing.py:166 src/orcshot/ui/editor_window.py:6046
-msgid "Shrink printout to fit paper size"
-msgstr ""
-
-#: src/orcshot/ui/printing.py:168 src/orcshot/ui/editor_window.py:6051
-msgid "Enlarge printout to fit paper size"
-msgstr ""
-
-#: src/orcshot/ui/printing.py:170 src/orcshot/ui/editor_window.py:6056
-msgid "Rotate printout to page orientation"
-msgstr ""
-
-#: src/orcshot/ui/printing.py:172 src/orcshot/ui/editor_window.py:6061
-msgid "Center printout on page"
-msgstr ""
-
-#: src/orcshot/ui/printing.py:174 src/orcshot/ui/editor_window.py:6066
-msgid "Print date / time at bottom of page"
-msgstr ""
-
-#: src/orcshot/ui/printing.py:181
-msgid "Color settings"
-msgstr ""
-
-#: src/orcshot/ui/printing.py:184 src/orcshot/ui/editor_window.py:6092
-msgid "Full color print"
-msgstr ""
-
-#: src/orcshot/ui/printing.py:185 src/orcshot/ui/editor_window.py:6093
-msgid "Force grayscale printing"
-msgstr ""
-
-#: src/orcshot/ui/printing.py:186 src/orcshot/ui/editor_window.py:6094
-msgid "Force black/white printing"
-msgstr ""
-
-#: src/orcshot/ui/printing.py:193 src/orcshot/ui/editor_window.py:6109
-msgid "Print with inverted colors"
-msgstr ""
-
-#: src/orcshot/ui/printing.py:200
-msgid "Save options as default and do not ask again"
-msgstr ""
-
-#: src/orcshot/ui/text_obfuscation_dialog.py:69
-msgid "Find & Redact Text"
-msgstr ""
-
-#: src/orcshot/ui/text_obfuscation_dialog.py:165
-msgid ""
-"Tesseract OCR is not installed. Install the tesseract-ocr package to use "
-"this feature."
-msgstr ""
-
-#: src/orcshot/ui/text_obfuscation_dialog.py:179
-msgid "OCR failed: {}"
-msgstr ""
-
-#: src/orcshot/ui/text_obfuscation_dialog.py:186
-msgid "No text found in this image."
-msgstr ""
-
-#: src/orcshot/ui/text_obfuscation_dialog.py:219
-msgid "Search text (min. 3 characters)..."
-msgstr ""
-
-#: src/orcshot/ui/text_obfuscation_dialog.py:224
-msgid "Regex"
-msgstr ""
-
-#: src/orcshot/ui/text_obfuscation_dialog.py:227
-msgid "Case sensitive"
-msgstr ""
-
-#: src/orcshot/ui/text_obfuscation_dialog.py:236
-msgid "Search in:"
-msgstr ""
-
-#: src/orcshot/ui/text_obfuscation_dialog.py:238
-msgid "Words"
-msgstr ""
-
-#: src/orcshot/ui/text_obfuscation_dialog.py:239
-msgid "Lines"
-msgstr ""
-
-#: src/orcshot/ui/text_obfuscation_dialog.py:244
-msgid "Effect:"
-msgstr ""
-
-#: src/orcshot/ui/text_obfuscation_dialog.py:252
-msgid "Pixel size:"
-msgstr ""
-
-#: src/orcshot/ui/text_obfuscation_dialog.py:259
-msgid "Blur radius:"
-msgstr ""
-
-#: src/orcshot/ui/text_obfuscation_dialog.py:266
-msgid "Fill color:"
-msgstr ""
-
-#: src/orcshot/ui/text_obfuscation_dialog.py:273
-msgid "Highlight color:"
-msgstr ""
-
-#: src/orcshot/ui/text_obfuscation_dialog.py:280
-msgid "Magnification:"
-msgstr ""
-
-#: src/orcshot/ui/text_obfuscation_dialog.py:287
-msgid "Padding horizontal %:"
-msgstr ""
-
-#: src/orcshot/ui/text_obfuscation_dialog.py:293
-msgid "Padding vertical %:"
-msgstr ""
-
-#: src/orcshot/ui/text_obfuscation_dialog.py:299
-msgid "Offset horizontal:"
-msgstr ""
-
-#: src/orcshot/ui/text_obfuscation_dialog.py:305
-msgid "Offset vertical:"
-msgstr ""
-
-#: src/orcshot/ui/text_obfuscation_dialog.py:311
-msgid "0 matches"
-msgstr ""
-
-#: src/orcshot/ui/text_obfuscation_dialog.py:397
-msgid "{} match"
-msgid_plural "{} matches"
-msgstr[0] ""
-msgstr[1] ""
 
 #: src/orcshot/ui/destination_picker.py:184
 msgid "Save Screenshot As"
@@ -569,6 +366,11 @@ msgstr ""
 msgid "Emoji"
 msgstr ""
 
+#: src/orcshot/ui/editor_window.py:579 src/orcshot/ui/editor_window.py:2009
+#: src/orcshot/ui/first_run_setup.py:224
+msgid "{} ({})"
+msgstr ""
+
 #: src/orcshot/ui/editor_window.py:707
 msgid "Orcshot image editor"
 msgstr ""
@@ -627,10 +429,6 @@ msgstr ""
 
 #: src/orcshot/ui/editor_window.py:1585
 msgid "Duplicate"
-msgstr ""
-
-#: src/orcshot/ui/editor_window.py:1587 src/orcshot/app.py:1116
-msgid "Preferences..."
 msgstr ""
 
 #: src/orcshot/ui/editor_window.py:1589
@@ -1194,6 +992,10 @@ msgstr ""
 msgid "No"
 msgstr ""
 
+#: src/orcshot/ui/editor_window.py:5218 src/orcshot/ui/external_commands.py:617
+msgid "Cancel"
+msgstr ""
+
 #: src/orcshot/ui/editor_window.py:5264
 msgid "Open"
 msgstr ""
@@ -1441,6 +1243,26 @@ msgstr ""
 msgid "Page Layout Settings"
 msgstr ""
 
+#: src/orcshot/ui/editor_window.py:6046 src/orcshot/ui/printing.py:166
+msgid "Shrink printout to fit paper size"
+msgstr ""
+
+#: src/orcshot/ui/editor_window.py:6051 src/orcshot/ui/printing.py:168
+msgid "Enlarge printout to fit paper size"
+msgstr ""
+
+#: src/orcshot/ui/editor_window.py:6056 src/orcshot/ui/printing.py:170
+msgid "Rotate printout to page orientation"
+msgstr ""
+
+#: src/orcshot/ui/editor_window.py:6061 src/orcshot/ui/printing.py:172
+msgid "Center printout on page"
+msgstr ""
+
+#: src/orcshot/ui/editor_window.py:6066 src/orcshot/ui/printing.py:174
+msgid "Print date / time at bottom of page"
+msgstr ""
+
 #: src/orcshot/ui/editor_window.py:6075
 msgid "Footer pattern:"
 msgstr ""
@@ -1455,113 +1277,289 @@ msgstr ""
 msgid "Color Settings"
 msgstr ""
 
+#: src/orcshot/ui/editor_window.py:6092 src/orcshot/ui/printing.py:184
+msgid "Full color print"
+msgstr ""
+
+#: src/orcshot/ui/editor_window.py:6093 src/orcshot/ui/printing.py:185
+msgid "Force grayscale printing"
+msgstr ""
+
+#: src/orcshot/ui/editor_window.py:6094 src/orcshot/ui/printing.py:186
+msgid "Force black/white printing"
+msgstr ""
+
+#: src/orcshot/ui/editor_window.py:6109 src/orcshot/ui/printing.py:193
+msgid "Print with inverted colors"
+msgstr ""
+
 #: src/orcshot/ui/editor_window.py:6117
 msgid "Show print options dialog every time an image is printed"
 msgstr ""
 
-#: src/orcshot/app.py:319
-msgid "Orcshot is already running"
+#: src/orcshot/ui/external_commands.py:506
+msgid "Name is required."
 msgstr ""
 
-#: src/orcshot/app.py:320
-msgid "Look for its icon in the system tray."
+#: src/orcshot/ui/external_commands.py:509
+msgid "A command with this name already exists."
 msgstr ""
 
-#: src/orcshot/app.py:551
-msgid "Screenshot failed"
+#: src/orcshot/ui/external_commands.py:511
+msgid "Command is required."
 msgstr ""
 
-#: src/orcshot/app.py:551
+#: src/orcshot/ui/external_commands.py:519
 msgid ""
-"The screenshot couldn't be taken.\n"
-"\n"
-"{}"
+"This looks like a full command line - put just the program name here, and "
+"the rest in Arguments."
 msgstr ""
 
-#: src/orcshot/app.py:731
-msgid "New install incoming — save your work"
+#: src/orcshot/ui/external_commands.py:520
+msgid "Command not found - check the path, or that it's on your PATH."
 msgstr ""
 
-#: src/orcshot/app.py:752
-msgid "Restarting Orcshot — save your work"
+#: src/orcshot/ui/external_commands.py:525
+msgid "Invalid arguments: {}"
 msgstr ""
 
-#: src/orcshot/app.py:826
-msgid "Orcshot's Wayland integration needs a restart"
+#: src/orcshot/ui/external_commands.py:558
+msgid "Name:"
 msgstr ""
 
-#: src/orcshot/app.py:828
+#: src/orcshot/ui/external_commands.py:563
+msgid "Command:"
+msgstr ""
+
+#: src/orcshot/ui/external_commands.py:565
+msgid "Browse..."
+msgstr ""
+
+#: src/orcshot/ui/external_commands.py:569
+msgid "Select Command"
+msgstr ""
+
+#: src/orcshot/ui/external_commands.py:583
+#, python-brace-format
+msgid "{0} is replaced with the screenshot's exported file path."
+msgstr ""
+
+#: src/orcshot/ui/external_commands.py:584
+msgid "Arguments:"
+msgstr ""
+
+#: src/orcshot/ui/external_commands.py:587
+msgid "Run in background"
+msgstr ""
+
+#: src/orcshot/ui/external_commands.py:615
+msgid "External Command"
+msgstr ""
+
+#: src/orcshot/ui/external_commands.py:616
+#: src/orcshot/ui/first_run_setup.py:369
+msgid "OK"
+msgstr ""
+
+#: src/orcshot/ui/external_commands.py:637
+msgid "Find App"
+msgstr ""
+
+#: src/orcshot/ui/external_commands.py:638
+msgid "Add Command"
+msgstr ""
+
+#: src/orcshot/ui/external_commands.py:643
 msgid ""
-"An update changed how Orcshot's Shell extension works, but your session is "
-"still running the previous version. Log out and back in to finish applying "
-"it."
+"Find App searches your installed apps - Snap, Flatpak, and natively "
+"installed - and fills in the fields below for you. For anything else - a "
+"plain program or a script - use Add Command."
 msgstr ""
 
-#: src/orcshot/app.py:838
-msgid "Orcshot's tray icon fell back to a plain version"
+#: src/orcshot/ui/external_commands.py:660
+msgid "App"
 msgstr ""
 
-#: src/orcshot/app.py:840
+#: src/orcshot/ui/external_commands.py:705
 msgid ""
-"Its usual Shell-integrated tray icon couldn't be created, so a plain "
-"fallback is being used instead. This is a bug worth reporting.{}"
+"No installed apps could be found to search.\n"
+"Use Add Command instead."
 msgstr ""
 
-#: src/orcshot/app.py:1056
-msgid "Capture Region"
+#: src/orcshot/ui/external_commands.py:732
+msgid "Search the list of installed applications."
 msgstr ""
 
-#: src/orcshot/app.py:1061
-msgid "Capture Full Screen"
+#: src/orcshot/ui/orcshot_file.py:55
+msgid "Failed to encode the image as PNG"
 msgstr ""
 
-#: src/orcshot/app.py:1066
-msgid "Capture Active Window"
+#: src/orcshot/ui/orcshot_file.py:74
+msgid "{} has no .orcshot trailer - not a file this format wrote"
 msgstr ""
 
-#: src/orcshot/app.py:1071
-msgid "Capture Window..."
+#: src/orcshot/ui/orcshot_file.py:81
+msgid "{}'s trailer claims a shape-layer length longer than the file itself"
 msgstr ""
 
-#: src/orcshot/app.py:1079
+#: src/orcshot/ui/orcshot_file.py:92
+msgid "{}'s image portion isn't a valid PNG"
+msgstr ""
+
+#: src/orcshot/ui/orcshot_file.py:98
+msgid "{}'s shape-layer blob isn't valid JSON"
+msgstr ""
+
+#: src/orcshot/ui/orcshot_file.py:136
+msgid "{} isn't a valid Save Objects file or .orcshot file"
+msgstr ""
+
+#: src/orcshot/ui/printing.py:157
+msgid "Orcshot print options"
+msgstr ""
+
+#: src/orcshot/ui/printing.py:163
+msgid "Page layout settings"
+msgstr ""
+
+#: src/orcshot/ui/printing.py:181
+msgid "Color settings"
+msgstr ""
+
+#: src/orcshot/ui/printing.py:200
+msgid "Save options as default and do not ask again"
+msgstr ""
+
+#: src/orcshot/ui/text_obfuscation_dialog.py:69
+msgid "Find & Redact Text"
+msgstr ""
+
+#: src/orcshot/ui/text_obfuscation_dialog.py:165
 msgid ""
-"Not available on this Wayland session - enable window capture support in "
-"Preferences, or use Capture Region instead."
+"Tesseract OCR is not installed. Install the tesseract-ocr package to use "
+"this feature."
 msgstr ""
 
-#: src/orcshot/app.py:1086
-msgid "Repeat Last Region"
+#: src/orcshot/ui/text_obfuscation_dialog.py:179
+msgid "OCR failed: {}"
 msgstr ""
 
-#: src/orcshot/app.py:1101
-msgid "Open File..."
+#: src/orcshot/ui/text_obfuscation_dialog.py:186
+msgid "No text found in this image."
 msgstr ""
 
-#: src/orcshot/app.py:1128
-msgid "Quit"
+#: src/orcshot/ui/text_obfuscation_dialog.py:219
+msgid "Search text (min. 3 characters)..."
 msgstr ""
 
-#: src/orcshot/app.py:1183
-msgid "Orcshot update available"
+#: src/orcshot/ui/text_obfuscation_dialog.py:224
+msgid "Regex"
 msgstr ""
 
-#: src/orcshot/app.py:1184
+#: src/orcshot/ui/text_obfuscation_dialog.py:227
+msgid "Case sensitive"
+msgstr ""
+
+#: src/orcshot/ui/text_obfuscation_dialog.py:236
+msgid "Search in:"
+msgstr ""
+
+#: src/orcshot/ui/text_obfuscation_dialog.py:238
+msgid "Words"
+msgstr ""
+
+#: src/orcshot/ui/text_obfuscation_dialog.py:239
+msgid "Lines"
+msgstr ""
+
+#: src/orcshot/ui/text_obfuscation_dialog.py:244
+msgid "Effect:"
+msgstr ""
+
+#: src/orcshot/ui/text_obfuscation_dialog.py:252
+msgid "Pixel size:"
+msgstr ""
+
+#: src/orcshot/ui/text_obfuscation_dialog.py:259
+msgid "Blur radius:"
+msgstr ""
+
+#: src/orcshot/ui/text_obfuscation_dialog.py:266
+msgid "Fill color:"
+msgstr ""
+
+#: src/orcshot/ui/text_obfuscation_dialog.py:273
+msgid "Highlight color:"
+msgstr ""
+
+#: src/orcshot/ui/text_obfuscation_dialog.py:280
+msgid "Magnification:"
+msgstr ""
+
+#: src/orcshot/ui/text_obfuscation_dialog.py:287
+msgid "Padding horizontal %:"
+msgstr ""
+
+#: src/orcshot/ui/text_obfuscation_dialog.py:293
+msgid "Padding vertical %:"
+msgstr ""
+
+#: src/orcshot/ui/text_obfuscation_dialog.py:299
+msgid "Offset horizontal:"
+msgstr ""
+
+#: src/orcshot/ui/text_obfuscation_dialog.py:305
+msgid "Offset vertical:"
+msgstr ""
+
+#: src/orcshot/ui/text_obfuscation_dialog.py:311
+msgid "0 matches"
+msgstr ""
+
+#: src/orcshot/ui/text_obfuscation_dialog.py:397
+msgid "{} match"
+msgid_plural "{} matches"
+msgstr[0] ""
+msgstr[1] ""
+
+#: src/orcshot/ui/first_run_setup.py:186 src/orcshot/ui/first_run_setup.py:368
+msgid "Orcshot Setup"
+msgstr ""
+
+#: src/orcshot/ui/first_run_setup.py:188
+msgid "Not Now"
+msgstr ""
+
+#: src/orcshot/ui/first_run_setup.py:189
+msgid "Enable"
+msgstr ""
+
+#: src/orcshot/ui/first_run_setup.py:204
 msgid ""
-"A newer version of Orcshot is available! Do you want to download Orcshot {}?"
+"Set up Orcshot to start automatically at login, and enable its capture "
+"keyboard shortcuts?"
 msgstr ""
 
-#: src/orcshot/app.py:1216
-msgid "Couldn't check for updates"
+#: src/orcshot/ui/first_run_setup.py:206
+msgid "Set up Orcshot to start automatically at login?"
 msgstr ""
 
-#: src/orcshot/app.py:1217
-msgid "No response from GitHub - check your network connection and try again."
+#: src/orcshot/ui/first_run_setup.py:209
+msgid "Start automatically at login"
 msgstr ""
 
-#: src/orcshot/app.py:1225
-msgid "Orcshot is up to date"
+#: src/orcshot/ui/first_run_setup.py:221
+msgid "{} ({}) — overwrite {}?"
 msgstr ""
 
-#: src/orcshot/app.py:1226
-msgid "You're running the latest version ({})."
+#: src/orcshot/ui/first_run_setup.py:239
+msgid ""
+"Automatic keyboard shortcut setup isn't available on this desktop. You can "
+"bind shortcuts to these manually instead:\n"
+msgstr ""
+
+#: src/orcshot/ui/first_run_setup.py:377
+msgid ""
+"Orcshot needs one-time permission to install its tray icon extension. Run "
+"this command in a terminal, then restart Orcshot:"
 msgstr ""

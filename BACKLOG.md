@@ -4,6 +4,99 @@ Open items not yet scheduled into a task. Each entry keeps the context that
 led to it - not just "what," but "why this matters" - so picking it up later
 doesn't require re-deriving the reasoning from scratch.
 
+## #192: Snap channel - gnome_shell_present() crashes under strict confinement, likely making the tray extension unreachable
+
+**HIGH PRIORITY - a real crash risk, confirmed live, not a hypothesis.** Final whole-branch review of
+`docs/superpowers/plans/2026-08-30-snap-channel.md` (2026-08-30, PR #9) raised a real, unverified
+concern: does `gnome_shell_present()` (`src/orcshot/gnome_extension_setup.py`) survive Snap's strict
+confinement at all? A diagnostic CI probe added directly to that same PR (`snap run --shell orcshot
+-c "python3 -c '... gnome_shell_present() ...'"`, run 33302639728) answered it for real, and the
+answer is worse than the reviewer's own hypothesis:
+
+```
+Traceback (most recent call last):
+  File "/snap/orcshot/x1/lib/python3.12/site-packages/orcshot/gnome_extension_setup.py", line 52, in gnome_shell_present
+    return Gio.SettingsSchemaSource.get_default().lookup(_SHELL_SCHEMA, True) is not None
+AttributeError: 'NoneType' object has no attribute 'lookup'
+```
+
+`Gio.SettingsSchemaSource.get_default()` itself returns `None` inside strict confinement - there's no
+default schema source object at all in the snap's mount namespace (the schema file ships in
+`gnome-shell-common`, not currently staged; this snap doesn't use `extensions: [gnome]` either, which
+would mount a real GNOME platform content snap that provides it). The reviewer's hypothesis was "it
+returns `False`, so the Snap extension-install code path silently never runs." The real behavior is
+worse: `src/orcshot/ui/first_run_setup.py`'s `is_gnome_wayland = os.environ.get("XDG_SESSION_TYPE")
+== "wayland" and gnome_shell_present()` line has no `try`/`except` around it anywhere between there
+and the dialog's response handler - on a real Wayland session under Snap, this line itself would
+**crash first-run setup**, not gracefully skip anything.
+
+**Two separable decisions, not one:**
+1. **Immediate, cheap, unambiguously-correct:** make `gnome_shell_present()` itself defensive - treat
+   `get_default()` returning `None` the same as "schema not found" (return `False`), not an unhandled
+   exception. This never regresses any real desktop (apt/.deb always has at least an empty default
+   schema source; only Snap's confinement can produce a hard `None`), and turns a crash into the
+   already-correct-for-this-case behavior of "GNOME Shell integration isn't available here."
+2. **Larger, real architectural decision:** should this be left there (Snap correctly reports "no
+   GNOME Shell integration," and Wayland tray/clipboard/window-picker extensions simply never work
+   under Snap), or should Snap actually gain real GNOME Shell schema access (staging
+   `gnome-shell-common`'s schema file specifically, or adopting Canonical's own `extensions: [gnome]`
+   - a bigger manifest change with broader implications already set aside once during this same
+   plan's Task 3 work) so the Wayland-tray feature this whole plan exists to support actually
+   functions under Snap at all? Left to direflail's own call - not decided unilaterally here.
+
+Until resolved, this channel's Wayland tray-extension support (`#184`'s own redesign - the whole
+reason `channel_detect.py`/`install_bundled_extension_if_needed` exist) is disclosed here as an
+UNVERIFIED-WORKING, likely-broken-or-crashing feature under Snap specifically, not a working one -
+apt's own equivalent path is unaffected (`.deb` always has a real default schema source).
+
+## #191: Snap channel - deferred findings from the final review (version scheme, extension upgrades, minors)
+
+Final whole-branch review of `docs/superpowers/plans/2026-08-30-snap-channel.md` (2026-08-30, PR #9
+- see that PR's own history and `git log` on `snapcraft.yaml`/`.github/workflows/snap.yml` for the
+underlying commits) came back with one genuinely load-bearing Important finding (`#192`, filed
+separately given its severity) plus several real, correctly-identified findings that only matter
+once this channel is actually published or upgraded - explicitly out of THIS plan's scope per the
+parent cross-channel spec, so deferred here rather than expanding that plan:
+
+- **`version: git` resolves to `0+git.<sha>` in CI, not a real version number.** `actions/checkout@v4`
+  fetches shallow with no tags, so `git describe` (what `version: git` relies on) has nothing to
+  describe and Snapcraft falls back to a bare commit-sha version. The design spec's own intent was
+  for the Snap's version to mirror `pyproject.toml`'s real version (matching how `debian/changelog`
+  drives the apt channel's own version) - the plan substituted `version: git` for YAGNI reasons
+  without confirming this actually worked in CI. Real fix: either `adopt-info: orcshot` on the part
+  plus a `craftctl set version=...` step reading `pyproject.toml` directly (one source of truth, no
+  manual per-release edit - what the plan actually wanted), or at minimum `fetch-depth: 0` +
+  `fetch-tags: true` in the workflow's checkout step so `git describe` has real tags to resolve
+  against. Only matters once this channel is actually published (Snap Store submission is its own,
+  later, explicitly out-of-scope phase per the parent spec) - not a merge blocker for CI-only work.
+
+- **Bundled extensions can never be upgraded once installed under Snap.**
+  `channel_detect.install_bundled_extension_if_needed`'s `if dest.exists(): return True` guard means
+  once a user's real per-user extensions directory has the tray extension, a later `snap refresh`
+  shipping a fixed `extension.js` never touches it again - every existing user stays on whatever
+  version they first got, silently, forever. The "never clobber" precedent this borrowed from
+  (`hotkey_setup`'s conflict-aware writes) doesn't actually transfer: a hotkey binding is *user*
+  configuration worth preserving across upgrades; a bundled extension directory is *package payload*
+  the user never edits, closer to how a `.deb` upgrade always overwrites its own shipped files via
+  `dh_install`. Real fix (small): compare `metadata.json`'s own version field between `bundled_dir`
+  and `dest`, re-copy when the bundled one is newer - roughly five lines, one test. Related, smaller:
+  if `copytree` fails partway, the same `dest.exists()` fast path means a corrupted partial copy is
+  never retried or repaired either; copying to a temp sibling and `os.replace`-ing it closes both
+  holes at once. **Feed this into the Flatpak channel's own brainstorm too** - it will reuse
+  `detect_channel()`/`install_bundled_extension_if_needed()` and will hit the identical upgrade
+  question; cheaper to design in up front than rediscover independently.
+
+- **Minor CI/doc hygiene**, all real but genuinely non-blocking: the CI check script writes into the
+  live GNOME Shell extensions directory rather than a `.ci/` subdirectory (harmless, but leaves
+  residue); `RELEASING.md`'s CI-check step only mentions `apt.yml`, not `snap.yml`, even though a
+  release push now triggers both; the plan's own verbatim
+  `test_deb_channel_never_calls_install_bundled_extension` test is tautological (asserts the
+  monkeypatch itself, not the real guard - a plan defect faithfully implemented, not an implementer
+  choice; either delete it or extract the snap-path logic into a small pure helper that returns
+  whether it acted, and test that); a global `os.path.exists` monkeypatch in one test is a blunter
+  instrument than patching the module's own reference; neither `apt.yml` nor `snap.yml` declares a
+  `permissions: contents: read` block (harmless today, worth doing to both at once if ever revisited).
+
 ## #190: apt CI workflow hardening - deferred Minor findings from the final review
 
 Final whole-branch review of `docs/superpowers/plans/2026-08-29-apt-ci-automation.md` (2026-08-29,
