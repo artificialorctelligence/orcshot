@@ -16,6 +16,17 @@ apps:
     environment:
       PYTHONPATH: $SNAP/usr/lib/python3/dist-packages
       GI_TYPELIB_PATH: $SNAP/usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR/girepository-1.0:$GI_TYPELIB_PATH
+      # BACKLOG #192: same class of gap as the two vars above - there's no
+      # desktop-launch wrapper here (this app doesn't use extensions:[gnome]
+      # or similar) to set this automatically. Confirmed live in real CI:
+      # a confined orcshot process has neither XDG_DATA_DIRS nor
+      # GSETTINGS_SCHEMA_DIR set at all, so
+      # Gio.SettingsSchemaSource.get_default() has nothing to search even
+      # though gnome-shell-common's compiled schema is staged and readable.
+      # GSETTINGS_SCHEMA_DIR is GLib's own dedicated override for exactly
+      # this case, so it's what's set here rather than the broader
+      # XDG_DATA_DIRS (which many other things also key off of).
+      GSETTINGS_SCHEMA_DIR: $SNAP/usr/share/glib-2.0/schemas
     plugs:
       - x11
       - wayland
