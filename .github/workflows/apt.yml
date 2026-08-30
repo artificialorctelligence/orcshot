@@ -28,8 +28,11 @@ jobs:
       - name: Lint the .deb
         run: lintian ../orcshot_*_all.deb
 
+      - name: Move the built .deb into the workspace
+        run: mv ../orcshot_*_all.deb .
+
       - name: Upload the built .deb
         uses: actions/upload-artifact@v4
         with:
           name: orcshot-deb
-          path: ../orcshot_*_all.deb
+          path: orcshot_*_all.deb
