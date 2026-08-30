@@ -58,6 +58,7 @@ jobs:
 
       - name: Install gnome-shell and headless deps
         run: |
+          sudo apt-get update -qq
           sudo apt-get install -y gnome-shell dbus-x11
 
       - name: Copy the real extension into the per-user extensions path
