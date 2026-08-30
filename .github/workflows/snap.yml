@@ -41,3 +41,65 @@ jobs:
 
       - name: Confirm the installed binary launches without crashing
         run: orcshot --help
+
+      - name: Trigger the app's real first-run extension-install path
+        run: |
+          export XDG_RUNTIME_DIR=/run/user/$(id -u)
+          # A real GTK dialog can't run headlessly in this job; call the
+          # underlying function this task's own Task 1/2 wired in
+          # directly, exactly as ui/first_run_setup.py itself calls it -
+          # this is deliberately the real production code path, not a
+          # CI-only stand-in. Run through `snap run --shell` so $SNAP/
+          # $SNAP_REAL_HOME are the real, snapd-set values for a
+          # confined process - a bare `python3` call in this shell step
+          # would have neither var set at all (Plan Amendment 1 below).
+          cat > /tmp/install_check.py << 'PYEOF'
+          from orcshot.channel_detect import install_bundled_extension_if_needed
+          from pathlib import Path
+          import os
+          bundled = Path(os.environ['SNAP']) / 'share' / 'orcshot' / 'gnome-shell-extensions' / 'orcshot-tray@orcshot.org'
+          dest_parent = Path(os.environ['SNAP_REAL_HOME']) / '.local' / 'share' / 'gnome-shell' / 'extensions'
+          ok = install_bundled_extension_if_needed('orcshot-tray@orcshot.org', bundled, dest_parent)
+          print(f'install_bundled_extension_if_needed -> {ok}')
+          assert ok, 'extension install failed even with personal-files connected'
+          PYEOF
+          snap run --shell orcshot -c "python3 /tmp/install_check.py"
+
+      - name: Install gnome-shell and headless deps
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y gnome-shell dbus-x11
+
+      - name: Launch gnome-shell headless against a fixed D-Bus session bus
+        run: |
+          mkdir -p /run/user/$(id -u)
+          chmod 700 /run/user/$(id -u)
+          dbus-daemon --session --address=unix:path=/run/user/$(id -u)/bus --fork
+          export XDG_RUNTIME_DIR=/run/user/$(id -u)
+          export DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/$(id -u)/bus
+          nohup gnome-shell --headless --virtual-monitor 1024x768 > /tmp/shell.log 2>&1 &
+          disown
+          timeout 60 bash -c 'until grep -q "GNOME Shell started" /tmp/shell.log; do sleep 1; done' \
+            || { echo "gnome-shell never logged its startup line"; cat /tmp/shell.log; exit 1; }
+          pgrep -af gnome-shell || (echo "gnome-shell did not stay running" && cat /tmp/shell.log && exit 1)
+
+      - name: Enable the extension and confirm it loads with no errors
+        run: |
+          export XDG_RUNTIME_DIR=/run/user/$(id -u)
+          export DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/$(id -u)/bus
+          gnome-extensions enable orcshot-tray@orcshot.org
+          timeout 60 bash -c 'until grep -q "orcshot-tray-diag" /tmp/shell.log; do sleep 1; done' \
+            || { echo "extension never logged its diagnostic line - did not load"; cat /tmp/shell.log; exit 1; }
+          if grep -qi "JS ERROR\|Gjs-CRITICAL" /tmp/shell.log; then
+            echo "A real JS error was logged - see the log below"
+            cat /tmp/shell.log
+            exit 1
+          fi
+          echo "Extension enabled with no JS errors logged"
+
+      - name: Always upload the shell log for diagnosis
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: shell-log
+          path: /tmp/shell.log
