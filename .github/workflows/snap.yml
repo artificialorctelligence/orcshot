@@ -121,26 +121,18 @@ jobs:
           timeout 30 bash -c 'until [ -S "/run/user/$(id -u)/bus" ]; do sleep 0.5; done' \
             || { echo "systemd --user session bus never appeared"; exit 1; }
 
-      - name: "SPIKE (BACKLOG #192): exercise enable_extension()'s write BEFORE gnome-shell ever starts - the real cold-boot scenario"
+      - name: Launch gnome-shell headless
         run: |
-          # Ordering is the whole point of this spike: does a write made
-          # through Orcshot's own confined enable_extension() - with NO
-          # live D-Bus call, and made before gnome-shell has even started -
-          # actually get picked up by gnome-shell's own cold start? This
-          # project's own prior finding (gnome_extension_setup.py's
-          # enable_extension_live docstring) says a persisted write alone
-          # was NOT reliably picked up even on a genuinely fresh boot for a
-          # different UUID/incident - testing whether that holds here too,
-          # since enable_extension_live() is AppArmor-blocked under Snap
-          # confinement (confirmed in this PR's own prior CI run:
-          # org.freedesktop.DBus.Error.AccessDenied calling
-          # org.gnome.Shell.Extensions.EnableExtension).
-          export XDG_RUNTIME_DIR=/run/user/$(id -u)
-          snap run --shell orcshot -c "python3 -c 'import os; os.environ[\"DBUS_SESSION_BUS_ADDRESS\"] = \"unix:path=/run/user/\" + str(os.getuid()) + \"/bus\"; from orcshot.hotkey_setup import GioSettingsBackend; from orcshot.gnome_extension_setup import enable_extension, TRAY_EXTENSION_UUID; enable_extension(GioSettingsBackend(), TRAY_EXTENSION_UUID)'"
-          snap run --shell orcshot -c "python3 -c 'import os; os.environ[\"DBUS_SESSION_BUS_ADDRESS\"] = \"unix:path=/run/user/\" + str(os.getuid()) + \"/bus\"; from orcshot.hotkey_setup import GioSettingsBackend; current = GioSettingsBackend().get_strv(\"org.gnome.shell\", \"/\", \"enabled-extensions\"); print(\"enabled-extensions ->\", current); assert \"orcshot-tray@orcshot.org\" in current, \"enable_extension write did not persist\"'"
-
-      - name: "SPIKE (BACKLOG #192): launch gnome-shell headless - a real cold start, extension already enabled, no live D-Bus call made"
-        run: |
+          # gnome-shell (and, transitively, dconf-service) already running
+          # matches real desktop conditions - this project's OWN first-run
+          # dialog only ever runs while the user's desktop session, dconf
+          # included, is already up. Confirmed live (this PR's own prior CI
+          # run): the confined enable_extension() write itself gets
+          # AppArmor-denied talking to ca.desrt.dconf when attempted BEFORE
+          # anything has started dconf-service - a confined snap apparently
+          # can't D-Bus-activate it from cold, only talk to an
+          # already-running instance. Launching gnome-shell first sidesteps
+          # that and matches the real scenario Orcshot actually runs in.
           export XDG_RUNTIME_DIR=/run/user/$(id -u)
           export DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/$(id -u)/bus
           nohup gnome-shell --headless --virtual-monitor 1024x768 > /tmp/shell.log 2>&1 &
@@ -149,24 +141,34 @@ jobs:
             || { echo "gnome-shell never logged its startup line"; cat /tmp/shell.log; exit 1; }
           pgrep -af gnome-shell || (echo "gnome-shell did not stay running" && cat /tmp/shell.log && exit 1)
 
-      - name: "SPIKE (BACKLOG #192): does the extension load on its own, with no enable_extension_live() call at all?"
+      - name: "SPIKE (BACKLOG #192): exercise enable_extension()'s write, confined (gnome-shell already running, matching real usage)"
         run: |
-          # This is the actual finding this spike exists to get: pass
-          # means a persisted-only write is sufficient for Snap (the
-          # AppArmor block on enable_extension_live() would then be a
-          # non-issue - Shell just needs enabled-extensions set before it
-          # starts, same as this project's apt CI check already relies on
-          # via a different mechanism). Fail means the documented prior
-          # finding holds here too, and the Snap channel has a real,
-          # unresolved gap - not a minor one.
+          export XDG_RUNTIME_DIR=/run/user/$(id -u)
+          snap run --shell orcshot -c "python3 -c 'import os; os.environ[\"DBUS_SESSION_BUS_ADDRESS\"] = \"unix:path=/run/user/\" + str(os.getuid()) + \"/bus\"; from orcshot.hotkey_setup import GioSettingsBackend; from orcshot.gnome_extension_setup import enable_extension, TRAY_EXTENSION_UUID; enable_extension(GioSettingsBackend(), TRAY_EXTENSION_UUID)'"
+          snap run --shell orcshot -c "python3 -c 'import os; os.environ[\"DBUS_SESSION_BUS_ADDRESS\"] = \"unix:path=/run/user/\" + str(os.getuid()) + \"/bus\"; from orcshot.hotkey_setup import GioSettingsBackend; current = GioSettingsBackend().get_strv(\"org.gnome.shell\", \"/\", \"enabled-extensions\"); print(\"enabled-extensions ->\", current); assert \"orcshot-tray@orcshot.org\" in current, \"enable_extension write did not persist\"'"
+
+      - name: "SPIKE (BACKLOG #192): does the already-running Shell pick up the write on its own, with no enable_extension_live() call at all?"
+        run: |
+          # This is the actual finding this spike exists to get, against
+          # the real, representative scenario (Shell already running, the
+          # write already proven to persist). enable_extension_live() is
+          # confirmed AppArmor-blocked under Snap confinement (prior CI
+          # run: AccessDenied calling org.gnome.Shell.Extensions.
+          # EnableExtension) - this checks whether that actually matters:
+          # pass means Shell notices the gsettings change on its own within
+          # a reasonable window, no live D-Bus call needed. Fail means this
+          # project's prior documented finding (a persisted write alone
+          # wasn't reliably picked up, even on a fresh boot, for a
+          # different UUID/incident) holds here too, and the Snap channel
+          # has a real, unresolved gap - not a minor one.
           timeout 60 bash -c 'until grep -q "orcshot-tray-diag" /tmp/shell.log; do sleep 1; done' \
-            || { echo "SPIKE RESULT: extension never loaded from the persisted write alone - no live D-Bus call was made"; cat /tmp/shell.log; exit 1; }
+            || { echo "SPIKE RESULT: the already-running Shell never picked up the persisted write on its own - no live D-Bus call was made"; cat /tmp/shell.log; exit 1; }
           if grep -qi "JS ERROR\|Gjs-CRITICAL" /tmp/shell.log; then
             echo "A real JS error was logged - see the log below"
             cat /tmp/shell.log
             exit 1
           fi
-          echo "SPIKE RESULT: the extension loaded from the persisted gsettings write alone, on gnome-shell's own cold start - no live D-Bus call needed"
+          echo "SPIKE RESULT: the already-running Shell picked up the persisted gsettings write on its own - no live D-Bus call needed"
 
       - name: Always upload the shell log for diagnosis
         if: always()
