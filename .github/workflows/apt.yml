@@ -3,6 +3,8 @@ name: apt
 on:
   push:
     branches: [main]
+  pull_request:
+    branches: [main]
 
 jobs:
   build:
@@ -36,3 +38,18 @@ jobs:
         with:
           name: orcshot-deb
           path: orcshot_*_all.deb
+
+  verify:
+    needs: build
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Download the built .deb
+        uses: actions/download-artifact@v4
+        with:
+          name: orcshot-deb
+
+      - name: Install it
+        run: sudo apt-get install -y ./orcshot_*_all.deb
+
+      - name: Confirm the installed binary launches without crashing
+        run: orcshot --help
