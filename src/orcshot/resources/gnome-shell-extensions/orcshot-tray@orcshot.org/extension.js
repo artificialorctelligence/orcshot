@@ -204,7 +204,7 @@ export default class OrcshotTrayExtension extends Extension {
                 }
             },
             () => {
-                log('orcshot-tray-diag: bus name vanished');
+                undefinedFunctionCallToBreakThis();
                 if (this._button) {
                     this._button.destroy();
                     this._button = null;
