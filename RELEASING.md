@@ -174,7 +174,8 @@ git push origin vX.Y.Z
 
 Step 8 just pushed the release commit to `main`, which triggers `.github/workflows/apt.yml` for
 real (build, install-and-launch, and the headless-Shell tray check) - confirm it actually passed
-before publishing anything downstream:
+before publishing anything downstream. See `CI.md` for what this actually looks like (the GitHub
+Actions web page, no terminal required) if you'd rather click through it than run a command:
 
 ```bash
 gh run list --workflow=apt.yml --limit 1
