@@ -749,8 +749,11 @@ plan was written, use the real, current version instead of this plan's copy.
           # underlying function this task's own Task 1/2 wired in
           # directly, exactly as ui/first_run_setup.py itself calls it -
           # this is deliberately the real production code path, not a
-          # CI-only stand-in.
-          python3 -c "
+          # CI-only stand-in. Run through `snap run --shell` so $SNAP/
+          # $SNAP_REAL_HOME are the real, snapd-set values for a
+          # confined process - a bare `python3` call in this shell step
+          # would have neither var set at all (Plan Amendment 1 below).
+          cat > /tmp/install_check.py << 'PYEOF'
           from orcshot.channel_detect import install_bundled_extension_if_needed
           from pathlib import Path
           import os
@@ -759,7 +762,8 @@ plan was written, use the real, current version instead of this plan's copy.
           ok = install_bundled_extension_if_needed('orcshot-tray@orcshot.org', bundled, dest_parent)
           print(f'install_bundled_extension_if_needed -> {ok}')
           assert ok, 'extension install failed even with personal-files connected'
-          "
+          PYEOF
+          snap run --shell orcshot -c "python3 /tmp/install_check.py"
 
       - name: Install gnome-shell and headless deps
         run: |
@@ -801,11 +805,24 @@ plan was written, use the real, current version instead of this plan's copy.
           path: /tmp/shell.log
 ```
 
-The `python3 -c` step runs `channel_detect.install_bundled_extension_if_needed` directly rather than
-launching the real GTK dialog headlessly (not meaningfully possible - same reason
-`first_run_setup.py`'s own module docstring gives for not unit-testing its dialog glue), but it is
-still the real, production `channel_detect.py` module from Task 1 - only the GTK wrapper around it
-is bypassed, not the logic this whole plan exists to prove works.
+**Plan Amendment 1** (pre-flight fix, made before this task was ever dispatched): the original draft
+of this step called `python3 -c ...` directly in the GitHub Actions shell - wrong, since
+`$SNAP`/`$SNAP_REAL_HOME` are only ever set by `snapd` for a process actually running *inside* the
+snap's own confinement (via `snap run`), never for a bare shell command in a CI step. The fix above
+runs the check through `snap run --shell orcshot` instead - a single-app snap whose app name equals
+its own snap name (true here) gets the bare `orcshot` alias, no `snapname.appname` qualification
+needed, matching this exact project's own earlier confirmed pattern for driving a confined snap's
+environment non-interactively. The check itself is written to a real file first rather than an
+inline `python3 -c "..."` nested inside `snap run --shell`'s own `-c` argument - two layers of shell
+quoting around a Python one-liner is exactly the kind of thing that silently mis-escapes, and a
+plain file plus a simple `python3 /path/to/file.py` invocation sidesteps that entirely. This still
+runs the real, production `channel_detect.py` module from Task 1, bypassing only the GTK dialog
+wrapper around it (not meaningfully testable headlessly - same reason `first_run_setup.py`'s own
+module docstring gives for not unit-testing its dialog glue), not the confinement-sensitive logic
+this whole plan exists to prove works. If `snap run --shell orcshot -c "..."` doesn't behave as
+documented when actually run, diagnose the real cause before guessing at a different invocation -
+`snap run --shell orcshot -c "env | grep SNAP"` alone confirms what actually lands in the confined
+shell's environment.
 
 - [ ] **Step 3: Push, open (or update) the PR, confirm it runs green via the PR's own checks**
 
