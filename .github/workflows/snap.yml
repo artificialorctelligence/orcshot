@@ -94,21 +94,6 @@ jobs:
           PYEOF
           snap run --shell orcshot -c 'python3 $SNAP_REAL_HOME/.local/share/gnome-shell/extensions/install_check.py'
 
-      - name: "Exercise Orcshot's own enable_extension() write, confined, and confirm it persists (BACKLOG #192)"
-        run: |
-          # gnome_shell_present() resolving the schema (previous step) only
-          # proves the schema is *visible* - this proves Orcshot's own
-          # production write path (gnome_extension_setup.enable_extension,
-          # the exact call ui/first_run_setup.py makes) actually reaches
-          # real, persistent gsettings storage through the already-plugged
-          # gsettings interface, not just an in-process echo.
-          snap run --shell orcshot -c "python3 -c 'from orcshot.hotkey_setup import GioSettingsBackend; from orcshot.gnome_extension_setup import enable_extension, TRAY_EXTENSION_UUID; enable_extension(GioSettingsBackend(), TRAY_EXTENSION_UUID)'"
-          # Read back with a *fresh* confined process, not the same cached
-          # Gio.Settings instance from the write above - GioSettingsBackend
-          # caches per (schema, path), so reusing the same instance would
-          # only prove its own in-memory cache, not real persistence.
-          snap run --shell orcshot -c "python3 -c 'from orcshot.hotkey_setup import GioSettingsBackend; current = GioSettingsBackend().get_strv(\"org.gnome.shell\", \"/\", \"enabled-extensions\"); print(\"enabled-extensions ->\", current); assert \"orcshot-tray@orcshot.org\" in current, \"enable_extension write did not persist\"'"
-
       - name: Install gnome-shell and headless deps
         run: |
           sudo apt-get update -qq
@@ -126,6 +111,33 @@ jobs:
           timeout 60 bash -c 'until grep -q "GNOME Shell started" /tmp/shell.log; do sleep 1; done' \
             || { echo "gnome-shell never logged its startup line"; cat /tmp/shell.log; exit 1; }
           pgrep -af gnome-shell || (echo "gnome-shell did not stay running" && cat /tmp/shell.log && exit 1)
+
+      - name: "Exercise Orcshot's own enable_extension() write, confined, and confirm it persists (BACKLOG #192)"
+        run: |
+          # gnome_shell_present() resolving the schema (earlier step) only
+          # proves the schema is *visible* - this proves Orcshot's own
+          # production write path (gnome_extension_setup.enable_extension,
+          # the exact call ui/first_run_setup.py makes) actually reaches
+          # real, persistent gsettings storage through the already-plugged
+          # gsettings interface, not just an in-process echo.
+          #
+          # Must run after the session D-Bus bus above is up: a Gio.Settings
+          # write with no session bus to reach dconf-service through falls
+          # back to GLib's keyfile backend, which then fails outright under
+          # confinement (no general $HOME write access) - confirmed live,
+          # not guessed (this step originally ran before the bus existed and
+          # hit exactly that: "Failed to create
+          # /home/runner/.config/glib-2.0/settings: Permission denied"). A
+          # real desktop session always has this bus running before any app
+          # starts, so this ordering also matches production, not just CI.
+          export XDG_RUNTIME_DIR=/run/user/$(id -u)
+          export DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/$(id -u)/bus
+          snap run --shell orcshot -c "python3 -c 'from orcshot.hotkey_setup import GioSettingsBackend; from orcshot.gnome_extension_setup import enable_extension, TRAY_EXTENSION_UUID; enable_extension(GioSettingsBackend(), TRAY_EXTENSION_UUID)'"
+          # Read back with a *fresh* confined process, not the same cached
+          # Gio.Settings instance from the write above - GioSettingsBackend
+          # caches per (schema, path), so reusing the same instance would
+          # only prove its own in-memory cache, not real persistence.
+          snap run --shell orcshot -c "python3 -c 'from orcshot.hotkey_setup import GioSettingsBackend; current = GioSettingsBackend().get_strv(\"org.gnome.shell\", \"/\", \"enabled-extensions\"); print(\"enabled-extensions ->\", current); assert \"orcshot-tray@orcshot.org\" in current, \"enable_extension write did not persist\"'"
 
       - name: "Activate the extension via Orcshot's own enable_extension_live(), confined, and confirm it loads (BACKLOG #192)"
         run: |
