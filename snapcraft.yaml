@@ -13,6 +13,8 @@ version: git
 apps:
   orcshot:
     command: bin/orcshot
+    environment:
+      PYTHONPATH: $SNAP/usr/lib/python3/dist-packages:$PYTHONPATH
     plugs:
       - x11
       - wayland
