@@ -71,6 +71,7 @@ import os
 import shutil
 import subprocess
 import sys
+from pathlib import Path
 
 import gi
 
@@ -78,6 +79,7 @@ gi.require_version("Gtk", "3.0")
 from gi.repository import GLib, Gtk
 
 from orcshot.autostart import enable_autostart
+from orcshot.channel_detect import detect_channel, install_bundled_extension_if_needed
 from orcshot.gnome_extension_setup import (
     CLIPBOARD_EXTENSION_UUID,
     TRAY_EXTENSION_UUID,
@@ -113,6 +115,30 @@ def _default_executable(which=shutil.which) -> str:
     if installed is not None:
         return installed
     return f"{sys.executable} -m orcshot.app"
+
+
+def _extension_bundle_dir(uuid: str, env: dict = None) -> Path:
+    """Where this extension's files are bundled read-only inside a Snap
+    package. Only meaningful when detect_channel() == "snap" - the
+    caller is responsible for checking that first."""
+    if env is None:
+        env = os.environ
+    return Path(env["SNAP"]) / "share" / "orcshot" / "gnome-shell-extensions" / uuid
+
+
+def _snap_real_home_extensions_dir(env: dict = None) -> Path:
+    """The real, non-redirected per-user GNOME Shell extensions path a
+    Snap needs personal-files connected to reach. Built from
+    $SNAP_REAL_HOME, never $HOME - $HOME stays redirected to Snap's own
+    private ~/snap/<name>/<revision>/ directory even with personal-files
+    connected (confirmed live during this feature's own design spike -
+    see docs/superpowers/specs/2026-08-30-snap-channel-design.md),
+    and writing there would silently "succeed" while placing the file
+    somewhere GNOME Shell never scans.
+    """
+    if env is None:
+        env = os.environ
+    return Path(env["SNAP_REAL_HOME"]) / ".local" / "share" / "gnome-shell" / "extensions"
 
 
 def maybe_run_first_run_setup(parent: Gtk.Window = None, executable: str = None, settings_backend=None) -> None:
@@ -287,6 +313,23 @@ def _run_dialog(parent, executable: str, settings_backend) -> None:
             configure_all_hotkeys(settings_backend, executable, skip=skip, profile=profile)
 
         if is_gnome_wayland:
+            # Sandboxed channels (Snap, Flatpak) can't write to the
+            # system-wide extensions path the way .deb's own
+            # dh_install does - copy each bundled extension into the
+            # real per-user path first. A plain .deb install is a
+            # verified no-op here: detect_channel() returns "deb", and
+            # the loop body below never runs at all.
+            channel = detect_channel()
+            all_installed = True
+            if channel == "snap":
+                for uuid in (WINDOW_CALLS_EXTENSION_UUID, CLIPBOARD_EXTENSION_UUID, TRAY_EXTENSION_UUID):
+                    bundled_dir = _extension_bundle_dir(uuid)
+                    dest_parent = _snap_real_home_extensions_dir()
+                    if not install_bundled_extension_if_needed(uuid, bundled_dir, dest_parent):
+                        all_installed = False
+                if not all_installed:
+                    show_snap_connect_prompt(parent)
+
             enable_extension(settings_backend, WINDOW_CALLS_EXTENSION_UUID)
             enable_extension(settings_backend, CLIPBOARD_EXTENSION_UUID)
             enable_extension(settings_backend, TRAY_EXTENSION_UUID)
@@ -306,4 +349,40 @@ def _run_dialog(parent, executable: str, settings_backend) -> None:
                     print(f"[orcshot] enable_extension_live({uuid!r}) failed: {e}", file=sys.stderr)
 
     mark_first_run_setup_done()
+    dialog.destroy()
+
+
+def show_snap_connect_prompt(parent: Gtk.Window = None) -> None:
+    """Shown when running under Snap and the tray extension couldn't be
+    copied into the real per-user extensions path - almost always
+    because the personal-files interface hasn't been connected yet
+    (Snap Store policy: this interface is never auto-connected, even
+    for an approved/published snap - see the Snap channel design spec's
+    own "Known open items"). Matches this same file's existing pattern
+    for desktops without automatic hotkey support: a manual,
+    cut-and-pasteable command, not an attempted automation - running an
+    arbitrary shell command from inside a strict-confinement sandbox
+    isn't reliably possible, and wouldn't be more trustworthy even where
+    it might work.
+    """
+    dialog = Gtk.Dialog(title=_("Orcshot Setup"), transient_for=parent)
+    dialog.add_buttons(_("OK"), Gtk.ResponseType.OK)
+    dialog.set_default_response(Gtk.ResponseType.OK)
+
+    content = dialog.get_content_area()
+    content.set_border_width(12)
+    content.set_spacing(8)
+
+    content.pack_start(Gtk.Label(
+        label=_("Orcshot needs one-time permission to install its tray icon extension. "
+                "Run this command in a terminal, then restart Orcshot:"),
+        wrap=True, xalign=0,
+    ), False, False, 0)
+
+    command_label = Gtk.Label(label="snap connect orcshot:dot-local-share-gnome-shell", xalign=0)  # noqa: i18n (literal shell command, not UI text)
+    command_label.set_selectable(True)
+    content.pack_start(command_label, False, False, 0)
+
+    dialog.show_all()
+    dialog.run()
     dialog.destroy()
