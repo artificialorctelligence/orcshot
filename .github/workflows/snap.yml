@@ -41,6 +41,10 @@ jobs:
       - name: Connect personal-files (manual connect against a local install needs no Canonical review)
         run: sudo snap connect orcshot:dot-local-share-gnome-shell
 
+      - name: Diagnostic probe - does gnome_shell_present() survive strict confinement?
+        run: |
+          snap run --shell orcshot -c "python3 -c 'from orcshot.gnome_extension_setup import gnome_shell_present; print(\"GNOME_SHELL_PRESENT_RESULT=\" + str(gnome_shell_present()))'"
+
       - name: Confirm the installed binary launches without crashing
         run: orcshot --help
 
