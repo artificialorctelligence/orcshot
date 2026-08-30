@@ -1,0 +1,43 @@
+name: snap
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build the snap
+        uses: canonical/action-build@v1
+        id: build
+
+      - name: Upload the built snap
+        uses: actions/upload-artifact@v4
+        with:
+          name: orcshot-snap
+          path: ${{ steps.build.outputs.snap }}
+
+  verify:
+    needs: build
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download the built snap
+        uses: actions/download-artifact@v4
+        with:
+          name: orcshot-snap
+
+      - name: Install it locally (--dangerous, no store review needed)
+        run: sudo snap install --dangerous ./orcshot_*.snap
+
+      - name: Connect personal-files (manual connect against a local install needs no Canonical review)
+        run: sudo snap connect orcshot:dot-local-share-gnome-shell
+
+      - name: Confirm the installed binary launches without crashing
+        run: orcshot --help
