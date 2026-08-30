@@ -36,6 +36,10 @@ match, or the built `.deb`'s own version won't line up with the source tree that
 Must be fully green before building - the package build itself re-runs the whole suite for real via
 `dh_auto_test`/pybuild (see step 4), so a failure here just means finding out later instead of now.
 
+This step, step 4 (`dpkg-buildpackage`), and step 5 (`lintian`) now also run automatically on every
+push and PR via `.github/workflows/apt.yml` - running them by hand here is still the fastest local
+feedback loop, not a redundant step; see step 9 below for confirming CI's own view before release.
+
 ## 3. Security check
 
 Surfaced as a real gap during the 0.1.1 release (direflail, 2026-08-23): the release went to the
@@ -166,13 +170,27 @@ git push origin main
 git push origin vX.Y.Z
 ```
 
-## 9. Publish the GitHub Release
+## 9. Confirm CI is green on the just-pushed commit
+
+Step 8 just pushed the release commit to `main`, which triggers `.github/workflows/apt.yml` for
+real (build, install-and-launch, and the headless-Shell tray check) - confirm it actually passed
+before publishing anything downstream:
+
+```bash
+gh run list --workflow=apt.yml --limit 1
+```
+
+Expected: `completed` / `success` for that commit. If it's still running, wait for it; if it
+failed, stop here and fix forward before step 10 - don't publish a release CI itself flagged as
+broken.
+
+## 10. Publish the GitHub Release
 
 Create a release for the `vX.Y.Z` tag (web UI or `gh release create vX.Y.Z`) and attach the built
 `.deb` as a release asset. This is the step task #103 actually depends on - `releases/latest` only
 returns something once a real, non-draft, non-prerelease release exists.
 
-## 10. Sanity-check the update checker
+## 11. Sanity-check the update checker
 
 Once published, confirm task #103 actually sees it: Help > Check for Updates... on a build one
 version behind should report the new release; on the just-built version itself, "up to date."
