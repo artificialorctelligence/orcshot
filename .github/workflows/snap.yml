@@ -41,9 +41,9 @@ jobs:
       - name: Connect personal-files (manual connect against a local install needs no Canonical review)
         run: sudo snap connect orcshot:dot-local-share-gnome-shell
 
-      - name: Diagnostic probe - does gnome_shell_present() survive strict confinement?
+      - name: "Assert gnome_shell_present() resolves org.gnome.shell under confinement (BACKLOG #192)"
         run: |
-          snap run --shell orcshot -c "python3 -c 'from orcshot.gnome_extension_setup import gnome_shell_present; print(\"GNOME_SHELL_PRESENT_RESULT=\" + str(gnome_shell_present()))'"
+          snap run --shell orcshot -c "python3 -c 'from orcshot.gnome_extension_setup import gnome_shell_present; result = gnome_shell_present(); print(\"gnome_shell_present() ->\", result); assert result is True, \"schema unresolvable - gnome-shell-common staging/compile regressed\"'"
 
       - name: Confirm the installed binary launches without crashing
         run: orcshot --help
@@ -88,6 +88,21 @@ jobs:
           PYEOF
           snap run --shell orcshot -c 'python3 $SNAP_REAL_HOME/.local/share/gnome-shell/extensions/install_check.py'
 
+      - name: "Exercise Orcshot's own enable_extension() write, confined, and confirm it persists (BACKLOG #192)"
+        run: |
+          # gnome_shell_present() resolving the schema (previous step) only
+          # proves the schema is *visible* - this proves Orcshot's own
+          # production write path (gnome_extension_setup.enable_extension,
+          # the exact call ui/first_run_setup.py makes) actually reaches
+          # real, persistent gsettings storage through the already-plugged
+          # gsettings interface, not just an in-process echo.
+          snap run --shell orcshot -c "python3 -c 'from orcshot.hotkey_setup import GioSettingsBackend; from orcshot.gnome_extension_setup import enable_extension, TRAY_EXTENSION_UUID; enable_extension(GioSettingsBackend(), TRAY_EXTENSION_UUID)'"
+          # Read back with a *fresh* confined process, not the same cached
+          # Gio.Settings instance from the write above - GioSettingsBackend
+          # caches per (schema, path), so reusing the same instance would
+          # only prove its own in-memory cache, not real persistence.
+          snap run --shell orcshot -c "python3 -c 'from orcshot.hotkey_setup import GioSettingsBackend; current = GioSettingsBackend().get_strv(\"org.gnome.shell\", \"/\", \"enabled-extensions\"); print(\"enabled-extensions ->\", current); assert \"orcshot-tray@orcshot.org\" in current, \"enable_extension write did not persist\"'"
+
       - name: Install gnome-shell and headless deps
         run: |
           sudo apt-get update -qq
@@ -106,11 +121,23 @@ jobs:
             || { echo "gnome-shell never logged its startup line"; cat /tmp/shell.log; exit 1; }
           pgrep -af gnome-shell || (echo "gnome-shell did not stay running" && cat /tmp/shell.log && exit 1)
 
-      - name: Enable the extension and confirm it loads with no errors
+      - name: "Activate the extension via Orcshot's own enable_extension_live(), confined, and confirm it loads (BACKLOG #192)"
         run: |
+          # Previously this step used the external `gnome-extensions`
+          # CLI tool, which runs unconfined and exercises neither of
+          # Orcshot's own two enable mechanisms (gnome_extension_setup.
+          # enable_extension/enable_extension_live). That proved GNOME
+          # Shell *can* load the extension, but never proved Orcshot's
+          # own confined process can actually activate it - the gap
+          # BACKLOG #192 was filed over. enable_extension's write
+          # (previous step) only persists for a *future* login on its
+          # own; enable_extension_live's direct D-Bus call is what
+          # activates it *this* session (see gnome_extension_setup.py's
+          # own docstring) - both are exercised now, through the app's
+          # real production code, not a stand-in.
           export XDG_RUNTIME_DIR=/run/user/$(id -u)
           export DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/$(id -u)/bus
-          gnome-extensions enable orcshot-tray@orcshot.org
+          snap run --shell orcshot -c "python3 -c 'from orcshot.gnome_extension_setup import enable_extension_live, TRAY_EXTENSION_UUID; enable_extension_live(TRAY_EXTENSION_UUID)'"
           timeout 60 bash -c 'until grep -q "orcshot-tray-diag" /tmp/shell.log; do sleep 1; done' \
             || { echo "extension never logged its diagnostic line - did not load"; cat /tmp/shell.log; exit 1; }
           if grep -qi "JS ERROR\|Gjs-CRITICAL" /tmp/shell.log; then
@@ -118,7 +145,7 @@ jobs:
             cat /tmp/shell.log
             exit 1
           fi
-          echo "Extension enabled with no JS errors logged"
+          echo "Extension activated via Orcshot's own D-Bus call, no JS errors logged"
 
       - name: Always upload the shell log for diagnosis
         if: always()
