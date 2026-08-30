@@ -27,6 +27,20 @@ apps:
       # this case, so it's what's set here rather than the broader
       # XDG_DATA_DIRS (which many other things also key off of).
       GSETTINGS_SCHEMA_DIR: $SNAP/usr/share/glib-2.0/schemas
+      # BACKLOG #192: the schema being resolvable (above) only lets
+      # gnome_shell_present() answer the question - actually writing
+      # through GioSettingsBackend needs GLib's dconf GSettingsBackend
+      # module (dconf-gsettings-backend's libdconfsettings.so, a dynamically
+      # loaded GIO module) staged and discoverable too. Without it, GLib
+      # silently falls back to its keyfile backend, which then fails
+      # outright under confinement - confirmed live: "Failed to create
+      # /home/runner/.config/glib-2.0/settings: Permission denied", and the
+      # write never persisting (enabled-extensions stayed []). Same class
+      # of gap as GI_TYPELIB_PATH above - GIO's compiled-in default module
+      # path points at the base snap's own /usr, not this staged tree.
+      # GIO_EXTRA_MODULES is GLib's own documented variable for adding
+      # extra module search directories without replacing the default one.
+      GIO_EXTRA_MODULES: $SNAP/usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR/gio/modules
     plugs:
       - x11
       - wayland
@@ -84,6 +98,15 @@ parts:
       - gir1.2-gsound-1.0
       - libblas3
       - liblapack3
+      # BACKLOG #192: the actual dconf GSettingsBackend GIO module
+      # (libdconfsettings.so) - without it, GLib can't load a working
+      # backend from inside confinement at all and silently falls back to
+      # its keyfile backend, which then fails outright under confinement
+      # (no general $HOME write access). Confirmed live: this was already
+      # true even after both the schema fix and a real session bus were in
+      # place. Pulls in dconf-service and libdconf1 as real dependencies,
+      # the same way Snapcraft already resolves every other entry here.
+      - dconf-gsettings-backend
       # BACKLOG #192: org.gnome.shell's own schema, so Orcshot's own
       # confined process can resolve Gio.Settings(schema_id="org.gnome.shell")
       # to read/write enabled-extensions (gnome_extension_setup.py). GNOME
