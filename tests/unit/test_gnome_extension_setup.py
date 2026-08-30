@@ -11,6 +11,7 @@ from orcshot.gnome_extension_setup import (
     WINDOW_CALLS_EXTENSION_UUID,
     enable_extension,
     enabled_extensions_after_adding,
+    gnome_shell_present,
 )
 
 
@@ -64,3 +65,16 @@ class TestEnableExtension:
         assert backend.get_strv("org.gnome.shell", "/", "enabled-extensions") == [
             WINDOW_CALLS_EXTENSION_UUID, CLIPBOARD_EXTENSION_UUID, TRAY_EXTENSION_UUID,
         ]
+
+
+class TestGnomeShellPresent:
+    def test_returns_false_when_no_default_schema_source(self, monkeypatch):
+        """Confirmed live under Snap's strict confinement: get_default() can
+        return None outright, not just fail to contain the org.gnome.shell
+        schema. Must return False, not crash."""
+        import gi
+        gi.require_version("Gio", "2.0")
+        from gi.repository import Gio
+
+        monkeypatch.setattr(Gio.SettingsSchemaSource, "get_default", staticmethod(lambda: None))
+        assert gnome_shell_present() is False

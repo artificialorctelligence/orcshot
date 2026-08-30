@@ -43,13 +43,26 @@ def gnome_shell_present() -> bool:
     read-only schema lookup, no Gio.Settings object constructed, same
     "check first, never assume" precedent as
     hotkey_setup.cinnamon_keybindings_available. Callers must check
-    this before calling enable_extension for real."""
+    this before calling enable_extension for real.
+
+    get_default() itself can return None, not just fail to contain the
+    schema - confirmed live under Snap's strict confinement, where
+    there is no default schema source in the sandbox's mount namespace
+    at all. Treated the same as "schema not found" rather than letting
+    the AttributeError propagate - this function's whole contract is a
+    boolean answer to "is GNOME Shell present," and a sandboxed
+    environment with zero schema sources genuinely has no GNOME Shell
+    integration available, which is exactly what False already means
+    here."""
     import gi
 
     gi.require_version("Gio", "2.0")
     from gi.repository import Gio
 
-    return Gio.SettingsSchemaSource.get_default().lookup(_SHELL_SCHEMA, True) is not None
+    source = Gio.SettingsSchemaSource.get_default()
+    if source is None:
+        return False
+    return source.lookup(_SHELL_SCHEMA, True) is not None
 
 
 def enabled_extensions_after_adding(current: list, uuid: str) -> list:
