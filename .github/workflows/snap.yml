@@ -130,14 +130,27 @@ jobs:
           # /home/runner/.config/glib-2.0/settings: Permission denied"). A
           # real desktop session always has this bus running before any app
           # starts, so this ordering also matches production, not just CI.
+          #
+          # DBUS_SESSION_BUS_ADDRESS is deliberately set *inside* each
+          # python3 script below (os.environ), not exported in this outer
+          # shell - confirmed live that exporting it here breaks `snap run`
+          # itself: "... is not a snap cgroup for tag snap.orcshot.orcshot".
+          # `snap run` asks systemd over DBUS_SESSION_BUS_ADDRESS (when set)
+          # to create its own confinement scope; our throwaway CI
+          # dbus-daemon isn't a real systemd --user instance and has no
+          # org.freedesktop.systemd1.Manager on it, so that handshake fails.
+          # Left unset, `snap run` uses a working fallback - the earlier
+          # steps in this job already proved that. The confined app process
+          # itself still needs this exact address for its own, separate
+          # gsettings/D-Bus connection - setting it after `snap run` has
+          # already started the confined process keeps the two uses apart.
           export XDG_RUNTIME_DIR=/run/user/$(id -u)
-          export DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/$(id -u)/bus
-          snap run --shell orcshot -c "python3 -c 'from orcshot.hotkey_setup import GioSettingsBackend; from orcshot.gnome_extension_setup import enable_extension, TRAY_EXTENSION_UUID; enable_extension(GioSettingsBackend(), TRAY_EXTENSION_UUID)'"
+          snap run --shell orcshot -c "python3 -c 'import os; os.environ[\"DBUS_SESSION_BUS_ADDRESS\"] = \"unix:path=/run/user/\" + str(os.getuid()) + \"/bus\"; from orcshot.hotkey_setup import GioSettingsBackend; from orcshot.gnome_extension_setup import enable_extension, TRAY_EXTENSION_UUID; enable_extension(GioSettingsBackend(), TRAY_EXTENSION_UUID)'"
           # Read back with a *fresh* confined process, not the same cached
           # Gio.Settings instance from the write above - GioSettingsBackend
           # caches per (schema, path), so reusing the same instance would
           # only prove its own in-memory cache, not real persistence.
-          snap run --shell orcshot -c "python3 -c 'from orcshot.hotkey_setup import GioSettingsBackend; current = GioSettingsBackend().get_strv(\"org.gnome.shell\", \"/\", \"enabled-extensions\"); print(\"enabled-extensions ->\", current); assert \"orcshot-tray@orcshot.org\" in current, \"enable_extension write did not persist\"'"
+          snap run --shell orcshot -c "python3 -c 'import os; os.environ[\"DBUS_SESSION_BUS_ADDRESS\"] = \"unix:path=/run/user/\" + str(os.getuid()) + \"/bus\"; from orcshot.hotkey_setup import GioSettingsBackend; current = GioSettingsBackend().get_strv(\"org.gnome.shell\", \"/\", \"enabled-extensions\"); print(\"enabled-extensions ->\", current); assert \"orcshot-tray@orcshot.org\" in current, \"enable_extension write did not persist\"'"
 
       - name: "Activate the extension via Orcshot's own enable_extension_live(), confined, and confirm it loads (BACKLOG #192)"
         run: |
@@ -153,9 +166,12 @@ jobs:
           # activates it *this* session (see gnome_extension_setup.py's
           # own docstring) - both are exercised now, through the app's
           # real production code, not a stand-in.
+          #
+          # DBUS_SESSION_BUS_ADDRESS set inside the python3 script, not
+          # exported here - see the previous step's comment for why
+          # exporting it in this outer shell breaks `snap run` itself.
           export XDG_RUNTIME_DIR=/run/user/$(id -u)
-          export DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/$(id -u)/bus
-          snap run --shell orcshot -c "python3 -c 'from orcshot.gnome_extension_setup import enable_extension_live, TRAY_EXTENSION_UUID; enable_extension_live(TRAY_EXTENSION_UUID)'"
+          snap run --shell orcshot -c "python3 -c 'import os; os.environ[\"DBUS_SESSION_BUS_ADDRESS\"] = \"unix:path=/run/user/\" + str(os.getuid()) + \"/bus\"; from orcshot.gnome_extension_setup import enable_extension_live, TRAY_EXTENSION_UUID; enable_extension_live(TRAY_EXTENSION_UUID)'"
           timeout 60 bash -c 'until grep -q "orcshot-tray-diag" /tmp/shell.log; do sleep 1; done' \
             || { echo "extension never logged its diagnostic line - did not load"; cat /tmp/shell.log; exit 1; }
           if grep -qi "JS ERROR\|Gjs-CRITICAL" /tmp/shell.log; then
