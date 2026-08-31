@@ -49,90 +49,62 @@ permanent, non-throwaway part of `.github/workflows/snap.yml`'s verify job, exer
 real production code (`enable_extension`, `install_bundled_extension_if_needed`) through actual strict
 confinement, not a stand-in.
 
-## #191: Snap channel - deferred findings from the final review (version scheme, extension upgrades, minors)
+## #191: Snap channel - deferred findings from the final review (RESOLVED 2026-08-30)
 
-Final whole-branch review of `docs/superpowers/plans/2026-08-30-snap-channel.md` (2026-08-30, PR #9
-- see that PR's own history and `git log` on `snapcraft.yaml`/`.github/workflows/snap.yml` for the
-underlying commits) came back with one genuinely load-bearing Important finding (`#192`, filed
-separately given its severity) plus several real, correctly-identified findings that only matter
-once this channel is actually published or upgraded - explicitly out of THIS plan's scope per the
-parent cross-channel spec, so deferred here rather than expanding that plan:
+Final whole-branch review of `docs/superpowers/plans/2026-08-30-snap-channel.md` (2026-08-30, PR #9)
+flagged several real, non-blocking findings. All fixed:
 
-- **`version: git` resolves to `0+git.<sha>` in CI, not a real version number.** `actions/checkout@v4`
-  fetches shallow with no tags, so `git describe` (what `version: git` relies on) has nothing to
-  describe and Snapcraft falls back to a bare commit-sha version. The design spec's own intent was
-  for the Snap's version to mirror `pyproject.toml`'s real version (matching how `debian/changelog`
-  drives the apt channel's own version) - the plan substituted `version: git` for YAGNI reasons
-  without confirming this actually worked in CI. Real fix: either `adopt-info: orcshot` on the part
-  plus a `craftctl set version=...` step reading `pyproject.toml` directly (one source of truth, no
-  manual per-release edit - what the plan actually wanted), or at minimum `fetch-depth: 0` +
-  `fetch-tags: true` in the workflow's checkout step so `git describe` has real tags to resolve
-  against. Only matters once this channel is actually published (Snap Store submission is its own,
-  later, explicitly out-of-scope phase per the parent spec) - not a merge blocker for CI-only work.
+- **`version: git` resolved to `0+git.<sha>` in CI.** Replaced with `adopt-info: orcshot` +
+  `craftctl set version=...` reading `pyproject.toml` directly - one source of truth, mirrors how
+  `debian/changelog` already drives the apt channel's version, no dependency on the checkout's tag
+  history. Verified locally: packs as `orcshot_0.2.0_amd64.snap`, matching `pyproject.toml` exactly.
+- **Bundled extensions could never be upgraded once installed under Snap.**
+  `install_bundled_extension_if_needed` now compares `metadata.json`'s own `version` field and
+  replaces `dest` when the bundled copy is genuinely newer (missing treated as `0`, so
+  `orcshot-tray@orcshot.org`'s own historically-versionless metadata - now given `"version": 1` -
+  becomes upgradeable too). Also copies to a temp sibling and swaps it in, so an interrupted copy
+  never corrupts or half-writes an existing install. TDD, full test coverage, feeds the same design
+  into the Flatpak channel's own future brainstorm.
+- **`RELEASING.md`'s CI-check step only mentioned `apt.yml`.** Now checks both `apt.yml` and
+  `snap.yml`, matching what a real release push actually triggers.
+- **The `test_deb_channel_never_calls_install_bundled_extension` test was tautological** (asserted a
+  monkeypatch's own return value back at itself). The snap-path gating logic is now extracted into
+  `_install_bundled_extensions_for_snap()`, a real function tests can call directly - the deb-channel
+  no-op, the snap-channel install-all-three, and the prompt-on-failure path are each now genuinely
+  exercised.
+- **The blunt global `os.path.exists` monkeypatch** in `test_channel_detect.py` is gone -
+  `detect_channel()` now takes an injectable `path_exists` parameter, matching the `env` injection
+  pattern it already used.
+- **Neither `apt.yml` nor `snap.yml` declared a `permissions:` block** - see `#190`, fixed for both
+  files together.
 
-- **Bundled extensions can never be upgraded once installed under Snap.**
-  `channel_detect.install_bundled_extension_if_needed`'s `if dest.exists(): return True` guard means
-  once a user's real per-user extensions directory has the tray extension, a later `snap refresh`
-  shipping a fixed `extension.js` never touches it again - every existing user stays on whatever
-  version they first got, silently, forever. The "never clobber" precedent this borrowed from
-  (`hotkey_setup`'s conflict-aware writes) doesn't actually transfer: a hotkey binding is *user*
-  configuration worth preserving across upgrades; a bundled extension directory is *package payload*
-  the user never edits, closer to how a `.deb` upgrade always overwrites its own shipped files via
-  `dh_install`. Real fix (small): compare `metadata.json`'s own version field between `bundled_dir`
-  and `dest`, re-copy when the bundled one is newer - roughly five lines, one test. Related, smaller:
-  if `copytree` fails partway, the same `dest.exists()` fast path means a corrupted partial copy is
-  never retried or repaired either; copying to a temp sibling and `os.replace`-ing it closes both
-  holes at once. **Feed this into the Flatpak channel's own brainstorm too** - it will reuse
-  `detect_channel()`/`install_bundled_extension_if_needed()` and will hit the identical upgrade
-  question; cheaper to design in up front than rediscover independently.
+Left as genuinely non-actionable: the CI check script writing into the live GNOME Shell extensions
+directory rather than a `.ci/` subdirectory - harmless residue on an ephemeral, destroyed-after-the-job
+CI runner, not worth the complexity of a separate directory.
 
-- **Minor CI/doc hygiene**, all real but genuinely non-blocking: the CI check script writes into the
-  live GNOME Shell extensions directory rather than a `.ci/` subdirectory (harmless, but leaves
-  residue); `RELEASING.md`'s CI-check step only mentions `apt.yml`, not `snap.yml`, even though a
-  release push now triggers both; the plan's own verbatim
-  `test_deb_channel_never_calls_install_bundled_extension` test is tautological (asserts the
-  monkeypatch itself, not the real guard - a plan defect faithfully implemented, not an implementer
-  choice; either delete it or extract the snap-path logic into a small pure helper that returns
-  whether it acted, and test that); a global `os.path.exists` monkeypatch in one test is a blunter
-  instrument than patching the module's own reference; neither `apt.yml` nor `snap.yml` declares a
-  `permissions: contents: read` block (harmless today, worth doing to both at once if ever revisited).
+## #190: apt CI workflow hardening (RESOLVED 2026-08-30)
 
-## #190: apt CI workflow hardening - deferred Minor findings from the final review
+Final whole-branch review of `docs/superpowers/plans/2026-08-29-apt-ci-automation.md` (2026-08-29)
+flagged several Minor, non-blocking hardening items. All fixed, applied to both `apt.yml` and
+`snap.yml` together (the same gaps existed in both):
 
-Final whole-branch review of `docs/superpowers/plans/2026-08-29-apt-ci-automation.md` (2026-08-29,
-review saved to that plan's now-deleted SDD workspace - see `git log` on `.github/workflows/apt.yml`
-for the underlying commits) came back clean on Critical/Important (those were fixed in the same
-pass - see the plan's own commit history for the fix wave), but flagged several Minor,
-non-blocking hardening items worth doing as a small follow-up rather than expanding that plan's own
-scope:
+- **`permissions: contents: read`** added at the top level of both workflows - makes the
+  already-default repo setting explicit at the file level, not dependent on a setting someone could
+  change later.
+- **`concurrency:` group + `cancel-in-progress: true`** added to both - repeated pushes to the same
+  PR branch now cancel the superseded run instead of all running in parallel.
+- **`timeout-minutes: 20`** added to every job in both workflows - bounds a hung step (e.g.
+  `gnome-shell` never logging its startup line) instead of burning the default 6-hour job timeout.
+- **A clarifying comment on what the headless-Shell check actually proves** - added to both
+  `apt.yml` and `snap.yml`'s equivalent check: it proves the extension loads, initializes, and its
+  D-Bus name-watcher wires up correctly; it does not exercise menu construction or rendering.
 
-- **No top-level `permissions:` block.** The repo default is already `read` (verified live via the
-  API), so there's no current exposure, but that's a repo *setting* someone could change later, not
-  a property of the file. `permissions: { contents: read }` at the top of `apt.yml` makes the intent
-  explicit - one line.
-- **No `concurrency:` group and no `timeout-minutes:`.** Pushing multiple times to a PR branch runs
-  every push's full ~4-minute build in parallel instead of cancelling the superseded one. A standard
-  `concurrency: { group: ${{ github.workflow }}-${{ github.ref }}, cancel-in-progress: true }` fixes
-  that. Separately, a hung `gnome-shell` step would currently burn the default 6-hour job timeout -
-  `timeout-minutes: 20` on `verify` bounds it.
-- **The test suite runs twice in `build`** - once explicitly (`pytest`), once again inside
-  `dpkg-buildpackage` via `debian/rules`' own `override_dh_auto_test`. `RELEASING.md` already
-  accepts this duplication for the manual release flow ("a failure here just means finding out later
-  instead of now"), but that rationale is much weaker in CI, where "later" is under a minute in the
-  same job. The explicit step does buy one distinct signal (PyPI-resolved dev deps via
-  `pip install -e ".[dev]"` vs. the distro's `python3-pytest`), so it isn't pure waste - worth a
-  deliberate keep-or-drop decision rather than just inheriting it unexamined.
-- **Mixed merge styles in `main`'s history** (some PRs landed as merge commits, some as squash
-  merges) - cosmetic, but worth picking one convention going forward; squash is arguably the better
-  default here since it keeps the plan's own deliberate break-then-revert verification commits out
-  of `main`'s permanent history.
-- **A clarifying comment on what the headless-Shell check actually proves** - it proves the
-  extension loads, initializes, and its D-Bus name-watcher wires up correctly; it does not exercise
-  menu construction or rendering (`_rebuild`, the button actually appearing in the status area). That
-  scope is reasonable (it matches the spec's own original live-tested recipe) but isn't obvious from
-  the step's name alone - a one-line comment would keep a future reader from over-trusting the check.
-
-None of these are urgent; none affect whether the current CI is safe or correct today.
+Reviewed and deliberately left as-is:
+- **The test suite running twice in `build`** (explicit `pytest` step + `dpkg-buildpackage`'s own
+  `override_dh_auto_test`) - catches a real, distinct signal (PyPI-resolved dev deps vs. the distro's
+  `python3-pytest`), not pure waste.
+- **Mixed merge styles in `main`'s history** - already settled in practice via this session's own
+  squash-merge convention for the two most recent large PRs; no code change needed.
 
 ## #187: Prove (or disprove) whether `fallback-x11` gives real, unrestricted X11 capture under Flatpak
 
