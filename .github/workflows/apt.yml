@@ -83,6 +83,13 @@ jobs:
 
       - name: Enable the extension (already installed system-wide by the .deb) and confirm it loads with no errors
         run: |
+          # This proves the extension loads, initializes, and its D-Bus
+          # name-watcher wires up correctly (the "orcshot-tray-diag" log
+          # line, plus no JS errors) - it does not exercise menu
+          # construction or rendering (_rebuild, the button actually
+          # appearing in the status area). That scope matches this
+          # check's own original live-tested design; noted here so it's
+          # not mistaken for broader coverage than it actually has.
           export XDG_RUNTIME_DIR=/run/user/$(id -u)
           export DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/$(id -u)/bus
           gnome-extensions enable orcshot-tray@orcshot.org
