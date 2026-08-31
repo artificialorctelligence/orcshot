@@ -2,5 +2,6 @@
   "name": "Orcshot Tray",
   "description": "Renders Orcshot's Wayland tray icon and menu from the app's own exported Gio.Menu - see the project's own REQUIREMENTS.md and docs/superpowers/specs/2026-08-28-wayland-capture-redesign-design.md for why this exists as a separate, narrowly-scoped extension rather than a general-purpose tray renderer.",
   "uuid": "orcshot-tray@orcshot.org",
-  "shell-version": ["45", "46", "47", "48", "49", "50"]
+  "shell-version": ["45", "46", "47", "48", "49", "50"],
+  "version": 1
 }
