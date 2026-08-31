@@ -39,9 +39,9 @@ modules:
       - install -Dm644 org.orcshot.Orcshot.desktop /app/share/applications/org.orcshot.Orcshot.desktop
       # The existing icon asset (src/orcshot/resources/orcshot.png, the
       # same file debian/orcshot.install already ships at
-      # hicolor/128x128/apps/ for apt) is 155x126, not square -
+      # hicolor/128x128/apps/ for apt) is not square -
       # flatpak-builder's own exporter rejects a non-square *raster*
-      # icon outright ("Expected a square icon but got: 155x126",
+      # icon outright ("Expected a square icon but got: <w>x<h>",
       # confirmed live; also confirmed live that decoding it via
       # GdkPixbuf inside the build sandbox itself fails - GNOME 50's
       # GdkPixbuf loads through a glycin loader that spawns its own
@@ -50,24 +50,34 @@ modules:
       # standard scalable/apps/ bucket, which icon lookup finds ahead
       # of a fixed-size PNG and which Flatpak's exporter does not
       # subject to the square-raster check) - a plain wrapper with a
-      # square 155x155 viewBox, the original PNG bytes embedded
-      # unmodified as a data: URI (base64, stdlib only, no image
-      # decode/re-encode of the pixels at all) centered inside it.
-      # Nothing new is committed to the repo; the checked-in icon
-      # itself is untouched, and the visual mark itself is byte-for-
-      # byte the same PNG, just wrapped so it has a square canvas.
+      # square viewBox (side = max(width, height)), the original PNG
+      # bytes embedded unmodified as a data: URI (base64, stdlib only,
+      # no image decode/re-encode of the pixels at all) centered inside
+      # it. Width/height are read from the PNG's own IHDR chunk (struct,
+      # stdlib only) instead of being hardcoded here, so this survives
+      # the icon asset being redrawn at different dimensions later
+      # (already happened once - task #185's own fix round guessed
+      # 155x126, direflail redrew the icon to 155x147 days later, which
+      # would have silently gone stale otherwise). Nothing new is
+      # committed to the repo; the checked-in icon itself is untouched,
+      # and the visual mark itself is byte-for-byte the same PNG, just
+      # wrapped so it has a square canvas.
       - |
         python3 - <<'PYEOF'
         import base64
+        import struct
         with open("src/orcshot/resources/orcshot.png", "rb") as f:
-            data = base64.b64encode(f.read()).decode("ascii")
-        w, h, size = 155, 126, 155
+            data_bytes = f.read()
+        w, h = struct.unpack(">II", data_bytes[16:24])
+        data = base64.b64encode(data_bytes).decode("ascii")
+        size = max(w, h)
+        x = (size - w) // 2
         y = (size - h) // 2
         svg = (
             f'<svg xmlns="http://www.w3.org/2000/svg" width="{size}" height="{size}" '
             f'viewBox="0 0 {size} {size}">'
             f'<rect width="{size}" height="{size}" fill="#3d3d3d"/>'
-            f'<image x="0" y="{y}" width="{w}" height="{h}" '
+            f'<image x="{x}" y="{y}" width="{w}" height="{h}" '
             f'href="data:image/png;base64,{data}"/></svg>'
         )
         with open("org.orcshot.Orcshot.generated-icon.svg", "w") as f:
