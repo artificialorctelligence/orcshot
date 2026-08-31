@@ -135,6 +135,41 @@ both X11 (via `fallback-x11`, full native `X11CaptureBackend`, no portal) and Wa
 or `#184`'s now-proven extension-install path). Worth folding into `#185`'s own design pass before
 building it, not treated as a separate follow-up.
 
+**Follow-up raised directly by direflail after the above (2026-08-30): does the same reasoning hold for
+Wayland's own portal-based capture path, and does `#184`'s Flatpak-filesystem-grant question (the
+`channel_detect.py` extension-install mechanism) hold too? IN PROGRESS, not yet fully answered:**
+
+1. **`--filesystem=~/.local/share/gnome-shell/extensions:create` - CONFIRMED WORKING.** Same throwaway-spike
+   method as above (`org.gnome.Platform`/`Sdk` 49 this time). A confined process wrote and read back real
+   content with no separate runtime "connect" step - simpler than Snap's `personal-files`, which needs
+   `snap connect` after install. `channel_detect.install_bundled_extension_if_needed`'s own mechanism
+   should transfer to Flatpak cleanly on this specific point.
+
+2. **Portal `Screenshot` (`org.freedesktop.portal.Screenshot`) - genuinely inconclusive on this dev
+   machine, root-caused rather than left as a guess.** First attempt (unconfined AND confined, on this
+   machine's own Mint/Cinnamon desktop) failed with `response_code=2`, traced via the real portal log to
+   `Failed to show access dialog: Timeout was reached` - confirmed via `xdg-desktop-portal`'s own
+   `.portal` files that `xdg-desktop-portal-xapp` (Cinnamon's backend) implements `Screenshot` but *not*
+   `org.freedesktop.impl.portal.Access` (the consent-dialog interface), and `xdg-desktop-portal-gtk`
+   (which does implement `Access`) is `UseIn=gnome` only - a real Cinnamon-specific portal gap, not a
+   Flatpak-confinement finding.
+   - Retested **unconfined** on the project's own real Ubuntu 26.04/GNOME Shell 50.1 VM
+     (`XDG_CURRENT_DESKTOP=ubuntu:GNOME`, genuine Wayland session): **succeeded cleanly**,
+     `response_code=0`, a real 92800-byte PNG (1366x768) written to `~/Pictures/` and read back - no
+     Access-dialog timeout at all. Consistent with `wayland_portal.py`'s own docstring
+     ("confirmed live that calling the portal from an unsandboxed process didn't show one here").
+   - **The actually-open question - does this same call succeed from *inside* a Flatpak sandbox on this
+     same real GNOME Wayland VM (where, unlike Cinnamon, the `Access` portal genuinely exists) - is set
+     up but not yet run.** `org.gnome.Platform`/`Sdk` 47 are now installed on the VM
+     (`ssh -i ~/.ssh/orcshot_dev_vm -p 2222 ubuntu2604@localhost`, VM started via
+     `VBoxManage startvm "Ubuntu 26.04" --type gui`, NAT port-forward `ssh,tcp,,2222,,22` already
+     configured on the VM). The spike manifest (`org.orcshot.SpikePortalGnome`, zero `finish-args` -
+     strictest possible test) and its test script are written locally at
+     `<scratchpad>/vm-spike/` (a throwaway spike per its own classification, not meant to be kept even
+     once run) but not yet copied to the VM or built. Next step: `scp` that directory to the VM,
+     `flatpak-builder --user --install`, run it, read the result the same way the Cinnamon spike was
+     read, then apply the same throwaway-cleanup (`flatpak uninstall`) regardless of outcome.
+
 Surfaced directly questioning #185's "Wayland-only" framing (direflail, 2026-08-28): "you're SURE we can't
 just use that fallback socket to run it in x11 anyway?" Good pushback - the honest answer right now is
 reasoned, not proven, and the reasoning actually points the other way from what #185 assumed.
