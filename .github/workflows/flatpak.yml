@@ -69,3 +69,96 @@ jobs:
 
       - name: Confirm the installed binary launches without crashing
         run: flatpak run org.orcshot.Orcshot --help
+
+      - name: Trigger the app's real first-run extension-install path
+        run: |
+          # Deliberately the real production code path
+          # (install_bundled_extension_if_needed, via
+          # _install_bundled_extensions_for_sandboxed_channel), not a
+          # CI-only stand-in - matching apt.yml/snap.yml's own established
+          # pattern. Flatpak's --filesystem=...:create grant is
+          # install-time (confirmed live, BACKLOG #187) - no
+          # $SNAP_REAL_HOME-style env resolution needed, plain $HOME
+          # already resolves correctly inside confinement.
+          mkdir -p "$HOME/.local/share/gnome-shell/extensions"
+          cat > "$HOME/.local/share/gnome-shell/extensions/install_check.py" << 'PYEOF'
+          from orcshot.channel_detect import install_bundled_extension_if_needed
+          from pathlib import Path
+          bundled = Path("/app/share/orcshot/gnome-shell-extensions/orcshot-tray@orcshot.org")
+          dest_parent = Path.home() / ".local" / "share" / "gnome-shell" / "extensions"
+          ok = install_bundled_extension_if_needed("orcshot-tray@orcshot.org", bundled, dest_parent)
+          print(f"install_bundled_extension_if_needed -> {ok}")
+          assert ok, "extension install failed even with the filesystem grant in place"
+          PYEOF
+          flatpak run --command=python3 org.orcshot.Orcshot "$HOME/.local/share/gnome-shell/extensions/install_check.py"
+
+      - name: Install gnome-shell and headless deps
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y gnome-shell dbus-x11
+
+      # Task 3's own live CI run (run 33448654638, job 99672910983) showed
+      # bare `flatpak run org.orcshot.Orcshot --help` does NOT need a real
+      # systemd --user session bus - it succeeded with only a harmless
+      # dconf-CRITICAL warning, because GLib's option parser exits before
+      # touching GSettings at all. That finding is about --help's process-
+      # launch mechanics only. This job's own next two steps are a
+      # different question: they write real GSettings values via
+      # dconf-service, which needs a real D-Bus session bus - and that
+      # same dconf-CRITICAL line ("unable to create file
+      # '/run/user/1001/dconf/user': Permission denied") is direct live
+      # evidence this runner has no working XDG_RUNTIME_DIR/dconf
+      # environment by default, the same class of gap snap.yml's own hard
+      # tier had to solve explicitly for the identical reason (dconf-
+      # service needing a real session bus to be reachable at all). So
+      # this step stays in, kept for this job's own GSettings-writing
+      # steps below, independent of what Task 3 found for bare `--help`.
+      - name: Start a real systemd --user session bus
+        run: |
+          sudo systemctl start user@$(id -u).service
+          timeout 30 bash -c 'until [ -S "/run/user/$(id -u)/bus" ]; do sleep 0.5; done' \
+            || { echo "systemd --user session bus never appeared"; exit 1; }
+
+      - name: Launch gnome-shell headless
+        run: |
+          export XDG_RUNTIME_DIR=/run/user/$(id -u)
+          export DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/$(id -u)/bus
+          nohup gnome-shell --headless --virtual-monitor 1024x768 > /tmp/shell.log 2>&1 &
+          disown
+          timeout 60 bash -c 'until grep -q "GNOME Shell started" /tmp/shell.log; do sleep 1; done' \
+            || { echo "gnome-shell never logged its startup line"; cat /tmp/shell.log; exit 1; }
+          pgrep -af gnome-shell || (echo "gnome-shell did not stay running" && cat /tmp/shell.log && exit 1)
+
+      - name: "Exercise Orcshot's own enable_extension() write, confined, and confirm it persists"
+        run: |
+          export XDG_RUNTIME_DIR=/run/user/$(id -u)
+          export DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/$(id -u)/bus
+          flatpak run --command=python3 org.orcshot.Orcshot -c "
+          from orcshot.hotkey_setup import GioSettingsBackend
+          from orcshot.gnome_extension_setup import enable_extension, TRAY_EXTENSION_UUID
+          enable_extension(GioSettingsBackend(), TRAY_EXTENSION_UUID)
+          "
+          flatpak run --command=python3 org.orcshot.Orcshot -c "
+          from orcshot.hotkey_setup import GioSettingsBackend
+          current = GioSettingsBackend().get_strv('org.gnome.shell', '/', 'enabled-extensions')
+          print('enabled-extensions ->', current)
+          assert 'orcshot-tray@orcshot.org' in current, 'enable_extension write did not persist'
+          "
+
+      - name: "Confirm the already-running Shell loads the extension from that write alone"
+        run: |
+          timeout 60 bash -c 'until grep -q "orcshot-tray-diag" /tmp/shell.log; do sleep 1; done' \
+            || { echo "extension never logged its diagnostic line - did not load"; cat /tmp/shell.log; exit 1; }
+          if grep -qi "JS ERROR\|Gjs-CRITICAL" /tmp/shell.log; then
+            echo "A real JS error was logged - see the log below"
+            cat /tmp/shell.log
+            exit 1
+          fi
+          echo "Extension loaded from the persisted write alone, no JS errors logged"
+
+      - name: Always upload the shell log for diagnosis
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: shell-log
+          path: /tmp/shell.log
