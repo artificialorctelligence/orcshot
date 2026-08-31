@@ -4371,6 +4371,30 @@ session scratch files, not the repo - not reproduced here since they were supers
 that mattered is: **a sparse ring or face outline doesn't carry enough visual information at this
 dot count/spacing to read as representational art** - a dense, filled cluster with 2-3 colors does.
 
+**Redraw: full-size dots, real headroom, 155×147 canvas (2026-08-31, prompted by BACKLOG #185's
+Flatpak work)**. Two things above are now stale, superseded by this redraw:
+
+- The tusks are grey (`#808080`), not white - changed in a later, undocumented pass (commit
+  `864b3dd`, "tusks grey") that never updated this section. Confirmed live by blob-detecting the
+  shipped PNG's actual pixel colors before touching anything.
+- The 155×126 canvas clipped several real dots at the right/bottom edges, as described above -
+  including one (bottom row, rightmost) clipped by ~7px past the edge, effectively invisible rather
+  than just partially cut. direflail flagged this directly ("i am only seeing four dots on the bottom
+  row. i want there to be five") while reviewing a rendered comparison, not from reading this file -
+  the bottom row already had 5 dots in the design; the 5th just never rendered.
+
+Fixed by fitting the dot lattice to the real shipped PNG's own pixel data (blob-detected all 38
+unclipped dots, least-squares fit for anchor/basis-vectors/radius against the documented 43-cell
+grid above - max residual 0.7px, confirming the grid itself was unchanged, only the canvas/crop was
+wrong) and re-rendering the same 43-dot design on a taller 155×147 canvas - every dot now draws as a
+complete circle, and the topmost dot gets real padding above it (was ~8px, now ~15px). direflail
+reviewed three rendered candidates (full/uncropped; shifted-with-padding; scaled-to-fit-the-old-
+footprint) side by side before picking the shifted-with-padding version as the new mark going
+forward, for all three channels (apt, Snap, Flatpak all reference the same
+`src/orcshot/resources/orcshot.png`). `org.orcshot.Orcshot.yaml`'s icon-export step now reads the
+PNG's real width/height from its own IHDR chunk instead of hardcoding them, so a future redraw at
+different dimensions won't silently go stale there again.
+
 ## Menu bar rebuild: File/Edit/Object/Zoom/Help (task #95, part 1 - complete 2026-08-13)
 
 Grounded in the real menu structure (`ImageEditorForm.Designer.cs:589-595`'s `menuStrip1.Items`), not the
