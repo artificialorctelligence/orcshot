@@ -176,13 +176,31 @@ Wayland's own portal-based capture path, and does `#184`'s Flatpak-filesystem-gr
      tracker's point of view. A real GUI app (which Orcshot genuinely is) satisfies this naturally the
      moment a user triggers a capture from within its own actual window - this was never exercised by
      the spike's own design, not a property of Flatpak.
-   - **Net assessment**: the portal path is very likely fine for a real Orcshot Flatpak build (the
-     confinement mechanism itself has no shown block; the only failure found is fully explained by the
-     spike's own CLI-only shape, not by anything Orcshot would actually do), but this stops one step
-     short of empirical proof - a spike with a genuine minimal GTK window, calling Screenshot from
-     inside that window's own event loop while it holds focus, would close this completely. Not done
-     here (meaningfully heavier lift than the CLI-only version); flagged as the concrete next step if
-     this needs to move from "very likely fine, well-understood" to "proven."
+   - **Closed completely (2026-08-31): a real GTK window spike, proven, not just reasoned about.**
+     Built `org.orcshot.SpikePortalGtk` - a genuine `Gtk.Window`, shown and given 2 real seconds to be
+     mapped/focused by the window manager before firing the same `Screenshot` call from inside its own
+     GTK main loop. First attempt still failed identically (`response_code=2`), *despite* the window
+     self-reporting `is_active()=True has_toplevel_focus=True` via GTK's own API - proving client-side
+     focus alone isn't what GNOME Shell's check actually looks at. Root cause found, not guessed: the
+     build had "No appstream data" (flagged in its own build log) - no `.desktop` file at all, so GNOME
+     Shell's `_windowTracker` had no way to associate the window with a recognized "app" entry in the
+     first place, independent of genuine X11/Wayland-level keyboard focus. Added a minimal
+     `.desktop` file (`Name=Orcshot Portal Spike`, installed to `/app/share/applications/`) and
+     rebuilt - **the real Access dialog appeared** ("Allow Orcshot Portal Spike to Take Screenshots?"),
+     was approved, and the call succeeded cleanly:
+     ```
+     response_code=0
+     RESULT: SUCCESS, uri=file:///run/user/1000/doc/1c3e7475/Screenshot-1.png
+     RESULT: read 195685 bytes, PNG_magic=True
+     ```
+     Real PNG, returned through the document-portal FUSE mount exactly as `wayland_portal.py`'s own
+     code comment already predicted a sandboxed caller would get (not a direct `~/Pictures` path).
+     **Net result: the Screenshot portal genuinely works under real Flatpak strict confinement on real
+     GNOME Wayland, end to end - real Access dialog, real user consent, real image data.** The one
+     requirement it surfaced (a proper `.desktop` file with a real `Name=`) is not a workaround or a
+     special case - it's standard Flatpak packaging convention any real, published Orcshot build would
+     already have. Spike code and app uninstalled, nothing kept per its own classification - this
+     entry is the record.
 
 Surfaced directly questioning #185's "Wayland-only" framing (direflail, 2026-08-28): "you're SURE we can't
 just use that fallback socket to run it in x11 anyway?" Good pushback - the honest answer right now is
