@@ -141,6 +141,30 @@ def _snap_real_home_extensions_dir(env: dict = None) -> Path:
     return Path(env["SNAP_REAL_HOME"]) / ".local" / "share" / "gnome-shell" / "extensions"
 
 
+def _install_bundled_extensions_for_snap(parent) -> bool:
+    """Copies each bundled extension into the real per-user extensions
+    path when running under Snap - sandboxed channels can't write to
+    the system-wide path the way .deb's own dh_install does. Returns
+    whether this actually ran: True only for the snap channel, so a
+    plain .deb install (detect_channel() == "deb") is a verified no-op
+    - the loop body never executes at all, matching this feature's own
+    whole point of channel-gating (BACKLOG #191 - extracted so this
+    gating is exercised by a real test, not just a monkeypatch's own
+    return value asserted back at itself).
+    """
+    if detect_channel() != "snap":
+        return False
+    all_installed = True
+    for uuid in (WINDOW_CALLS_EXTENSION_UUID, CLIPBOARD_EXTENSION_UUID, TRAY_EXTENSION_UUID):
+        bundled_dir = _extension_bundle_dir(uuid)
+        dest_parent = _snap_real_home_extensions_dir()
+        if not install_bundled_extension_if_needed(uuid, bundled_dir, dest_parent):
+            all_installed = False
+    if not all_installed:
+        show_snap_connect_prompt(parent)
+    return True
+
+
 def maybe_run_first_run_setup(parent: Gtk.Window = None, executable: str = None, settings_backend=None) -> None:
     """Shows the first-run dialog if it hasn't run before; does
     nothing otherwise (checked via settings.is_first_run_setup_done).
@@ -313,22 +337,7 @@ def _run_dialog(parent, executable: str, settings_backend) -> None:
             configure_all_hotkeys(settings_backend, executable, skip=skip, profile=profile)
 
         if is_gnome_wayland:
-            # Sandboxed channels (Snap, Flatpak) can't write to the
-            # system-wide extensions path the way .deb's own
-            # dh_install does - copy each bundled extension into the
-            # real per-user path first. A plain .deb install is a
-            # verified no-op here: detect_channel() returns "deb", and
-            # the loop body below never runs at all.
-            channel = detect_channel()
-            all_installed = True
-            if channel == "snap":
-                for uuid in (WINDOW_CALLS_EXTENSION_UUID, CLIPBOARD_EXTENSION_UUID, TRAY_EXTENSION_UUID):
-                    bundled_dir = _extension_bundle_dir(uuid)
-                    dest_parent = _snap_real_home_extensions_dir()
-                    if not install_bundled_extension_if_needed(uuid, bundled_dir, dest_parent):
-                        all_installed = False
-                if not all_installed:
-                    show_snap_connect_prompt(parent)
+            _install_bundled_extensions_for_snap(parent)
 
             enable_extension(settings_backend, WINDOW_CALLS_EXTENSION_UUID)
             enable_extension(settings_backend, CLIPBOARD_EXTENSION_UUID)

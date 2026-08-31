@@ -41,21 +41,58 @@ def test_snap_real_home_extensions_dir_uses_snap_real_home_not_home(tmp_path):
     assert snap_redirected_home not in result.parents
 
 
-def test_deb_channel_never_calls_install_bundled_extension(monkeypatch):
+def test_deb_channel_never_installs_bundled_extensions(monkeypatch):
     """The whole point of channel-gating this: a plain .deb install
-    must behave exactly as it did before this feature existed."""
+    must behave exactly as it did before this feature existed. Calls
+    the real gating helper (_install_bundled_extensions_for_snap)
+    rather than asserting a monkeypatch's own return value back at
+    itself - the previous version of this test only proved
+    detect_channel() != "snap" when detect_channel() had literally
+    been replaced with a lambda returning "deb", not that the real
+    guard behaves correctly."""
     import orcshot.ui.first_run_setup as mod
 
     monkeypatch.setattr(mod, "detect_channel", lambda: "deb")
     calls = []
     monkeypatch.setattr(mod, "install_bundled_extension_if_needed", lambda *a, **kw: calls.append(a))
 
-    # detect_channel() == "deb" means the `if channel == "snap":` guard
-    # is never entered - assert the guard's own condition directly,
-    # matching how this codebase already tests conditional gating
-    # elsewhere (e.g. hotkey_setup's profile-gated code paths) rather
-    # than driving the full GTK dialog (this module's own docstring:
-    # "not unit tested... GTK dialog glue with no meaningful headless
-    # test").
-    assert mod.detect_channel() != "snap"
+    acted = mod._install_bundled_extensions_for_snap(None)
+
+    assert acted is False
     assert calls == []
+
+
+def test_snap_channel_installs_each_bundled_extension(monkeypatch, tmp_path):
+    import orcshot.ui.first_run_setup as mod
+
+    monkeypatch.setattr(mod, "detect_channel", lambda: "snap")
+    monkeypatch.setattr(mod, "_extension_bundle_dir", lambda uuid: tmp_path / "bundled" / uuid)
+    monkeypatch.setattr(mod, "_snap_real_home_extensions_dir", lambda: tmp_path / "real-home")
+    calls = []
+    monkeypatch.setattr(
+        mod, "install_bundled_extension_if_needed", lambda uuid, bundled, dest: calls.append(uuid) or True
+    )
+    prompted = []
+    monkeypatch.setattr(mod, "show_snap_connect_prompt", lambda parent: prompted.append(parent))
+
+    acted = mod._install_bundled_extensions_for_snap(None)
+
+    assert acted is True
+    assert calls == [mod.WINDOW_CALLS_EXTENSION_UUID, mod.CLIPBOARD_EXTENSION_UUID, mod.TRAY_EXTENSION_UUID]
+    assert prompted == []
+
+
+def test_snap_channel_prompts_when_an_install_fails(monkeypatch, tmp_path):
+    import orcshot.ui.first_run_setup as mod
+
+    monkeypatch.setattr(mod, "detect_channel", lambda: "snap")
+    monkeypatch.setattr(mod, "_extension_bundle_dir", lambda uuid: tmp_path / "bundled" / uuid)
+    monkeypatch.setattr(mod, "_snap_real_home_extensions_dir", lambda: tmp_path / "real-home")
+    monkeypatch.setattr(mod, "install_bundled_extension_if_needed", lambda *a, **kw: False)
+    prompted = []
+    monkeypatch.setattr(mod, "show_snap_connect_prompt", lambda parent: prompted.append(parent))
+
+    acted = mod._install_bundled_extensions_for_snap("sentinel-parent")
+
+    assert acted is True
+    assert prompted == ["sentinel-parent"]
