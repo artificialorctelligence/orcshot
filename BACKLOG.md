@@ -158,17 +158,31 @@ Wayland's own portal-based capture path, and does `#184`'s Flatpak-filesystem-gr
      `response_code=0`, a real 92800-byte PNG (1366x768) written to `~/Pictures/` and read back - no
      Access-dialog timeout at all. Consistent with `wayland_portal.py`'s own docstring
      ("confirmed live that calling the portal from an unsandboxed process didn't show one here").
-   - **The actually-open question - does this same call succeed from *inside* a Flatpak sandbox on this
-     same real GNOME Wayland VM (where, unlike Cinnamon, the `Access` portal genuinely exists) - is set
-     up but not yet run.** `org.gnome.Platform`/`Sdk` 47 are now installed on the VM
-     (`ssh -i ~/.ssh/orcshot_dev_vm -p 2222 ubuntu2604@localhost`, VM started via
-     `VBoxManage startvm "Ubuntu 26.04" --type gui`, NAT port-forward `ssh,tcp,,2222,,22` already
-     configured on the VM). The spike manifest (`org.orcshot.SpikePortalGnome`, zero `finish-args` -
-     strictest possible test) and its test script are written locally at
-     `<scratchpad>/vm-spike/` (a throwaway spike per its own classification, not meant to be kept even
-     once run) but not yet copied to the VM or built. Next step: `scp` that directory to the VM,
-     `flatpak-builder --user --install`, run it, read the result the same way the Cinnamon spike was
-     read, then apply the same throwaway-cleanup (`flatpak uninstall`) regardless of outcome.
+   - **Confined-on-GNOME test run for real (2026-08-31), root-caused, not left as a bare failure.**
+     `org.orcshot.SpikePortalGnome` (zero `finish-args` - strictest possible test) built and run on the
+     real GNOME Wayland VM, both over SSH and from a genuinely focused terminal window (GUI mode +
+     `xdotool`, to rule out "no focused app" as an artifact of SSH specifically) - both failed
+     identically, `response_code=2`. The real portal log gives the exact reason, confirmed as a known,
+     documented class of issue via a real upstream GitHub issue
+     (flatpak/xdg-desktop-portal#1338, GNOME Shell's own `accessDialog.js`):
+     ```
+     Failed to show access dialog: GDBus.Error:org.freedesktop.DBus.Error.AccessDenied:
+     Only the focused app is allowed to show a system access dialog
+     ```
+     This is **not a Flatpak-confinement wall** - it's a real, deliberate GNOME Shell security policy:
+     the *requesting app itself* must be the currently-focused window. The spike script is a headless
+     CLI process with no GUI window of its own at all, so it can never satisfy this check regardless of
+     confinement - the terminal that launched it is a different application from GNOME Shell's window
+     tracker's point of view. A real GUI app (which Orcshot genuinely is) satisfies this naturally the
+     moment a user triggers a capture from within its own actual window - this was never exercised by
+     the spike's own design, not a property of Flatpak.
+   - **Net assessment**: the portal path is very likely fine for a real Orcshot Flatpak build (the
+     confinement mechanism itself has no shown block; the only failure found is fully explained by the
+     spike's own CLI-only shape, not by anything Orcshot would actually do), but this stops one step
+     short of empirical proof - a spike with a genuine minimal GTK window, calling Screenshot from
+     inside that window's own event loop while it holds focus, would close this completely. Not done
+     here (meaningfully heavier lift than the CLI-only version); flagged as the concrete next step if
+     this needs to move from "very likely fine, well-understood" to "proven."
 
 Surfaced directly questioning #185's "Wayland-only" framing (direflail, 2026-08-28): "you're SURE we can't
 just use that fallback socket to run it in x11 anyway?" Good pushback - the honest answer right now is
