@@ -41,9 +41,9 @@ jobs:
       - name: Connect personal-files (manual connect against a local install needs no Canonical review)
         run: sudo snap connect orcshot:dot-local-share-gnome-shell
 
-      - name: Diagnostic probe - does gnome_shell_present() survive strict confinement?
+      - name: "Assert gnome_shell_present() resolves org.gnome.shell under confinement (BACKLOG #192)"
         run: |
-          snap run --shell orcshot -c "python3 -c 'from orcshot.gnome_extension_setup import gnome_shell_present; print(\"GNOME_SHELL_PRESENT_RESULT=\" + str(gnome_shell_present()))'"
+          snap run --shell orcshot -c "python3 -c 'from orcshot.gnome_extension_setup import gnome_shell_present; result = gnome_shell_present(); print(\"gnome_shell_present() ->\", result); assert result is True, \"schema unresolvable - gnome-shell-common staging/compile regressed\"'"
 
       - name: Confirm the installed binary launches without crashing
         run: orcshot --help
@@ -93,11 +93,40 @@ jobs:
           sudo apt-get update -qq
           sudo apt-get install -y gnome-shell dbus-x11
 
-      - name: Launch gnome-shell headless against a fixed D-Bus session bus
+      - name: Start a real systemd --user session bus
         run: |
-          mkdir -p /run/user/$(id -u)
-          chmod 700 /run/user/$(id -u)
-          dbus-daemon --session --address=unix:path=/run/user/$(id -u)/bus --fork
+          # A bare `dbus-daemon --session` isn't enough once `snap run`
+          # needs to work afterward: `snap run` asks systemd over the
+          # session bus to create its own confinement scope, which needs
+          # org.freedesktop.systemd1.Manager actually registered there - a
+          # bare dbus-daemon has no systemd --user attached to it at all.
+          # Confirmed live (this PR's own CI): once any listening socket
+          # exists at the conventional $XDG_RUNTIME_DIR/bus path,
+          # snap-confine probes it and attempts that handshake regardless
+          # of whether DBUS_SESSION_BUS_ADDRESS is explicitly exported in
+          # the calling shell - a bare dbus-daemon there broke every later
+          # `snap run` call in the job with "... is not a snap cgroup for
+          # tag snap.orcshot.orcshot". This is a documented, core24-specific
+          # snapd bug with a documented fix: start the real systemd --user
+          # instance for this UID instead, which provides a real session
+          # bus with that interface actually present.
+          # https://bugs.launchpad.net/snapd/+bug/2075560
+          sudo systemctl start user@$(id -u).service
+          timeout 30 bash -c 'until [ -S "/run/user/$(id -u)/bus" ]; do sleep 0.5; done' \
+            || { echo "systemd --user session bus never appeared"; exit 1; }
+
+      - name: Launch gnome-shell headless
+        run: |
+          # gnome-shell (and, transitively, dconf-service) already running
+          # matches real desktop conditions - this project's OWN first-run
+          # dialog only ever runs while the user's desktop session, dconf
+          # included, is already up. Confirmed live (this PR's own prior CI
+          # run): the confined enable_extension() write itself gets
+          # AppArmor-denied talking to ca.desrt.dconf when attempted BEFORE
+          # anything has started dconf-service - a confined snap apparently
+          # can't D-Bus-activate it from cold, only talk to an
+          # already-running instance. Launching gnome-shell first sidesteps
+          # that and matches the real scenario Orcshot actually runs in.
           export XDG_RUNTIME_DIR=/run/user/$(id -u)
           export DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/$(id -u)/bus
           nohup gnome-shell --headless --virtual-monitor 1024x768 > /tmp/shell.log 2>&1 &
@@ -106,11 +135,32 @@ jobs:
             || { echo "gnome-shell never logged its startup line"; cat /tmp/shell.log; exit 1; }
           pgrep -af gnome-shell || (echo "gnome-shell did not stay running" && cat /tmp/shell.log && exit 1)
 
-      - name: Enable the extension and confirm it loads with no errors
+      - name: "Exercise Orcshot's own enable_extension() write, confined, and confirm it persists (BACKLOG #192)"
         run: |
+          # The exact production call ui/first_run_setup.py makes,
+          # confined, with gnome-shell (and dconf-service) already running
+          # - matching real usage, where the first-run dialog only ever
+          # runs while the user's desktop session is already up. Confirmed
+          # live: attempting this same write *before* anything has started
+          # dconf-service gets AppArmor-denied (a confined snap can't
+          # D-Bus-activate it from cold) - ordering here matters and is
+          # deliberate, not incidental.
           export XDG_RUNTIME_DIR=/run/user/$(id -u)
-          export DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/$(id -u)/bus
-          gnome-extensions enable orcshot-tray@orcshot.org
+          snap run --shell orcshot -c "python3 -c 'import os; os.environ[\"DBUS_SESSION_BUS_ADDRESS\"] = \"unix:path=/run/user/\" + str(os.getuid()) + \"/bus\"; from orcshot.hotkey_setup import GioSettingsBackend; from orcshot.gnome_extension_setup import enable_extension, TRAY_EXTENSION_UUID; enable_extension(GioSettingsBackend(), TRAY_EXTENSION_UUID)'"
+          snap run --shell orcshot -c "python3 -c 'import os; os.environ[\"DBUS_SESSION_BUS_ADDRESS\"] = \"unix:path=/run/user/\" + str(os.getuid()) + \"/bus\"; from orcshot.hotkey_setup import GioSettingsBackend; current = GioSettingsBackend().get_strv(\"org.gnome.shell\", \"/\", \"enabled-extensions\"); print(\"enabled-extensions ->\", current); assert \"orcshot-tray@orcshot.org\" in current, \"enable_extension write did not persist\"'"
+
+      - name: "Confirm the already-running Shell loads the extension from that write alone (BACKLOG #192)"
+        run: |
+          # gnome_extension_setup.enable_extension_live() - the direct
+          # org.gnome.Shell.Extensions.EnableExtension D-Bus call - is
+          # confirmed AppArmor-blocked under Snap's strict confinement
+          # (AccessDenied, live-tested). This confirms that doesn't
+          # actually matter for Snap: the persisted gsettings write above
+          # is picked up by the already-running Shell on its own, live-
+          # confirmed, no D-Bus nudge needed. BACKLOG #192's functional
+          # question is resolved by this - the extension genuinely works
+          # under Snap, just via GSettings' own change notification
+          # instead of an instant D-Bus call.
           timeout 60 bash -c 'until grep -q "orcshot-tray-diag" /tmp/shell.log; do sleep 1; done' \
             || { echo "extension never logged its diagnostic line - did not load"; cat /tmp/shell.log; exit 1; }
           if grep -qi "JS ERROR\|Gjs-CRITICAL" /tmp/shell.log; then
@@ -118,7 +168,7 @@ jobs:
             cat /tmp/shell.log
             exit 1
           fi
-          echo "Extension enabled with no JS errors logged"
+          echo "Extension loaded from the persisted write alone, no JS errors logged"
 
       - name: Always upload the shell log for diagnosis
         if: always()
