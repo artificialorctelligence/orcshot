@@ -119,11 +119,16 @@ def _default_executable(which=shutil.which) -> str:
 
 def _extension_bundle_dir(uuid: str, env: dict = None) -> Path:
     """Where this extension's files are bundled read-only inside a Snap
-    package. Only meaningful when detect_channel() == "snap" - the
-    caller is responsible for checking that first."""
+    or Flatpak package. Only meaningful when detect_channel() is "snap"
+    or "flatpak" - the caller is responsible for checking that first."""
     if env is None:
         env = os.environ
-    return Path(env["SNAP"]) / "share" / "orcshot" / "gnome-shell-extensions" / uuid
+    if env.get("SNAP"):
+        return Path(env["SNAP"]) / "share" / "orcshot" / "gnome-shell-extensions" / uuid
+    # Flatpak always mounts the app's own install prefix at the fixed
+    # path /app - no env-var indirection the way Snap's $SNAP needs
+    # (confirmed live, BACKLOG #187, 2026-08-31).
+    return Path("/app") / "share" / "orcshot" / "gnome-shell-extensions" / uuid
 
 
 def _snap_real_home_extensions_dir(env: dict = None) -> Path:
@@ -141,26 +146,48 @@ def _snap_real_home_extensions_dir(env: dict = None) -> Path:
     return Path(env["SNAP_REAL_HOME"]) / ".local" / "share" / "gnome-shell" / "extensions"
 
 
-def _install_bundled_extensions_for_snap(parent) -> bool:
+def _flatpak_home_extensions_dir(env: dict = None) -> Path:
+    """The real per-user GNOME Shell extensions path a Flatpak install
+    can reach once --filesystem=~/.local/share/gnome-shell/extensions:create
+    is granted (install-time, no separate "connect" step the way Snap's
+    personal-files interface needs - confirmed live, BACKLOG #187,
+    2026-08-31). Unlike Snap, Flatpak doesn't redirect $HOME to a
+    private path at all, so this is plain $HOME, env-injectable for
+    tests to match _snap_real_home_extensions_dir's own convention.
+    """
+    if env is None:
+        env = os.environ
+    return Path(env["HOME"]) / ".local" / "share" / "gnome-shell" / "extensions"
+
+
+def _install_bundled_extensions_for_sandboxed_channel(parent) -> bool:
     """Copies each bundled extension into the real per-user extensions
-    path when running under Snap - sandboxed channels can't write to
-    the system-wide path the way .deb's own dh_install does. Returns
-    whether this actually ran: True only for the snap channel, so a
+    path when running under Snap or Flatpak - sandboxed channels can't
+    write to the system-wide path the way .deb's own dh_install does.
+    Returns whether this actually ran: True only for snap/flatpak, so a
     plain .deb install (detect_channel() == "deb") is a verified no-op
     - the loop body never executes at all, matching this feature's own
     whole point of channel-gating (BACKLOG #191 - extracted so this
     gating is exercised by a real test, not just a monkeypatch's own
-    return value asserted back at itself).
+    return value asserted back at itself). Generalized from Snap-only to
+    also cover Flatpak (BACKLOG #185/#187, 2026-08-31): Flatpak's own
+    --filesystem=...:create grant is install-time, no separate "connect"
+    step exists the way Snap's personal-files needs, so only Snap's own
+    failure path prompts for one.
     """
-    if detect_channel() != "snap":
+    channel = detect_channel()
+    if channel == "snap":
+        dest_parent = _snap_real_home_extensions_dir()
+    elif channel == "flatpak":
+        dest_parent = _flatpak_home_extensions_dir()
+    else:
         return False
     all_installed = True
     for uuid in (WINDOW_CALLS_EXTENSION_UUID, CLIPBOARD_EXTENSION_UUID, TRAY_EXTENSION_UUID):
         bundled_dir = _extension_bundle_dir(uuid)
-        dest_parent = _snap_real_home_extensions_dir()
         if not install_bundled_extension_if_needed(uuid, bundled_dir, dest_parent):
             all_installed = False
-    if not all_installed:
+    if not all_installed and channel == "snap":
         show_snap_connect_prompt(parent)
     return True
 
@@ -337,7 +364,7 @@ def _run_dialog(parent, executable: str, settings_backend) -> None:
             configure_all_hotkeys(settings_backend, executable, skip=skip, profile=profile)
 
         if is_gnome_wayland:
-            _install_bundled_extensions_for_snap(parent)
+            _install_bundled_extensions_for_sandboxed_channel(parent)
 
             enable_extension(settings_backend, WINDOW_CALLS_EXTENSION_UUID)
             enable_extension(settings_backend, CLIPBOARD_EXTENSION_UUID)
