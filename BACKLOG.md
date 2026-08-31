@@ -106,7 +106,34 @@ Reviewed and deliberately left as-is:
 - **Mixed merge styles in `main`'s history** - already settled in practice via this session's own
   squash-merge convention for the two most recent large PRs; no code change needed.
 
-## #187: Prove (or disprove) whether `fallback-x11` gives real, unrestricted X11 capture under Flatpak
+## #187: Prove (or disprove) whether `fallback-x11` gives real, unrestricted X11 capture under Flatpak (RESOLVED 2026-08-30)
+
+**Proven true, for real, not just reasoned about.** A throwaway `flatpak-builder` spike (`org.freedesktop.Platform`/`Sdk` 24.08, `finish-args` declaring
+*only* `--socket=wayland` and `--socket=fallback-x11` - no portal, no D-Bus, no filesystem access at
+all, confirmed by reading the exported metadata directly) made a real X11 protocol call (raw
+`python-xlib`, `root.get_image()` on this host's own Mint/Cinnamon X11 session - the identical
+protocol-level operation `X11CaptureBackend` performs via GDK, just without pulling in the whole GTK3
+stack for a spike) from inside the confined sandbox:
+
+```
+root window geometry: 4480x1440
+captured 25804800 bytes
+unique byte values in first 10000 bytes: 40
+SPIKE RESULT: REAL CAPTURE - varied pixel data returned through fallback-x11
+```
+
+Real, varied screen pixel data, not a black/blocked response - `fallback-x11` genuinely grants
+unrestricted native X11 capture on a pure-X11 session, exactly as the reasoning below predicted. The
+exported metadata does list `sockets=x11;wayland;fallback-x11` together - this is `fallback-x11`'s own
+correct, documented representation (a conditional x11 grant, active only when Wayland isn't the session
+type), not a broader permission that crept in; the manifest itself only ever declared the two intended
+sockets. Spike code discarded per its own classification - nothing kept, this entry is the record.
+
+**What this means for #185**: its "Wayland-only, X11 users redirected elsewhere" framing is
+unnecessarily narrow, confirmed now rather than assumed - a single Flatpak build can genuinely support
+both X11 (via `fallback-x11`, full native `X11CaptureBackend`, no portal) and Wayland (via the portal
+or `#184`'s now-proven extension-install path). Worth folding into `#185`'s own design pass before
+building it, not treated as a separate follow-up.
 
 Surfaced directly questioning #185's "Wayland-only" framing (direflail, 2026-08-28): "you're SURE we can't
 just use that fallback socket to run it in x11 anyway?" Good pushback - the honest answer right now is
@@ -284,7 +311,16 @@ degrade to "enabled at next login" rather than immediately, for every extension 
 folding into whatever upgrade-consent design gets built here, since it's the same "confined app can't poke
 `org.gnome.Shell` directly" class of constraint #184's own redesign exists to route around elsewhere.
 
-## #184: Explore a Wayland capture path that doesn't depend on the bundled GNOME Shell extension, to open up Snap and Flatpak
+## #184: Explore a Wayland capture path that doesn't depend on the bundled GNOME Shell extension, to open up Snap and Flatpak (RESOLVED 2026-08-30)
+
+**The one remaining open caveat from this entry's own final review (below - "extension-install-from-
+sandbox step... still an open prototype") is now closed.** The real, non-throwaway Snap channel plan
+(PR #9, hardened by `#192`'s own investigation in PR #10) built and live-verified exactly that: a
+confined Snap process installing `orcshot-tray@orcshot.org`'s files into the real per-user extensions
+path (`channel_detect.install_bundled_extension_if_needed`), its `enable_extension()` write reaching
+real, persistent dconf storage, and GNOME Shell loading the extension from that write - all confirmed
+live in real CI, not reasoned about. See `#192`'s own entry above for the full trail. The redesign
+itself was already live-verified (Task 7, below); this closes the one caveat left after that.
 
 **Confirmed wanted (direflail, 2026-08-28): "we definitely want to do this."** Ready to move past the
 thinking-it-over stage whenever picked up - next step is the brainstorming skill's normal process
