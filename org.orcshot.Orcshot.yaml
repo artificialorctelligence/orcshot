@@ -37,16 +37,63 @@ modules:
       - pip3 install --prefix=/app --no-deps .
       - pip3 install --prefix=/app numpy shapely python-xlib
       - install -Dm644 org.orcshot.Orcshot.desktop /app/share/applications/org.orcshot.Orcshot.desktop
+      # The existing icon asset (src/orcshot/resources/orcshot.png, the
+      # same file debian/orcshot.install already ships at
+      # hicolor/128x128/apps/ for apt) is 155x126, not square -
+      # flatpak-builder's own exporter rejects a non-square *raster*
+      # icon outright ("Expected a square icon but got: 155x126",
+      # confirmed live; also confirmed live that decoding it via
+      # GdkPixbuf inside the build sandbox itself fails - GNOME 50's
+      # GdkPixbuf loads through a glycin loader that spawns its own
+      # nested Flatpak sandbox, which the build sandbox refuses). Fixed
+      # by installing it as a scalable SVG instead (hicolor's own
+      # standard scalable/apps/ bucket, which icon lookup finds ahead
+      # of a fixed-size PNG and which Flatpak's exporter does not
+      # subject to the square-raster check) - a plain wrapper with a
+      # square 155x155 viewBox, the original PNG bytes embedded
+      # unmodified as a data: URI (base64, stdlib only, no image
+      # decode/re-encode of the pixels at all) centered inside it.
+      # Nothing new is committed to the repo; the checked-in icon
+      # itself is untouched, and the visual mark itself is byte-for-
+      # byte the same PNG, just wrapped so it has a square canvas.
+      - |
+        python3 - <<'PYEOF'
+        import base64
+        with open("src/orcshot/resources/orcshot.png", "rb") as f:
+            data = base64.b64encode(f.read()).decode("ascii")
+        w, h, size = 155, 126, 155
+        y = (size - h) // 2
+        svg = (
+            f'<svg xmlns="http://www.w3.org/2000/svg" width="{size}" height="{size}" '
+            f'viewBox="0 0 {size} {size}">'
+            f'<rect width="{size}" height="{size}" fill="#3d3d3d"/>'
+            f'<image x="0" y="{y}" width="{w}" height="{h}" '
+            f'href="data:image/png;base64,{data}"/></svg>'
+        )
+        with open("org.orcshot.Orcshot.generated-icon.svg", "w") as f:
+            f.write(svg)
+        PYEOF
+      - install -Dm644 org.orcshot.Orcshot.generated-icon.svg /app/share/icons/hicolor/scalable/apps/org.orcshot.Orcshot.svg
     # gir1.2-gsound-1.0's own GSound-1.0.typelib has no equivalent in
     # org.gnome.Platform//50 (confirmed live: absent from both the
-    # runtime and the SDK, and no flathub shared-module builds it
-    # either) and would need libcanberra + gsound built from source to
-    # add for real - out of scope for this task's own build+--help bar.
-    # capture/capture_feedback.py's own `from gi.repository import
-    # GSound` is a lazily-deferred, function-local import (see app.py's
-    # own play-capture-sound action registration), not a module-level
-    # one anything on the --help path reaches, so this gap costs
-    # exactly the capture-complete sound and nothing else for now.
+    # runtime and the SDK). Investigated staging it for real (fix
+    # round 1): flathub/shared-modules has a libcanberra recipe, but
+    # it's autotools-based and needs a locally-vendored patch file;
+    # GSound itself (a separate meson build on top, confirmed via its
+    # own meson.build: requires libcanberra + introspection to produce
+    # the typelib) has no flathub shared-module at all. Two from-
+    # source modules for real audio playback is out of scope for this
+    # fix round - deferred, tracked as a real gap, not silently
+    # dropped. capture/capture_feedback.py's `from gi.repository
+    # import GSound` was previously module-level and unconditional
+    # (the report for the original task-1 commit wrongly described it
+    # as function-local/lazy - it was not, and that import crashed
+    # every real launch via app.py's do_startup -> _register_tray_actions
+    # -> `from ...capture_feedback import play_capture_sound`, not just
+    # the --help path). Fixed at the root: capture_feedback.py now
+    # guards the import itself with `except ValueError`, so GSound's
+    # absence degrades to "no capture-complete sound" instead of
+    # crashing do_startup - see that module's own comment.
   - name: bundled-extensions
     buildsystem: simple
     sources:
