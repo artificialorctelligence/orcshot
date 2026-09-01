@@ -17,7 +17,23 @@ finish-args:
   # default (the sandbox's dbus-proxy filters by name), so without this
   # grant the call fails outright regardless of AppArmor/dconf
   # concerns - this is the Flatpak-specific permission that gates it.
-  - --talk-name=org.gnome.Shell
+  #
+  # Narrowed from the broader --talk-name=org.gnome.Shell (final-review
+  # finding, 2026-08-31): that name opens the Shell's entire session-bus
+  # API surface, including org.gnome.Shell.Screenshot - a real route
+  # around the portal confinement the Wayland design otherwise rests on,
+  # and the single permission a Flathub reviewer would most likely push
+  # back on (this project's own spec names Flathub submission as the
+  # next step). GNOME Shell owns the separate well-known name
+  # org.gnome.Shell.Extensions serving the exact same object
+  # (/org/gnome/Shell, org.gnome.Shell.Extensions interface) -
+  # enable_extension_live() now dials that name instead (see its own
+  # comment), and this grant was narrowed to match. Verified live in
+  # flatpak/verify's headless-Shell hard tier on GNOME 50: the narrow
+  # name serves EnableExtension exactly as the broad one did - see this
+  # PR's CI run for the real result, not assumed from
+  # ExtensionManager's own precedent alone.
+  - --talk-name=org.gnome.Shell.Extensions
 modules:
   - name: orcshot
     buildsystem: simple
@@ -46,7 +62,16 @@ modules:
         - --share=network
     build-commands:
       - pip3 install --prefix=/app --no-deps .
-      - pip3 install --prefix=/app numpy shapely python-xlib
+      # Pinned to requirements.txt's own versions (final-review finding,
+      # 2026-08-31) - that file exists specifically so every channel's
+      # actual dependency versions match what Aikido/Semgrep SCA
+      # scanning checks (see its own header comment); apt/Snap both get
+      # distro-pinned versions via debian/control, so this was the one
+      # channel building against whatever PyPI happened to serve that
+      # day. Keep these three in sync with requirements.txt by hand -
+      # RELEASING.md step 3 already re-verifies requirements.txt itself
+      # against the dev venv every release.
+      - pip3 install --prefix=/app numpy==2.5.2 shapely==2.1.2 python-xlib==0.33
       - install -Dm644 org.orcshot.Orcshot.desktop /app/share/applications/org.orcshot.Orcshot.desktop
       # The existing icon asset (src/orcshot/resources/orcshot.png, the
       # same file debian/orcshot.install already ships at
@@ -104,8 +129,11 @@ modules:
     # own meson.build: requires libcanberra + introspection to produce
     # the typelib) has no flathub shared-module at all. Two from-
     # source modules for real audio playback is out of scope for this
-    # fix round - deferred, tracked as a real gap, not silently
-    # dropped. capture/capture_feedback.py's `from gi.repository
+    # fix round - deferred, tracked as a real gap in BACKLOG #195 (not
+    # just this comment - a stale claim of being "tracked" here with no
+    # actual BACKLOG entry was itself a final-review finding,
+    # 2026-08-31), not silently dropped.
+    # capture/capture_feedback.py's `from gi.repository
     # import GSound` was previously module-level and unconditional
     # (the report for the original task-1 commit wrongly described it
     # as function-local/lazy - it was not, and that import crashed
@@ -130,24 +158,21 @@ modules:
     # needs org.gnome.shell's own compiled schema to resolve at all
     # (confirmed live here first: org.gnome.Platform//50 does NOT bundle
     # it - a real difference from Snap's core24 base was checked for,
-    # not found, so this fix is still needed here). There is no apt
-    # inside a Flatpak build sandbox to stage gnome-shell-common from
-    # the way snapcraft.yaml does, so the same real Ubuntu package is
-    # instead fetched directly (pinned by sha256, same reproducibility
-    # apt itself would give) and only its schema XML extracted - ar/tar
-    # unpack a .deb without needing dpkg-deb, both already provided by
-    # org.gnome.Sdk. glib-compile-schemas here mirrors override-prime's
-    # own timing there, for the identical reason: unpacking a .deb's
-    # data.tar never runs its postinst/dpkg-trigger machinery, so the
-    # raw schema XML is never compiled without doing it explicitly.
+    # not found, so this fix is still needed here). Vendored in-repo
+    # (org.gnome.shell.gschema.xml, repo root - see
+    # THIRD_PARTY_NOTICES.md for provenance/license) rather than fetched
+    # by URL at build time (final-review finding, 2026-08-31): the
+    # previous pinned archive.ubuntu.com/.../pool/... URL only stayed
+    # reachable while that exact package revision was still the current
+    # one in pool/ - a routine Ubuntu security update would 404 this
+    # build on a commit that changed nothing, at an unpredictable date.
+    # glib-compile-schemas is still required explicitly: installing the
+    # raw schema XML alone never compiles it into gschemas.compiled the
+    # way a real .deb's postinst/dpkg-trigger machinery would.
     sources:
       - type: file
-        url: http://archive.ubuntu.com/ubuntu/pool/main/g/gnome-shell/gnome-shell-common_46.0-0ubuntu6~24.04.14_all.deb
-        sha256: a61d931db26599f20c6dd0d4e7e6acb316871d6e1c1f2f66e07f0807c4f98539
-        dest-filename: gnome-shell-common.deb
+        path: org.gnome.shell.gschema.xml
     build-commands:
-      - ar x gnome-shell-common.deb
-      - tar xf data.tar.* ./usr/share/glib-2.0/schemas
-      - install -Dm644 usr/share/glib-2.0/schemas/org.gnome.shell.gschema.xml
+      - install -Dm644 org.gnome.shell.gschema.xml
         /app/share/glib-2.0/schemas/org.gnome.shell.gschema.xml
       - glib-compile-schemas /app/share/glib-2.0/schemas

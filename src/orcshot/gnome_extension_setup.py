@@ -125,6 +125,16 @@ def enable_extension_live(uuid: str) -> None:
 
     proxy = Gio.DBusProxy.new_for_bus_sync(
         Gio.BusType.SESSION, Gio.DBusProxyFlags.NONE, None,
-        "org.gnome.Shell", "/org/gnome/Shell", "org.gnome.Shell.Extensions", None,
+        # Targets the narrower well-known name "org.gnome.Shell.Extensions"
+        # rather than "org.gnome.Shell" itself (final-review finding,
+        # 2026-08-31) - GNOME Shell owns both names for the same object
+        # (/org/gnome/Shell, same org.gnome.Shell.Extensions interface),
+        # and the manifest's --talk-name grant only needs to cover
+        # whichever one this call actually dials. Precedent:
+        # com.mattjakeman.ExtensionManager (a real Flathub app doing the
+        # exact same EnableExtension call) uses this same narrow name.
+        # See org.orcshot.Orcshot.yaml's own --talk-name comment for why
+        # the broader "org.gnome.Shell" name was avoided.
+        "org.gnome.Shell.Extensions", "/org/gnome/Shell", "org.gnome.Shell.Extensions", None,
     )
     proxy.call_sync("EnableExtension", GLib.Variant("(s)", (uuid,)), Gio.DBusCallFlags.NONE, -1, None)
