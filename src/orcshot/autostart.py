@@ -61,6 +61,28 @@ def is_autostart_enabled() -> bool:
     return result.returncode == 0 and result.stdout.strip() == "enabled"
 
 
+def _run_systemctl_user(*args: str) -> None:
+    """Shared by enable_autostart/disable_autostart: runs `systemctl
+    --user <args> SERVICE_NAME`, converting "systemctl doesn't exist at
+    all" (FileNotFoundError - confirmed live inside a real Flatpak
+    build of org.gnome.Platform//50, which ships no systemd binaries)
+    into the same subprocess.CalledProcessError shape a real systemctl
+    failure already raises. Root-caused here once rather than widening
+    both call sites' `except subprocess.CalledProcessError` clauses
+    independently - matches is_autostart_enabled's own "systemctl
+    missing" handling above, just expressed as "raise the one thing
+    callers already catch" instead of "return a safe default", since
+    an enable/disable call has real work to fail at and its callers
+    (ui/first_run_setup.py, ui/editor_window.py's Preferences checkbox)
+    already print/report that failure - swallowing it silently here
+    the way is_autostart_enabled does would hide it entirely.
+    """
+    try:
+        subprocess.run(["systemctl", "--user", *args, SERVICE_NAME], check=True)
+    except FileNotFoundError as e:
+        raise subprocess.CalledProcessError(returncode=127, cmd=e.filename or "systemctl") from e
+
+
 def enable_autostart() -> None:
     """Enables the already-installed orcshot.service unit so it starts
     at the next login - `--now` also starts it immediately, matching
@@ -71,7 +93,7 @@ def enable_autostart() -> None:
     OrcshotApplication.do_activate's own "already running" handling,
     task #151 follow-up) rather than starting a genuine second copy.
     """
-    subprocess.run(["systemctl", "--user", "enable", "--now", SERVICE_NAME], check=True)
+    _run_systemctl_user("enable", "--now")
 
 
 def remove_legacy_autostart_entry(config_home: Path = None) -> None:
@@ -106,4 +128,4 @@ def disable_autostart() -> None:
     .desktop-based mechanism's own behavior (which never affected the
     current session at all, only future logins).
     """
-    subprocess.run(["systemctl", "--user", "disable", SERVICE_NAME], check=True)
+    _run_systemctl_user("disable")

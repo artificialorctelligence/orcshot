@@ -131,6 +131,7 @@ import numpy as np
 from gi.repository import Gdk, GdkPixbuf, Gio, GLib, Gtk, Pango, Rsvg
 
 from orcshot.autostart import disable_autostart, enable_autostart, is_autostart_enabled
+from orcshot.channel_detect import detect_channel
 from orcshot.capture.clipboard import ClipboardBackend
 from orcshot.core.crop import (
     autocrop_rect, crop_out_horizontal_strip, crop_out_vertical_strip, crop_to_rect,
@@ -5500,30 +5501,38 @@ def _build_general_settings_tab(parent: Gtk.Window) -> Gtk.Box:
     # Hotkeys button below's first-run-style wizard (which also
     # offers to enable autostart, but only as part of a full
     # reconfigure pass, not a live on/off switch on its own).
-    autostart_check = Gtk.CheckButton(label=_("Launch Orcshot on startup"))
-    autostart_check.set_active(is_autostart_enabled())
+    #
+    # Hidden outright on the Flatpak channel (final-review ruling,
+    # 2026-08-31, same as ui/first_run_setup.py's identical checkbox -
+    # see its own comment for the full reasoning): there is no systemd
+    # --user access from inside the sandbox at all, so this feature
+    # cannot work here, and this project's own bar is "if it can't work
+    # correctly, don't ship it looking like it works" (BACKLOG #185).
+    if detect_channel() != "flatpak":
+        autostart_check = Gtk.CheckButton(label=_("Launch Orcshot on startup"))
+        autostart_check.set_active(is_autostart_enabled())
 
-    def on_autostart_toggled(btn) -> None:
-        import sys
+        def on_autostart_toggled(btn) -> None:
+            import sys
 
-        active = btn.get_active()
-        try:
-            if active:
-                enable_autostart()
-            else:
-                disable_autostart()
-        except subprocess.CalledProcessError as e:
-            # Not reverted here - calling btn.set_active() from inside
-            # its own "toggled" handler would re-fire this same
-            # handler recursively. The checkbox resyncs to whatever's
-            # actually true the next time Preferences opens either way
-            # (see its own set_active(is_autostart_enabled()) call
-            # above), matching that existing "read fresh state on
-            # open" convention.
-            print(f"[orcshot] {'enable' if active else 'disable'}_autostart() failed: {e}", file=sys.stderr)
+            active = btn.get_active()
+            try:
+                if active:
+                    enable_autostart()
+                else:
+                    disable_autostart()
+            except subprocess.CalledProcessError as e:
+                # Not reverted here - calling btn.set_active() from inside
+                # its own "toggled" handler would re-fire this same
+                # handler recursively. The checkbox resyncs to whatever's
+                # actually true the next time Preferences opens either way
+                # (see its own set_active(is_autostart_enabled()) call
+                # above), matching that existing "read fresh state on
+                # open" convention.
+                print(f"[orcshot] {'enable' if active else 'disable'}_autostart() failed: {e}", file=sys.stderr)
 
-    autostart_check.connect("toggled", on_autostart_toggled)
-    app_box.pack_start(autostart_check, False, False, 0)
+        autostart_check.connect("toggled", on_autostart_toggled)
+        app_box.pack_start(autostart_check, False, False, 0)
 
     # Not a Windows setting - "Open in External Editor" itself
     # isn't a Windows feature (see _EXTERNAL_EDITOR_CANDIDATES).

@@ -40,16 +40,44 @@ recognized event, distinct from an unrecognized one which raises
 GLib.Error - see this module's own tests). Chosen over bundling a
 custom sound file (what Windows Greenshot does, via an embedded WAV
 resource) or shelling out to canberra-gtk-play: GSound is the
-standard GNOME-native mechanism for exactly this, already commonly
-present on any GNOME/GTK3 desktop.
+standard GNOME-native mechanism for exactly this, commonly present on
+apt/Snap's own GNOME/GTK3 desktops - but NOT on the Flatpak channel
+(confirmed live: gir1.2-gsound-1.0's typelib has no equivalent in
+org.gnome.Platform//50 or org.gnome.Sdk//50, and staging it from
+source was investigated and deferred - see the module-level guard
+below and BACKLOG #195). That channel silently gets no capture-
+complete sound at all rather than crashing; see the guard's own
+comment for why silent-degrade, not a hard failure, is the right
+choice here.
 """
 
 from __future__ import annotations
 
 import gi
 
-gi.require_version("GSound", "1.0")
-from gi.repository import Gio, GLib, GSound
+from gi.repository import Gio, GLib
+
+try:
+    gi.require_version("GSound", "1.0")
+    from gi.repository import GSound
+except ValueError:
+    # GSound's typelib is genuinely absent on some channels (confirmed
+    # live: Flatpak's org.gnome.Platform//50 and org.gnome.Sdk//50 -
+    # gir1.2-gsound-1.0 has no equivalent staged there). Without this
+    # guard, gi.require_version raises ValueError at *import* time,
+    # and this module is imported unconditionally from app.py's own
+    # do_startup path (_register_tray_actions), crashing every normal
+    # launch on that channel - not just the capture-sound feature.
+    # Scoped to gi.require_version's own ValueError (namespace/version
+    # not found) only, not a blanket except - a real bug elsewhere
+    # must still surface loudly. GSound stays None; play_capture_sound
+    # below degrades to a silent no-op, the same "decorative feedback,
+    # never interrupt a capture" reasoning as the existing
+    # `except GLib.Error` a few lines down, which still guards its own
+    # separate case (a *present* GSound failing at runtime, e.g. no
+    # sound theme) and must keep doing so unchanged on channels where
+    # GSound *is* available (apt/Snap).
+    GSound = None
 
 from orcshot.settings import get_play_capture_sound, get_show_capture_notification
 
@@ -59,8 +87,10 @@ _CAPTURE_NOTIFICATION_ID = "orcshot-capture-complete"
 _sound_context = None
 
 
-def _get_sound_context() -> GSound.Context:
+def _get_sound_context() -> GSound.Context | None:
     global _sound_context
+    if GSound is None:
+        return None
     if _sound_context is None:
         _sound_context = GSound.Context.new()
     return _sound_context
@@ -69,8 +99,13 @@ def _get_sound_context() -> GSound.Context:
 def play_capture_sound() -> None:
     if not get_play_capture_sound():
         return
+    context = _get_sound_context()
+    if context is None:
+        # GSound unavailable at import time on this channel - see the
+        # module-level guard above. Nothing to play.
+        return
     try:
-        _get_sound_context().play_simple({GSound.ATTR_EVENT_ID: _CAMERA_SHUTTER_EVENT_ID}, None)
+        context.play_simple({GSound.ATTR_EVENT_ID: _CAMERA_SHUTTER_EVENT_ID}, None)
     except GLib.Error:
         # Decorative feedback, not core functionality - a missing
         # sound theme or unavailable audio subsystem must never

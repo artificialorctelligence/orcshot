@@ -1,0 +1,181 @@
+app-id: org.orcshot.Orcshot
+runtime: org.gnome.Platform
+runtime-version: '50'
+sdk: org.gnome.Sdk
+command: orcshot
+finish-args:
+  - --socket=wayland
+  - --socket=fallback-x11
+  - --filesystem=~/.local/share/gnome-shell/extensions:create
+  # gnome_extension_setup.enable_extension_live() calls
+  # org.gnome.Shell.Extensions.EnableExtension over the D-Bus session
+  # bus, asking the already-running Shell to activate an extension this
+  # session, independent of the enable_extension() gsettings write
+  # (which only takes effect on a future login/reload - see that
+  # module's own docstring). bwrap denies session-bus method calls to
+  # any well-known name the app hasn't been granted --talk-name= for by
+  # default (the sandbox's dbus-proxy filters by name), so without this
+  # grant the call fails outright regardless of AppArmor/dconf
+  # concerns - this is the Flatpak-specific permission that gates it.
+  #
+  # Tried narrowing this to --talk-name=org.gnome.Shell.Extensions
+  # (final-review finding, 2026-08-31 - com.mattjakeman.ExtensionManager,
+  # a real Flathub app doing the identical EnableExtension call, uses
+  # that narrower name) and reverted it after live-verifying it does NOT
+  # work: this project's own flatpak/verify CI run against a real,
+  # headless GNOME Shell (GNOME 46.2 on Ubuntu 24.04) showed
+  # "org.gnome.Shell.Extensions" is not an owned, already-connected bus
+  # name there - dialing it triggers D-Bus service *activation* instead
+  # of routing to the already-running Shell process, and there is no
+  # .service file to activate, so the call fails outright
+  # ("Failed to execute program org.gnome.Shell.Extensions: No such file
+  # or directory") and the extension never loads. Kept broad
+  # (--talk-name=org.gnome.Shell) as the only grant proven to actually
+  # work against a real target - ExtensionManager's own narrower grant
+  # doesn't transfer unchanged here, and isn't assumed to without
+  # re-testing on a future GNOME version. This is a real, not-yet-
+  # narrowed permission a Flathub reviewer may ask about - see
+  # BACKLOG #194.
+  - --talk-name=org.gnome.Shell
+modules:
+  - name: orcshot
+    buildsystem: simple
+    sources:
+      - type: dir
+        path: .
+    # org.gnome.Platform//50 already ships PyGObject and pycairo built
+    # against its own GTK/GObject-Introspection stack (confirmed live:
+    # `import gi` / `import cairo` both succeed out of the box from
+    # org.gnome.Sdk//50's python3), the Flatpak-world equivalent of
+    # snapcraft.yaml's PARTS_PYTHON_VENV_ARGS: --system-site-packages -
+    # so there is nothing to opt into here, and none of Gtk-3.0,
+    # Rsvg-2.0, GdkPixbuf-2.0, Pango-1.0, GLib-2.0's typelibs need
+    # staging or a GI_TYPELIB_PATH override either, both already
+    # confirmed present under the runtime's own girepository-1.0 dir
+    # and already on its default search path. numpy, shapely and
+    # python-xlib are the only real Depends entries with no runtime-
+    # provided equivalent (confirmed live: all three fail to import
+    # from a stock org.gnome.Sdk//50 python3) - pip installs them from
+    # PyPI, which needs the build sandbox's network share (off by
+    # default; see build-options below - the same class of gap
+    # snapcraft.yaml hit needing PARTS_PYTHON_VENV_ARGS, different
+    # mechanism).
+    build-options:
+      build-args:
+        - --share=network
+    build-commands:
+      - pip3 install --prefix=/app --no-deps .
+      # Pinned to requirements.txt's own versions (final-review finding,
+      # 2026-08-31) - that file exists specifically so every channel's
+      # actual dependency versions match what Aikido/Semgrep SCA
+      # scanning checks (see its own header comment); apt/Snap both get
+      # distro-pinned versions via debian/control, so this was the one
+      # channel building against whatever PyPI happened to serve that
+      # day. Keep these three in sync with requirements.txt by hand -
+      # RELEASING.md step 3 already re-verifies requirements.txt itself
+      # against the dev venv every release.
+      - pip3 install --prefix=/app numpy==2.5.2 shapely==2.1.2 python-xlib==0.33
+      - install -Dm644 org.orcshot.Orcshot.desktop /app/share/applications/org.orcshot.Orcshot.desktop
+      # The existing icon asset (src/orcshot/resources/orcshot.png, the
+      # same file debian/orcshot.install already ships at
+      # hicolor/128x128/apps/ for apt) is not square -
+      # flatpak-builder's own exporter rejects a non-square *raster*
+      # icon outright ("Expected a square icon but got: <w>x<h>",
+      # confirmed live; also confirmed live that decoding it via
+      # GdkPixbuf inside the build sandbox itself fails - GNOME 50's
+      # GdkPixbuf loads through a glycin loader that spawns its own
+      # nested Flatpak sandbox, which the build sandbox refuses). Fixed
+      # by installing it as a scalable SVG instead (hicolor's own
+      # standard scalable/apps/ bucket, which icon lookup finds ahead
+      # of a fixed-size PNG and which Flatpak's exporter does not
+      # subject to the square-raster check) - a plain wrapper with a
+      # square viewBox (side = max(width, height)), the original PNG
+      # bytes embedded unmodified as a data: URI (base64, stdlib only,
+      # no image decode/re-encode of the pixels at all) centered inside
+      # it. Width/height are read from the PNG's own IHDR chunk (struct,
+      # stdlib only) instead of being hardcoded here, so this survives
+      # the icon asset being redrawn at different dimensions later
+      # (already happened once - task #185's own fix round guessed
+      # 155x126, direflail redrew the icon to 155x147 days later, which
+      # would have silently gone stale otherwise). Nothing new is
+      # committed to the repo; the checked-in icon itself is untouched,
+      # and the visual mark itself is byte-for-byte the same PNG, just
+      # wrapped so it has a square canvas.
+      - |
+        python3 - <<'PYEOF'
+        import base64
+        import struct
+        with open("src/orcshot/resources/orcshot.png", "rb") as f:
+            data_bytes = f.read()
+        w, h = struct.unpack(">II", data_bytes[16:24])
+        data = base64.b64encode(data_bytes).decode("ascii")
+        size = max(w, h)
+        x = (size - w) // 2
+        y = (size - h) // 2
+        svg = (
+            f'<svg xmlns="http://www.w3.org/2000/svg" width="{size}" height="{size}" '
+            f'viewBox="0 0 {size} {size}">'
+            f'<rect width="{size}" height="{size}" fill="#3d3d3d"/>'
+            f'<image x="{x}" y="{y}" width="{w}" height="{h}" '
+            f'href="data:image/png;base64,{data}"/></svg>'
+        )
+        with open("org.orcshot.Orcshot.generated-icon.svg", "w") as f:
+            f.write(svg)
+        PYEOF
+      - install -Dm644 org.orcshot.Orcshot.generated-icon.svg /app/share/icons/hicolor/scalable/apps/org.orcshot.Orcshot.svg
+    # gir1.2-gsound-1.0's own GSound-1.0.typelib has no equivalent in
+    # org.gnome.Platform//50 (confirmed live: absent from both the
+    # runtime and the SDK). Investigated staging it for real (fix
+    # round 1): flathub/shared-modules has a libcanberra recipe, but
+    # it's autotools-based and needs a locally-vendored patch file;
+    # GSound itself (a separate meson build on top, confirmed via its
+    # own meson.build: requires libcanberra + introspection to produce
+    # the typelib) has no flathub shared-module at all. Two from-
+    # source modules for real audio playback is out of scope for this
+    # fix round - deferred, tracked as a real gap in BACKLOG #195 (not
+    # just this comment - a stale claim of being "tracked" here with no
+    # actual BACKLOG entry was itself a final-review finding,
+    # 2026-08-31), not silently dropped.
+    # capture/capture_feedback.py's `from gi.repository
+    # import GSound` was previously module-level and unconditional
+    # (the report for the original task-1 commit wrongly described it
+    # as function-local/lazy - it was not, and that import crashed
+    # every real launch via app.py's do_startup -> _register_tray_actions
+    # -> `from ...capture_feedback import play_capture_sound`, not just
+    # the --help path). Fixed at the root: capture_feedback.py now
+    # guards the import itself with `except ValueError`, so GSound's
+    # absence degrades to "no capture-complete sound" instead of
+    # crashing do_startup - see that module's own comment.
+  - name: bundled-extensions
+    buildsystem: simple
+    sources:
+      - type: dir
+        path: src/orcshot/resources/gnome-shell-extensions
+    build-commands:
+      - mkdir -p /app/share/orcshot/gnome-shell-extensions
+      - cp -r . /app/share/orcshot/gnome-shell-extensions/
+  - name: gnome-shell-schema
+    buildsystem: simple
+    # BACKLOG #192's own real fix, ported: gnome_shell_present()'s
+    # Gio.SettingsSchemaSource.get_default().lookup("org.gnome.shell", ...)
+    # needs org.gnome.shell's own compiled schema to resolve at all
+    # (confirmed live here first: org.gnome.Platform//50 does NOT bundle
+    # it - a real difference from Snap's core24 base was checked for,
+    # not found, so this fix is still needed here). Vendored in-repo
+    # (org.gnome.shell.gschema.xml, repo root - see
+    # THIRD_PARTY_NOTICES.md for provenance/license) rather than fetched
+    # by URL at build time (final-review finding, 2026-08-31): the
+    # previous pinned archive.ubuntu.com/.../pool/... URL only stayed
+    # reachable while that exact package revision was still the current
+    # one in pool/ - a routine Ubuntu security update would 404 this
+    # build on a commit that changed nothing, at an unpredictable date.
+    # glib-compile-schemas is still required explicitly: installing the
+    # raw schema XML alone never compiles it into gschemas.compiled the
+    # way a real .deb's postinst/dpkg-trigger machinery would.
+    sources:
+      - type: file
+        path: org.gnome.shell.gschema.xml
+    build-commands:
+      - install -Dm644 org.gnome.shell.gschema.xml
+        /app/share/glib-2.0/schemas/org.gnome.shell.gschema.xml
+      - glib-compile-schemas /app/share/glib-2.0/schemas

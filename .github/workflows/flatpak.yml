@@ -1,0 +1,272 @@
+name: flatpak
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-flatpak:
+    name: flatpak / build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install flatpak-builder and add flathub
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y flatpak flatpak-builder
+          sudo flatpak remote-add --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo
+
+      - name: Install the GNOME runtime and SDK
+        run: sudo flatpak install -y flathub org.gnome.Platform//50 org.gnome.Sdk//50
+
+      - name: Read the version from pyproject.toml
+        id: version
+        # flatpak-builder has no adopt-info/craftctl equivalent to
+        # snapcraft's own version-from-source mechanism (BACKLOG #191),
+        # so this reads the same single source of truth - pyproject.toml
+        # - the same way snapcraft.yaml's own craftctl step does, just
+        # as a plain shell step instead of a build-system hook. Keeps
+        # the built artifact versioned like orcshot_<version>_all.deb
+        # and orcshot_<version>_*.snap instead of a fixed, unversioned
+        # orcshot.flatpak (final-review finding, 2026-08-31).
+        run: echo "version=$(grep -m1 '^version' pyproject.toml | sed -E 's/^version *= *"([^"]+)"/\1/')" >> "$GITHUB_OUTPUT"
+
+      - name: Build the Flatpak
+        run: flatpak-builder --force-clean --repo=repo build-dir org.orcshot.Orcshot.yaml
+
+      - name: Bundle it into a single distributable file
+        run: flatpak build-bundle repo "orcshot_${{ steps.version.outputs.version }}.flatpak" org.orcshot.Orcshot
+
+      - name: Upload the built bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: orcshot-flatpak
+          path: orcshot_*.flatpak
+
+  verify-flatpak:
+    name: flatpak / verify
+    needs: build-flatpak
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download the built bundle
+        uses: actions/download-artifact@v4
+        with:
+          name: orcshot-flatpak
+
+      - name: Install flatpak and add flathub
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y flatpak
+          sudo flatpak remote-add --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo
+
+      - name: Install the GNOME runtime (the SDK isn't needed to just run the app)
+        run: sudo flatpak install -y flathub org.gnome.Platform//50
+
+      - name: Install the built bundle
+        run: sudo flatpak install -y ./orcshot_*.flatpak
+
+      - name: Confirm the installed binary launches without crashing
+        run: flatpak run org.orcshot.Orcshot --help
+
+      - name: "Regression guard: enable_autostart() must raise nothing but CalledProcessError"
+        run: |
+          # Final-review CRITICAL fix (2026-08-31): org.gnome.Platform//50
+          # ships no systemctl at all (confirmed live: `command -v
+          # systemctl` is missing inside the runtime), so
+          # autostart.enable_autostart()'s subprocess.run used to raise a
+          # bare FileNotFoundError - not subprocess.CalledProcessError,
+          # the only exception ui/first_run_setup.py's _run_dialog (and
+          # ui/editor_window.py's Preferences checkbox) ever catches.
+          # Uncaught, that exception escaped _run_dialog entirely,
+          # silently skipping every step after it: hotkey configuration,
+          # the bundled-extension install, and mark_first_run_setup_done
+          # (so the wizard re-prompted on every single launch). autostart.py
+          # now converts "systemctl missing" into the same
+          # CalledProcessError shape a real systemctl failure already
+          # raises, so that must be the only thing that can ever escape
+          # here - this fails on the pre-fix code and passes after it.
+          flatpak run --command=python3 org.orcshot.Orcshot -c "
+          import subprocess
+          from orcshot.autostart import enable_autostart
+          try:
+              enable_autostart()
+          except subprocess.CalledProcessError:
+              pass  # the only exception first_run_setup._run_dialog actually handles
+          "
+
+      - name: Trigger the app's real first-run extension-install path
+        run: |
+          # Deliberately the real production code path
+          # (install_bundled_extension_if_needed, called the same way
+          # _install_bundled_extensions_for_sandboxed_channel calls it -
+          # not "via" that function, this script calls the low-level
+          # function directly with the same two path helpers, matching
+          # snap.yml's own accurately-worded equivalent comment), not a
+          # CI-only stand-in. Now also calls _extension_bundle_dir() and
+          # _flatpak_home_extensions_dir() themselves (final-review
+          # finding, 2026-08-31) instead of re-deriving the same two
+          # paths as hardcoded literals - this is what actually proves
+          # Task 2's two path helpers return the right thing under real
+          # confinement, not just under their own unit tests.
+          #
+          # The script's placement inside the granted
+          # ~/.local/share/gnome-shell/extensions directory (rather than
+          # bare $HOME or /tmp) is load-bearing, not incidental: plain
+          # $HOME does resolve correctly inside confinement, but that
+          # --filesystem=...:create grant is the app's ONLY home access -
+          # confirmed live, a script at bare $HOME/probe.py is invisible
+          # inside the sandbox ("No such file or directory"), while the
+          # identical script one directory lower, inside the granted
+          # path, runs. Moving this "for simplicity" breaks CI with a
+          # confusing error.
+          mkdir -p "$HOME/.local/share/gnome-shell/extensions"
+          cat > "$HOME/.local/share/gnome-shell/extensions/install_check.py" << 'PYEOF'
+          from orcshot.channel_detect import install_bundled_extension_if_needed
+          from orcshot.ui.first_run_setup import _extension_bundle_dir, _flatpak_home_extensions_dir
+          bundled = _extension_bundle_dir("orcshot-tray@orcshot.org")
+          dest_parent = _flatpak_home_extensions_dir()
+          ok = install_bundled_extension_if_needed("orcshot-tray@orcshot.org", bundled, dest_parent)
+          print(f"install_bundled_extension_if_needed -> {ok}")
+          assert ok, "extension install failed even with the filesystem grant in place"
+          PYEOF
+          flatpak run --command=python3 org.orcshot.Orcshot "$HOME/.local/share/gnome-shell/extensions/install_check.py"
+
+      - name: Install gnome-shell and headless deps
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y gnome-shell dbus-x11 libglib2.0-bin
+
+      # Task 3's own live CI run (run 33448654638, job 99672910983) showed
+      # bare `flatpak run org.orcshot.Orcshot --help` does NOT need a real
+      # systemd --user session bus - it succeeded with only a harmless
+      # dconf-CRITICAL warning, because GLib's option parser exits before
+      # touching GSettings at all. That finding is about --help's process-
+      # launch mechanics only. This job's own next two steps are a
+      # different question: they write real GSettings values via
+      # dconf-service, which needs a real D-Bus session bus - and that
+      # same dconf-CRITICAL line ("unable to create file
+      # '/run/user/1001/dconf/user': Permission denied") is direct live
+      # evidence this runner has no working XDG_RUNTIME_DIR/dconf
+      # environment by default, the same class of gap snap.yml's own hard
+      # tier had to solve explicitly for the identical reason (dconf-
+      # service needing a real session bus to be reachable at all). So
+      # this step stays in, kept for this job's own GSettings-writing
+      # steps below, independent of what Task 3 found for bare `--help`.
+      - name: Start a real systemd --user session bus
+        run: |
+          sudo systemctl start user@$(id -u).service
+          timeout 30 bash -c 'until [ -S "/run/user/$(id -u)/bus" ]; do sleep 0.5; done' \
+            || { echo "systemd --user session bus never appeared"; exit 1; }
+
+      - name: Launch gnome-shell headless
+        run: |
+          export XDG_RUNTIME_DIR=/run/user/$(id -u)
+          export DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/$(id -u)/bus
+          nohup gnome-shell --headless --virtual-monitor 1024x768 > /tmp/shell.log 2>&1 &
+          disown
+          timeout 60 bash -c 'until grep -q "GNOME Shell started" /tmp/shell.log; do sleep 1; done' \
+            || { echo "gnome-shell never logged its startup line"; cat /tmp/shell.log; exit 1; }
+          pgrep -af gnome-shell || (echo "gnome-shell did not stay running" && cat /tmp/shell.log && exit 1)
+
+      - name: "Exercise Orcshot's own enable_extension() write, confined (does not persist under Flatpak - see the step below)"
+        run: |
+          export XDG_RUNTIME_DIR=/run/user/$(id -u)
+          export DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/$(id -u)/bus
+          # Calls the real production write, matching _run_dialog's own
+          # call order (enable_extension() for all three UUIDs before any
+          # enable_extension_live() call) - proves the call doesn't crash
+          # under confinement. No read-back assertion here anymore
+          # (final-review finding, 2026-08-31): a Flatpak-confined write
+          # lands in the app's own private per-app keyfile
+          # (~/.var/app/org.orcshot.Orcshot/config/glib-2.0/settings/
+          # keyfile), never the host's real dconf - reading it back
+          # through that same confined process only proved the private
+          # keyfile round-trips with itself, a tautology. The real "does
+          # this persist" question is answered unconfined, after the live
+          # D-Bus call below - see that step's own comment for why.
+          flatpak run --command=python3 org.orcshot.Orcshot -c "
+          from orcshot.hotkey_setup import GioSettingsBackend
+          from orcshot.gnome_extension_setup import enable_extension, TRAY_EXTENSION_UUID
+          enable_extension(GioSettingsBackend(), TRAY_EXTENSION_UUID)
+          "
+
+      - name: "Also call enable_extension_live(), confined, with --talk-name=org.gnome.Shell granted"
+        run: |
+          # The open question this task exists to answer (brief's own
+          # words): does bwrap's session-bus name filter actually let
+          # this call through now that the manifest grants
+          # --talk-name=org.gnome.Shell? A narrower
+          # --talk-name=org.gnome.Shell.Extensions was tried and reverted
+          # in this same fix round (final-review finding, 2026-08-31) -
+          # this CI job is exactly what proved live that the narrow name
+          # doesn't work (org.gnome.Shell.Extensions isn't an owned bus
+          # name on a real Shell, triggering a failed D-Bus service
+          # activation instead) - see gnome_extension_setup.py's own
+          # comment for the full story. Snap's equivalent call was
+          # AppArmor-blocked (BACKLOG #192); Flatpak's confinement
+          # mechanism is different, so that result doesn't transfer
+          # unchanged - this is what finds out for real. Not fatal on its
+          # own: a real, named D-Bus error here is evidence to record,
+          # not treated as this job's failure by itself - the step below
+          # still runs and is what decides the job.
+          export XDG_RUNTIME_DIR=/run/user/$(id -u)
+          export DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/$(id -u)/bus
+          flatpak run --command=python3 org.orcshot.Orcshot -c "
+          from orcshot.gnome_extension_setup import enable_extension_live, TRAY_EXTENSION_UUID
+          try:
+              enable_extension_live(TRAY_EXTENSION_UUID)
+              print('enable_extension_live -> succeeded')
+          except Exception as e:
+              print(f'enable_extension_live -> raised {type(e).__name__}: {e}')
+          " || echo "enable_extension_live step exited non-zero, continuing to record real Shell behavior below"
+
+      - name: "Confirm the Shell loaded the extension, and that the live call persisted it to the host's real dconf"
+        run: |
+          # Loaded via enable_extension_live()'s direct D-Bus call above, not
+          # the persisted gsettings write - confirmed live (task #185 fix
+          # round 2) that a Flatpak-confined write lands in a private
+          # GKeyfileSettingsBackend, never reaching the real dconf database
+          # this already-running Shell reads from, so the write alone could
+          # not have caused this - see that step's own comment.
+          timeout 60 bash -c 'until grep -q "orcshot-tray-diag" /tmp/shell.log; do sleep 1; done' \
+            || { echo "extension never logged its diagnostic line - did not load"; cat /tmp/shell.log; exit 1; }
+          if grep -qi "JS ERROR\|Gjs-CRITICAL" /tmp/shell.log; then
+            echo "A real JS error was logged - see the log below"
+            cat /tmp/shell.log
+            exit 1
+          fi
+          echo "Extension loaded via the live D-Bus activation, no JS errors logged"
+
+          # Host-side, unconfined - this is the check that actually
+          # answers "does this survive a logout" (final-review finding 4,
+          # 2026-08-31), replacing the old confined write-then-read-back
+          # tautology above: GNOME Shell's own EnableExtension handler
+          # writes enabled-extensions from its own unconfined process on
+          # the app's behalf, which is the only reason this channel has
+          # no logout regression despite the confined gsettings write
+          # never reaching host dconf on its own.
+          export XDG_RUNTIME_DIR=/run/user/$(id -u)
+          export DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/$(id -u)/bus
+          gsettings get org.gnome.shell enabled-extensions | grep -q 'orcshot-tray@orcshot.org' \
+            || { echo "the live EnableExtension call did not persist to the host's real dconf"; exit 1; }
+
+      - name: Always upload the shell log for diagnosis
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: shell-log
+          path: /tmp/shell.log

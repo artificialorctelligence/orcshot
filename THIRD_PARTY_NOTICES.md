@@ -22,6 +22,32 @@
   first-run setup dialog, the same way this project already handles hotkey and
   autostart configuration.
 
+## GNOME Shell's `org.gnome.shell` GSettings schema (org.gnome.shell.gschema.xml)
+
+- **Location in this repo:** `org.gnome.shell.gschema.xml` (repo root, next to the
+  Flatpak manifest that installs it)
+- **Upstream:** https://gitlab.gnome.org/GNOME/gnome-shell (`data/` directory);
+  extracted here from Ubuntu 24.04's real
+  `gnome-shell-common_46.0-0ubuntu6~24.04.14_all.deb` (sha256
+  `a61d931db26599f20c6dd0d4e7e6acb316871d6e1c1f2f66e07f0807c4f98539`, downloaded and
+  verified 2026-08-31), unmodified.
+- **License:** GPL-2.0-or-later (`gnome-shell-common`'s own `debian/copyright`
+  attributes the package as a whole to GPL-2+; compatible with this project's own
+  GPLv3 license via the "or later" clause, same reasoning as the window-calls entry
+  above)
+- **Why it's here:** `org.orcshot.Orcshot.yaml`'s `gnome-shell-schema` module
+  installs and compiles this schema into the Flatpak build - `gnome_shell_present()`
+  (`src/orcshot/gnome_extension_setup.py`) needs `org.gnome.shell`'s own compiled
+  schema to resolve at all, and `org.gnome.Platform//50` does not bundle it
+  (confirmed live; BACKLOG #192 found the same gap on Snap's `core24` base).
+  Vendored in-repo rather than fetched by URL at build time (final-review finding,
+  2026-08-31): the previous pinned `archive.ubuntu.com/.../pool/...` URL only
+  stays reachable while that exact package revision is still the current one in
+  `pool/` - a routine Ubuntu security update would 404 this build on a commit that
+  changed nothing. A single ~16KB schema file that only changes when GNOME Shell's
+  own schema does is cheap to vendor outright.
+- **Not modified from the extracted copy.**
+
 ## MS-NRBF binary writer (core/nrbf.py)
 
 - **Location in this repo:** `src/orcshot/core/nrbf.py`

@@ -6,6 +6,7 @@ meaningful headless test - verified live instead, same precedent as
 every other file under ui/ that talks to the real desktop.
 """
 
+import orcshot.capture.capture_feedback as capture_feedback_mod
 from orcshot.capture.capture_feedback import (
     play_capture_feedback, play_capture_sound, show_capture_complete_notification,
 )
@@ -133,6 +134,30 @@ class TestPlayCaptureSoundOnly:
         play_capture_sound()
 
         assert fake_app.notifications == []
+
+
+class TestGSoundUnavailable:
+    """GSound's typelib is genuinely absent on some channels (Flatpak's
+    org.gnome.Platform//50 - see this module's own docstring), which
+    sets the module-level `GSound = None`. Nothing else in this test
+    file exercises that branch of _get_sound_context/play_capture_sound
+    (final-review Minor finding, 2026-08-31) - a future refactor could
+    drop the guard entirely and this suite would stay green.
+    """
+
+    def test_play_capture_sound_returns_cleanly_without_touching_the_context(self, monkeypatch, tmp_path):
+        config_path = tmp_path / "config.json"
+        set_play_capture_sound(True, path=config_path)
+        monkeypatch.setattr("orcshot.settings.config_file_path", lambda: config_path)
+        monkeypatch.setattr(capture_feedback_mod, "GSound", None)
+        monkeypatch.setattr(capture_feedback_mod, "_sound_context", "sentinel-untouched")
+
+        play_capture_sound()  # must not raise
+
+        # _get_sound_context() must have short-circuited on GSound is
+        # None and never touched the (sentinel, deliberately-not-a-real-
+        # context) module-level cache.
+        assert capture_feedback_mod._sound_context == "sentinel-untouched"
 
 
 class TestShowCaptureCompleteNotificationOnly:

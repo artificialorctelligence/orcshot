@@ -119,11 +119,25 @@ def _default_executable(which=shutil.which) -> str:
 
 def _extension_bundle_dir(uuid: str, env: dict = None) -> Path:
     """Where this extension's files are bundled read-only inside a Snap
-    package. Only meaningful when detect_channel() == "snap" - the
-    caller is responsible for checking that first."""
+    or Flatpak package. Only meaningful when detect_channel() is "snap"
+    or "flatpak" - the caller is responsible for checking that first.
+    Raises ValueError for any other channel rather than silently
+    falling through to a plausible-looking /app path (final-review
+    finding, 2026-08-31) - the old SNAP-only body raised a loud KeyError
+    on a wrong-channel call; a wrong-channel call should still fail
+    loudly now that Flatpak is a second real branch here, not one non-
+    Snap catch-all any future third channel would also silently match.
+    """
     if env is None:
         env = os.environ
-    return Path(env["SNAP"]) / "share" / "orcshot" / "gnome-shell-extensions" / uuid
+    if env.get("SNAP"):
+        return Path(env["SNAP"]) / "share" / "orcshot" / "gnome-shell-extensions" / uuid
+    if env.get("FLATPAK_ID"):
+        # Flatpak always mounts the app's own install prefix at the fixed
+        # path /app - no env-var indirection the way Snap's $SNAP needs
+        # (confirmed live, BACKLOG #187, 2026-08-31).
+        return Path("/app") / "share" / "orcshot" / "gnome-shell-extensions" / uuid
+    raise ValueError("_extension_bundle_dir called outside snap/flatpak (env has neither SNAP nor FLATPAK_ID)")
 
 
 def _snap_real_home_extensions_dir(env: dict = None) -> Path:
@@ -141,26 +155,48 @@ def _snap_real_home_extensions_dir(env: dict = None) -> Path:
     return Path(env["SNAP_REAL_HOME"]) / ".local" / "share" / "gnome-shell" / "extensions"
 
 
-def _install_bundled_extensions_for_snap(parent) -> bool:
+def _flatpak_home_extensions_dir(env: dict = None) -> Path:
+    """The real per-user GNOME Shell extensions path a Flatpak install
+    can reach once --filesystem=~/.local/share/gnome-shell/extensions:create
+    is granted (install-time, no separate "connect" step the way Snap's
+    personal-files interface needs - confirmed live, BACKLOG #187,
+    2026-08-31). Unlike Snap, Flatpak doesn't redirect $HOME to a
+    private path at all, so this is plain $HOME, env-injectable for
+    tests to match _snap_real_home_extensions_dir's own convention.
+    """
+    if env is None:
+        env = os.environ
+    return Path(env["HOME"]) / ".local" / "share" / "gnome-shell" / "extensions"
+
+
+def _install_bundled_extensions_for_sandboxed_channel(parent) -> bool:
     """Copies each bundled extension into the real per-user extensions
-    path when running under Snap - sandboxed channels can't write to
-    the system-wide path the way .deb's own dh_install does. Returns
-    whether this actually ran: True only for the snap channel, so a
+    path when running under Snap or Flatpak - sandboxed channels can't
+    write to the system-wide path the way .deb's own dh_install does.
+    Returns whether this actually ran: True only for snap/flatpak, so a
     plain .deb install (detect_channel() == "deb") is a verified no-op
     - the loop body never executes at all, matching this feature's own
     whole point of channel-gating (BACKLOG #191 - extracted so this
     gating is exercised by a real test, not just a monkeypatch's own
-    return value asserted back at itself).
+    return value asserted back at itself). Generalized from Snap-only to
+    also cover Flatpak (BACKLOG #185/#187, 2026-08-31): Flatpak's own
+    --filesystem=...:create grant is install-time, no separate "connect"
+    step exists the way Snap's personal-files needs, so only Snap's own
+    failure path prompts for one.
     """
-    if detect_channel() != "snap":
+    channel = detect_channel()
+    if channel == "snap":
+        dest_parent = _snap_real_home_extensions_dir()
+    elif channel == "flatpak":
+        dest_parent = _flatpak_home_extensions_dir()
+    else:
         return False
     all_installed = True
     for uuid in (WINDOW_CALLS_EXTENSION_UUID, CLIPBOARD_EXTENSION_UUID, TRAY_EXTENSION_UUID):
         bundled_dir = _extension_bundle_dir(uuid)
-        dest_parent = _snap_real_home_extensions_dir()
         if not install_bundled_extension_if_needed(uuid, bundled_dir, dest_parent):
             all_installed = False
-    if not all_installed:
+    if not all_installed and channel == "snap":
         show_snap_connect_prompt(parent)
     return True
 
@@ -218,21 +254,42 @@ def _run_dialog(parent, executable: str, settings_backend) -> None:
     content.set_border_width(12)
     content.set_spacing(8)
 
+    # Ruling (final-review Critical fix, 2026-08-31): autostart cannot
+    # work at all on the Flatpak channel - there's no systemd --user
+    # access from inside the sandbox (confirmed live: enable_autostart's
+    # own subprocess.run raises FileNotFoundError, "systemctl" doesn't
+    # exist in org.gnome.Platform//50), and orcshot.service is a
+    # debian/-shipped unit this channel doesn't even install. Offering a
+    # default-checked box for a feature that provably cannot work is
+    # exactly the "if it can't work correctly, don't ship it looking
+    # like it works" bar this project already holds itself to elsewhere
+    # (BACKLOG #185's own framing) - so the checkbox is hidden outright
+    # on this channel rather than left to silently no-op. Same ruling
+    # applied to the Preferences "Launch Orcshot on startup" checkbox
+    # (ui/editor_window.py), which has the identical bug.
+    autostart_available = detect_channel() != "flatpak"
+
     # Kept as two full sentences (not built by concatenating a fixed
     # base with a conditional suffix fragment) so each is one complete,
     # independently-translatable unit - xgettext extracts a whole
     # msgid fine either way, but a translator working from disconnected
     # fragments ("...login" + ", and enable...?") has no way to
     # reorder words across the join the way many languages need to.
-    if hotkeys_available:
+    if hotkeys_available and autostart_available:
         intro = _("Set up Orcshot to start automatically at login, and enable its capture keyboard shortcuts?")
-    else:
+    elif hotkeys_available:
+        intro = _("Set up Orcshot's capture keyboard shortcuts?")
+    elif autostart_available:
         intro = _("Set up Orcshot to start automatically at login?")
+    else:
+        intro = _("Set up Orcshot?")
     content.pack_start(Gtk.Label(label=intro, wrap=True, xalign=0), False, False, 0)
 
-    autostart_check = Gtk.CheckButton(label=_("Start automatically at login"))
-    autostart_check.set_active(True)
-    content.pack_start(autostart_check, False, False, 0)
+    autostart_check = None
+    if autostart_available:
+        autostart_check = Gtk.CheckButton(label=_("Start automatically at login"))
+        autostart_check.set_active(True)
+        content.pack_start(autostart_check, False, False, 0)
 
     content.pack_start(Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL), False, False, 4)
 
@@ -319,11 +376,19 @@ def _run_dialog(parent, executable: str, settings_backend) -> None:
     response = dialog.run()
 
     if response == Gtk.ResponseType.OK:
-        if autostart_check.get_active():
+        if autostart_check is not None and autostart_check.get_active():
             # Best-effort, same reasoning as the extension-enable calls
             # below: hotkeys/gsettings writes should still go through
             # even if enabling the systemd unit hits a real-system
-            # hiccup (task #141 follow-up).
+            # hiccup (task #141 follow-up). CalledProcessError alone is
+            # enough here (not also OSError/FileNotFoundError) because
+            # autostart.enable_autostart() itself now converts the
+            # "systemctl doesn't exist at all" case into a
+            # CalledProcessError - see its own docstring. This branch is
+            # dead on the Flatpak channel in practice (autostart_check
+            # is None there), but the guard stays as real defense, not
+            # decoration - not every future caller of enable_autostart()
+            # is guaranteed to check the channel first.
             try:
                 enable_autostart()
             except subprocess.CalledProcessError as e:
@@ -337,7 +402,7 @@ def _run_dialog(parent, executable: str, settings_backend) -> None:
             configure_all_hotkeys(settings_backend, executable, skip=skip, profile=profile)
 
         if is_gnome_wayland:
-            _install_bundled_extensions_for_snap(parent)
+            _install_bundled_extensions_for_sandboxed_channel(parent)
 
             enable_extension(settings_backend, WINDOW_CALLS_EXTENSION_UUID)
             enable_extension(settings_backend, CLIPBOARD_EXTENSION_UUID)
@@ -351,6 +416,21 @@ def _run_dialog(parent, executable: str, settings_backend) -> None:
             # succeeded by this point, and a transient D-Bus hiccup on
             # one extension shouldn't take the others down with it or
             # leave the wizard looking like it crashed.
+            #
+            # That "persists for a future login" claim is true for
+            # apt/Snap but NOT for Flatpak (confirmed live, final review
+            # 2026-08-31): a Flatpak-confined gsettings write lands in
+            # the app's own private per-app keyfile
+            # (~/.var/app/org.orcshot.Orcshot/config/glib-2.0/settings/
+            # keyfile), which the host's dconf never reads - so on this
+            # channel there is no fallback if enable_extension_live()
+            # below fails; nothing has happened at all. The channel is
+            # only sound end-to-end because GNOME Shell's own
+            # EnableExtension D-Bus handler writes enabled-extensions
+            # from the Shell's own unconfined process on the app's
+            # behalf - so the live call, when it succeeds, persists the
+            # setting for a future login too, just via a different
+            # writer than enable_extension() above.
             for uuid in (WINDOW_CALLS_EXTENSION_UUID, CLIPBOARD_EXTENSION_UUID, TRAY_EXTENSION_UUID):
                 try:
                     enable_extension_live(uuid)

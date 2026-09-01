@@ -125,6 +125,19 @@ def enable_extension_live(uuid: str) -> None:
 
     proxy = Gio.DBusProxy.new_for_bus_sync(
         Gio.BusType.SESSION, Gio.DBusProxyFlags.NONE, None,
+        # Deliberately "org.gnome.Shell", not the narrower
+        # "org.gnome.Shell.Extensions" (tried and reverted, final-review
+        # finding, 2026-08-31 - see org.orcshot.Orcshot.yaml's own
+        # --talk-name comment for the live CI evidence). The narrower name
+        # is not an owned/activatable bus name on a real, plain GNOME
+        # Shell (GNOME 46.2, confirmed live in this project's own
+        # flatpak/verify CI run): dialing it triggers D-Bus service
+        # activation instead of routing to the already-running Shell
+        # process, and there's no .service file to activate, so the call
+        # fails outright with a real, named error
+        # ("Failed to execute program org.gnome.Shell.Extensions: No such
+        # file or directory") - the exact live-verification the review
+        # itself flagged as missing, now done.
         "org.gnome.Shell", "/org/gnome/Shell", "org.gnome.Shell.Extensions", None,
     )
     proxy.call_sync("EnableExtension", GLib.Variant("(s)", (uuid,)), Gio.DBusCallFlags.NONE, -1, None)
