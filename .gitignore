@@ -26,6 +26,17 @@ debian/orcshot.substvars
 # the hand-written snapcraft.yaml itself
 *.snap
 
+# flatpak-builder build artifacts - regenerated fresh by `flatpak-builder`/
+# `flatpak build-bundle`, never the hand-written org.orcshot.Orcshot.yaml
+# itself (or the vendored org.gnome.shell.gschema.xml it installs - see
+# THIRD_PARTY_NOTICES.md)
+build-dir/
+.flatpak-builder/
+repo/
+orcshot.flatpak
+orcshot_*.flatpak
+org.orcshot.Orcshot.generated-icon.svg
+
 # VM login credentials for local VBoxManage guestcontrol testing - never committed
 vmpw.txt
 
