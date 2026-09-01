@@ -204,20 +204,25 @@ jobs:
           enable_extension(GioSettingsBackend(), TRAY_EXTENSION_UUID)
           "
 
-      - name: "Also call enable_extension_live(), confined, with --talk-name=org.gnome.Shell.Extensions granted"
+      - name: "Also call enable_extension_live(), confined, with --talk-name=org.gnome.Shell granted"
         run: |
           # The open question this task exists to answer (brief's own
           # words): does bwrap's session-bus name filter actually let
           # this call through now that the manifest grants
-          # --talk-name=org.gnome.Shell.Extensions (narrowed from the
-          # broader org.gnome.Shell - final-review finding, 2026-08-31;
-          # same object/interface, narrower bus name)? Snap's equivalent
-          # call was AppArmor-blocked (BACKLOG #192); Flatpak's
-          # confinement mechanism is different, so that result doesn't
-          # transfer unchanged - this is what finds out for real. Not
-          # fatal on its own: a real, named D-Bus error here is evidence
-          # to record, not treated as this job's failure by itself - the
-          # step below still runs and is what decides the job.
+          # --talk-name=org.gnome.Shell? A narrower
+          # --talk-name=org.gnome.Shell.Extensions was tried and reverted
+          # in this same fix round (final-review finding, 2026-08-31) -
+          # this CI job is exactly what proved live that the narrow name
+          # doesn't work (org.gnome.Shell.Extensions isn't an owned bus
+          # name on a real Shell, triggering a failed D-Bus service
+          # activation instead) - see gnome_extension_setup.py's own
+          # comment for the full story. Snap's equivalent call was
+          # AppArmor-blocked (BACKLOG #192); Flatpak's confinement
+          # mechanism is different, so that result doesn't transfer
+          # unchanged - this is what finds out for real. Not fatal on its
+          # own: a real, named D-Bus error here is evidence to record,
+          # not treated as this job's failure by itself - the step below
+          # still runs and is what decides the job.
           export XDG_RUNTIME_DIR=/run/user/$(id -u)
           export DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/$(id -u)/bus
           flatpak run --command=python3 org.orcshot.Orcshot -c "

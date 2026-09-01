@@ -18,22 +18,25 @@ finish-args:
   # grant the call fails outright regardless of AppArmor/dconf
   # concerns - this is the Flatpak-specific permission that gates it.
   #
-  # Narrowed from the broader --talk-name=org.gnome.Shell (final-review
-  # finding, 2026-08-31): that name opens the Shell's entire session-bus
-  # API surface, including org.gnome.Shell.Screenshot - a real route
-  # around the portal confinement the Wayland design otherwise rests on,
-  # and the single permission a Flathub reviewer would most likely push
-  # back on (this project's own spec names Flathub submission as the
-  # next step). GNOME Shell owns the separate well-known name
-  # org.gnome.Shell.Extensions serving the exact same object
-  # (/org/gnome/Shell, org.gnome.Shell.Extensions interface) -
-  # enable_extension_live() now dials that name instead (see its own
-  # comment), and this grant was narrowed to match. Verified live in
-  # flatpak/verify's headless-Shell hard tier on GNOME 50: the narrow
-  # name serves EnableExtension exactly as the broad one did - see this
-  # PR's CI run for the real result, not assumed from
-  # ExtensionManager's own precedent alone.
-  - --talk-name=org.gnome.Shell.Extensions
+  # Tried narrowing this to --talk-name=org.gnome.Shell.Extensions
+  # (final-review finding, 2026-08-31 - com.mattjakeman.ExtensionManager,
+  # a real Flathub app doing the identical EnableExtension call, uses
+  # that narrower name) and reverted it after live-verifying it does NOT
+  # work: this project's own flatpak/verify CI run against a real,
+  # headless GNOME Shell (GNOME 46.2 on Ubuntu 24.04) showed
+  # "org.gnome.Shell.Extensions" is not an owned, already-connected bus
+  # name there - dialing it triggers D-Bus service *activation* instead
+  # of routing to the already-running Shell process, and there is no
+  # .service file to activate, so the call fails outright
+  # ("Failed to execute program org.gnome.Shell.Extensions: No such file
+  # or directory") and the extension never loads. Kept broad
+  # (--talk-name=org.gnome.Shell) as the only grant proven to actually
+  # work against a real target - ExtensionManager's own narrower grant
+  # doesn't transfer unchanged here, and isn't assumed to without
+  # re-testing on a future GNOME version. This is a real, not-yet-
+  # narrowed permission a Flathub reviewer may ask about - see
+  # BACKLOG #194.
+  - --talk-name=org.gnome.Shell
 modules:
   - name: orcshot
     buildsystem: simple

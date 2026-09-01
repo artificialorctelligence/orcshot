@@ -45,11 +45,13 @@ future "submit to Flathub" effort:
   would need to either vendor these as pre-built wheels/sdists via `sources:` entries (flatpak-builder
   supports this, no network needed at build time) or find them already staged in a shared BaseApp/
   extension.
-- **`--talk-name=org.gnome.Shell.Extensions`** (narrowed from the broader `org.gnome.Shell` in this
-  same fix round - see this file's own `#185` resolution) is still a session-bus grant a Flathub
-  reviewer would ask about, even narrowed. Likely fine given real precedent
-  (`com.mattjakeman.ExtensionManager` ships with the identical grant on Flathub today), but not
-  something to assume waved through without asking.
+- **`--talk-name=org.gnome.Shell`** - a real session-bus grant a Flathub reviewer would ask about.
+  Narrowing it to `org.gnome.Shell.Extensions` (`com.mattjakeman.ExtensionManager`'s own precedent on
+  Flathub) was tried and reverted in this same fix round after live-verifying it does not work on a
+  real GNOME Shell (46.2) - that name isn't an owned/activatable bus name there, so dialing it fails
+  outright rather than reaching the running Shell (see `gnome_extension_setup.py`'s own comment for
+  the full live-tested story). Worth re-testing against a newer GNOME Shell version someday, but not
+  assumed to work without doing so again for real.
 - **No AppStream metadata at all** (`org.orcshot.Orcshot.appdata.xml` / `org.orcshot.Orcshot.metainfo.xml`)
   - Flathub requires this for the store listing (screenshots, description, release notes); nothing in
   this manifest or repo produces one yet.
@@ -725,8 +727,9 @@ this project's other channels already run on.
 had to answer for Flatpak, and this same fix round's own final-review pass (9 commits,
 `f9a48e8..8c5a743` plus this fix round) - including a real Critical bug (autostart silently aborting
 first-run setup on this channel, fixed by hiding the autostart checkbox outright here since there's no
-systemd access to offer it against at all) and a real live-verified narrowing of the
-`--talk-name` D-Bus grant this design needs for the tray extension to activate immediately. See
+systemd access to offer it against at all) and a live attempt to narrow the `--talk-name` D-Bus grant
+this design needs for the tray extension to activate immediately, reverted after live-testing showed
+it genuinely doesn't work on a real GNOME Shell (see `#194` below). See
 `.superpowers/sdd/2026-08-31-flatpak-channel/` for the full design spec, plan, and final review.
 
 **Still open, tracked separately now rather than under this entry**: `#194` (Flathub submission

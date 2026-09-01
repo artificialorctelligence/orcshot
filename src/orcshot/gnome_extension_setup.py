@@ -125,16 +125,19 @@ def enable_extension_live(uuid: str) -> None:
 
     proxy = Gio.DBusProxy.new_for_bus_sync(
         Gio.BusType.SESSION, Gio.DBusProxyFlags.NONE, None,
-        # Targets the narrower well-known name "org.gnome.Shell.Extensions"
-        # rather than "org.gnome.Shell" itself (final-review finding,
-        # 2026-08-31) - GNOME Shell owns both names for the same object
-        # (/org/gnome/Shell, same org.gnome.Shell.Extensions interface),
-        # and the manifest's --talk-name grant only needs to cover
-        # whichever one this call actually dials. Precedent:
-        # com.mattjakeman.ExtensionManager (a real Flathub app doing the
-        # exact same EnableExtension call) uses this same narrow name.
-        # See org.orcshot.Orcshot.yaml's own --talk-name comment for why
-        # the broader "org.gnome.Shell" name was avoided.
-        "org.gnome.Shell.Extensions", "/org/gnome/Shell", "org.gnome.Shell.Extensions", None,
+        # Deliberately "org.gnome.Shell", not the narrower
+        # "org.gnome.Shell.Extensions" (tried and reverted, final-review
+        # finding, 2026-08-31 - see org.orcshot.Orcshot.yaml's own
+        # --talk-name comment for the live CI evidence). The narrower name
+        # is not an owned/activatable bus name on a real, plain GNOME
+        # Shell (GNOME 46.2, confirmed live in this project's own
+        # flatpak/verify CI run): dialing it triggers D-Bus service
+        # activation instead of routing to the already-running Shell
+        # process, and there's no .service file to activate, so the call
+        # fails outright with a real, named error
+        # ("Failed to execute program org.gnome.Shell.Extensions: No such
+        # file or directory") - the exact live-verification the review
+        # itself flagged as missing, now done.
+        "org.gnome.Shell", "/org/gnome/Shell", "org.gnome.Shell.Extensions", None,
     )
     proxy.call_sync("EnableExtension", GLib.Variant("(s)", (uuid,)), Gio.DBusCallFlags.NONE, -1, None)
