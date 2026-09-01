@@ -40,8 +40,15 @@ recognized event, distinct from an unrecognized one which raises
 GLib.Error - see this module's own tests). Chosen over bundling a
 custom sound file (what Windows Greenshot does, via an embedded WAV
 resource) or shelling out to canberra-gtk-play: GSound is the
-standard GNOME-native mechanism for exactly this, already commonly
-present on any GNOME/GTK3 desktop.
+standard GNOME-native mechanism for exactly this, commonly present on
+apt/Snap's own GNOME/GTK3 desktops - but NOT on the Flatpak channel
+(confirmed live: gir1.2-gsound-1.0's typelib has no equivalent in
+org.gnome.Platform//50 or org.gnome.Sdk//50, and staging it from
+source was investigated and deferred - see the module-level guard
+below and BACKLOG #195). That channel silently gets no capture-
+complete sound at all rather than crashing; see the guard's own
+comment for why silent-degrade, not a hard failure, is the right
+choice here.
 """
 
 from __future__ import annotations
