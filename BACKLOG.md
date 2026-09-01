@@ -4,6 +4,21 @@ Open items not yet scheduled into a task. Each entry keeps the context that
 led to it - not just "what," but "why this matters" - so picking it up later
 doesn't require re-deriving the reasoning from scratch.
 
+## #193: GitHub Actions `ubuntu-24.04` runners hit `dconf-CRITICAL: Permission denied` on a real, unconfined `gnome-shell` too
+
+Found as a side effect of BACKLOG #185's Flatpak CI hard tier (task #4's own real live testing,
+2026-08-31). The runner's `dconf-CRITICAL **: unable to create file '/run/user/<uid>/dconf/user':
+Permission denied` warning, first seen from inside a Flatpak-confined process, turned out to also hit
+the real, completely unconfined `gnome-shell --headless` process itself on this exact runner image -
+confirmed by pulling the actual job log and finding the identical error at that process's own startup,
+not just the Flatpak-confined one. Doesn't affect anything this project currently tests -
+`enable_extension_live()`'s direct D-Bus activation bypasses `dconf` entirely, which is exactly why it
+still worked here - but it's a real, unexplained runner-environment gap (likely a missing
+`XDG_RUNTIME_DIR`/`dconf` directory permission setup GitHub's own runner image doesn't provide by
+default for a headless-launched `gnome-shell`), not something this project caused. Worth a quick,
+cheap root-cause someday if any future CI check ever needs a real, working `dconf` write to actually
+land (the current hard tier deliberately doesn't need one) - not urgent, not blocking anything today.
+
 ## #192: Snap channel - gnome_shell_present() crash, and whether the tray extension actually works under strict confinement (RESOLVED 2026-08-30)
 
 Started as a real crash risk (`Gio.SettingsSchemaSource.get_default()` returning `None` under strict

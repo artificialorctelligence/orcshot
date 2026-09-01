@@ -168,8 +168,14 @@ jobs:
               print(f'enable_extension_live -> raised {type(e).__name__}: {e}')
           " || echo "enable_extension_live step exited non-zero, continuing to record real Shell behavior below"
 
-      - name: "Confirm the already-running Shell loads the extension from that write alone"
+      - name: "Confirm the already-running Shell actually loaded the extension"
         run: |
+          # Loaded via enable_extension_live()'s direct D-Bus call above, not
+          # the persisted gsettings write - confirmed live (task #185 fix
+          # round 2) that a Flatpak-confined write lands in a private
+          # GKeyfileSettingsBackend, never reaching the real dconf database
+          # this already-running Shell reads from, so the write alone could
+          # not have caused this - see that step's own comment.
           timeout 60 bash -c 'until grep -q "orcshot-tray-diag" /tmp/shell.log; do sleep 1; done' \
             || { echo "extension never logged its diagnostic line - did not load"; cat /tmp/shell.log; exit 1; }
           if grep -qi "JS ERROR\|Gjs-CRITICAL" /tmp/shell.log; then
@@ -177,7 +183,7 @@ jobs:
             cat /tmp/shell.log
             exit 1
           fi
-          echo "Extension loaded from the persisted write alone, no JS errors logged"
+          echo "Extension loaded via the live D-Bus activation, no JS errors logged"
 
       - name: Always upload the shell log for diagnosis
         if: always()
