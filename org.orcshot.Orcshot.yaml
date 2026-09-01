@@ -7,6 +7,17 @@ finish-args:
   - --socket=wayland
   - --socket=fallback-x11
   - --filesystem=~/.local/share/gnome-shell/extensions:create
+  # gnome_extension_setup.enable_extension_live() calls
+  # org.gnome.Shell.Extensions.EnableExtension over the D-Bus session
+  # bus, asking the already-running Shell to activate an extension this
+  # session, independent of the enable_extension() gsettings write
+  # (which only takes effect on a future login/reload - see that
+  # module's own docstring). bwrap denies session-bus method calls to
+  # any well-known name the app hasn't been granted --talk-name= for by
+  # default (the sandbox's dbus-proxy filters by name), so without this
+  # grant the call fails outright regardless of AppArmor/dconf
+  # concerns - this is the Flatpak-specific permission that gates it.
+  - --talk-name=org.gnome.Shell
 modules:
   - name: orcshot
     buildsystem: simple

@@ -145,6 +145,29 @@ jobs:
           assert 'orcshot-tray@orcshot.org' in current, 'enable_extension write did not persist'
           "
 
+      - name: "Also call enable_extension_live(), confined, with --talk-name=org.gnome.Shell granted"
+        run: |
+          # The open question this task exists to answer (brief's own
+          # words): does bwrap's session-bus name filter actually let
+          # this call through now that the manifest grants
+          # --talk-name=org.gnome.Shell? Snap's equivalent call was
+          # AppArmor-blocked (BACKLOG #192); Flatpak's confinement
+          # mechanism is different, so that result doesn't transfer
+          # unchanged - this is what finds out for real. Not fatal on
+          # its own: a real, named D-Bus error here is evidence to
+          # record, not treated as this job's failure by itself - the
+          # step below still runs and is what decides the job.
+          export XDG_RUNTIME_DIR=/run/user/$(id -u)
+          export DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/$(id -u)/bus
+          flatpak run --command=python3 org.orcshot.Orcshot -c "
+          from orcshot.gnome_extension_setup import enable_extension_live, TRAY_EXTENSION_UUID
+          try:
+              enable_extension_live(TRAY_EXTENSION_UUID)
+              print('enable_extension_live -> succeeded')
+          except Exception as e:
+              print(f'enable_extension_live -> raised {type(e).__name__}: {e}')
+          " || echo "enable_extension_live step exited non-zero, continuing to record real Shell behavior below"
+
       - name: "Confirm the already-running Shell loads the extension from that write alone"
         run: |
           timeout 60 bash -c 'until grep -q "orcshot-tray-diag" /tmp/shell.log; do sleep 1; done' \
