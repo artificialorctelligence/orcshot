@@ -4,6 +4,60 @@ Open items not yet scheduled into a task. Each entry keeps the context that
 led to it - not just "what," but "why this matters" - so picking it up later
 doesn't require re-deriving the reasoning from scratch.
 
+## #195: Flatpak channel ships with no capture-complete sound at all - GSound gap was never actually tracked
+
+Found during the flatpak-channel final review's fix round (2026-08-31): `org.orcshot.Orcshot.yaml`'s
+`gnome-shell-schema` module comment (added fix round 1) claims the GSound deferral is "deferred,
+tracked as a real gap, not silently dropped" - but nowhere in this file ever mentioned GSound before
+this entry. The only record anywhere was that one YAML comment.
+
+**Real, permanent user-visible consequence, not cosmetic:** `gir1.2-gsound-1.0`'s `GSound-1.0.typelib`
+has no equivalent in `org.gnome.Platform//50` or `org.gnome.Sdk//50` (confirmed live, fix round 1).
+`capture/capture_feedback.py` guards the import (`except ValueError`) so this degrades gracefully -
+`play_capture_sound()` becomes a silent no-op instead of crashing every launch - but
+`settings.get_play_capture_sound()` still defaults on and the Preferences checkbox still appears with
+no indication it does nothing on this channel. On real Windows Greenshot (the app this project ports),
+"Play camera sound" is a real, working feature; on the Flatpak channel it silently never fires.
+
+**Why not fixed outright in this round:** real audio playback needs either staging GSound + its
+`libcanberra` dependency from source (two from-source Flatpak modules, no Flathub shared-module exists
+for GSound itself - investigated in fix round 1, see the manifest's own comment) or switching to a
+different playback mechanism (e.g. shelling out to `canberra-gtk-play` if some future runtime bundles
+it, or a bundled sound file played via GStreamer, which the runtime does ship). Out of scope for a
+final-review fix round; this entry is what makes the gap a tracked one instead of only a stale code
+comment's own unverifiable claim.
+
+**Also fixed as part of this same entry:** `capture_feedback.py`'s module docstring (previously
+claimed GSound is "already commonly present on any GNOME/GTK3 desktop" with no channel caveat) now
+notes the Flatpak exception directly, next to the inline guard comment that already explained it
+correctly.
+
+## #194: The Flatpak manifest isn't Flathub-submission-ready as-is
+
+Found during the flatpak-channel final review's fix round (2026-08-31), while pinning the manifest's
+previously-unpinned pip dependencies. Three real gaps, none blocking for a direct-download/GitHub-
+Release-asset distribution (this channel's actual current scope), all worth knowing about before any
+future "submit to Flathub" effort:
+
+- **`build-options: build-args: [--share=network]`** - network access during the build sandbox (used
+  to `pip3 install` `numpy`/`shapely`/`python-xlib`, none of which have a runtime-provided equivalent -
+  see the manifest's own comment) is disallowed by Flathub's build policy outright. A real submission
+  would need to either vendor these as pre-built wheels/sdists via `sources:` entries (flatpak-builder
+  supports this, no network needed at build time) or find them already staged in a shared BaseApp/
+  extension.
+- **`--talk-name=org.gnome.Shell.Extensions`** (narrowed from the broader `org.gnome.Shell` in this
+  same fix round - see this file's own `#185` resolution) is still a session-bus grant a Flathub
+  reviewer would ask about, even narrowed. Likely fine given real precedent
+  (`com.mattjakeman.ExtensionManager` ships with the identical grant on Flathub today), but not
+  something to assume waved through without asking.
+- **No AppStream metadata at all** (`org.orcshot.Orcshot.appdata.xml` / `org.orcshot.Orcshot.metainfo.xml`)
+  - Flathub requires this for the store listing (screenshots, description, release notes); nothing in
+  this manifest or repo produces one yet.
+
+Not scoped, not designed, no decision made - this is the record the spec's own "Flathub submission as
+the next step" framing needs to exist somewhere, matching this project's own BACKLOG discipline (e.g.
+`#193`, filed for a CI-runner quirk far smaller than any of these three).
+
 ## #193: GitHub Actions `ubuntu-24.04` runners hit `dconf-CRITICAL: Permission denied` on a real, unconfined `gnome-shell` too
 
 Found as a side effect of BACKLOG #185's Flatpak CI hard tier (task #4's own real live testing,
@@ -646,66 +700,38 @@ merge. #185 (Flatpak) and the real, non-throwaway Snap package are meaningfully 
 sandbox step above is still an open prototype, alongside the upgrade-path gap (#188) and the not-yet-
 closed reboot-vs-logout finding.
 
-## #185: A Wayland-only Flatpak build, alongside the existing dual-mode (X11+Wayland) `.deb`/PPA release
+## #185: A Wayland-only Flatpak build, alongside the existing dual-mode (X11+Wayland) `.deb`/PPA release (RESOLVED 2026-08-31)
 
-Same conversation as #184 (2026-08-28), a narrower and more incremental alternative to it. Rather than
-redesigning the Wayland capture path, ship a *second*, separate build specifically for Flatpak that drops
-X11 support entirely, while leaving the current `.deb`/PPA release exactly as it is today (full X11 +
-Wayland, direct X11 access, the Shell extension, everything).
+Originally scoped (2026-08-28) as a *Wayland-only* second build: drop X11 support entirely for
+Flatpak, redirect X11 users to the `.deb`/PPA at the listing level, and add an in-app runtime warning
+dialog for anyone who installed it anyway on a pure-X11 session. That framing is superseded entirely -
+not just refined - by what was actually designed and shipped.
 
-**Why this sidesteps the original Flatpak rejection cleanly**: that rejection was specifically about
-Flatpak forcing X11 captures through the portal, fighting the direct-X11-access priority. A build with no
-X11 support at all has nothing for that objection to apply to - its only capture path would go through
-the XDG portal, which is exactly what `WaylandCaptureBackend` already does as Orcshot's own non-extension
-Wayland fallback today, sandboxed or not. Not a new cost Flatpak introduces, just the existing fallback
-becoming the only path in that specific build.
+**What shipped instead, and why it could**: `#187`'s own live proof (below) settled the question this
+entry's original framing was working around - `fallback-x11` genuinely gives real, unrestricted X11
+capture under Flatpak, with no portal involved, contrary to the original "Flatpak forces X11 through
+the portal" rejection this entry was originally sidestepping. That made the Wayland-only design
+unnecessary: a single manifest (`org.orcshot.Orcshot.yaml`) declares `--socket=wayland` **and**
+`--socket=fallback-x11` together and gets full, direct capture on both - Flatpak's own
+Wayland-present-revokes-X11-socket mechanism (real, confirmed during the original spike) turns out not
+to matter, because the fallback socket being revoked on Wayland sessions is exactly correct: those
+sessions use the Wayland path, X11 sessions keep the fallback socket and get real X11 access. No
+listing-level redirect, no runtime warning dialog, no split "Wayland users get Flathub, X11 users get
+the PPA" story - one build, one manifest, feature parity with the `.deb`/PPA release on the same host
+this project's other channels already run on.
 
-**Real cost, not hidden**: X11 users (Mint/Cinnamon, X11-session Ubuntu) would need the `.deb`/PPA
-instead, same as today - this build wouldn't replace anything, it'd sit alongside it as a second,
-narrower distribution channel aimed specifically at Wayland users who want Flathub discoverability. The
-Shell-extension-features question from #184 (per-user install path, unproven for Orcshot) applies here
-too, if this build wants feature parity rather than portal-only capture.
+**Also resolved along the way**, each with its own BACKLOG entry: `#187` (fallback-x11 proof),
+`#192`'s Snap-channel precedent for the Shell-extension/schema/confinement questions this design also
+had to answer for Flatpak, and this same fix round's own final-review pass (9 commits,
+`f9a48e8..8c5a743` plus this fix round) - including a real Critical bug (autostart silently aborting
+first-run setup on this channel, fixed by hiding the autostart checkbox outright here since there's no
+systemd access to offer it against at all) and a real live-verified narrowing of the
+`--talk-name` D-Bus grant this design needs for the tray extension to activate immediately. See
+`.superpowers/sdd/2026-08-31-flatpak-channel/` for the full design spec, plan, and final review.
 
-**Why "Wayland-only" isn't just the simpler option, it's close to the only real option**: direflail asked
-directly whether *also* declaring X11 support in the same Flatpak build alongside Wayland would exclude
-it from Flathub - confirmed via Flatpak's own sandbox-permissions docs that it's not a store-policy
-rejection, it's a sandbox mechanism: "if an application works with Wayland natively, access to the x11
-socket and the fallback-x11 socket will be explicitly revoked to force the application to run in a
-Wayland window at all times." So a dual-mode manifest would only ever actually exercise its X11 path on
-sessions with no Wayland present at all - on any session that can reach Wayland (the exact audience a
-Flathub listing is trying to reach), Flatpak strips the X11 socket regardless of what's declared. Not
-confirmed either way: whether an X11-only manifest (no Wayland socket declared at all) still forces
-screenshot-specific captures through the portal separately from general X11 window access, or whether raw
-capture works directly there - unresearched, flagged rather than guessed at.
-
-**Real risk, confirmed rather than assumed: no store-level filtering exists for this.** Checked
-specifically whether Flathub/GNOME Software/Mint's Software Manager hide a Wayland-only app from X11
-sessions at browse time - found no evidence any such filtering exists. Mint ships Flatpak/Flathub by
-default (unlike Ubuntu), so a Wayland-only Orcshot would show up in search on a plain X11 Mint session
-exactly the same as anywhere else, install fine, and then most likely fail outright on launch - no
-`x11`/`fallback-x11` socket declared at all means no display connection to fall back to, and without any
-socket the app can't even draw an error dialog explaining why. Real tension with this project's own "if
-it can't work correctly, don't ship it looking like it works" bar (same standard behind the greyed-out
-Window Picker item when the Shell extension isn't available).
-
-**direflail's own leaning on this (2026-08-28)**: mitigate at the *listing* level rather than the runtime
-level - put a link in the Flathub description pointing X11 users at the full dual-mode version (the
-`.deb`/PPA, via the GitHub README) rather than trying to detect-and-explain the failure at runtime. Doesn't
-eliminate the failure-on-launch risk for someone who installs anyway without reading the description, but
-is a real, cheap piece of the mitigation, decided rather than left open.
-
-**Second layer, also decided rather than left open**: add a real runtime X11 check too, not just the
-listing-level mitigation - same link, shown as an in-app message rather than a launch failure. Confirmed
-technically sound, not a contradiction of the "no display socket at all" problem above: the manifest would
-declare `--socket=wayland` **and** `--socket=fallback-x11` together (Flatpak's own docs recommend exactly
-this pairing for Wayland-primary apps), and per the sandbox mechanism already found for this task,
-`fallback-x11` only gets revoked when Wayland *is* available - on a genuine pure-X11 session it stays
-granted, enough to open one bare window and show the "won't work here, get the full version" message
-before any real capture code ever engages. No new detection to build: `app.py:117` already computes
-`session_type` (`wayland`/`x11`) for its own startup log line - this is a new branch on existing plumbing,
-not new capability.
-
-Not scoped, not designed, no decision made - direflail wants to think it over.
+**Still open, tracked separately now rather than under this entry**: `#194` (Flathub submission
+readiness - `--share=network` during build, appstream metadata) and `#195` (the Flatpak channel's own
+GSound gap - no capture-complete sound on this channel).
 
 ## #132: RPM-family distros (Fedora, openSUSE) and Arch/AUR - real scope, not yet started
 

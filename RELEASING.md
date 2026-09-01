@@ -172,19 +172,21 @@ git push origin vX.Y.Z
 
 ## 9. Confirm CI is green on the just-pushed commit
 
-Step 8 just pushed the release commit to `main`, which triggers both `.github/workflows/apt.yml`
-(build, install-and-launch, the headless-Shell tray check) and `.github/workflows/snap.yml` (the
-same, for the Snap channel) for real - confirm both actually passed before publishing anything
-downstream. See `CI.md` for what this actually looks like (the GitHub Actions web page, no
-terminal required) if you'd rather click through it than run a command:
+Step 8 just pushed the release commit to `main`, which triggers `.github/workflows/apt.yml` (build,
+install-and-launch, the headless-Shell tray check), `.github/workflows/snap.yml` (the same, for the
+Snap channel), and `.github/workflows/flatpak.yml` (the same, for the Flatpak channel) for real -
+confirm all three actually passed before publishing anything downstream. See `CI.md` for what this
+actually looks like (the GitHub Actions web page, no terminal required) if you'd rather click through
+it than run a command:
 
 ```bash
 gh run list --workflow=apt.yml --limit 1
 gh run list --workflow=snap.yml --limit 1
+gh run list --workflow=flatpak.yml --limit 1
 ```
 
-Expected: `completed` / `success` for that commit, on both. If either is still running, wait for
-it; if either failed, stop here and fix forward before step 10 - don't publish a release CI itself
+Expected: `completed` / `success` for that commit, on all three. If any is still running, wait for
+it; if any failed, stop here and fix forward before step 10 - don't publish a release CI itself
 flagged as broken.
 
 ## 10. Publish the GitHub Release
