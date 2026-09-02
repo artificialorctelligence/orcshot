@@ -48,6 +48,18 @@ apps:
       - desktop-legacy
       - gsettings
       - dot-local-share-gnome-shell
+      # capture_feedback.py's capture-complete sound (GStreamer, see
+      # that module's own docstring) needs real PulseAudio/PipeWire
+      # client access under strict confinement, same reasoning as
+      # Flatpak's --socket=pulseaudio - without this, playbin would
+      # reach PLAYING with no audio sink and produce no actual sound.
+      # Not independently verified whether the previous GSound-based
+      # sound was silently broken the same way under Snap confinement
+      # (never live-tested for audio output specifically, only for
+      # not crashing) - plausible given GSound also ultimately needs
+      # PulseAudio/PipeWire, but that's an inference, not a confirmed
+      # prior gap, so stated as such rather than as fact.
+      - audio-playback
 
 slots:
   dbus-orcshot:
@@ -104,7 +116,8 @@ parts:
       - gir1.2-gdkpixbuf-2.0
       - gir1.2-pango-1.0
       - gir1.2-glib-2.0
-      - gir1.2-gsound-1.0
+      - gir1.2-gstreamer-1.0
+      - gstreamer1.0-plugins-base
       - libblas3
       - liblapack3
       # BACKLOG #192: the actual dconf GSettingsBackend GIO module

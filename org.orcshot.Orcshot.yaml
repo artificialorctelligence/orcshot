@@ -37,6 +37,17 @@ finish-args:
   # narrowed permission a Flathub reviewer may ask about - see
   # BACKLOG #194.
   - --talk-name=org.gnome.Shell
+  # capture_feedback.py's capture-complete sound (GStreamer playing a
+  # bundled file, see that module's own docstring - replaced GSound,
+  # 2026-09-01) needs a real audio sink to actually produce sound, not
+  # just decode successfully - confirmed live: without this grant, a
+  # playbin pipeline still reaches PLAYING but never connects to a
+  # real GstPulseSinkClock. Verified end-to-end with this grant in
+  # place on three separate real machines (this project's own Mint dev
+  # host, a real Ubuntu 24.04.4 LTS VM, a real Ubuntu 26.04/GNOME 50
+  # VM) - genuine PulseAudio/PipeWire-compat playback each time, not
+  # just a successful decode.
+  - --socket=pulseaudio
 modules:
   - name: orcshot
     buildsystem: simple
@@ -123,29 +134,18 @@ modules:
             f.write(svg)
         PYEOF
       - install -Dm644 org.orcshot.Orcshot.generated-icon.svg /app/share/icons/hicolor/scalable/apps/org.orcshot.Orcshot.svg
-    # gir1.2-gsound-1.0's own GSound-1.0.typelib has no equivalent in
-    # org.gnome.Platform//50 (confirmed live: absent from both the
-    # runtime and the SDK). Investigated staging it for real (fix
-    # round 1): flathub/shared-modules has a libcanberra recipe, but
-    # it's autotools-based and needs a locally-vendored patch file;
-    # GSound itself (a separate meson build on top, confirmed via its
-    # own meson.build: requires libcanberra + introspection to produce
-    # the typelib) has no flathub shared-module at all. Two from-
-    # source modules for real audio playback is out of scope for this
-    # fix round - deferred, tracked as a real gap in BACKLOG #195 (not
-    # just this comment - a stale claim of being "tracked" here with no
-    # actual BACKLOG entry was itself a final-review finding,
-    # 2026-08-31), not silently dropped.
-    # capture/capture_feedback.py's `from gi.repository
-    # import GSound` was previously module-level and unconditional
-    # (the report for the original task-1 commit wrongly described it
-    # as function-local/lazy - it was not, and that import crashed
-    # every real launch via app.py's do_startup -> _register_tray_actions
-    # -> `from ...capture_feedback import play_capture_sound`, not just
-    # the --help path). Fixed at the root: capture_feedback.py now
-    # guards the import itself with `except ValueError`, so GSound's
-    # absence degrades to "no capture-complete sound" instead of
-    # crashing do_startup - see that module's own comment.
+    # The capture-complete sound previously needed GSound
+    # (gir1.2-gsound-1.0), whose typelib had no equivalent in
+    # org.gnome.Platform//50 (confirmed live, task-1 fix round) -
+    # staging it from source needed building two libraries with no
+    # Flathub shared-module for either, out of scope, tracked as
+    # BACKLOG #195. Resolved for real 2026-09-01, not just worked
+    # around: capture_feedback.py now uses GStreamer instead, which
+    # this runtime already bundles (`Gst` typelib + the
+    # `playbin`/`vorbisdec` elements this module needs, confirmed live
+    # via `gst-inspect-1.0` - no new module needed here at all, just
+    # the `--socket=pulseaudio` grant above for actual audio output).
+    # See that module's own docstring for the full story.
   - name: bundled-extensions
     buildsystem: simple
     sources:
