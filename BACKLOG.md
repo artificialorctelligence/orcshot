@@ -4,7 +4,7 @@ Open items not yet scheduled into a task. Each entry keeps the context that
 led to it - not just "what," but "why this matters" - so picking it up later
 doesn't require re-deriving the reasoning from scratch.
 
-## #195: Flatpak channel ships with no capture-complete sound at all - GSound gap was never actually tracked
+## #195: Flatpak channel ships with no capture-complete sound at all - GSound gap was never actually tracked (RESOLVED 2026-09-01)
 
 Found during the flatpak-channel final review's fix round (2026-08-31): `org.orcshot.Orcshot.yaml`'s
 `gnome-shell-schema` module comment (added fix round 1) claims the GSound deferral is "deferred,
@@ -14,23 +14,28 @@ this entry. The only record anywhere was that one YAML comment.
 **Real, permanent user-visible consequence, not cosmetic:** `gir1.2-gsound-1.0`'s `GSound-1.0.typelib`
 has no equivalent in `org.gnome.Platform//50` or `org.gnome.Sdk//50` (confirmed live, fix round 1).
 `capture/capture_feedback.py` guards the import (`except ValueError`) so this degrades gracefully -
-`play_capture_sound()` becomes a silent no-op instead of crashing every launch - but
-`settings.get_play_capture_sound()` still defaults on and the Preferences checkbox still appears with
-no indication it does nothing on this channel. On real Windows Greenshot (the app this project ports),
-"Play camera sound" is a real, working feature; on the Flatpak channel it silently never fires.
+`play_capture_sound()` becomes a silent no-op instead of crashing every launch. (Correcting this
+entry's own earlier claim here: `settings.get_play_capture_sound()` defaults to `False`, not on -
+direflail's own explicit call, made for an unrelated timing reason, documented in that function's own
+docstring - so this gap only ever bit someone who specifically opted in, on this one channel.)
 
-**Why not fixed outright in this round:** real audio playback needs either staging GSound + its
-`libcanberra` dependency from source (two from-source Flatpak modules, no Flathub shared-module exists
-for GSound itself - investigated in fix round 1, see the manifest's own comment) or switching to a
-different playback mechanism (e.g. shelling out to `canberra-gtk-play` if some future runtime bundles
-it, or a bundled sound file played via GStreamer, which the runtime does ship). Out of scope for a
-final-review fix round; this entry is what makes the gap a tracked one instead of only a stale code
-comment's own unverifiable claim.
+**Resolved for real, not just tracked**: `capture/capture_feedback.py` no longer uses GSound at all -
+rewritten to play a bundled sound file (`resources/camera-shutter.oga`, the real freedesktop theme
+file GSound's own `"camera-shutter"` event ID already resolved to on a standard install - see
+THIRD_PARTY_NOTICES.md for the licensing) via GStreamer instead. GStreamer's Python bindings and the
+`playbin`/`vorbisdec` elements this needs are already part of `org.gnome.Platform//50`'s own base
+runtime (confirmed live via `gst-inspect-1.0` - no new Flatpak module needed), and real Ubuntu packages
+for apt/Snap (`gir1.2-gstreamer-1.0` + `gstreamer1.0-plugins-base`). One channel-specific manifest
+change was needed on top: Flatpak's `--socket=pulseaudio` (added to `org.orcshot.Orcshot.yaml`) and
+Snap's `audio-playback` plug (added to `snapcraft.yaml`) - neither channel had real audio-sink access
+granted before this, a gap that only surfaced because this fix added a genuine live playback
+verification pass, not just a decode/crash check.
 
-**Also fixed as part of this same entry:** `capture_feedback.py`'s module docstring (previously
-claimed GSound is "already commonly present on any GNOME/GTK3 desktop" with no channel caveat) now
-notes the Flatpak exception directly, next to the inline guard comment that already explained it
-correctly.
+Verified live, not assumed: real audible playback confirmed on three separate real machines (this
+project's own Mint dev host, a real Ubuntu 24.04.4 LTS VM, a real Ubuntu 26.04/GNOME 50 VM), and
+inside a real confined Flatpak build specifically (`GstPulseSinkClock` connecting, a real `EOS`
+reached, and - the strongest signal - direflail directly heard the sound play from the sandboxed app).
+`capture_feedback.py`'s own module docstring has the full story.
 
 ## #194: The Flatpak manifest isn't Flathub-submission-ready as-is
 

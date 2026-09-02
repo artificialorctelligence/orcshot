@@ -22,7 +22,8 @@ Build-Depends: debhelper-compat (= 13),
                gir1.2-gdkpixbuf-2.0,
                gir1.2-pango-1.0,
                gir1.2-glib-2.0,
-               gir1.2-gsound-1.0,
+               gir1.2-gstreamer-1.0,
+               gstreamer1.0-plugins-base,
                xvfb
 Standards-Version: 4.6.2
 Rules-Requires-Root: no
@@ -42,7 +43,8 @@ Depends: ${python3:Depends},
          gir1.2-gdkpixbuf-2.0,
          gir1.2-pango-1.0,
          gir1.2-glib-2.0,
-         gir1.2-gsound-1.0
+         gir1.2-gstreamer-1.0,
+         gstreamer1.0-plugins-base
 Recommends: tesseract-ocr
 Description: Screenshot capture and annotation tool
  A Linux port of Windows Greenshot (not affiliated with or endorsed by the

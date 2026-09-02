@@ -66,3 +66,22 @@
   real `Greenshot.Editor.dll` object serialized with the actual `BinaryFormatter`
   on a real Windows 11 VM - see `REQUIREMENTS.md`'s task #124 section for the
   full trace and citations.
+
+## Capture-complete sound (resources/camera-shutter.oga)
+
+- **Location in this repo:** `src/orcshot/resources/camera-shutter.oga`
+- **Upstream:** the `sound-theme-freedesktop` package (`stereo/camera-shutter.oga`,
+  version `0.8-2ubuntu1` on Ubuntu 24.04/26.04 - `dpkg -S` confirms this exact file)
+- **License:** CC-BY-SA-3.0
+- **Copyright:** freesound user `horsthorstensen` (per `sound-theme-freedesktop`'s own
+  `debian/copyright`, which also credits this same file as the source for
+  `stereo/screen-capture.oga` - the two are the identical audio, `screen-capture.oga`
+  is a plain symlink to `camera-shutter.oga` on a real install, confirmed live)
+- **Why it's here:** `capture/capture_feedback.py`'s own module docstring has the
+  full story - this used to be resolved at runtime from the desktop's own installed
+  sound theme via GSound's `"camera-shutter"` event ID, which broke on the Flatpak
+  channel (no GSound typelib available there). Bundling this exact file (byte-for-byte
+  the same audio GSound's theme lookup already resolved to on a standard install) and
+  playing it via GStreamer instead works identically on all three channels - confirmed
+  live on three separate real machines (Mint, Ubuntu 24.04.4 LTS, Ubuntu 26.04/GNOME 50).
+- **Not modified from the extracted copy.**
