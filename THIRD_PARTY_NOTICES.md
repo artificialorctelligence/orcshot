@@ -85,3 +85,17 @@
   playing it via GStreamer instead works identically on all three channels - confirmed
   live on three separate real machines (Mint, Ubuntu 24.04.4 LTS, Ubuntu 26.04/GNOME 50).
 - **Not modified from the extracted copy.**
+
+## Flathub metainfo screenshot source photo
+
+- **Location in this repo:** cropped into `metainfo-screenshots/editor-annotated.png` (not
+  stored separately - only the annotated crop is committed)
+- **Upstream:** Rembrandt van Rijn, *Sampling Officials of the Drapers' Guild* (1662),
+  Rijksmuseum, via Wikimedia Commons
+  (`File:Rembrandt - Sampling Officials of the Drapers' Guild - WGA19145.jpg`)
+- **License:** Public domain (painting created 1662; Commons' own `imageinfo` API reports
+  `Copyrighted: False` for this file)
+- **Why it's here:** source content for the Flathub metainfo's required screenshot,
+  showing Orcshot's editor annotating a real image with the arrow/ellipse/text tools.
+- **Not modified beyond cropping** (the crop, plus Orcshot's own annotations, are what's
+  actually committed - the original painting is not reproduced in full).
