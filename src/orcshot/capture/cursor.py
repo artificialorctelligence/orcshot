@@ -43,3 +43,27 @@ class CursorBackend(Protocol):
 
     def cursor_snapshot(self) -> CursorSnapshot | None:
         """The cursor right now, or None if it can't be determined."""
+
+
+def default_cursor_backend() -> CursorBackend | None:
+    """The platform's default cursor backend, or None if none is
+    available right now.
+
+    X11CursorBackend's constructor connects to an X11 display eagerly
+    (see x11_cursor.py) - on a session with no reachable X11/XWayland
+    display that raises Xlib.error.DisplayError, live-observed as an
+    uncaught crash through every capture-mode call site on a
+    pure-Wayland session with no DISPLAY set. Every call site used to
+    construct X11CursorBackend directly and unconditionally; this is
+    the one shared place that catches the failure instead, so callers
+    just get None here the same way cursor_snapshot() already documents
+    None as a valid "couldn't determine the cursor" outcome.
+    """
+    from Xlib.error import DisplayError
+
+    from orcshot.capture.x11_cursor import X11CursorBackend
+
+    try:
+        return X11CursorBackend()
+    except DisplayError:
+        return None

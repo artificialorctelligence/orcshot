@@ -45,10 +45,11 @@ class GnomeShellWindowPicker:
         self._cursor_snapshot = None
         if should_capture_cursor(capture_mouse_cursor):
             if cursor_backend is None:
-                from orcshot.capture.x11_cursor import X11CursorBackend
+                from orcshot.capture.cursor import default_cursor_backend
 
-                cursor_backend = X11CursorBackend()
-            self._cursor_snapshot = cursor_backend.cursor_snapshot()
+                cursor_backend = default_cursor_backend()
+            if cursor_backend is not None:
+                self._cursor_snapshot = cursor_backend.cursor_snapshot()
 
     def show(self) -> None:
         start_window_picker(self._on_selected, self._on_cancelled)
