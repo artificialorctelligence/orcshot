@@ -49,6 +49,51 @@ finish-args:
   # just a successful decode.
   - --socket=pulseaudio
 modules:
+  # Real, already-verified flatpak-pip-generator output (same official
+  # tool as python3-numpy/-shapely/-python-xlib below), run against
+  # org.gnome.Sdk//50 with --prefer-wheels for hatchling itself. Needed
+  # because removing --share=network (see the orcshot module below)
+  # exposed a second, previously-hidden network dependency: orcshot's
+  # own pyproject.toml declares `build-backend = "hatchling.build"`,
+  # and pip's build isolation tries to fetch that backend from PyPI
+  # for every `pip3 install .` of a local source dir - confirmed live,
+  # a real from-scratch build failed here first
+  # ("NameResolutionError... pypi.org", "No matching distribution found
+  # for hatchling") after --share=network was removed, even though the
+  # brief that drove this change didn't anticipate it. packaging (one
+  # of hatchling's own real dependencies) is deliberately not vendored
+  # here - confirmed live it's already importable from a stock
+  # org.gnome.Sdk//50 python3 (packaging 26.3, ships as part of the SDK
+  # itself), so flatpak-pip-generator correctly left it out, same
+  # reasoning as PyGObject/pycairo below. Placed before the orcshot
+  # module (unlike the other three vendored modules, which don't need
+  # a specific order): orcshot's own `pip3 install` below now runs
+  # with --no-build-isolation, which uses the ambient python3's own
+  # sys.path (confirmed live it already includes
+  # /app/lib/python3.13/site-packages) instead of an isolated venv, so
+  # hatchling has to already be installed to /app by the time that
+  # command runs.
+  - name: python3-hatchling
+    buildsystem: simple
+    build-commands:
+      - pip3 install --verbose --exists-action=i --no-index --find-links="file://${PWD}"
+        --prefix=${FLATPAK_DEST} "hatchling" --no-build-isolation
+    sources:
+      - type: file
+        url: https://files.pythonhosted.org/packages/a9/84/1798b6d85ecde0e31546004efd25c5de1b1f49250644a60cce460e12593a/hatchling-1.32.0-py3-none-any.whl
+        sha256: 0e17c9c3b9aa7c625acc8d0f5b622f107d5049af9ecf5ada4de1aada5be7cdbc
+      - type: file
+        url: https://files.pythonhosted.org/packages/f1/d9/7fb5aa316bc299258e68c73ba3bddbc499654a07f151cba08f6153988714/pathspec-1.1.1-py3-none-any.whl
+        sha256: a00ce642f577bf7f473932318056212bc4f8bfdf53128c78bbd5af0b9b20b189
+      - type: file
+        url: https://files.pythonhosted.org/packages/54/20/4d324d65cc6d9205fabedc306948156824eb9f0ee1633355a8f7ec5c66bf/pluggy-1.6.0-py3-none-any.whl
+        sha256: e920276dd6813095e9377c0bc5566d94c932c33b27a3e3945d8389c374dd4746
+      - type: file
+        url: https://files.pythonhosted.org/packages/13/bc/8c13eb66537dce1d2bd3a57132902f38d0e7f5bb46fa9f4daed9fe9d76ee/tomlkit-0.15.1-py3-none-any.whl
+        sha256: 177a05aece5a8ca5266fd3c448abb47b8d352f09d477d3ca8332db4d89b24304
+      - type: file
+        url: https://files.pythonhosted.org/packages/7c/a4/81502f486f01db95bc8320646a8a12511f5e556cb63d5e224d91816605c4/trove_classifiers-2026.6.1.19-py3-none-any.whl
+        sha256: ab4c4ec93cc4a4e7815fa759906e05e6bb3f2fbd92ea0f897288c6a43efd15b3
   - name: orcshot
     buildsystem: simple
     sources:
@@ -66,26 +111,19 @@ modules:
     # and already on its default search path. numpy, shapely and
     # python-xlib are the only real Depends entries with no runtime-
     # provided equivalent (confirmed live: all three fail to import
-    # from a stock org.gnome.Sdk//50 python3) - pip installs them from
-    # PyPI, which needs the build sandbox's network share (off by
-    # default; see build-options below - the same class of gap
+    # from a stock org.gnome.Sdk//50 python3) - the same class of gap
     # snapcraft.yaml hit needing PARTS_PYTHON_VENV_ARGS, different
-    # mechanism).
-    build-options:
-      build-args:
-        - --share=network
+    # mechanism. Installed by the three vendored-dependency modules
+    # below (python3-numpy, python3-shapely, python3-python-xlib) from
+    # pinned wheels instead of a `pip install` against PyPI, so no
+    # build-time network share is needed - see those modules' own
+    # comment for why. --no-build-isolation on the pip3 install below
+    # is not for these three (that install is `--no-deps`, so it never
+    # touches them) - it's so pip uses the python3-hatchling module
+    # above instead of trying to fetch hatchling itself from PyPI; see
+    # that module's own comment.
     build-commands:
-      - pip3 install --prefix=/app --no-deps .
-      # Pinned to requirements.txt's own versions (final-review finding,
-      # 2026-08-31) - that file exists specifically so every channel's
-      # actual dependency versions match what Aikido/Semgrep SCA
-      # scanning checks (see its own header comment); apt/Snap both get
-      # distro-pinned versions via debian/control, so this was the one
-      # channel building against whatever PyPI happened to serve that
-      # day. Keep these three in sync with requirements.txt by hand -
-      # RELEASING.md step 3 already re-verifies requirements.txt itself
-      # against the dev venv every release.
-      - pip3 install --prefix=/app numpy==2.5.2 shapely==2.1.2 python-xlib==0.33
+      - pip3 install --prefix=/app --no-deps --no-build-isolation .
       - install -Dm644 org.orcshot.Orcshot.desktop /app/share/applications/org.orcshot.Orcshot.desktop
       # The existing icon asset (src/orcshot/resources/orcshot.png, the
       # same file debian/orcshot.install already ships at
@@ -146,6 +184,61 @@ modules:
     # via `gst-inspect-1.0` - no new module needed here at all, just
     # the `--socket=pulseaudio` grant above for actual audio output).
     # See that module's own docstring for the full story.
+  # Real, already-verified flatpak-pip-generator output (Flathub's own
+  # official tool, flatpak/flatpak-builder-tools/pip - not the
+  # same-named PyPI package, which is an unofficial repackaging), run
+  # against org.gnome.Sdk//50 with --prefer-wheels. Replaces the old
+  # `pip3 install --prefix=/app numpy==... shapely==... python-xlib==...`
+  # line, which needed --share=network at build time - disallowed by
+  # Flathub's own build policy (BACKLOG #194). This run also caught two
+  # real things a hand-rolled fix would likely have missed: the
+  # runtime's actual Python is 3.13 (cp313 wheel tags), not 3.12 as
+  # naively assumed from an unrelated host Python; and python-xlib has
+  # its own previously-unpinned transitive dependency, six>=1.10.0.
+  - name: python3-numpy
+    buildsystem: simple
+    build-commands:
+      - pip3 install --verbose --exists-action=i --no-index --find-links="file://${PWD}"
+        --prefix=${FLATPAK_DEST} "numpy==2.5.2" --no-build-isolation
+    sources:
+      - &numpy-x86_64
+        type: file
+        url: https://files.pythonhosted.org/packages/7b/44/59a1eb68e773c4098d107ef34a0dbdeca501d72ffcfbff9a7707343921ce/numpy-2.5.2-cp313-cp313-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl
+        sha256: 29b86ff8a6cc556b47ec6b64b194815cc80e6bf5eedcc6cddfd65318cb0b4eee
+        only-arches: [x86_64]
+      - &numpy-aarch64
+        type: file
+        url: https://files.pythonhosted.org/packages/29/f1/2a64a307d92c5d98f5255a4014eb43bb6103ee477087b61ecae44a3aa9b9/numpy-2.5.2-cp313-cp313-manylinux_2_27_aarch64.manylinux_2_28_aarch64.whl
+        sha256: 0aadf13b60048d501e05fa699efaf7734e2494f3498a4c2a5521d822640324f3
+        only-arches: [aarch64]
+  - name: python3-shapely
+    buildsystem: simple
+    build-commands:
+      - pip3 install --verbose --exists-action=i --no-index --find-links="file://${PWD}"
+        --prefix=${FLATPAK_DEST} "shapely==2.1.2" --no-build-isolation
+    sources:
+      - *numpy-x86_64
+      - *numpy-aarch64
+      - type: file
+        url: https://files.pythonhosted.org/packages/f2/a2/83fc37e2a58090e3d2ff79175a95493c664bcd0b653dd75cb9134645a4e5/shapely-2.1.2-cp313-cp313-manylinux2014_x86_64.manylinux_2_17_x86_64.whl
+        sha256: 7ed1a5bbfb386ee8332713bf7508bc24e32d24b74fc9a7b9f8529a55db9f4ee6
+        only-arches: [x86_64]
+      - type: file
+        url: https://files.pythonhosted.org/packages/2d/5e/7d7f54ba960c13302584c73704d8c4d15404a51024631adb60b126a4ae88/shapely-2.1.2-cp313-cp313-manylinux2014_aarch64.manylinux_2_17_aarch64.whl
+        sha256: fe7b77dc63d707c09726b7908f575fc04ff1d1ad0f3fb92aec212396bc6cfe5e
+        only-arches: [aarch64]
+  - name: python3-python-xlib
+    buildsystem: simple
+    build-commands:
+      - pip3 install --verbose --exists-action=i --no-index --find-links="file://${PWD}"
+        --prefix=${FLATPAK_DEST} "python-xlib==0.33" --no-build-isolation
+    sources:
+      - type: file
+        url: https://files.pythonhosted.org/packages/fc/b8/ff33610932e0ee81ae7f1269c890f697d56ff74b9f5b2ee5d9b7fa2c5355/python_xlib-0.33-py2.py3-none-any.whl
+        sha256: c3534038d42e0df2f1392a1b30a15a4ff5fdc2b86cfa94f072bf11b10a164398
+      - type: file
+        url: https://files.pythonhosted.org/packages/b7/ce/149a00dd41f10bc29e5921b496af8b574d8413afcd5e30dfa0ed46c2cc5e/six-1.17.0-py2.py3-none-any.whl
+        sha256: 4721f391ed90541fddacab5acf947aa0d3dc7d27b2e1e8eda2be8970586c3274
   - name: bundled-extensions
     buildsystem: simple
     sources:
