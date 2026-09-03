@@ -28,7 +28,7 @@ import os
 
 from orcshot.capture.backend import CaptureBackend
 from orcshot.capture.backend_select import default_capture_backend
-from orcshot.capture.cursor import CursorBackend
+from orcshot.capture.cursor import CursorBackend, default_cursor_backend
 from orcshot.capture.modes import active_window_info, full_screen_region
 from orcshot.capture.window import WindowEnumerator
 from orcshot.core.cursor_capture import cursor_shape_for_capture
@@ -42,12 +42,6 @@ def _default_window_enumerator() -> WindowEnumerator:
 
     enumerator, _activator = default_window_enumerator_and_activator()
     return enumerator
-
-
-def _default_cursor_backend() -> CursorBackend:
-    from orcshot.capture.x11_cursor import X11CursorBackend
-
-    return X11CursorBackend()
 
 
 def should_capture_cursor(capture_mouse_cursor: bool) -> bool:
@@ -75,7 +69,9 @@ def capture_cursor_shape(
     if not should_capture_cursor(capture_mouse_cursor):
         return None
     if cursor_backend is None:
-        cursor_backend = _default_cursor_backend()
+        cursor_backend = default_cursor_backend()
+    if cursor_backend is None:
+        return None
     snapshot = cursor_backend.cursor_snapshot()
     if snapshot is None:
         return None

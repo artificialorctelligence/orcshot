@@ -75,10 +75,11 @@ class WaylandWindowPicker:
         self._cursor_preview_shape = None
         if should_capture_cursor(capture_mouse_cursor):
             if cursor_backend is None:
-                from orcshot.capture.x11_cursor import X11CursorBackend
+                from orcshot.capture.cursor import default_cursor_backend
 
-                cursor_backend = X11CursorBackend()
-            self._cursor_snapshot = cursor_backend.cursor_snapshot()
+                cursor_backend = default_cursor_backend()
+            if cursor_backend is not None:
+                self._cursor_snapshot = cursor_backend.cursor_snapshot()
         if self._cursor_snapshot is not None:
             snap = self._cursor_snapshot
             shape = cursor_shape_for_capture(
