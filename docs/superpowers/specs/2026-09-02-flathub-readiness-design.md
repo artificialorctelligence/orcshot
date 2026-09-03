@@ -235,10 +235,12 @@ should too).
 
 ## Known open items
 
-- **The homepage points at `orcshot.org`, which isn't resolving yet at spec-writing time.**
-  Real risk if this plan lands before the domain is live and hosting something: a broken/parked
-  homepage link in a real, shipped metainfo file. Should be confirmed live (does it resolve, is
-  something real hosted there) before this actually merges, not just before Flathub submission.
+- **`orcshot.org` now resolves and forwards correctly** (confirmed live, 2026-09-02, after not
+  resolving at initial spec-writing time - real DNS propagation, no longer an open item): a
+  plain HTTP request to `orcshot.org` returns a genuine `301 Moved Permanently` to
+  `https://github.com/artificialorctelligence/orcshot` (registrar-level domain forwarding, not
+  a hosted site of its own, but a real working redirect to the right place). The `homepage` URL
+  in the metainfo design above is safe to use as written.
 - **Flathub's domain-verification badge** needs a token only available after real submission -
   tracked as a genuinely separate, later action, not part of this plan.
 - **The description prose is a first draft**, not final-reviewed copy - worth a fresh look at
