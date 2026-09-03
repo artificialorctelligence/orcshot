@@ -45,6 +45,11 @@ jobs:
       - name: Build the Flatpak
         run: flatpak-builder --force-clean --repo=repo build-dir org.orcshot.Orcshot.yaml
 
+      - name: Validate the real metainfo against Flathub's own linter
+        run: |
+          sudo flatpak install -y flathub org.flatpak.Builder
+          flatpak run --command=flatpak-builder-lint org.flatpak.Builder appstream org.orcshot.Orcshot.metainfo.xml
+
       - name: Bundle it into a single distributable file
         run: flatpak build-bundle repo "orcshot_${{ steps.version.outputs.version }}.flatpak" org.orcshot.Orcshot
 
