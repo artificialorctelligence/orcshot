@@ -72,12 +72,20 @@ modules:
   # sys.path (confirmed live it already includes
   # /app/lib/python3.13/site-packages) instead of an isolated venv, so
   # hatchling has to already be installed to /app by the time that
-  # command runs.
+  # command runs. To update the pinned wheels here (a new hatchling
+  # release, or orcshot's own pyproject.toml needing a newer one),
+  # re-run the official flatpak-pip-generator tool (flatpak/flatpak-
+  # builder-tools on GitHub, MIT licensed) with --prefer-wheels
+  # --runtime org.gnome.Sdk//50 against the target package, the same
+  # way this module and python3-numpy/-shapely/-python-xlib below were
+  # originally generated.
   - name: python3-hatchling
     buildsystem: simple
     build-commands:
       - pip3 install --verbose --exists-action=i --no-index --find-links="file://${PWD}"
-        --prefix=${FLATPAK_DEST} "hatchling" --no-build-isolation
+        --prefix=${FLATPAK_DEST} "hatchling==1.32.0" --no-build-isolation
+    cleanup:
+      - '*'
     sources:
       - type: file
         url: https://files.pythonhosted.org/packages/a9/84/1798b6d85ecde0e31546004efd25c5de1b1f49250644a60cce460e12593a/hatchling-1.32.0-py3-none-any.whl

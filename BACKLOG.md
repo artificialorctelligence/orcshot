@@ -50,20 +50,35 @@ future "submit to Flathub" effort:
   would need to either vendor these as pre-built wheels/sdists via `sources:` entries (flatpak-builder
   supports this, no network needed at build time) or find them already staged in a shared BaseApp/
   extension.
+  **Addressed on the `flathub-readiness` branch (not yet merged to main):** `--share=network` is gone,
+  and `numpy`/`shapely`/`python-xlib` are now vendored as pinned, pre-built wheels via `sources:`
+  entries (`python3-numpy`/`python3-shapely`/`python3-python-xlib` modules), generated with the official
+  `flatpak-pip-generator` tool against `org.gnome.Sdk//50` - exactly the fix this bullet describes. A
+  fourth module, `python3-hatchling`, was needed too: removing `--share=network` exposed a second,
+  previously-hidden network dependency (`orcshot`'s own `pyproject.toml` declares
+  `build-backend = "hatchling.build"`, and pip's build isolation tries to fetch that backend from PyPI
+  for every `pip3 install .` of a local source dir) - vendored the same way, with `cleanup: ['*']` so
+  hatchling/pathspec/pluggy/tomlkit/trove_classifiers (build-only, no runtime purpose) don't ship inside
+  the final app.
 - **`--talk-name=org.gnome.Shell`** - a real session-bus grant a Flathub reviewer would ask about.
   Narrowing it to `org.gnome.Shell.Extensions` (`com.mattjakeman.ExtensionManager`'s own precedent on
   Flathub) was tried and reverted in this same fix round after live-verifying it does not work on a
   real GNOME Shell (46.2) - that name isn't an owned/activatable bus name there, so dialing it fails
   outright rather than reaching the running Shell (see `gnome_extension_setup.py`'s own comment for
   the full live-tested story). Worth re-testing against a newer GNOME Shell version someday, but not
-  assumed to work without doing so again for real.
+  assumed to work without doing so again for real. Still open - unrelated to the `flathub-readiness`
+  branch's work.
 - **No AppStream metadata at all** (`org.orcshot.Orcshot.appdata.xml` / `org.orcshot.Orcshot.metainfo.xml`)
   - Flathub requires this for the store listing (screenshots, description, release notes); nothing in
   this manifest or repo produces one yet.
+  **Addressed on the `flathub-readiness` branch (not yet merged to main):** `org.orcshot.Orcshot.metainfo.xml`
+  now exists (screenshots, description, release notes) and validates against `flatpak-builder-lint`'s
+  `appstream` check with 0 errors.
 
 Not scoped, not designed, no decision made - this is the record the spec's own "Flathub submission as
 the next step" framing needs to exist somewhere, matching this project's own BACKLOG discipline (e.g.
-`#193`, filed for a CI-runner quirk far smaller than any of these three).
+`#193`, filed for a CI-runner quirk far smaller than any of these three). The actual Flathub submission
+itself remains a separate, later action even once the `flathub-readiness` branch merges.
 
 ## #193: GitHub Actions `ubuntu-24.04` runners hit `dconf-CRITICAL: Permission denied` on a real, unconfined `gnome-shell` too
 
