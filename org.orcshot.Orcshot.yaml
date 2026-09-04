@@ -21,21 +21,32 @@ finish-args:
   # Tried narrowing this to --talk-name=org.gnome.Shell.Extensions
   # (final-review finding, 2026-08-31 - com.mattjakeman.ExtensionManager,
   # a real Flathub app doing the identical EnableExtension call, uses
-  # that narrower name) and reverted it after live-verifying it does NOT
-  # work: this project's own flatpak/verify CI run against a real,
-  # headless GNOME Shell (GNOME 46.2 on Ubuntu 24.04) showed
-  # "org.gnome.Shell.Extensions" is not an owned, already-connected bus
-  # name there - dialing it triggers D-Bus service *activation* instead
-  # of routing to the already-running Shell process, and there is no
-  # .service file to activate, so the call fails outright
-  # ("Failed to execute program org.gnome.Shell.Extensions: No such file
-  # or directory") and the extension never loads. Kept broad
-  # (--talk-name=org.gnome.Shell) as the only grant proven to actually
-  # work against a real target - ExtensionManager's own narrower grant
-  # doesn't transfer unchanged here, and isn't assumed to without
-  # re-testing on a future GNOME version. This is a real, not-yet-
-  # narrowed permission a Flathub reviewer may ask about - see
-  # BACKLOG #194.
+  # that narrower name). Confirmed, definitively, 2026-09-04 (BACKLOG
+  # #194): narrowing to that name alone is not actually possible for
+  # this app, regardless of whether it works in isolation - two other
+  # real, currently-shipping features also call custom interfaces on
+  # this exact same bus name, not just EnableExtension:
+  # capture/gnome_clipboard.py's own BUS_NAME/OBJECT_PATH/INTERFACE
+  # ("org.gnome.Shell", ".../Extensions/OrcshotClipboard",
+  # "org.gnome.Shell.Extensions.OrcshotClipboard") and
+  # capture/gnome_window_calls.py's identical pattern for the bundled
+  # window-calls extension. Flatpak's --talk-name filters by bus name
+  # only, not by object path or interface, so there is no manifest-level
+  # grant narrower than the shared bus name itself
+  # ("org.gnome.Shell") that all three real features actually need -
+  # narrowing to org.gnome.Shell.Extensions would silently break
+  # clipboard support and window-calls capture, not just fail to help.
+  # (Separately confirmed live the same day, on a real GNOME Shell 50.1
+  # desktop session: org.gnome.Shell.Extensions itself genuinely is a
+  # real, activatable D-Bus name there via its own real service file at
+  # /usr/share/dbus-1/services/org.gnome.Shell.Extensions.service - the
+  # original 2026-08-31 finding that it wasn't appears to have been
+  # specific to that test's own headless CI environment, not GNOME
+  # Shell generally. Doesn't change the conclusion above either way -
+  # the blocker is structural, not version-specific.)
+  # --talk-name=org.gnome.Shell is the correct, minimal grant this app's
+  # real feature set needs, not an unnarrowed placeholder - ready to
+  # explain to a Flathub reviewer on exactly these terms if asked.
   - --talk-name=org.gnome.Shell
   # capture_feedback.py's capture-complete sound (GStreamer playing a
   # bundled file, see that module's own docstring - replaced GSound,
