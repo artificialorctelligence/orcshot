@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>org.orcshot.Orcshot</id>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>GPL-3.0-or-later</project_license>
+  <name>Orcshot</name>
+  <summary>Capture, annotate, and share screenshots</summary>
+  <developer id="org.orcshot">
+    <name>Orcshot</name>
+  </developer>
+  <description>
+    <p>
+      Orcshot is a screenshot capture and annotation tool for Linux, ported from Windows
+      Greenshot. Capture a region, a window, or the full screen, then annotate with shapes,
+      text, arrows, and effects before saving, copying, or sending the result wherever it
+      needs to go.
+    </p>
+    <ul>
+      <li>Region, window, and full-screen capture on both X11 and Wayland</li>
+      <li>A full annotation editor: shapes, text, arrows, highlighting, blur and pixelize
+      effects</li>
+      <li>Configurable global capture hotkeys</li>
+      <li>Send captures straight to the clipboard, a file, or an external command</li>
+    </ul>
+  </description>
+  <launchable type="desktop-id">org.orcshot.Orcshot.desktop</launchable>
+  <url type="homepage">https://orcshot.org</url>
+  <url type="bugtracker">https://github.com/artificialorctelligence/orcshot/issues</url>
+  <url type="vcs-browser">https://github.com/artificialorctelligence/orcshot</url>
+  <branding>
+    <color type="primary" scheme_preference="light">#8aff01</color>
+    <color type="primary" scheme_preference="dark">#3d3d3d</color>
+  </branding>
+  <content_rating type="oars-1.1" />
+  <screenshots>
+    <screenshot type="default">
+      <image>https://raw.githubusercontent.com/artificialorctelligence/orcshot/4155c4f7fffb810da54cc3651425271fc0887860/metainfo-screenshots/editor-annotated.png</image>
+      <caption>Annotate a capture with shapes, text, and effects</caption>
+    </screenshot>
+  </screenshots>
+  <releases>
+    <release version="0.2.0" date="2026-08-26">
+      <description>
+        <p>Initial Flathub-ready release.</p>
+      </description>
+    </release>
+  </releases>
+</component>
