@@ -80,7 +80,7 @@ still genuinely open. Not tracked as fully resolved for that reason - the actual
 itself (the PR against `flathub/flathub`, their human review) also remains a separate, later action not
 attempted here.
 
-## #193: GitHub Actions `ubuntu-24.04` runners hit `dconf-CRITICAL: Permission denied` on a real, unconfined `gnome-shell` too
+## #193: GitHub Actions `ubuntu-24.04` runners hit `dconf-CRITICAL: Permission denied` on a real, unconfined `gnome-shell` too (RESOLVED 2026-09-04)
 
 Found as a side effect of BACKLOG #185's Flatpak CI hard tier (task #4's own real live testing,
 2026-08-31). The runner's `dconf-CRITICAL **: unable to create file '/run/user/<uid>/dconf/user':
@@ -104,11 +104,11 @@ matter. `snap.yml`'s own equivalent persistence check never showed this flakines
 solved the race, but because it reads back through the same confined settings backend it wrote
 through instead of host dconf directly - never actually exposed to it.
 
-**Fix, pending real CI confirmation**: `flatpak.yml` now creates `/run/user/<uid>/dconf/` explicitly,
-right after the session bus appears and before anything tries to write through it - removes the race
-instead of hoping to win it. Mark this resolved only once a real CI run confirms it, not on the fix
-landing alone - the whole reason this was mischaracterized in the first place was a single green run
-being trusted too early.
+**Fix, confirmed live**: `flatpak.yml` now creates `/run/user/<uid>/dconf/` explicitly, right after
+the session bus appears and before anything tries to write through it - removes the race instead of
+hoping to win it. Confirmed with three separate, consecutive `flatpak / verify` re-runs on the same
+PR (#19), all green - deliberately more than the single green run that got this issue
+mischaracterized as harmless in the first place.
 
 ## #192: Snap channel - gnome_shell_present() crash, and whether the tray extension actually works under strict confinement (RESOLVED 2026-08-30)
 
