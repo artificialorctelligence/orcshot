@@ -50,16 +50,15 @@ future "submit to Flathub" effort:
   would need to either vendor these as pre-built wheels/sdists via `sources:` entries (flatpak-builder
   supports this, no network needed at build time) or find them already staged in a shared BaseApp/
   extension.
-  **Addressed on the `flathub-readiness` branch (not yet merged to main):** `--share=network` is gone,
-  and `numpy`/`shapely`/`python-xlib` are now vendored as pinned, pre-built wheels via `sources:`
-  entries (`python3-numpy`/`python3-shapely`/`python3-python-xlib` modules), generated with the official
-  `flatpak-pip-generator` tool against `org.gnome.Sdk//50` - exactly the fix this bullet describes. A
-  fourth module, `python3-hatchling`, was needed too: removing `--share=network` exposed a second,
-  previously-hidden network dependency (`orcshot`'s own `pyproject.toml` declares
-  `build-backend = "hatchling.build"`, and pip's build isolation tries to fetch that backend from PyPI
-  for every `pip3 install .` of a local source dir) - vendored the same way, with `cleanup: ['*']` so
-  hatchling/pathspec/pluggy/tomlkit/trove_classifiers (build-only, no runtime purpose) don't ship inside
-  the final app.
+  **Fixed, merged to `main` (#16, #17):** `--share=network` is gone, and `numpy`/`shapely`/`python-xlib`
+  are now vendored as pinned, pre-built wheels via `sources:` entries (`python3-numpy`/`python3-shapely`/
+  `python3-python-xlib` modules), generated with the official `flatpak-pip-generator` tool against
+  `org.gnome.Sdk//50` - exactly the fix this bullet describes. A fourth module, `python3-hatchling`, was
+  needed too: removing `--share=network` exposed a second, previously-hidden network dependency
+  (`orcshot`'s own `pyproject.toml` declares `build-backend = "hatchling.build"`, and pip's build
+  isolation tries to fetch that backend from PyPI for every `pip3 install .` of a local source dir) -
+  vendored the same way, with `cleanup: ['*']` so hatchling/pathspec/pluggy/tomlkit/trove_classifiers
+  (build-only, no runtime purpose) don't ship inside the final app.
 - **`--talk-name=org.gnome.Shell`** - a real session-bus grant a Flathub reviewer would ask about.
   Narrowing it to `org.gnome.Shell.Extensions` (`com.mattjakeman.ExtensionManager`'s own precedent on
   Flathub) was tried and reverted in this same fix round after live-verifying it does not work on a
@@ -71,14 +70,15 @@ future "submit to Flathub" effort:
 - **No AppStream metadata at all** (`org.orcshot.Orcshot.appdata.xml` / `org.orcshot.Orcshot.metainfo.xml`)
   - Flathub requires this for the store listing (screenshots, description, release notes); nothing in
   this manifest or repo produces one yet.
-  **Addressed on the `flathub-readiness` branch (not yet merged to main):** `org.orcshot.Orcshot.metainfo.xml`
-  now exists (screenshots, description, release notes) and validates against `flatpak-builder-lint`'s
-  `appstream` check with 0 errors.
+  **Fixed, merged to `main` (#16, #17):** `org.orcshot.Orcshot.metainfo.xml` now exists (screenshots,
+  description, release notes) and validates against `flatpak-builder-lint`'s `appstream` check with
+  genuinely **0 errors and 0 warnings**, confirmed live in real CI against the real, pushed screenshot
+  commit (`docs.flathub.org`'s own linter, `org.flatpak.Builder`).
 
-Not scoped, not designed, no decision made - this is the record the spec's own "Flathub submission as
-the next step" framing needs to exist somewhere, matching this project's own BACKLOG discipline (e.g.
-`#193`, filed for a CI-runner quirk far smaller than any of these three). The actual Flathub submission
-itself remains a separate, later action even once the `flathub-readiness` branch merges.
+Two of the three gaps are now fixed and merged (2026-09-03/04). The `--talk-name` narrowing above is
+still genuinely open. Not tracked as fully resolved for that reason - the actual Flathub submission
+itself (the PR against `flathub/flathub`, their human review) also remains a separate, later action not
+attempted here.
 
 ## #193: GitHub Actions `ubuntu-24.04` runners hit `dconf-CRITICAL: Permission denied` on a real, unconfined `gnome-shell` too
 
