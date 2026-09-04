@@ -87,13 +87,28 @@ Found as a side effect of BACKLOG #185's Flatpak CI hard tier (task #4's own rea
 Permission denied` warning, first seen from inside a Flatpak-confined process, turned out to also hit
 the real, completely unconfined `gnome-shell --headless` process itself on this exact runner image -
 confirmed by pulling the actual job log and finding the identical error at that process's own startup,
-not just the Flatpak-confined one. Doesn't affect anything this project currently tests -
-`enable_extension_live()`'s direct D-Bus activation bypasses `dconf` entirely, which is exactly why it
-still worked here - but it's a real, unexplained runner-environment gap (likely a missing
-`XDG_RUNTIME_DIR`/`dconf` directory permission setup GitHub's own runner image doesn't provide by
-default for a headless-launched `gnome-shell`), not something this project caused. Worth a quick,
-cheap root-cause someday if any future CI check ever needs a real, working `dconf` write to actually
-land (the current hard tier deliberately doesn't need one) - not urgent, not blocking anything today.
+not just the Flatpak-confined one. Originally recorded as *not* affecting anything this project
+tested, since `enable_extension_live()`'s direct D-Bus activation bypasses `dconf` entirely.
+
+**That turned out to be wrong** (PR #18, 2026-09-04): `flatpak.yml`'s own final persistence check
+(`gsettings get org.gnome.shell enabled-extensions`, reading the real host dconf directly) failed
+with this exact warning on a PR that touched nothing but `BACKLOG.md` - then passed clean on an
+immediate re-run of the identical code, confirming the warning's real-world effect is genuinely
+intermittent, not the harmless no-op it was first assumed to be.
+
+**Real root cause**: `systemctl start user@<uid>.service` (this job's own way of getting a user D-Bus
+session bus without a real login) brings up the session bus but, unlike a real login opened via
+`pam_systemd`, does not create `/run/user/<uid>/dconf/` - `dconf-service` creates that subdirectory
+itself, lazily, on first use, and loses that race against this exact runner's timing often enough to
+matter. `snap.yml`'s own equivalent persistence check never showed this flakiness not because it
+solved the race, but because it reads back through the same confined settings backend it wrote
+through instead of host dconf directly - never actually exposed to it.
+
+**Fix, pending real CI confirmation**: `flatpak.yml` now creates `/run/user/<uid>/dconf/` explicitly,
+right after the session bus appears and before anything tries to write through it - removes the race
+instead of hoping to win it. Mark this resolved only once a real CI run confirms it, not on the fix
+landing alone - the whole reason this was mischaracterized in the first place was a single green run
+being trusted too early.
 
 ## #192: Snap channel - gnome_shell_present() crash, and whether the tray extension actually works under strict confinement (RESOLVED 2026-08-30)
 

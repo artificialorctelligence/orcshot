@@ -177,6 +177,27 @@ jobs:
           timeout 30 bash -c 'until [ -S "/run/user/$(id -u)/bus" ]; do sleep 0.5; done' \
             || { echo "systemd --user session bus never appeared"; exit 1; }
 
+      # Real root cause of BACKLOG #193's dconf-CRITICAL warning, found
+      # 2026-09-04 after it flakily failed this job's own persistence
+      # check for the first time (PR #18): `systemctl start
+      # user@<uid>.service` brings up the user manager and (per the
+      # step above) its D-Bus session bus, but unlike a real login
+      # session opened via pam_systemd, it does not create
+      # /run/user/<uid>/dconf/ - dconf-service creates that
+      # subdirectory itself, lazily, on first use, and loses that race
+      # under this runner's exact timing often enough to matter (this
+      # job's own check happened to lose it once; snap.yml's
+      # equivalent check reads back through the same confined settings
+      # backend it wrote through instead of host dconf directly, which
+      # is almost certainly why it hasn't shown this same flakiness -
+      # it was never actually protected against this race, just less
+      # exposed to it). Creating the directory explicitly here, before
+      # anything below tries to write through it, removes the race
+      # instead of hoping to win it.
+      - name: Work around #193 - create /run/user/<uid>/dconf before anything uses it
+        run: |
+          mkdir -p "/run/user/$(id -u)/dconf"
+
       - name: Launch gnome-shell headless
         run: |
           export XDG_RUNTIME_DIR=/run/user/$(id -u)
