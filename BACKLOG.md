@@ -429,46 +429,6 @@ direflail's request as given is general ("make sure it's using modern packaging/
 to the tray icon alone - worth a clarifying pass before writing an implementation plan, same as #184 got
 before its own plan was written.
 
-## #188: Existing Orcshot installs upgrading to the Wayland tray redesign never get `orcshot-tray@orcshot.org` enabled
-
-Surfaced during #184's own Task 7 live verification (2026-08-29), not something the original 7-task plan
-anticipated. `gnome_extension_setup.py`/`first_run_setup.py`'s enable-on-first-run wizard now correctly
-lists the new `orcshot-tray@orcshot.org` extension alongside `window-calls@domandoman.xyz` and
-`orcshot-clipboard@orcshot.org` - but that wizard is gated on `is_first_run_setup_done()`, which is
-already `true` for anyone who installed Orcshot before this redesign. On a real upgrade (not a fresh
-install), the new extension's files land on disk (`debian/orcshot.install`), but nothing ever tells
-GNOME Shell to turn it on - confirmed live: exactly this state on the test VM (`gnome-extensions info
-orcshot-tray@orcshot.org` reported `Enabled: No` right after a real `apt install --reinstall` on an
-already-configured install), and the wizard did not re-show.
-
-**Why not just auto-enable it on upgrade**: `gnome_extension_setup.py`'s own docstring is explicit and
-deliberate - enabling an extension is "a real write to the user's desktop settings that must only ever
-happen from their own confirmation click, never as a side effect of installing or running the app." Silently
-flipping this on during a `postinst`/upgrade would violate that standing product principle, not just be
-lazy engineering.
-
-**What this needs**: some new, upgrade-specific consent path - e.g. a one-time "we've changed how the
-Wayland tray works, want to enable it?" prompt shown once on the first run after an upgrade where
-`orcshot-clipboard@orcshot.org` is already enabled but `orcshot-tray@orcshot.org` isn't - not a silent
-flip, and not just re-running the whole first-run wizard from scratch (autostart/hotkeys are presumably
-already configured and shouldn't be re-asked). A real, scoped design question, not a one-line fix -
-needs its own brainstorming pass before implementation.
-
-**Consequence if left unfixed**: every real user who upgrades an existing Orcshot install to this version
-on GNOME Wayland loses their tray icon entirely on upgrade, with no in-app explanation why, until they
-manually run `gnome-extensions enable orcshot-tray@orcshot.org` themselves or reach Preferences (if a
-manual enable action is ever added there). A real, user-visible regression on upgrade, not just a
-first-install polish gap - should probably be resolved before this branch's release, not deferred
-indefinitely.
-
-**Noted by the final whole-branch review, worth carrying into whatever design pass this gets**:
-`first_run_setup.py`'s `enable_extension_live()` call is itself a D-Bus call *into* `org.gnome.Shell`
-(pre-existing, already best-effort `try`/`except`, not new). Under Snap or Flatpak confinement, that call
-would be denied for all three bundled extensions, not just the tray one - a confined build would silently
-degrade to "enabled at next login" rather than immediately, for every extension this wizard handles. Worth
-folding into whatever upgrade-consent design gets built here, since it's the same "confined app can't poke
-`org.gnome.Shell` directly" class of constraint #184's own redesign exists to route around elsewhere.
-
 ## #184: Explore a Wayland capture path that doesn't depend on the bundled GNOME Shell extension, to open up Snap and Flatpak (RESOLVED 2026-08-30)
 
 **The one remaining open caveat from this entry's own final review (below - "extension-install-from-
