@@ -874,7 +874,7 @@ class OrcshotApplication(Gtk.Application):
                 ),
             )
 
-def _start_periodic_update_checks(self) -> bool:
+    def _start_periodic_update_checks(self) -> bool:
         self._periodic_update_check_tick()
         GLib.timeout_add_seconds(_UPDATE_CHECK_POLL_INTERVAL_SECONDS, self._periodic_update_check_tick)
         return False  # one-shot: the recurring timer above takes over
