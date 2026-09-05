@@ -3751,24 +3751,16 @@ class EditorWindow(Gtk.Window):
 
     @staticmethod
     def _tray_icon_help_rows() -> list:
-        """Genuinely different behavior per platform, not just a
-        wording choice - see app.py's _build_tray_icon docstring for
-        the full citation trail (a real AyatanaAppIndicator3
-        limitation on Wayland, not a bug in this app: once a menu is
-        attached, there's no separate click action, only Xlib/XEmbed-
-        based Gtk.StatusIcon on X11 distinguishes left/right click).
-        Detected the same way app.py itself picks which tray
-        implementation to build, rather than guessing from whatever
-        capture backend happened to get selected.
+        """Before BACKLOG #189, this genuinely differed by platform -
+        Wayland's tray icon (AyatanaAppIndicator3-based) had no
+        separate click action, only X11's Xlib/XEmbed-based
+        Gtk.StatusIcon could distinguish left/right click. #189
+        replaced both with a D-Bus-exported menu/action model consumed
+        by the same GNOME Shell extension on GNOME regardless of
+        session type, and by a native Cinnamon applet, both of which
+        support the same left-click-capture/right-click-menu behavior
+        X11 always had - so there's nothing left to branch on.
         """
-        if os.environ.get("XDG_SESSION_TYPE") == "wayland":
-            why_url = f"{EditorWindow._WIKI_URL}#why-does-the-wayland-tray-icon-only-have-one-click-action"
-            return [(
-                _("Click"),
-                _('Open the tray menu\n(Wayland has no separate click action - '
-                  '<a href="{}">Why?</a>)').format(why_url),
-                True,
-            )]
         return [
             (_("Left-click"), _("Start a region capture immediately")),
             (_("Right-click"), _("Open the tray menu")),
