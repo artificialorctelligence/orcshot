@@ -199,11 +199,10 @@ class OrcshotTrayButton extends PanelMenu.Button {
                     logError(e, 'orcshot-tray: bad icon data');
                 }
             }
-            let bareAction = null;
             if (action) {
                 // Bare name, no "app." prefix - see this file's own
                 // Interfaces note above for why.
-                bareAction = action.includes('.') ? action.split('.').slice(1).join('.') : action;
+                let bareAction = action.includes('.') ? action.split('.').slice(1).join('.') : action;
                 item.connect('activate', () => this._actionGroup.activate_action(bareAction, null));
                 item.setSensitive(this._actionGroup.get_action_enabled(bareAction));
             }

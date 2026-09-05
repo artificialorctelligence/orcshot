@@ -1,7 +1,6 @@
 const Applet = imports.ui.applet;
 const Gio = imports.gi.Gio;
 const PopupMenu = imports.ui.popupMenu;
-const St = imports.gi.St;
 
 // Must match app.py's fixed application_id and gnome_tray_export.py's
 // TRAY_MENU_PATH exactly - same values orcshot-tray@orcshot.org's
@@ -46,6 +45,33 @@ class OrcshotTrayApplet extends Applet.IconApplet {
         this._itemsChangedId = this._menuModel.connect('items-changed', () => this._rebuild());
         this._actionEnabledChangedId = this._actionGroup.connect(
             'action-enabled-changed', () => this._rebuild());
+
+        // An applet's own lifecycle is owned by Cinnamon's panel, not by
+        // us - unlike the GNOME Shell extension's status-area button
+        // (extension.js's enable()/disable()), this applet can't be
+        // constructed/destroyed on demand when Orcshot itself starts or
+        // quits. Watching the same bus name and toggling this applet's
+        // own actor is the real equivalent: direflail's standing
+        // requirement (see app.py) is "when the user selects quit, i
+        // want all parts of the program to quit and vanish" - without
+        // this, the icon just sits in the panel looking functional after
+        // Orcshot has already exited. Starts hidden (below) so there's
+        // no visible icon at all until the appeared callback actually
+        // confirms org.orcshot.Orcshot is up.
+        this.actor.hide();
+        this._busWatchId = Gio.bus_watch_name(
+            Gio.BusType.SESSION, BUS_NAME, Gio.BusNameWatcherFlags.NONE,
+            () => {
+                // Re-run in case the menu model's identity changed across
+                // a restart (a fresh Gio.DBusMenuModel/Gio.DBusActionGroup
+                // proxy pair, same objects held since the constructor).
+                this._rebuild();
+                this.actor.show();
+            },
+            () => {
+                this.actor.hide();
+            },
+        );
     }
 
     // Called automatically by Applet's own _onButtonPressEvent on a
@@ -65,6 +91,7 @@ class OrcshotTrayApplet extends Applet.IconApplet {
         this._menuModel.disconnect(this._itemsChangedId);
         this._actionGroup.disconnect(this._actionEnabledChangedId);
         this._disconnectSectionSignals();
+        Gio.bus_unwatch_name(this._busWatchId);
     }
 
     _disconnectSectionSignals() {
@@ -119,11 +146,20 @@ class OrcshotTrayApplet extends Applet.IconApplet {
             // construction, is the real way to hand it an arbitrary
             // Gio.Icon rather than a named one.
             let item = new PopupMenu.PopupMenuItem(label);
-            if (iconValue)
-                item._icon.set_gicon(Gio.Icon.deserialize(iconValue));
-            let bareAction = null;
+            if (iconValue) {
+                try {
+                    item._icon.set_gicon(Gio.Icon.deserialize(iconValue));
+                } catch (e) {
+                    // global.logError, not GNOME Shell's bare logError(e, prefix) -
+                    // Cinnamon's own JS environment doesn't define that global at
+                    // all; global.logError(message, error) is the real, confirmed
+                    // signature (message first - see e.g. xrandr@cinnamon.org's
+                    // own applet.js on this host).
+                    global.logError('orcshot-tray applet: bad icon data', e);
+                }
+            }
             if (action) {
-                bareAction = action.includes('.') ? action.split('.').slice(1).join('.') : action;
+                let bareAction = action.includes('.') ? action.split('.').slice(1).join('.') : action;
                 item.connect('activate', () => this._actionGroup.activate_action(bareAction, null));
                 item.setSensitive(this._actionGroup.get_action_enabled(bareAction));
             }
