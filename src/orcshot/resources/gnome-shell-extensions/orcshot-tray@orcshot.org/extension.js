@@ -41,33 +41,26 @@ class OrcshotTrayButton extends PanelMenu.Button {
         this._menuModel = Gio.DBusMenuModel.get(Gio.DBus.session, BUS_NAME, MENU_PATH);
         this._actionGroup = Gio.DBusActionGroup.get(Gio.DBus.session, BUS_NAME, ACTIONS_PATH);
 
-        // TEMPORARY diagnostics (Task 7 live debugging, direflail
-        // asked for click-behavior visibility) - remove once the
-        // menu-doesn't-open bug is actually found. All go through
-        // log() with a fixed, greppable prefix so `journalctl
-        // GLIB_DOMAIN=GNOME Shell` or a plain grep for
-        // "orcshot-tray-diag" finds every line.
-        log(`orcshot-tray-diag: _init starting, get_n_items()=${this._menuModel.get_n_items()}`);
-        this.connect('button-press-event', () => {
-            log('orcshot-tray-diag: button-press-event fired');
+        // BACKLOG #189: left-click captures directly (matching the
+        // real Windows tray default, and X11's own former
+        // Gtk.StatusIcon "activate" signal before it was deleted) -
+        // right-click (or any other button) falls through to
+        // PanelMenu.Button's own default handling, which toggles
+        // this.menu, unchanged from today.
+        this.connect('button-press-event', (actor, event) => {
+            if (event.get_button() === Clutter.BUTTON_PRIMARY) {
+                this._actionGroup.activate_action('tray-region', null);
+                return Clutter.EVENT_STOP;
+            }
             return Clutter.EVENT_PROPAGATE;
-        });
-        this.connect('touch-event', () => {
-            log('orcshot-tray-diag: touch-event fired');
-            return Clutter.EVENT_PROPAGATE;
-        });
-        this.menu.connect('open-state-changed', (menu, open) => {
-            log(`orcshot-tray-diag: menu open-state-changed, open=${open}, numMenuItems=${this.menu.numMenuItems}`);
         });
 
         this._sectionSignalIds = [];
         this._rebuild();
         this._itemsChangedId = this._menuModel.connect('items-changed', (model, pos, removed, added) => {
-            log(`orcshot-tray-diag: items-changed pos=${pos} removed=${removed} added=${added}, get_n_items()=${model.get_n_items()}`);
             this._rebuild();
         });
         this._actionEnabledChangedId = this._actionGroup.connect('action-enabled-changed', (group, name, enabled) => {
-            log(`orcshot-tray-diag: action-enabled-changed name=${name} enabled=${enabled}`);
             // A full rebuild, not a targeted item lookup: this fires
             // rarely (once per capture, for "repeat_region" only, see
             // app.py's _remember_region) so the cost of re-walking the
@@ -98,9 +91,7 @@ class OrcshotTrayButton extends PanelMenu.Button {
     _rebuild() {
         this._disconnectSectionSignals();
         this.menu.removeAll();
-        log(`orcshot-tray-diag: _rebuild running, n=${this._menuModel.get_n_items()}`);
         this._addModelItems(this._menuModel);
-        log(`orcshot-tray-diag: _rebuild finished, menu.numMenuItems=${this.menu.numMenuItems}`);
     }
 
     // Walks a Gio.MenuModel's items, recursing into any 'section' link
@@ -181,7 +172,6 @@ export default class OrcshotTrayExtension extends Extension {
         this._watchId = Gio.bus_watch_name(
             Gio.BusType.SESSION, BUS_NAME, Gio.BusNameWatcherFlags.NONE,
             () => {
-                log('orcshot-tray-diag: bus name appeared');
                 if (this._button)
                     return;
                 try {
@@ -198,13 +188,11 @@ export default class OrcshotTrayExtension extends Extension {
                     // 'orcshot-tray'" (caught below, so it fails safely,
                     // but this button would then silently never appear).
                     Main.panel.addToStatusArea('orcshot-tray-button', this._button);
-                    log('orcshot-tray-diag: button constructed and added to status area');
                 } catch (e) {
                     logError(e, 'orcshot-tray: failed to build tray button');
                 }
             },
             () => {
-                log('orcshot-tray-diag: bus name vanished');
                 if (this._button) {
                     this._button.destroy();
                     this._button = null;
