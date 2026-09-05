@@ -4031,8 +4031,15 @@ item:
   opening a second editor window. Concretely: capture a region, annotate it, then capture *again*
   without closing the first editor - with Reuse Editor on, the second capture replaces the content of
   the window you already have open instead of spawning a new one, so repeated quick captures don't pile
-  up a stack of editor windows. Confirmed portable (nothing Windows-specific in the logic), but not
-  built this round - left as an open decision, not yet implemented, pending confirmation it's wanted.
+  up a stack of editor windows. Confirmed portable (nothing Windows-specific in the logic).
+  **Built 2026-09-05** (BACKLOG #179, direflail confirmed it's wanted): a Preferences checkbox
+  ("Reuse editor window for new captures," Capture tab - this port has no separate Expert tab, see
+  that tab's own docstring) plus `EditorWindow.reset_for_capture` (resets the per-document state a
+  new EditorWindow would start with, reuses the existing window's own remembered preferences) and
+  `destination_picker._should_reuse_editor`'s pure gating logic. Live-verified: capture, save,
+  capture again reuses the same window and genuinely replaces its content; capture again *without*
+  saving does not reuse (opens a new window instead, matching the unsaved-changes gate); disabling
+  the setting restores the always-new-window default.
 - **Minimize memory footprint** (`checkbox_minimizememoryfootprint`) - grep-confirmed no
   `ICoreConfiguration` property and no code path anywhere in the real Windows app reads a setting by
   this name outside the Settings form's own enable/disable UI logic. Genuinely decorative in real
@@ -5017,8 +5024,11 @@ opened as files. This whole task is therefore an Orcshot-only addition, same as 
 - `EditorWindow._do_open` (File > Open..., placed first in the File menu, ahead of Save) and
   `open_orcshot_file_in_new_window` (module-level, `ui/editor_window.py`) — the latter shared with the
   app-level file-manager open path below. Opening always creates a **brand-new** `EditorWindow` rather
-  than replacing the current one's document, consistent with every capture already becoming its own
-  window (task #111's "Reuse Editor" setting doesn't exist yet). The loaded shapes become the new
+  than replacing the current one's document - task #111's "Reuse Editor" setting (built 2026-09-05,
+  see its own Expert-tab section above) deliberately doesn't apply here, matching real Windows'
+  own scope for it ("when a new *capture* is about to open an editor" - `EditorDestination.cs:96`
+  never mentions File > Open at all, which has no real Windows equivalent in the first place, see
+  this section's own opening paragraph). The loaded shapes become the new
   window's initial content, not undoable edits — no mementos are pushed, so the fresh undo stack starts
   empty and nothing is pre-selected, matching how opening a file leaves nothing to "undo" back out of.
   An invalid/non-.orcshot file shows the same `Gtk.MessageDialog` error pattern already used by Object

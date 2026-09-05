@@ -353,18 +353,21 @@ Not a bug, a real architectural gap - revisit only if `GnomeShellWindowPicker` (
 Shell-native path) grows a way to hand back an image directly instead of always dispatching to a
 destination.
 
-## #179: "Reuse Editor" setting (task #111) - assigned a number, never built
+## #179: "Reuse Editor" setting (task #111) - assigned a number, never built (RESOLVED 2026-09-05)
 
-Found by a REQUIREMENTS.md sweep (2026-08-23), re-checked against current code: `editor_window.py`'s
-`_do_open` (task #129, File > Open) still says in its own docstring "task #111's 'Reuse Editor' setting
-doesn't exist yet" - confirming the setting genuinely was never built, not just historically noted as
-missing once. Every capture and every opened `.orcshot` file becomes its own new `EditorWindow`
-unconditionally; there's no way to configure "open into the existing window instead."
+direflail confirmed it's wanted (2026-09-04) after a full walkthrough of the real behavior. Built:
+a Preferences checkbox ("Reuse editor window for new captures," Capture tab), a new
+`EditorWindow.reset_for_capture` method, and `destination_picker._should_reuse_editor`'s pure
+gating logic (unit tested - `tests/unit/ui/test_destination_picker.py`) wired into `_open_editor`,
+the one real construction site every capture path already shared. Scoped to captures only, matching
+real Windows' own scope for this setting (`EditorDestination.cs:96`) - File > Open still always
+opens a new window, deliberately unchanged.
 
-Original context (task #93, 2026-08-10): "confirmed portable... but not built this round - left as an open
-decision, not yet implemented, pending confirmation it's wanted." That confirmation never happened.
-Whoever picks this up should start by asking direflail whether it's actually wanted at all before
-implementing - task #93's own framing was explicitly conditional on that, not a settled "yes, build this."
+Live-verified, all four branches: capture-then-save-then-capture-again reuses the same window and
+genuinely replaces its content (confirmed via differing image dimensions before/after); capturing
+again *without* saving does not reuse (opens a new window, the unsaved-changes gate holding);
+disabling the setting restores the always-new-window default even with an eligible unmodified
+editor open. Full write-up in `REQUIREMENTS.md`'s own Expert-tab section.
 
 ## #167: VM clipboard doesn't carry images across the host/guest boundary
 
