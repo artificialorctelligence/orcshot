@@ -19,7 +19,7 @@ class OrcshotTrayApplet extends Applet.IconApplet {
         // 128x128/apps/orcshot.png via debian/orcshot.install) - not a
         // generic action icon, so no theme ships a replacement for a
         // name it's never heard of.
-        this.set_applet_icon_symbolic_name('orcshot');
+        this.set_applet_icon_name('orcshot');
         this.set_applet_tooltip('Orcshot');
 
         this._menuModel = Gio.DBusMenuModel.get(Gio.DBus.session, BUS_NAME, MENU_PATH);
