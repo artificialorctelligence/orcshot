@@ -37,48 +37,22 @@ inside a real confined Flatpak build specifically (`GstPulseSinkClock` connectin
 reached, and - the strongest signal - direflail directly heard the sound play from the sandboxed app).
 `capture_feedback.py`'s own module docstring has the full story.
 
-## #194: The Flatpak manifest isn't Flathub-submission-ready as-is
+## #194: The Flatpak manifest isn't Flathub-submission-ready as-is (RESOLVED 2026-09-04)
 
-Found during the flatpak-channel final review's fix round (2026-08-31), while pinning the manifest's
-previously-unpinned pip dependencies. Three real gaps, none blocking for a direct-download/GitHub-
-Release-asset distribution (this channel's actual current scope), all worth knowing about before any
-future "submit to Flathub" effort:
+Found during the flatpak-channel final review's fix round (2026-08-31). Three real gaps; the
+vendored-deps fix and the real AppStream metainfo file both landed on `main` via #16/#17 - full
+write-up in their own PR history, not repeated here.
 
-- **`build-options: build-args: [--share=network]`** - network access during the build sandbox (used
-  to `pip3 install` `numpy`/`shapely`/`python-xlib`, none of which have a runtime-provided equivalent -
-  see the manifest's own comment) is disallowed by Flathub's build policy outright. A real submission
-  would need to either vendor these as pre-built wheels/sdists via `sources:` entries (flatpak-builder
-  supports this, no network needed at build time) or find them already staged in a shared BaseApp/
-  extension.
-  **Fixed, merged to `main` (#16, #17):** `--share=network` is gone, and `numpy`/`shapely`/`python-xlib`
-  are now vendored as pinned, pre-built wheels via `sources:` entries (`python3-numpy`/`python3-shapely`/
-  `python3-python-xlib` modules), generated with the official `flatpak-pip-generator` tool against
-  `org.gnome.Sdk//50` - exactly the fix this bullet describes. A fourth module, `python3-hatchling`, was
-  needed too: removing `--share=network` exposed a second, previously-hidden network dependency
-  (`orcshot`'s own `pyproject.toml` declares `build-backend = "hatchling.build"`, and pip's build
-  isolation tries to fetch that backend from PyPI for every `pip3 install .` of a local source dir) -
-  vendored the same way, with `cleanup: ['*']` so hatchling/pathspec/pluggy/tomlkit/trove_classifiers
-  (build-only, no runtime purpose) don't ship inside the final app.
-- **`--talk-name=org.gnome.Shell`** - a real session-bus grant a Flathub reviewer would ask about.
-  Narrowing it to `org.gnome.Shell.Extensions` (`com.mattjakeman.ExtensionManager`'s own precedent on
-  Flathub) was tried and reverted in this same fix round after live-verifying it does not work on a
-  real GNOME Shell (46.2) - that name isn't an owned/activatable bus name there, so dialing it fails
-  outright rather than reaching the running Shell (see `gnome_extension_setup.py`'s own comment for
-  the full live-tested story). Worth re-testing against a newer GNOME Shell version someday, but not
-  assumed to work without doing so again for real. Still open - unrelated to the `flathub-readiness`
-  branch's work.
-- **No AppStream metadata at all** (`org.orcshot.Orcshot.appdata.xml` / `org.orcshot.Orcshot.metainfo.xml`)
-  - Flathub requires this for the store listing (screenshots, description, release notes); nothing in
-  this manifest or repo produces one yet.
-  **Fixed, merged to `main` (#16, #17):** `org.orcshot.Orcshot.metainfo.xml` now exists (screenshots,
-  description, release notes) and validates against `flatpak-builder-lint`'s `appstream` check with
-  genuinely **0 errors and 0 warnings**, confirmed live in real CI against the real, pushed screenshot
-  commit (`docs.flathub.org`'s own linter, `org.flatpak.Builder`).
-
-Two of the three gaps are now fixed and merged (2026-09-03/04). The `--talk-name` narrowing above is
-still genuinely open. Not tracked as fully resolved for that reason - the actual Flathub submission
-itself (the PR against `flathub/flathub`, their human review) also remains a separate, later action not
-attempted here.
+The third gap - `--talk-name=org.gnome.Shell` being broader than a Flathub reviewer might expect
+- is **not actually narrowable**, confirmed definitively 2026-09-04: two other real, shipping
+features (`capture/gnome_clipboard.py`, `capture/gnome_window_calls.py`) call their own custom
+interfaces on this exact same bus name, not just the `EnableExtension` call BACKLOG originally
+focused on. Flatpak's `--talk-name` filters by bus name only, not object path or interface, so
+there's no manifest-level grant narrower than `org.gnome.Shell` itself that all three features
+actually need - narrowing it would silently break clipboard support and window-calls capture, not
+just fail to help. Full reasoning in the manifest's own `--talk-name` comment. This is the correct,
+minimal grant for real reasons, not an unnarrowed placeholder - ready to explain to a Flathub
+reviewer on exactly these terms if asked.
 
 ## #193: GitHub Actions `ubuntu-24.04` runners hit `dconf-CRITICAL: Permission denied` on a real, unconfined `gnome-shell` too (RESOLVED 2026-09-04)
 
