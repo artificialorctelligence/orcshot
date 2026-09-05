@@ -77,9 +77,19 @@ class OrcshotTrayApplet extends Applet.IconApplet {
             let action = model.get_item_attribute_value(i, 'action', null)?.deep_unpack();
             let iconValue = model.get_item_attribute_value(i, 'icon', null);
 
-            let item = new PopupMenu.PopupIconMenuItem(
-                label, iconValue ? Gio.Icon.deserialize(iconValue) : null,
-                St.IconType.SYMBOLIC);
+            // PopupIconMenuItem's own iconName parameter is a string
+            // (a themed icon *name*) - confirmed live it throws "Wrong
+            // type GObject_Object; string expected" when handed a real
+            // Gio.Icon object, which is what our menu items actually
+            // carry (raw serialized PNG bytes from the D-Bus menu
+            // model, same as the GNOME extension's own _addModelItems).
+            // Plain PopupMenuItem already builds its own St.Icon
+            // internally (this._icon) - set_gicon() on that, after
+            // construction, is the real way to hand it an arbitrary
+            // Gio.Icon rather than a named one.
+            let item = new PopupMenu.PopupMenuItem(label);
+            if (iconValue)
+                item._icon.set_gicon(Gio.Icon.deserialize(iconValue));
             let bareAction = null;
             if (action) {
                 bareAction = action.includes('.') ? action.split('.').slice(1).join('.') : action;
