@@ -96,9 +96,9 @@ def _log_session_info() -> None:
     just more RAM/a different resolution), and every "it works" check
     made afterward was actually exercising the X11-native capture path,
     not the GNOME Shell extension path that session's actual bug fixes
-    targeted. `region_select.py`/`window_picker.py`/`_build_tray_icon`
-    already re-read `XDG_SESSION_TYPE` fresh at each decision point
-    (correct - a session-type change always means a fresh login, which
+    targeted. `region_select.py`/`window_picker.py` already re-read
+    `XDG_SESSION_TYPE` fresh at each decision point (correct - a
+    session-type change always means a fresh login, which
     always means a fresh process via autostart, so there's nothing to
     watch for *during* a run) - what was actually missing was any way
     to see, after the fact, which path a given run took at all.
@@ -557,12 +557,11 @@ class OrcshotApplication(Gtk.Application):
 
     def _tray_action_handlers(self) -> dict:
         """One handler per capture mode, keyed by the same mode string
-        icons.py's capture_mode_icon_image() already uses - shared
-        between _build_tray_menu's local Gtk.Menu (X11-only - see
-        _build_tray_icon) and _register_tray_actions' GActions
-        (activated by the Shell-native tray panel button in a
-        *different* process on Wayland, see that method's own
-        docstring), rather than defining the same five closures twice.
+        icons.py's capture_mode_icon_image() already uses. Backs
+        _register_tray_actions' GActions (activated by the GNOME Shell
+        extension's or Cinnamon applet's panel button, both living in a
+        *different* process - see that method's own docstring), rather
+        than defining the same five closures inline there.
         """
         return {
             "region": lambda: self.start_region_capture(capture_mouse_cursor=False),
@@ -580,23 +579,22 @@ class OrcshotApplication(Gtk.Application):
         with '.' replaced by '/') via the standard org.gtk.Actions
         interface, since this app is already a registered Gio.
         Application with a fixed application_id (see this file's own
-        docstring). The Shell-native tray panel button
-        (orcshot-tray@orcshot.org, rendering the menu
-        _export_tray_menu publishes for it - see _build_tray_icon)
+        docstring). The orcshot-tray@orcshot.org tray panel button -
+        the GNOME Shell extension or the Cinnamon applet, both
+        rendering the menu _export_tray_menu publishes for them -
         lives in a separate process and activates these by name via
         Gio.DBusActionGroup instead of calling into this process
-        directly - see that extension's own _activateTrayAction.
+        directly - see each one's own _addModelItems/activate wiring.
         """
         for mode, handler in self._tray_action_handlers().items():
             action = Gio.SimpleAction.new(f"tray-{mode}", None)
             action.connect("activate", lambda _action, _param, h=handler: _defer(h))
             self.add_action(action)
             if mode == "repeat_region":
-                # Matches X11's own self._repeat_item.set_sensitive(False)
-                # below - no region captured yet, nothing to repeat.
-                # _remember_region flips this to enabled the moment a
-                # real region capture actually happens (see its own
-                # comment).
+                # Starts disabled - no region captured yet, nothing to
+                # repeat. _remember_region flips this to enabled the
+                # moment a real region capture actually happens (see
+                # its own comment).
                 self._tray_repeat_action = action
                 action.set_enabled(False)
         open_file_action = Gio.SimpleAction.new("tray-open-file", None)

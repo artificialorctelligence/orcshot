@@ -3615,6 +3615,16 @@ Obfuscate changes nothing. Also a real screenshot of the rebuilt Help dialog con
 header/key indentation relationship, and (running under X11 in this dev environment) the X11-specific
 Tray Icon wording.
 
+**Update (BACKLOG #189, 2026-09-05):** the platform split documented above no longer applies - this is a
+historical record of why the Tray Icon section was originally written to branch per platform, kept as-is
+rather than rewritten (same convention as `BACKLOG.md`'s own resolution notes). `_build_tray_icon` and
+`Gtk.StatusIcon`/`AyatanaAppIndicator3` are gone entirely; both GNOME (X11 and Wayland) and Cinnamon now
+render the tray via the same D-Bus menu/action export (`app.py`'s `_export_tray_menu`), consumed by a real
+GNOME Shell extension and a native Cinnamon applet that both support the same left-click-capture/
+right-click-menu behavior X11 always had. `editor_window.py`'s `_tray_icon_help_rows()` now always returns
+that same two-row list (Left-click / Right-click) regardless of platform - see BACKLOG #189's own
+resolution for the full story.
+
 ## Editor keyboard shortcuts replaced with the real Windows letter-mnemonic scheme (task #92, complete 2026-08-10)
 
 The backtick+1-0 layout documented in the section above was this port's own invented scheme, adopted
