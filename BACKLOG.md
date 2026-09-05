@@ -4,6 +4,46 @@ Open items not yet scheduled into a task. Each entry keeps the context that
 led to it - not just "what," but "why this matters" - so picking it up later
 doesn't require re-deriving the reasoning from scratch.
 
+## #196: `OrcshotTrayButton`'s own right-click menu doesn't open on GNOME Shell/Wayland
+
+Found live during BACKLOG #189's tray-modernization work (2026-09-05), while verifying the new
+real left-click fix on the Ubuntu 26.04 GNOME Shell 50.1 VM. Real, reproducible, and confirmed
+**not** caused by that work: right-click on the tray icon never opens its own popup menu, even in
+a fully vanilla build of `orcshot-tray@orcshot.org`'s `OrcshotTrayButton` with every bit of the
+new left-click code stripped back out.
+
+Isolated cleanly, not guessed:
+- Right-click works fine elsewhere in the exact same live session - the real desktop context menu
+  (via Nautilus) and GNOME's own Quick Settings panel button both open correctly on a right-click
+  from the same `xdotool` method. Not an input-relay/xdotool problem.
+- A debug listener on `this.menu`'s own `'open-state-changed'` signal, added to the vanilla
+  (no-left-click-code) build, never fires at all for a right-click on this specific button - the
+  base `PanelMenu.Button` class's own `Clutter.ClickGesture` "recognize" handler (which
+  unconditionally calls `this.menu?.toggle()` for any click, confirmed against real upstream
+  GNOME Shell source) isn't even recognizing the click on this actor.
+
+Real, suspicious correlate found in the journal, not yet confirmed as the root cause: on every
+single real test session tonight, `orcshot.service` (the autostart unit) fails its first launch
+attempt with `cannot open display`, then a scheduled systemd restart succeeds
+(`journalctl --user`: "orcshot.service: Scheduled restart job, restart counter is at 1" - every
+time, no exceptions). This means `org.orcshot.Orcshot`'s D-Bus bus name genuinely
+appears/vanishes/reappears once during every real login, which is exactly the kind of double
+construction/teardown a button-lifecycle bug would come from - a real (if separately-timed) `JS
+ERROR: Object ... OrcshotTrayButton ..., has been already disposed` was also seen once in the same
+journal, from an earlier test session's logout.
+
+**What this needs**: root-cause why the `cannot open display` race happens on first launch at all
+(likely a systemd unit ordering issue - the autostart unit probably needs to wait on the graphical
+session/display being fully ready, not just the user session starting), then re-verify whether
+fixing that race also fixes the tray button's own right-click. If it doesn't, the button's own
+`enable()`/bus-watch lifecycle in `orcshot-tray@orcshot.org/extension.js` needs its own real
+audit for double-construction or stale-reference bugs across an appear→vanish→appear cycle.
+
+**Consequence if left unfixed**: GNOME/Wayland users can't reach the tray's own menu (Capture
+Full Screen, Window Picker, Open File, Preferences, Quit) at all via right-click - only the
+left-click default (Capture Region) works. Real, user-visible, but not new: this predates
+BACKLOG #189's work entirely (confirmed live in a build with none of that work's code present).
+
 ## #195: Flatpak channel ships with no capture-complete sound at all - GSound gap was never actually tracked (RESOLVED 2026-09-01)
 
 Found during the flatpak-channel final review's fix round (2026-08-31): `org.orcshot.Orcshot.yaml`'s
