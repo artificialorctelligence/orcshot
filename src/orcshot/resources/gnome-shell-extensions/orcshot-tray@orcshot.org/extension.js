@@ -41,19 +41,6 @@ class OrcshotTrayButton extends PanelMenu.Button {
         this._menuModel = Gio.DBusMenuModel.get(Gio.DBus.session, BUS_NAME, MENU_PATH);
         this._actionGroup = Gio.DBusActionGroup.get(Gio.DBus.session, BUS_NAME, ACTIONS_PATH);
 
-        // BACKLOG #189: left-click captures directly (matching the
-        // real Windows tray default, and X11's own former
-        // Gtk.StatusIcon "activate" signal before it was deleted) -
-        // right-click (or any other button) falls through to
-        // PanelMenu.Button's own default handling, which toggles
-        // this.menu, unchanged from today.
-        this.connect('button-press-event', (actor, event) => {
-            if (event.get_button() === Clutter.BUTTON_PRIMARY) {
-                this._actionGroup.activate_action('tray-region', null);
-                return Clutter.EVENT_STOP;
-            }
-            return Clutter.EVENT_PROPAGATE;
-        });
 
         this._sectionSignalIds = [];
         this._rebuild();
@@ -80,6 +67,24 @@ class OrcshotTrayButton extends PanelMenu.Button {
             this._actionGroup.disconnect(this._actionEnabledChangedId);
             this._disconnectSectionSignals();
         });
+    }
+
+    vfunc_event(event) {
+        // BACKLOG #189: left-click captures directly (matching the
+        // real Windows tray default, and X11's own former
+        // Gtk.StatusIcon "activate" signal before it was deleted).
+        // Overrides at the event-dispatch level, before
+        // PanelMenu.Button's internal ClickGesture processes the event.
+        // BUTTON_RELEASE (not PRESS) matches standard UI convention
+        // and real extension patterns. Right-click and all other
+        // interactions fall through to super.vfunc_event(), which
+        // preserves PanelMenu.Button's default behavior (menu toggle, etc).
+        if (event.type() === Clutter.EventType.BUTTON_RELEASE &&
+            event.get_button() === Clutter.BUTTON_PRIMARY) {
+            this._actionGroup.activate_action('tray-region', null);
+            return Clutter.EVENT_STOP;
+        }
+        return super.vfunc_event(event);
     }
 
     _disconnectSectionSignals() {
