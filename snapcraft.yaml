@@ -160,3 +160,9 @@ parts:
     source: src/orcshot/resources/gnome-shell-extensions
     organize:
       "*": share/orcshot/gnome-shell-extensions/
+
+  bundled-cinnamon-applets:
+    plugin: dump
+    source: src/orcshot/resources/cinnamon-applets
+    organize:
+      "*": share/orcshot/cinnamon-applets/

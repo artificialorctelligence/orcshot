@@ -2,7 +2,10 @@
 _snap_real_home_extensions_dir are the pieces of ui/first_run_setup.py
 that are pure enough to test without GTK - the rest is dialog glue, not
 unit tested for the same reason editor_window.py isn't (see that
-module's own docstring).
+module's own docstring). _cinnamon_applet_bundle_dir and the Cinnamon
+dest-dir helpers (BACKLOG #189) are the same kind of pure logic, just
+pointed at the Cinnamon applet's own staging/dest paths instead of the
+GNOME extensions'.
 """
 
 from pathlib import Path
@@ -14,6 +17,9 @@ from orcshot.ui.first_run_setup import (
     _extension_bundle_dir,
     _snap_real_home_extensions_dir,
     _flatpak_home_extensions_dir,
+    _cinnamon_applet_bundle_dir,
+    _snap_real_home_cinnamon_applets_dir,
+    _flatpak_home_cinnamon_applets_dir,
 )
 
 
@@ -69,6 +75,8 @@ def test_snap_channel_installs_each_bundled_extension(monkeypatch, tmp_path):
     monkeypatch.setattr(mod, "detect_channel", lambda: "snap")
     monkeypatch.setattr(mod, "_extension_bundle_dir", lambda uuid: tmp_path / "bundled" / uuid)
     monkeypatch.setattr(mod, "_snap_real_home_extensions_dir", lambda: tmp_path / "real-home")
+    monkeypatch.setattr(mod, "_cinnamon_applet_bundle_dir", lambda uuid: tmp_path / "cinnamon-bundled" / uuid)
+    monkeypatch.setattr(mod, "_snap_real_home_cinnamon_applets_dir", lambda: tmp_path / "cinnamon-real-home")
     calls = []
     monkeypatch.setattr(
         mod, "install_bundled_extension_if_needed", lambda uuid, bundled, dest: calls.append(uuid) or True
@@ -79,7 +87,12 @@ def test_snap_channel_installs_each_bundled_extension(monkeypatch, tmp_path):
     acted = mod._install_bundled_extensions_for_sandboxed_channel(None)
 
     assert acted is True
-    assert calls == [mod.WINDOW_CALLS_EXTENSION_UUID, mod.CLIPBOARD_EXTENSION_UUID, mod.TRAY_EXTENSION_UUID]
+    assert calls == [
+        mod.WINDOW_CALLS_EXTENSION_UUID,
+        mod.CLIPBOARD_EXTENSION_UUID,
+        mod.TRAY_EXTENSION_UUID,
+        mod.TRAY_EXTENSION_UUID,
+    ]
     assert prompted == []
 
 
@@ -89,6 +102,8 @@ def test_snap_channel_prompts_when_an_install_fails(monkeypatch, tmp_path):
     monkeypatch.setattr(mod, "detect_channel", lambda: "snap")
     monkeypatch.setattr(mod, "_extension_bundle_dir", lambda uuid: tmp_path / "bundled" / uuid)
     monkeypatch.setattr(mod, "_snap_real_home_extensions_dir", lambda: tmp_path / "real-home")
+    monkeypatch.setattr(mod, "_cinnamon_applet_bundle_dir", lambda uuid: tmp_path / "cinnamon-bundled" / uuid)
+    monkeypatch.setattr(mod, "_snap_real_home_cinnamon_applets_dir", lambda: tmp_path / "cinnamon-real-home")
     monkeypatch.setattr(mod, "install_bundled_extension_if_needed", lambda *a, **kw: False)
     prompted = []
     monkeypatch.setattr(mod, "show_snap_connect_prompt", lambda parent: prompted.append(parent))
@@ -118,6 +133,8 @@ def test_flatpak_channel_installs_each_bundled_extension(monkeypatch, tmp_path):
     monkeypatch.setattr(mod, "detect_channel", lambda: "flatpak")
     monkeypatch.setattr(mod, "_extension_bundle_dir", lambda uuid: tmp_path / "bundled" / uuid)
     monkeypatch.setattr(mod, "_flatpak_home_extensions_dir", lambda: tmp_path / "real-home")
+    monkeypatch.setattr(mod, "_cinnamon_applet_bundle_dir", lambda uuid: tmp_path / "cinnamon-bundled" / uuid)
+    monkeypatch.setattr(mod, "_flatpak_home_cinnamon_applets_dir", lambda: tmp_path / "cinnamon-real-home")
     calls = []
     monkeypatch.setattr(
         mod, "install_bundled_extension_if_needed", lambda uuid, bundled, dest: calls.append(uuid) or True
@@ -128,7 +145,12 @@ def test_flatpak_channel_installs_each_bundled_extension(monkeypatch, tmp_path):
     acted = mod._install_bundled_extensions_for_sandboxed_channel(None)
 
     assert acted is True
-    assert calls == [mod.WINDOW_CALLS_EXTENSION_UUID, mod.CLIPBOARD_EXTENSION_UUID, mod.TRAY_EXTENSION_UUID]
+    assert calls == [
+        mod.WINDOW_CALLS_EXTENSION_UUID,
+        mod.CLIPBOARD_EXTENSION_UUID,
+        mod.TRAY_EXTENSION_UUID,
+        mod.TRAY_EXTENSION_UUID,
+    ]
     # Flatpak's --filesystem grant is install-time - there's no "connect"
     # step to prompt for the way Snap has, so even a failed install must
     # not trigger Snap's own connect-prompt dialog.
@@ -141,6 +163,8 @@ def test_flatpak_channel_never_prompts_on_install_failure(monkeypatch, tmp_path)
     monkeypatch.setattr(mod, "detect_channel", lambda: "flatpak")
     monkeypatch.setattr(mod, "_extension_bundle_dir", lambda uuid: tmp_path / "bundled" / uuid)
     monkeypatch.setattr(mod, "_flatpak_home_extensions_dir", lambda: tmp_path / "real-home")
+    monkeypatch.setattr(mod, "_cinnamon_applet_bundle_dir", lambda uuid: tmp_path / "cinnamon-bundled" / uuid)
+    monkeypatch.setattr(mod, "_flatpak_home_cinnamon_applets_dir", lambda: tmp_path / "cinnamon-real-home")
     monkeypatch.setattr(mod, "install_bundled_extension_if_needed", lambda *a, **kw: False)
     prompted = []
     monkeypatch.setattr(mod, "show_snap_connect_prompt", lambda parent: prompted.append(parent))
@@ -149,3 +173,25 @@ def test_flatpak_channel_never_prompts_on_install_failure(monkeypatch, tmp_path)
 
     assert acted is True
     assert prompted == []
+
+
+def test_snap_real_home_cinnamon_applets_dir():
+    env = {"SNAP_REAL_HOME": "/home/real-user"}
+    assert _snap_real_home_cinnamon_applets_dir(env) == Path("/home/real-user/.local/share/cinnamon/applets")
+
+
+def test_flatpak_home_cinnamon_applets_dir():
+    env = {"HOME": "/home/real-user"}
+    assert _flatpak_home_cinnamon_applets_dir(env) == Path("/home/real-user/.local/share/cinnamon/applets")
+
+
+def test_cinnamon_applet_bundle_dir_snap():
+    env = {"SNAP": "/snap/orcshot/x1"}
+    assert _cinnamon_applet_bundle_dir("orcshot-tray@orcshot.org", env) == \
+        Path("/snap/orcshot/x1/share/orcshot/cinnamon-applets/orcshot-tray@orcshot.org")
+
+
+def test_cinnamon_applet_bundle_dir_flatpak():
+    env = {"FLATPAK_ID": "org.orcshot.Orcshot"}
+    assert _cinnamon_applet_bundle_dir("orcshot-tray@orcshot.org", env) == \
+        Path("/app/share/orcshot/cinnamon-applets/orcshot-tray@orcshot.org")

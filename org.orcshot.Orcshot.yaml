@@ -267,6 +267,14 @@ modules:
     build-commands:
       - mkdir -p /app/share/orcshot/gnome-shell-extensions
       - cp -r . /app/share/orcshot/gnome-shell-extensions/
+  - name: bundled-cinnamon-applets
+    buildsystem: simple
+    sources:
+      - type: dir
+        path: src/orcshot/resources/cinnamon-applets
+    build-commands:
+      - mkdir -p /app/share/orcshot/cinnamon-applets
+      - cp -r . /app/share/orcshot/cinnamon-applets/
   - name: gnome-shell-schema
     buildsystem: simple
     # BACKLOG #192's own real fix, ported: gnome_shell_present()'s

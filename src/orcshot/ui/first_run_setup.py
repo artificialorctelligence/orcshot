@@ -140,6 +140,21 @@ def _extension_bundle_dir(uuid: str, env: dict = None) -> Path:
     raise ValueError("_extension_bundle_dir called outside snap/flatpak (env has neither SNAP nor FLATPAK_ID)")
 
 
+def _cinnamon_applet_bundle_dir(uuid: str, env: dict = None) -> Path:
+    """Where the Cinnamon applet's files are bundled read-only inside a
+    Snap or Flatpak package - same real reasoning as
+    _extension_bundle_dir, pointed at the cinnamon-applets staging path
+    snapcraft.yaml/org.orcshot.Orcshot.yaml's own bundled-cinnamon-applets
+    part/module installs (BACKLOG #189)."""
+    if env is None:
+        env = os.environ
+    if env.get("SNAP"):
+        return Path(env["SNAP"]) / "share" / "orcshot" / "cinnamon-applets" / uuid
+    if env.get("FLATPAK_ID"):
+        return Path("/app") / "share" / "orcshot" / "cinnamon-applets" / uuid
+    raise ValueError("_cinnamon_applet_bundle_dir called outside snap/flatpak (env has neither SNAP nor FLATPAK_ID)")
+
+
 def _snap_real_home_extensions_dir(env: dict = None) -> Path:
     """The real, non-redirected per-user GNOME Shell extensions path a
     Snap needs personal-files connected to reach. Built from
@@ -169,6 +184,25 @@ def _flatpak_home_extensions_dir(env: dict = None) -> Path:
     return Path(env["HOME"]) / ".local" / "share" / "gnome-shell" / "extensions"
 
 
+def _snap_real_home_cinnamon_applets_dir(env: dict = None) -> Path:
+    """Cinnamon's own per-user applets path, reached the same way
+    _snap_real_home_extensions_dir reaches GNOME Shell's - via
+    $SNAP_REAL_HOME, never $HOME (Snap redirects $HOME to a private,
+    per-snap path Cinnamon never scans)."""
+    if env is None:
+        env = os.environ
+    return Path(env["SNAP_REAL_HOME"]) / ".local" / "share" / "cinnamon" / "applets"
+
+
+def _flatpak_home_cinnamon_applets_dir(env: dict = None) -> Path:
+    """Cinnamon's own per-user applets path under Flatpak - plain
+    $HOME, same reasoning as _flatpak_home_extensions_dir (Flatpak
+    doesn't redirect $HOME the way Snap does)."""
+    if env is None:
+        env = os.environ
+    return Path(env["HOME"]) / ".local" / "share" / "cinnamon" / "applets"
+
+
 def _install_bundled_extensions_for_sandboxed_channel(parent) -> bool:
     """Copies each bundled extension into the real per-user extensions
     path when running under Snap or Flatpak - sandboxed channels can't
@@ -186,16 +220,21 @@ def _install_bundled_extensions_for_sandboxed_channel(parent) -> bool:
     """
     channel = detect_channel()
     if channel == "snap":
-        dest_parent = _snap_real_home_extensions_dir()
+        gnome_dest_parent = _snap_real_home_extensions_dir()
+        cinnamon_dest_parent = _snap_real_home_cinnamon_applets_dir()
     elif channel == "flatpak":
-        dest_parent = _flatpak_home_extensions_dir()
+        gnome_dest_parent = _flatpak_home_extensions_dir()
+        cinnamon_dest_parent = _flatpak_home_cinnamon_applets_dir()
     else:
         return False
     all_installed = True
     for uuid in (WINDOW_CALLS_EXTENSION_UUID, CLIPBOARD_EXTENSION_UUID, TRAY_EXTENSION_UUID):
         bundled_dir = _extension_bundle_dir(uuid)
-        if not install_bundled_extension_if_needed(uuid, bundled_dir, dest_parent):
+        if not install_bundled_extension_if_needed(uuid, bundled_dir, gnome_dest_parent):
             all_installed = False
+    cinnamon_bundled_dir = _cinnamon_applet_bundle_dir(TRAY_EXTENSION_UUID)
+    if not install_bundled_extension_if_needed(TRAY_EXTENSION_UUID, cinnamon_bundled_dir, cinnamon_dest_parent):
+        all_installed = False
     if not all_installed and channel == "snap":
         show_snap_connect_prompt(parent)
     return True
