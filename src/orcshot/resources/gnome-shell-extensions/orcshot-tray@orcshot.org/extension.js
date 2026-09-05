@@ -41,6 +41,61 @@ class OrcshotTrayButton extends PanelMenu.Button {
         this._menuModel = Gio.DBusMenuModel.get(Gio.DBus.session, BUS_NAME, MENU_PATH);
         this._actionGroup = Gio.DBusActionGroup.get(Gio.DBus.session, BUS_NAME, ACTIONS_PATH);
 
+        // BACKLOG #189: left-click captures directly (matching the real
+        // Windows tray default, and X11's own former Gtk.StatusIcon
+        // "activate" signal before it was deleted) - right-click still
+        // opens the menu via PanelMenu.Button's own default handling.
+        //
+        // Live-verified (real Ubuntu 26.04 GNOME Shell 50.1 VM,
+        // Mutter/Clutter 18) that neither a 'button-press-event' signal
+        // connect() nor a vfunc_event() override ever receives
+        // BUTTON_PRESS/BUTTON_RELEASE on this actor at all: PanelMenu.
+        // Button's own base class attaches a Clutter.ClickGesture (via
+        // add_action() - this._clickGesture, toggling this.menu on ANY
+        // button, with no button-filtering API on this Clutter version)
+        // which claims press/release before either of those ever fire -
+        // confirmed via GJS introspection
+        // (Clutter.ClickGesture.prototype has no set_button) and by
+        // instrumenting vfunc_event live (only saw ENTER/MOTION, never
+        // BUTTON_PRESS/BUTTON_RELEASE, for a real xdotool click).
+        //
+        // The real interception point that DOES see the raw button
+        // events, confirmed live the same way: Clutter.Actor's
+        // 'captured-event' signal on global.stage, which fires during
+        // the capture phase - before Clutter hands the event to any
+        // actor's attached gesture actions.
+        //
+        // event.get_source() is NOT usable here - confirmed live it is
+        // always null at this point. Real reason (upstream Clutter
+        // docs/source): the source actor is normally resolved by a
+        // "pick" (hit-test) that Clutter performs lazily, only when
+        // building the actor-targeted event to dispatch AFTER the
+        // capture phase - captured-event fires before that pick has
+        // happened at all. Doing the pick ourselves, from the event's
+        // own coordinates, is the real fix.
+        //
+        // BUTTON_PRESS, not BUTTON_RELEASE: live-verified that once a
+        // press is seen here, GNOME Shell's own ClickGesture action
+        // establishes an implicit grab for the rest of that click
+        // sequence - the matching release event never reaches this
+        // stage-level listener at all (only the press does). Acting on
+        // press is a real, valid UI choice on its own merits, not a
+        // workaround forced by this constraint.
+        this._stageCapturedEventId = global.stage.connect('captured-event', (actor, event) => {
+            if (event.type() !== Clutter.EventType.BUTTON_PRESS)
+                return Clutter.EVENT_PROPAGATE;
+            if (event.get_button() !== Clutter.BUTTON_PRIMARY)
+                return Clutter.EVENT_PROPAGATE;
+            // Pick the real target ourselves from the event's own
+            // coordinates - get_source() is always null this early
+            // (see the comment above this handler).
+            let [x, y] = event.get_coords();
+            let picked = global.stage.get_actor_at_pos(Clutter.PickMode.REACTIVE, x, y);
+            if (!picked || !this.contains(picked))
+                return Clutter.EVENT_PROPAGATE;
+            this._actionGroup.activate_action('tray-region', null);
+            return Clutter.EVENT_STOP;
+        });
 
         this._sectionSignalIds = [];
         this._rebuild();
@@ -65,26 +120,13 @@ class OrcshotTrayButton extends PanelMenu.Button {
         this.connect('destroy', () => {
             this._menuModel.disconnect(this._itemsChangedId);
             this._actionGroup.disconnect(this._actionEnabledChangedId);
+            // global.stage outlives this button - must disconnect
+            // explicitly or every future button instance (the bus name
+            // can appear/vanish/reappear across a Shell session) leaks
+            // one more permanently-live 'captured-event' handler.
+            global.stage.disconnect(this._stageCapturedEventId);
             this._disconnectSectionSignals();
         });
-    }
-
-    vfunc_event(event) {
-        // BACKLOG #189: left-click captures directly (matching the
-        // real Windows tray default, and X11's own former
-        // Gtk.StatusIcon "activate" signal before it was deleted).
-        // Overrides at the event-dispatch level, before
-        // PanelMenu.Button's internal ClickGesture processes the event.
-        // BUTTON_RELEASE (not PRESS) matches standard UI convention
-        // and real extension patterns. Right-click and all other
-        // interactions fall through to super.vfunc_event(), which
-        // preserves PanelMenu.Button's default behavior (menu toggle, etc).
-        if (event.type() === Clutter.EventType.BUTTON_RELEASE &&
-            event.get_button() === Clutter.BUTTON_PRIMARY) {
-            this._actionGroup.activate_action('tray-region', null);
-            return Clutter.EVENT_STOP;
-        }
-        return super.vfunc_event(event);
     }
 
     _disconnectSectionSignals() {
