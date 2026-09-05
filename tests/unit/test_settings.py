@@ -33,6 +33,7 @@ from orcshot.settings import (
     get_play_capture_sound,
     get_print_options,
     get_recent_colors,
+    get_reuse_editor,
     get_show_capture_notification,
     get_suppress_save_dialog_at_close,
     get_update_check_interval_days,
@@ -60,6 +61,7 @@ from orcshot.settings import (
     set_play_capture_sound,
     set_print_options,
     set_recent_colors,
+    set_reuse_editor,
     set_show_capture_notification,
     set_suppress_save_dialog_at_close,
     set_update_check_interval_days,
@@ -212,6 +214,28 @@ class TestPlayCaptureSound:
         set_play_capture_sound(True, path=path)
 
         assert get_play_capture_sound(path=path) is True
+
+
+class TestReuseEditor:
+    def test_defaults_to_false(self, tmp_path):
+        # matches real Greenshot's own IEditorConfiguration.ReuseEditor default
+        path = tmp_path / "config.json"
+        assert get_reuse_editor(path=path) is False
+
+    def test_set_false_then_get_round_trips(self, tmp_path):
+        path = tmp_path / "config.json"
+
+        set_reuse_editor(False, path=path)
+
+        assert get_reuse_editor(path=path) is False
+
+    def test_set_true_then_get_round_trips(self, tmp_path):
+        path = tmp_path / "config.json"
+        set_reuse_editor(False, path=path)
+
+        set_reuse_editor(True, path=path)
+
+        assert get_reuse_editor(path=path) is True
 
 
 class TestLanguage:

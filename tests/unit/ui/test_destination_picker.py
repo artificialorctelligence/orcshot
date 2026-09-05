@@ -6,7 +6,7 @@ of sync with destination_picker.py's own _all_destinations().
 """
 
 from orcshot.settings import ExternalCommand
-from orcshot.ui.destination_picker import destinations_for_shell
+from orcshot.ui.destination_picker import _should_reuse_editor, destinations_for_shell
 
 
 def test_includes_the_five_built_in_destinations(monkeypatch):
@@ -16,6 +16,32 @@ def test_includes_the_five_built_in_destinations(monkeypatch):
     ids = [item_id for item_id, _label, _geometry_key in destinations_for_shell()]
 
     assert ids == ["clipboard", "save", "save_as", "edit", "print"]
+
+
+class _FakeEditor:
+    def __init__(self, is_modified: bool):
+        self.is_modified = is_modified
+
+
+class TestShouldReuseEditor:
+    """BACKLOG #179's Reuse Editor setting - pure decision logic split
+    out from _open_editor so it's unit-testable without a real GTK
+    EditorWindow (see that function's own comment)."""
+
+    def test_disabled_setting_never_reuses(self):
+        assert _should_reuse_editor(False, _FakeEditor(is_modified=False)) is False
+
+    def test_disabled_setting_never_reuses_even_with_no_editor(self):
+        assert _should_reuse_editor(False, None) is False
+
+    def test_enabled_but_no_editor_open_does_not_reuse(self):
+        assert _should_reuse_editor(True, None) is False
+
+    def test_enabled_with_modified_editor_does_not_reuse(self):
+        assert _should_reuse_editor(True, _FakeEditor(is_modified=True)) is False
+
+    def test_enabled_with_unmodified_editor_reuses(self):
+        assert _should_reuse_editor(True, _FakeEditor(is_modified=False)) is True
 
 
 def test_includes_a_configured_external_command(monkeypatch):

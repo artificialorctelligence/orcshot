@@ -45,6 +45,7 @@ _SHOW_MAGNIFIER_WHILE_SELECTING_KEY = "show_magnifier_while_selecting"
 _LANGUAGE_KEY = "language"
 _PLAY_CAPTURE_SOUND_KEY = "play_capture_sound"
 _SHOW_CAPTURE_NOTIFICATION_KEY = "show_capture_notification"
+_REUSE_EDITOR_KEY = "reuse_editor"
 _DEFAULT_OUTPUT_DIRNAME = "Screenshots"
 _DEFAULT_FOOTER_PATTERN = "%B %d, %Y %I:%M %p"
 _DEFAULT_ICON_SIZE = 24
@@ -200,6 +201,28 @@ def set_play_capture_sound(enabled: bool, path: Path = None) -> None:
         path = config_file_path()
     settings = _load(path)
     settings[_PLAY_CAPTURE_SOUND_KEY] = enabled
+    _save(settings, path)
+
+
+def get_reuse_editor(path: Path = None) -> bool:
+    """Faithful port of Windows' "Reuse Editor" Expert-tab checkbox
+    (IEditorConfiguration.ReuseEditor, EditorDestination.cs:96):
+    when true, a new capture reuses the most-recently-opened still-open
+    editor (OrcshotApplication.topmost_editor()) instead of opening a
+    second window, but only if that editor has no unsaved changes
+    (EditorWindow.is_modified) - see ui/destination_picker.py's
+    _open_editor for where this is actually applied. Default False,
+    matching real Greenshot's own default (BACKLOG #179)."""
+    if path is None:
+        path = config_file_path()
+    return _load(path).get(_REUSE_EDITOR_KEY, False)
+
+
+def set_reuse_editor(enabled: bool, path: Path = None) -> None:
+    if path is None:
+        path = config_file_path()
+    settings = _load(path)
+    settings[_REUSE_EDITOR_KEY] = enabled
     _save(settings, path)
 
 

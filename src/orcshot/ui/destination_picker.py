@@ -81,6 +81,7 @@ from orcshot.settings import (
     get_filename_counter,
     get_output_directory,
     get_output_settings,
+    get_reuse_editor,
 )
 from orcshot.ui.composite import composite_to_numpy
 from orcshot.ui.external_commands import run_external_command
@@ -101,9 +102,38 @@ def _flattened(image: np.ndarray, cursor_shape: CursorShape = None) -> np.ndarra
     return composite_to_numpy(image, layer)
 
 
+def _should_reuse_editor(reuse_editor_enabled: bool, topmost_editor) -> bool:
+    """BACKLOG #179's Reuse Editor setting, real Windows precedent
+    IEditorConfiguration.ReuseEditor (EditorDestination.cs:96): reuse
+    the topmost open editor instead of opening a new one, but only
+    when the setting is on, an editor is actually open, and that
+    editor has no unsaved changes (EditorWindow.is_modified) - reusing
+    one with real unsaved work would silently discard it. Pure
+    decision logic, split out from _open_editor below so it's
+    unit-testable without a real GTK EditorWindow (this file's own
+    module docstring - "GTK glue... no meaningful headless test" -
+    applies to _open_editor itself, not to this part of it).
+    """
+    if not reuse_editor_enabled or topmost_editor is None:
+        return False
+    return not topmost_editor.is_modified
+
+
 def _open_editor(image: np.ndarray, cursor_shape: CursorShape = None, title: str = "") -> None:
-    from orcshot.ui.editor_window import EditorWindow
     from orcshot.core.history import AddElementMemento
+
+    app = Gio.Application.get_default()
+    topmost = app.topmost_editor() if app is not None else None
+    if _should_reuse_editor(get_reuse_editor(), topmost):
+        topmost.reset_for_capture(image, title=title)
+        if cursor_shape is not None:
+            topmost.layer.add(cursor_shape)
+            topmost.selected_shape = cursor_shape
+            topmost.undo_redo.push(AddElementMemento(topmost.layer, cursor_shape))
+        topmost.present()
+        return
+
+    from orcshot.ui.editor_window import EditorWindow
 
     editor = EditorWindow(image, window_title=title)
     if cursor_shape is not None:

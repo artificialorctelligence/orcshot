@@ -178,6 +178,7 @@ from orcshot.settings import (
     get_output_settings,
     get_play_capture_sound,
     get_print_options,
+    get_reuse_editor,
     get_show_capture_notification,
     get_show_magnifier_while_selecting,
     get_suppress_save_dialog_at_close,
@@ -195,6 +196,7 @@ from orcshot.settings import (
     set_output_settings,
     set_play_capture_sound,
     set_print_options,
+    set_reuse_editor,
     set_show_capture_notification,
     set_show_magnifier_while_selecting,
     set_suppress_save_dialog_at_close,
@@ -1474,6 +1476,46 @@ class EditorWindow(Gtk.Window):
         # change would silently misalign Obfuscate Text's matches, see
         # self._ocr_result's own __init__ comment.
         self._ocr_result = None
+
+    def reset_for_capture(self, image: np.ndarray, title: str = "") -> None:
+        """BACKLOG #179's Reuse Editor setting (real Windows precedent:
+        IEditorConfiguration.ReuseEditor, EditorDestination.cs:96) -
+        turns this already-open, already-positioned window into a
+        fresh editor for a *new* capture, instead of
+        destination_picker.py's _open_editor constructing a second
+        EditorWindow. Only ever called on an editor with no unsaved
+        changes (see _should_reuse_editor's own docstring) - callers
+        don't need to guard against discarding real work here, but this
+        method doesn't re-check it either, matching every other method
+        on this class that trusts its caller rather than re-deriving a
+        precondition the caller already established.
+
+        Resets exactly the per-document state a brand-new EditorWindow
+        would start with - layer, undo history, saved/modified state,
+        the remembered capture title, selection, and any in-progress
+        (unconfirmed) crop - while deliberately leaving this window's
+        own remembered preferences alone (zoom level, per-tool style
+        memory, obfuscate/highlight/crop mode defaults, screen
+        position): those belong to the *window*, not the document, and
+        real Greenshot's own Reuse Editor doesn't reset them either.
+
+        ``self.base_image = image`` (not a direct ``self._base_image``
+        assignment - see that property's own docstring) does the
+        surface rebuild, canvas/window resize, and dimensions-label/
+        OCR-cache reset a whole-image change needs, the same as every
+        other whole-image effect in this class already relies on.
+        """
+        self.layer = Layer()
+        self.undo_redo = UndoRedoStack()
+        # Matches a fresh, never-saved capture (already_saved=False in
+        # __init__) - see is_modified's own docstring for why this is
+        # correct even though *this* window has been saved before.
+        self._saved_generation = -1
+        self._window_title = title
+        self._crop_selection = None
+        self._crop_resize_handle = None
+        self.selected_shape = None
+        self.base_image = image
 
     def _build_menu_bar(self) -> Gtk.MenuBar:
         """File/Edit/Object/Zoom/Help, matching real Windows Greenshot's
@@ -5712,6 +5754,23 @@ def _build_capture_settings_tab() -> Gtk.Box:
     notification_check.set_active(get_show_capture_notification())
     notification_check.connect("toggled", lambda btn: set_show_capture_notification(btn.get_active()))
     inner.pack_start(notification_check, False, False, 0)
+
+    # BACKLOG #179 - faithful port of Windows' Expert-tab "Reuse Editor"
+    # checkbox (IEditorConfiguration.ReuseEditor, EditorDestination.cs:
+    # 96, default False) - this port has no separate Expert tab (every
+    # other Expert-tab setting Windows has was either cut or has no
+    # Linux equivalent, see this function's own docstring), placed here
+    # instead since it's the same "what happens right after a capture"
+    # theme as the two checkboxes just above. See
+    # destination_picker._should_reuse_editor's own docstring for the
+    # exact real behavior.
+    reuse_editor_check = Gtk.CheckButton(label=_("Reuse editor window for new captures"))
+    reuse_editor_check.set_active(get_reuse_editor())
+    reuse_editor_check.set_tooltip_text(
+        _("If an editor is already open and has no unsaved changes, a new capture replaces its contents instead of opening a second window.")
+    )
+    reuse_editor_check.connect("toggled", lambda btn: set_reuse_editor(btn.get_active()))
+    inner.pack_start(reuse_editor_check, False, False, 0)
 
     box.pack_start(frame, False, False, 0)
     return box
