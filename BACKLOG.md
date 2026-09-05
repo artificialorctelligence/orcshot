@@ -461,6 +461,45 @@ direflail's request as given is general ("make sure it's using modern packaging/
 to the tray icon alone - worth a clarifying pass before writing an implementation plan, same as #184 got
 before its own plan was written.
 
+**RESOLVED 2026-09-05.** `Gtk.StatusIcon` (deprecated, XEmbed-based) is gone entirely. Real finding that
+reframed this ticket: GNOME Shell hasn't hosted XEmbed tray icons since 3.26, regardless of session type
+- GNOME-X11 users very likely got an invisible tray icon before this fix, not a deprecated-but-working one.
+Both real supported desktops now get a native, non-deprecated tray via the same D-Bus export
+(`Gio.Menu`/`org.gtk.Actions`) #184 already built for Wayland:
+
+- **GNOME** (Ubuntu 24.04/26.04, X11 and Wayland both) - the existing `orcshot-tray@orcshot.org` Shell
+  extension, now reachable on X11 too, with real left-click-to-capture added (previously Wayland's tray was
+  menu-only). Left-click required real iterative debugging on an actual Ubuntu 26.04 GNOME Wayland VM to
+  find a working interception mechanism (several real GNOME 45+ Clutter API techniques were tried before
+  landing on the real fix: manual click-target picking via `global.stage`'s `captured-event` signal and
+  `get_actor_at_pos()`, since GNOME 45+'s `PanelMenu.Button` uses a `Clutter.ClickGesture` action that
+  claims raw button events before signal-based approaches see them). Live-verified end to end on the real
+  26.04 VM, both session types: left-click produces a real region-select overlay; right-click opens the menu.
+- **Cinnamon** (Mint, X11 today) - a brand-new native Cinnamon Spices applet (`orcshot-tray@orcshot.org`,
+  in `resources/cinnamon-applets/`), consuming the exact same D-Bus export. Two real bugs were found and
+  fixed during live verification on the real local Cinnamon dev host: an icon-rendering bug
+  (`set_applet_icon_symbolic_name` doesn't work for Orcshot's full-color icon, fixed to `set_applet_icon_name`),
+  and a menu-population bug (`PopupIconMenuItem`'s icon parameter doesn't accept `Gio.Icon` objects;
+  fixed by using plain `PopupMenuItem` with `item._icon.set_gicon(...)` and tracking only the applet's
+  own menu items for cleanup). Live-verified end to end: left-click produces a full-screen capture overlay;
+  right-click shows Cinnamon's built-in entries plus all 8 real Orcshot menu items.
+- **Cinnamon-on-Wayland**: shipped session-agnostic (no X11/Wayland branching in the applet code) since
+  Cinnamon 6.8/Mint 23's Wayland support is architecturally expected to work the same way - but genuinely
+  **not verified**, since Mint 23 hasn't shipped yet (still in Alpha). Revisit once it has.
+
+Packaging: all three real channels (`.deb`, Snap, Flatpak) now package the new Cinnamon applet the same
+way the GNOME extensions were already packaged. Verified via a real `.deb` build and `dpkg -c` confirming
+both new files land at the right path.
+
+XFCE/KDE/MATE remain explicitly out of scope, matching this project's existing precedent elsewhere.
+
+**Note:** A separate, real, pre-existing bug was found during this work - `OrcshotTrayButton`'s own
+right-click menu doesn't open at all on GNOME Shell/Wayland. This is unrelated to any changes in this
+ticket (reproduces in a fully vanilla build) and is tracked separately as BACKLOG #196.
+
+Full design: `docs/superpowers/specs/2026-09-05-tray-modernization-design.md`. Full plan:
+`docs/superpowers/plans/2026-09-05-tray-modernization.md`.
+
 ## #184: Explore a Wayland capture path that doesn't depend on the bundled GNOME Shell extension, to open up Snap and Flatpak (RESOLVED 2026-08-30)
 
 **The one remaining open caveat from this entry's own final review (below - "extension-install-from-
