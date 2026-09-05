@@ -26,6 +26,22 @@ class OrcshotTrayApplet extends Applet.IconApplet {
         this._actionGroup = Gio.DBusActionGroup.get(Gio.DBus.session, BUS_NAME, ACTIONS_PATH);
 
         this._sectionSignalIds = [];
+        // Real, live-confirmed bug this tracks around: PopupMenu's own
+        // removeAll() calls .destroy() on *every* current child
+        // (popupMenu.js's own removeAll()), not just the ones we
+        // added. Cinnamon's own Remove/Configure/About entries live in
+        // this exact same this._applet_context_menu (added once, by
+        // finalizeContextMenu(), called synchronously by
+        // appletManager.js's createApplet() right after main()
+        // returns - before our own menu model's first real, async
+        // D-Bus population ever lands). A naive removeAll() in
+        // _rebuild() would destroy those built-ins the moment real
+        // data first arrives, permanently, since finalizeContextMenu()
+        // only ever runs once more on an orientation change, and even
+        // then only via a now-stale, already-destroyed item reference.
+        // Tracking and destroying only our own items keeps Cinnamon's
+        // own entries alone entirely.
+        this._ownMenuItems = [];
         this._rebuild();
         this._itemsChangedId = this._menuModel.connect('items-changed', () => this._rebuild());
         this._actionEnabledChangedId = this._actionGroup.connect(
@@ -39,20 +55,32 @@ class OrcshotTrayApplet extends Applet.IconApplet {
         this._actionGroup.activate_action('tray-region', null);
     }
 
+    // Called by Cinnamon's own _onAppletRemovedFromPanel when the
+    // applet is removed or the panel reloads it - matches the GNOME
+    // Shell extension's own 'destroy' handler for the identical pair
+    // of D-Bus proxy signals (Gio.DBusMenuModel/Gio.DBusActionGroup
+    // connections hold a strong closure reference to `this`; omitting
+    // this leaks both the signal connection and the applet instance).
+    on_applet_removed_from_panel(deleteConfig) {
+        this._menuModel.disconnect(this._itemsChangedId);
+        this._actionGroup.disconnect(this._actionEnabledChangedId);
+        this._disconnectSectionSignals();
+    }
+
     _disconnectSectionSignals() {
         for (let [model, id] of this._sectionSignalIds)
             model.disconnect(id);
         this._sectionSignalIds = [];
     }
 
-    // Populates this._applet_context_menu (built by the Applet base
-    // class itself) directly, rather than a separate menu of our own -
-    // this is what makes our items show up on right-click alongside
-    // Cinnamon's own built-in Remove/Configure/About entries, which
-    // the base class also adds to this same menu instance.
+    // Destroys only the items *we* added (this._ownMenuItems), never
+    // this._applet_context_menu.removeAll() - see the real bug this
+    // tracks around, explained in the constructor's own comment.
     _rebuild() {
         this._disconnectSectionSignals();
-        this._applet_context_menu.removeAll();
+        for (let item of this._ownMenuItems)
+            item.destroy();
+        this._ownMenuItems = [];
         this._addModelItems(this._menuModel);
     }
 
@@ -65,8 +93,11 @@ class OrcshotTrayApplet extends Applet.IconApplet {
         for (let i = 0; i < n; i++) {
             let section = model.get_item_link(i, Gio.MENU_LINK_SECTION);
             if (section) {
-                if (this._applet_context_menu._getMenuItems().length > 0)
-                    this._applet_context_menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
+                if (this._applet_context_menu._getMenuItems().length > 0) {
+                    let separator = new PopupMenu.PopupSeparatorMenuItem();
+                    this._applet_context_menu.addMenuItem(separator);
+                    this._ownMenuItems.push(separator);
+                }
                 let id = section.connect('items-changed', () => this._rebuild());
                 this._sectionSignalIds.push([section, id]);
                 this._addModelItems(section);
@@ -97,6 +128,7 @@ class OrcshotTrayApplet extends Applet.IconApplet {
                 item.setSensitive(this._actionGroup.get_action_enabled(bareAction));
             }
             this._applet_context_menu.addMenuItem(item);
+            this._ownMenuItems.push(item);
         }
     }
 }
