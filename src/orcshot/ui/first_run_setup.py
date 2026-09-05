@@ -1,10 +1,13 @@
 """The one-time first-run prompt: offers to enable autostart-on-login,
 configure the four capture hotkeys (asking per-binding whether to
-overwrite anything already using that key combo), and - on a GNOME
-Wayland session specifically - enable the three bundled GNOME Shell
-extensions this project ships: window-calls ("Capture Window" mode),
-orcshot-clipboard (reliable "Copy to Clipboard"), and orcshot-tray
-(the Wayland tray icon/menu) - see gnome_extension_setup.py and
+overwrite anything already using that key combo), and - on any real
+GNOME Shell session - enable the bundled GNOME Shell extensions this
+project ships that apply to that session: orcshot-tray (the tray
+icon/menu) on GNOME regardless of session type (BACKLOG #189), plus
+window-calls ("Capture Window" mode) and orcshot-clipboard (reliable
+"Copy to Clipboard") on GNOME Wayland specifically, since X11 has its
+own native mechanisms for those two - see gnome_extension_setup.py
+(extensions_to_enable's own docstring covers the split) and
 REQUIREMENTS.md's Wayland window-picker and "Clipboard under Wayland"
 sections. See hotkey_setup.py's module
 docstring for how real conflicts on the dev machine (every one of the
@@ -48,10 +51,11 @@ resolve_hotkey_choices, configure_all_hotkeys) can be fully unit
 tested there without a live GTK dialog or a real desktop in the loop;
 this file is just the thin GTK glue wiring user clicks to that logic.
 
-None of the three extensions is offered as a checkbox at all - they're only
-ever enabled on a session where they could plausibly work (Wayland +
-gnome_extension_setup.gnome_shell_present()) - checked, not assumed, same
-empirical-first precedent as the hotkeys section. Enabling one here only
+None of the three extensions is offered as a checkbox at all - each is only
+ever enabled on a session where it could plausibly work (orcshot-tray: any
+session with gnome_extension_setup.gnome_shell_present(); window-calls/
+orcshot-clipboard: that plus Wayland specifically) - checked, not assumed,
+same empirical-first precedent as the hotkeys section. Enabling one here only
 flips the gsettings flag; it does NOT take effect in the current session -
 confirmed live that GNOME
 Shell caches an extension's JS module and needs a full logout/login to
@@ -86,6 +90,7 @@ from orcshot.gnome_extension_setup import (
     WINDOW_CALLS_EXTENSION_UUID,
     enable_extension,
     enable_extension_live,
+    extensions_to_enable,
     gnome_shell_present,
 )
 from orcshot.hotkey_setup import (
@@ -362,13 +367,16 @@ def _run_dialog(parent, executable: str, settings_backend) -> None:
             wrap=True, xalign=0,
         ), False, False, 0)
 
-    # None of the three GNOME Wayland extensions is offered as a
-    # checkbox - all three are unconditionally enabled below whenever
-    # this dialog completes with OK on a session where they'd apply
-    # (is_gnome_wayland), checked live rather than assumed (see
-    # gnome_extension_setup.gnome_shell_present's docstring), same as
-    # autostart/hotkeys aren't re-litigated as individually skippable
-    # app-core-functionality choices either. direflail, on why: "it's
+    # None of the three GNOME extensions is offered as a checkbox - each
+    # is unconditionally enabled below whenever this dialog completes
+    # with OK on a session where it would apply: orcshot-tray on any
+    # real GNOME Shell session (is_gnome), window-calls/orcshot-
+    # clipboard on GNOME Wayland specifically (is_gnome_wayland) - see
+    # gnome_extension_setup.extensions_to_enable for the actual split.
+    # Checked live rather than assumed (see gnome_extension_setup.
+    # gnome_shell_present's docstring), same as autostart/hotkeys aren't
+    # re-litigated as individually skippable app-core-functionality
+    # choices either. direflail, on why: "it's
     # ALWAYS going to be enabled, otherwise the program won't work...
     # why else would you install this program if you didn't want
     # clipboard support? it's a screenshot app" - and the same
@@ -409,7 +417,19 @@ def _run_dialog(parent, executable: str, settings_backend) -> None:
     # THIRD_PARTY_NOTICES.md and debian/copyright - real provenance
     # worth documenting there, unlike a checkbox that most users have
     # no context to evaluate.
-    is_gnome_wayland = os.environ.get("XDG_SESSION_TYPE") == "wayland" and gnome_shell_present()
+    # is_gnome, not just is_gnome_wayland, because orcshot-tray now
+    # applies on GNOME regardless of session type (BACKLOG #189, final-
+    # review finding 2026-09-05: the old is_gnome_wayland-only gate left
+    # GNOME-X11 users with the tray extension never installed/enabled at
+    # all - a real regression versus the Gtk.StatusIcon fallback this
+    # ticket's Task 1 removed, since that fallback at least existed even
+    # if it likely never rendered there). window-calls/orcshot-clipboard
+    # stay gated on is_gnome_wayland - see
+    # gnome_extension_setup.extensions_to_enable's own docstring for why
+    # those two remain Wayland-only. Computed from is_gnome rather than
+    # calling gnome_shell_present() a second time.
+    is_gnome = gnome_shell_present()
+    is_gnome_wayland = is_gnome and os.environ.get("XDG_SESSION_TYPE") == "wayland"
 
     dialog.show_all()
     response = dialog.run()
@@ -440,12 +460,17 @@ def _run_dialog(parent, executable: str, settings_backend) -> None:
                 clear_conflict(settings_backend, conflict)
             configure_all_hotkeys(settings_backend, executable, skip=skip, profile=profile)
 
-        if is_gnome_wayland:
+        if is_gnome:
+            # _install_bundled_extensions_for_sandboxed_channel installs
+            # all three extensions' files unconditionally (its own
+            # docstring/tests) - calling it on GNOME-X11 too just means
+            # window-calls/orcshot-clipboard's files land on disk but
+            # never get enabled below, which is harmless.
             _install_bundled_extensions_for_sandboxed_channel(parent)
 
-            enable_extension(settings_backend, WINDOW_CALLS_EXTENSION_UUID)
-            enable_extension(settings_backend, CLIPBOARD_EXTENSION_UUID)
-            enable_extension(settings_backend, TRAY_EXTENSION_UUID)
+            uuids_to_enable = extensions_to_enable(is_gnome_wayland)
+            for uuid in uuids_to_enable:
+                enable_extension(settings_backend, uuid)
             # enable_extension above only persists the setting for a
             # future login - enable_extension_live (task #150 follow-
             # up, see its own docstring for the live-reproduced bug)
@@ -470,7 +495,7 @@ def _run_dialog(parent, executable: str, settings_backend) -> None:
             # behalf - so the live call, when it succeeds, persists the
             # setting for a future login too, just via a different
             # writer than enable_extension() above.
-            for uuid in (WINDOW_CALLS_EXTENSION_UUID, CLIPBOARD_EXTENSION_UUID, TRAY_EXTENSION_UUID):
+            for uuid in uuids_to_enable:
                 try:
                     enable_extension_live(uuid)
                 except GLib.Error as e:

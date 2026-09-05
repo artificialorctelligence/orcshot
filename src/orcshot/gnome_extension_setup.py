@@ -65,6 +65,24 @@ def gnome_shell_present() -> bool:
     return source.lookup(_SHELL_SCHEMA, True) is not None
 
 
+def extensions_to_enable(is_gnome_wayland: bool) -> list:
+    """Which bundled extension UUIDs should be enabled, given the
+    caller has already confirmed GNOME Shell is present at all
+    (gnome_shell_present()). TRAY_EXTENSION_UUID applies on GNOME
+    regardless of session type (BACKLOG #189 - it's this ticket's whole
+    point that the tray no longer depends on Wayland). WINDOW_CALLS_
+    EXTENSION_UUID and CLIPBOARD_EXTENSION_UUID stay Wayland-only: X11
+    has its own native Xlib mechanisms for window enumeration and
+    clipboard access that don't need a Shell extension at all. Pure so
+    it's unit-testable without a live GNOME Shell or GTK dialog - same
+    testability precedent as hotkey_setup.py's check_all_conflicts/
+    resolve_hotkey_choices (see ui/first_run_setup.py's own module
+    docstring on why that logic lives apart from the dialog glue)."""
+    if is_gnome_wayland:
+        return [WINDOW_CALLS_EXTENSION_UUID, CLIPBOARD_EXTENSION_UUID, TRAY_EXTENSION_UUID]
+    return [TRAY_EXTENSION_UUID]
+
+
 def enabled_extensions_after_adding(current: list, uuid: str) -> list:
     """Pure: the enabled-extensions list with ``uuid`` added, without
     duplicating it if already present. Order of the rest is preserved."""

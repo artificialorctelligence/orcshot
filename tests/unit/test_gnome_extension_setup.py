@@ -11,6 +11,7 @@ from orcshot.gnome_extension_setup import (
     WINDOW_CALLS_EXTENSION_UUID,
     enable_extension,
     enabled_extensions_after_adding,
+    extensions_to_enable,
     gnome_shell_present,
 )
 
@@ -65,6 +66,23 @@ class TestEnableExtension:
         assert backend.get_strv("org.gnome.shell", "/", "enabled-extensions") == [
             WINDOW_CALLS_EXTENSION_UUID, CLIPBOARD_EXTENSION_UUID, TRAY_EXTENSION_UUID,
         ]
+
+
+class TestExtensionsToEnable:
+    """Final-review finding, 2026-09-05: the tray extension used to be
+    gated behind the same is_gnome_wayland check as window-calls/
+    orcshot-clipboard, which meant GNOME-X11 never got the tray
+    extension installed or enabled at all. TRAY_EXTENSION_UUID must come
+    back regardless of session type; the other two only on Wayland.
+    """
+
+    def test_gnome_wayland_enables_all_three(self):
+        assert extensions_to_enable(is_gnome_wayland=True) == [
+            WINDOW_CALLS_EXTENSION_UUID, CLIPBOARD_EXTENSION_UUID, TRAY_EXTENSION_UUID,
+        ]
+
+    def test_gnome_x11_enables_only_tray(self):
+        assert extensions_to_enable(is_gnome_wayland=False) == [TRAY_EXTENSION_UUID]
 
 
 class TestGnomeShellPresent:
