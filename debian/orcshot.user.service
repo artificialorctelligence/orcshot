@@ -1,6 +1,14 @@
 [Unit]
 Description=Orcshot screenshot capture and annotation tool
 PartOf=graphical-session.target
+# BACKLOG #196 investigation: PartOf= and WantedBy= (below) only cover
+# stop-propagation and pull-in - neither orders a start against the
+# target. Without this, systemd could (and, confirmed live, reliably
+# did on Wayland) start this unit before graphical-session.target was
+# actually active, racing ahead of DISPLAY/WAYLAND_DISPLAY being
+# importable into the user manager's environment - the real cause of
+# every first-launch "cannot open display" failure seen in testing.
+After=graphical-session.target
 
 # Task #170: Type=dbus + BusName makes `systemctl --user start orcshot.service`
 # block until this app has actually acquired its own D-Bus name (Gio.
