@@ -473,11 +473,17 @@ Both real supported desktops now get a native, non-deprecated tray via the same 
   find a working interception mechanism (several real GNOME 45+ Clutter API techniques were tried before
   landing on the real fix: manual click-target picking via `global.stage`'s `captured-event` signal and
   `get_actor_at_pos()`, since GNOME 45+'s `PanelMenu.Button` uses a `Clutter.ClickGesture` action that
-  claims raw button events before signal-based approaches see them). Live-verified end to end on the real
-  26.04 VM, both session types: left-click produces a real region-select overlay. (Right-click's own
+  claims raw button events before signal-based approaches see them). Live-verified end to end on two real
+  VMs, one per session type - Wayland on Ubuntu 26.04, X11 on Ubuntu 24.04 (26.04 has no X11 GNOME session
+  at all to test against: confirmed live, and via [OMG! Ubuntu](https://www.omgubuntu.co.uk/2025/05/gnome-dropping-x11-support-ubuntu-impact)
+  and [UbuntuHandbook](https://ubuntuhandbook.org/index.php/2025/06/ubuntu-2510-remove-xorg/), that Ubuntu
+  removed "Ubuntu on Xorg" as a selectable GDM session starting with 25.10, before 26.04 - 24.04 is the
+  last LTS that still offers it, and the correct real target for this project's own support matrix).
+  Left-click produces a real region-select overlay on both; on the 24.04/X11 VM specifically, direflail
+  confirmed live that right-click also opens the tray's own menu correctly. (Right-click's own
   menu-opening behavior on GNOME/Wayland was verified working at the time this bullet was first written,
   but is tracked separately as BACKLOG #196 now that it's been found not to open at all in a vanilla
-  build with none of this ticket's code present - see the note below.)
+  build with none of this ticket's code present on that session type - see the note below.)
 - **Cinnamon** (Mint, X11 today) - a brand-new native Cinnamon Spices applet (`orcshot-tray@orcshot.org`,
   in `resources/cinnamon-applets/`), consuming the exact same D-Bus export. Two real bugs were found and
   fixed during live verification on the real local Cinnamon dev host: an icon-rendering bug
