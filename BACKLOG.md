@@ -4,7 +4,7 @@ Open items not yet scheduled into a task. Each entry keeps the context that
 led to it - not just "what," but "why this matters" - so picking it up later
 doesn't require re-deriving the reasoning from scratch.
 
-## #196: `OrcshotTrayButton`'s own right-click menu doesn't open on GNOME Shell/Wayland
+## #196: `OrcshotTrayButton`'s own right-click menu doesn't open on GNOME Shell/Wayland (RESOLVED 2026-09-05)
 
 Found live during BACKLOG #189's tray-modernization work (2026-09-05), while verifying the new
 real left-click fix on the Ubuntu 26.04 GNOME Shell 50.1 VM. Real, reproducible, and confirmed
@@ -43,6 +43,36 @@ audit for double-construction or stale-reference bugs across an appearâ†’vanishâ
 Full Screen, Window Picker, Open File, Preferences, Quit) at all via right-click - only the
 left-click default (Capture Region) works. Real, user-visible, but not new: this predates
 BACKLOG #189's work entirely (confirmed live in a build with none of that work's code present).
+
+**RESOLVED.** The systemd race this entry already suspected was the real root cause -
+`debian/orcshot.user.service` had `PartOf=` and `WantedBy=graphical-session.target` but no
+`After=`, so neither ordered a *start* against the target. Adding `After=graphical-session.target`
+fixed it: `NRestarts=1` on every boot before the fix (matching this entry's own "cannot open
+display... every time" description), `NRestarts=0` across 3 clean reboots after, on the real
+Ubuntu 26.04 VM this ticket was originally found on. Live-verified afterward: right-click now
+opens the menu, confirmed both by direct observation and by a stage-level `captured-event` log
+showing the real `BUTTON_PRESS button=3` reaching `PanelMenu.Button`'s own `ClickGesture`
+correctly.
+
+A second, separate bug turned up immediately once the menu could actually open: every item in it
+showed disabled/greyed regardless of its real state, persisting across repeated opens (not just
+the first one). Root-caused via direct GJS reproduction against the real D-Bus service:
+`Gio.DBusActionGroup`'s initial sync with the server is asynchronous with no public "ready"
+signal - neither `'action-added'` nor `'action-enabled-changed'` fires for the initial batch, and
+`get_action_enabled()` silently returns `false` for everything until a non-deterministic amount of
+time passes (measured live: sometimes under 200ms, sometimes still not ready past 300ms in
+otherwise-identical conditions). `extension.js`'s `_rebuild()` read `get_action_enabled()`
+synchronously at construction time, permanently latching every item as disabled since nothing ever
+triggered a fresh read afterward. Fixed by re-reading and re-applying sensitivity for every item
+when the menu actually opens (`this.menu`'s own `'open-state-changed'` signal) rather than only
+once at construction - live-verified on the same VM: items show correctly enabled now.
+
+Two real, live-VM-testing gotchas hit along the way, worth remembering: (1) a stale, pre-#189
+copy of this same extension sitting in `~/.local/share/gnome-shell/extensions/` on the test VM
+silently shadowed every edit made to the real system copy for most of this investigation - GNOME
+Shell logs "already installed... will not be loaded" for the shadowed one, easy to miss; (2)
+newly-added *system* extension directories aren't picked up by an already-running GNOME Shell
+without a session restart, even though the files are already on disk.
 
 ## #195: Flatpak channel ships with no capture-complete sound at all - GSound gap was never actually tracked (RESOLVED 2026-09-01)
 
