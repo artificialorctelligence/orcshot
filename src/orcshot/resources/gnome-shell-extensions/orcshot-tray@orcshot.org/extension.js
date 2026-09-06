@@ -98,6 +98,10 @@ class OrcshotTrayButton extends PanelMenu.Button {
         });
 
         this._sectionSignalIds = [];
+        // [item, bareAction] pairs for every real (non-separator) menu
+        // item - see _refreshSensitivity()'s own comment for why this
+        // exists alongside the 'action-enabled-changed' handler below.
+        this._actionItems = [];
         this._rebuild();
         this._itemsChangedId = this._menuModel.connect('items-changed', (model, pos, removed, added) => {
             this._rebuild();
@@ -111,6 +115,27 @@ class OrcshotTrayButton extends PanelMenu.Button {
             // above already takes rather than maintaining a parallel
             // name-to-item map.
             this._rebuild();
+        });
+        // BACKLOG #196 follow-up, live-reproduced: Gio.DBusActionGroup's
+        // own initial sync with the server is asynchronous with no
+        // public "ready" signal - confirmed live that neither
+        // 'action-added' nor 'action-enabled-changed' fires for the
+        // initial batch, and get_action_enabled() silently returns
+        // false for every action until some non-deterministic amount
+        // of time passes (measured live: sometimes under 200ms,
+        // sometimes still not ready past 300ms). _rebuild() above reads
+        // get_action_enabled() synchronously at construction time, so
+        // it reliably latches every item as permanently disabled - real,
+        // live-confirmed on the Ubuntu 26.04 VM (menu opened, per
+        // BACKLOG #196's own systemd-ordering fix, but every item stayed
+        // greyed out across repeated opens, since nothing ever triggered
+        // a fresh read afterward). Re-reading sensitivity at the moment
+        // the menu actually opens - long after construction, by which
+        // point the async sync has always completed in practice - is
+        // the real fix, not a longer arbitrary delay guess.
+        this.menu.connect('open-state-changed', (menu, open) => {
+            if (open)
+                this._refreshSensitivity();
         });
         // Standard Clutter.Actor 'destroy' signal, matching this
         // project's own orcshot-clipboard@orcshot.org convention for
@@ -138,7 +163,16 @@ class OrcshotTrayButton extends PanelMenu.Button {
     _rebuild() {
         this._disconnectSectionSignals();
         this.menu.removeAll();
+        this._actionItems = [];
         this._addModelItems(this._menuModel);
+    }
+
+    // See the 'open-state-changed' comment in _init() for why this
+    // exists: a fresh read of get_action_enabled() for every item,
+    // independent of whatever _rebuild() last captured.
+    _refreshSensitivity() {
+        for (let [item, bareAction] of this._actionItems)
+            item.setSensitive(this._actionGroup.get_action_enabled(bareAction));
     }
 
     // Walks a Gio.MenuModel's items, recursing into any 'section' link
@@ -205,6 +239,7 @@ class OrcshotTrayButton extends PanelMenu.Button {
                 let bareAction = action.includes('.') ? action.split('.').slice(1).join('.') : action;
                 item.connect('activate', () => this._actionGroup.activate_action(bareAction, null));
                 item.setSensitive(this._actionGroup.get_action_enabled(bareAction));
+                this._actionItems.push([item, bareAction]);
             }
             this.menu.addMenuItem(item);
         }
