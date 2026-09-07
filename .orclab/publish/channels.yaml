@@ -16,9 +16,14 @@ desktop:
           # not auto-inject filename_template into action (see the v7 spec's Global Constraints).
           action: "dpkg-buildpackage -us -uc -S -sa && debsign ../*.changes && dput ppa:artificialorctelligence/orcshot ../*.changes"
           filename_template: "orcshot_<version>-1_source.changes"
+          requirements:
+            - "Before confirming a real (non-dry-run) run: unlock gpg-agent yourself, in your own
+               terminal, so it caches your passphrase - e.g. `echo test | gpg --clearsign >
+               /dev/null` and enter it when prompted. debsign then signs non-interactively against
+               the already-warm agent instead of prompting again from inside the subprocess."
           issues:
             - "debsign prompts interactively for a GPG passphrase on stdin - a real, confirmed hang
-               risk for /orc-publish, since execute_plan sets no subprocess timeout. See Orclab's
-               BACKLOG #11."
+               risk for /orc-publish if gpg-agent isn't already unlocked first, since execute_plan
+               sets no subprocess timeout. See Orclab's BACKLOG #11 and the requirement above."
       snap: {}
       flatpak: {}
