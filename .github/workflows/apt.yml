@@ -84,8 +84,8 @@ jobs:
       - name: Enable the extension (already installed system-wide by the .deb) and confirm it loads with no errors
         run: |
           # This proves the extension loads, initializes, and its D-Bus
-          # name-watcher wires up correctly (the "orcshot-tray-diag" log
-          # line, plus no JS errors) - it does not exercise menu
+          # name-watcher wires up correctly (the Shell's own reported
+          # extension state, plus no JS errors) - it does not exercise menu
           # construction or rendering (_rebuild, the button actually
           # appearing in the status area). That scope matches this
           # check's own original live-tested design; noted here so it's
@@ -93,8 +93,15 @@ jobs:
           export XDG_RUNTIME_DIR=/run/user/$(id -u)
           export DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/$(id -u)/bus
           gnome-extensions enable orcshot-tray@orcshot.org
-          timeout 60 bash -c 'until grep -q "orcshot-tray-diag" /tmp/shell.log; do sleep 1; done' \
-            || { echo "extension never logged its diagnostic line - did not load"; cat /tmp/shell.log; exit 1; }
+          # Ask the running Shell itself whether it loaded the extension,
+          # rather than grepping for a log line: the extension's own
+          # diagnostic log() calls were removed in BACKLOG #189, and a
+          # state of ACTIVE/ENABLED here is the Shell's own answer to
+          # exactly what this step claims to prove. Both spellings are
+          # accepted because the ExtensionState name differs across
+          # GNOME Shell versions.
+          timeout 60 bash -c 'until gnome-extensions info orcshot-tray@orcshot.org | grep -qiE "state:[[:space:]]*(active|enabled)"; do sleep 1; done' \
+            || { echo "Shell never reported the extension as loaded - see its own view, then the log, below"; gnome-extensions info orcshot-tray@orcshot.org || true; cat /tmp/shell.log; exit 1; }
           if grep -qi "JS ERROR\|Gjs-CRITICAL" /tmp/shell.log; then
             echo "A real JS error was logged - see the log below"
             cat /tmp/shell.log
