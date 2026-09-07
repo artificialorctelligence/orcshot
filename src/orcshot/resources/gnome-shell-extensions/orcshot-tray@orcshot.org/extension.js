@@ -274,6 +274,15 @@ class OrcshotTrayButton extends PanelMenu.Button {
 
 export default class OrcshotTrayExtension extends Extension {
     enable() {
+        // One permanent, intentional load marker (not part of the
+        // commented-out orcshot-tray-diag diagnostics above): all three
+        // CI verify jobs grep /tmp/shell.log for this exact string as
+        // their proof that GNOME Shell really loaded this extension, so
+        // it must stay live and keep its wording. It fires here rather
+        // than in OrcshotTrayButton's own _init because enable() runs
+        // whether or not Orcshot itself is running - the button is only
+        // constructed once the app owns its bus name.
+        log('orcshot-tray: extension enabled');
         this._button = null;
         this._watchId = Gio.bus_watch_name(
             Gio.BusType.SESSION, BUS_NAME, Gio.BusNameWatcherFlags.NONE,

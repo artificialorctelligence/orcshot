@@ -270,15 +270,16 @@ jobs:
           # not have caused this - see that step's own comment.
           export XDG_RUNTIME_DIR=/run/user/$(id -u)
           export DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/$(id -u)/bus
-          # Ask the running Shell itself whether it loaded the extension,
-          # rather than grepping for a log line: the extension's own
-          # diagnostic log() calls were removed in BACKLOG #189, and a
-          # state of ACTIVE/ENABLED here is the Shell's own answer to
-          # exactly what this step claims to prove. Both spellings are
-          # accepted because the ExtensionState name differs across
-          # GNOME Shell versions.
-          timeout 60 bash -c 'until gnome-extensions info orcshot-tray@orcshot.org | grep -qiE "state:[[:space:]]*(active|enabled)"; do sleep 1; done' \
-            || { echo "Shell never reported the extension as loaded - see its own view, then the log, below"; gnome-extensions info orcshot-tray@orcshot.org || true; cat /tmp/shell.log; exit 1; }
+          # The extension's own permanent load marker, logged from
+          # enable() - see extension.js's own comment on that line. It
+          # replaces the "orcshot-tray-diag" debug lines this check used
+          # to watch for, which BACKLOG #189 commented out. A
+          # gnome-extensions info state check was tried here first and
+          # printed nothing at all on this headless runner (no output,
+          # no error), so this stayed on the log-marker mechanism that
+          # is actually proven to work in this environment.
+          timeout 60 bash -c 'until grep -q "orcshot-tray: extension enabled" /tmp/shell.log; do sleep 1; done' \
+            || { echo "extension never logged its load marker - did not load"; cat /tmp/shell.log; exit 1; }
           if grep -qi "JS ERROR\|Gjs-CRITICAL" /tmp/shell.log; then
             echo "A real JS error was logged - see the log below"
             cat /tmp/shell.log

@@ -609,9 +609,12 @@ deliberate exception - this ticket live-confirmed neither signal ever reaches th
 keeping them would preserve probes already proven to log nothing; one commented line inside the stage
 `captured-event` handler that superseded them covers click visibility instead. Nothing depends on these
 lines any more: all three CI verify jobs used to wait for the `orcshot-tray-diag` marker as proof the
-Shell had loaded the extension, and now ask the Shell itself (`gnome-extensions info` reporting the
-extension ACTIVE/ENABLED) - the old grep silently became a 60-second timeout the moment this ticket
-removed the logging.
+Shell had loaded the extension, and that grep silently became a 60-second timeout the moment this
+ticket removed the logging. They now watch one permanent, intentional marker instead -
+`log('orcshot-tray: extension enabled')` at the top of `enable()`, which fires whether or not Orcshot
+itself is running. A `gnome-extensions info` state check was tried first and rejected on real
+evidence: on the headless CI runner it printed nothing at all - no output, no error text, exit
+status swallowed - so the check that actually works in this environment won.
 
 Full design: `docs/superpowers/specs/2026-09-05-tray-modernization-design.md`. Full plan:
 `docs/superpowers/plans/2026-09-05-tray-modernization.md`.
