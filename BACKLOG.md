@@ -4,7 +4,14 @@ Open items not yet scheduled into a task. Each entry keeps the context that
 led to it - not just "what," but "why this matters" - so picking it up later
 doesn't require re-deriving the reasoning from scratch.
 
-## #196: A real setup step for apt/snap/flatpak publishing - credentials/signing, tailored per channel and per machine
+## #197: A real setup step for apt/snap/flatpak publishing - credentials/signing, tailored per channel and per machine
+
+*(Renumbered from #196 to #197 on 2026-09-07, when merging main into BACKLOG #189's branch: both
+branches independently took #196 for unrelated findings. This entry moved because the other one -
+the tray right-click bug below - is referenced by number in shipped code (`extension.js`,
+`debian/orcshot.user.service`, `tests/unit/test_orcshot_user_service.py`) while this one was
+referenced only inside `BACKLOG.md` itself. Numbers stay permanent from here; commits dated before
+this that say "BACKLOG #196: real setup step... publishing credentials" mean this entry.)*
 
 Raised by direflail (2026-09-06/07) while dogfooding Orclab's new `/orc-publish` command against
 Orcshot's real config for the first time. Populating `.orclab/publish/channels.yaml` surfaced that
@@ -61,6 +68,76 @@ separate from this one) rather than being tackled standalone - credential setup 
 does a real publish for this channel even require," not a separate concern from it. Research each
 channel's real, current credential/signing mechanism first (not assumed from memory) before
 writing anything down.
+
+## #196: `OrcshotTrayButton`'s own right-click menu doesn't open on GNOME Shell/Wayland (RESOLVED 2026-09-05)
+
+Found live during BACKLOG #189's tray-modernization work (2026-09-05), while verifying the new
+real left-click fix on the Ubuntu 26.04 GNOME Shell 50.1 VM. Real, reproducible, and confirmed
+**not** caused by that work: right-click on the tray icon never opens its own popup menu, even in
+a fully vanilla build of `orcshot-tray@orcshot.org`'s `OrcshotTrayButton` with every bit of the
+new left-click code stripped back out.
+
+Isolated cleanly, not guessed:
+- Right-click works fine elsewhere in the exact same live session - the real desktop context menu
+  (via Nautilus) and GNOME's own Quick Settings panel button both open correctly on a right-click
+  from the same `xdotool` method. Not an input-relay/xdotool problem.
+- A debug listener on `this.menu`'s own `'open-state-changed'` signal, added to the vanilla
+  (no-left-click-code) build, never fires at all for a right-click on this specific button - the
+  base `PanelMenu.Button` class's own `Clutter.ClickGesture` "recognize" handler (which
+  unconditionally calls `this.menu?.toggle()` for any click, confirmed against real upstream
+  GNOME Shell source) isn't even recognizing the click on this actor.
+
+Real, suspicious correlate found in the journal, not yet confirmed as the root cause: on every
+single real test session tonight, `orcshot.service` (the autostart unit) fails its first launch
+attempt with `cannot open display`, then a scheduled systemd restart succeeds
+(`journalctl --user`: "orcshot.service: Scheduled restart job, restart counter is at 1" - every
+time, no exceptions). This means `org.orcshot.Orcshot`'s D-Bus bus name genuinely
+appears/vanishes/reappears once during every real login, which is exactly the kind of double
+construction/teardown a button-lifecycle bug would come from - a real (if separately-timed) `JS
+ERROR: Object ... OrcshotTrayButton ..., has been already disposed` was also seen once in the same
+journal, from an earlier test session's logout.
+
+**What this needs**: root-cause why the `cannot open display` race happens on first launch at all
+(likely a systemd unit ordering issue - the autostart unit probably needs to wait on the graphical
+session/display being fully ready, not just the user session starting), then re-verify whether
+fixing that race also fixes the tray button's own right-click. If it doesn't, the button's own
+`enable()`/bus-watch lifecycle in `orcshot-tray@orcshot.org/extension.js` needs its own real
+audit for double-construction or stale-reference bugs across an appear→vanish→appear cycle.
+
+**Consequence if left unfixed**: GNOME/Wayland users can't reach the tray's own menu (Capture
+Full Screen, Window Picker, Open File, Preferences, Quit) at all via right-click - only the
+left-click default (Capture Region) works. Real, user-visible, but not new: this predates
+BACKLOG #189's work entirely (confirmed live in a build with none of that work's code present).
+
+**RESOLVED.** The systemd race this entry already suspected was the real root cause -
+`debian/orcshot.user.service` had `PartOf=` and `WantedBy=graphical-session.target` but no
+`After=`, so neither ordered a *start* against the target. Adding `After=graphical-session.target`
+fixed it: `NRestarts=1` on every boot before the fix (matching this entry's own "cannot open
+display... every time" description), `NRestarts=0` across 3 clean reboots after, on the real
+Ubuntu 26.04 VM this ticket was originally found on. Live-verified afterward: right-click now
+opens the menu, confirmed both by direct observation and by a stage-level `captured-event` log
+showing the real `BUTTON_PRESS button=3` reaching `PanelMenu.Button`'s own `ClickGesture`
+correctly.
+
+A second, separate bug turned up immediately once the menu could actually open: every item in it
+showed disabled/greyed regardless of its real state, persisting across repeated opens (not just
+the first one). Root-caused via direct GJS reproduction against the real D-Bus service:
+`Gio.DBusActionGroup`'s initial sync with the server is asynchronous with no public "ready"
+signal - neither `'action-added'` nor `'action-enabled-changed'` fires for the initial batch, and
+`get_action_enabled()` silently returns `false` for everything until a non-deterministic amount of
+time passes (measured live: sometimes under 200ms, sometimes still not ready past 300ms in
+otherwise-identical conditions). `extension.js`'s `_rebuild()` read `get_action_enabled()`
+synchronously at construction time, permanently latching every item as disabled since nothing ever
+triggered a fresh read afterward. Fixed by re-reading and re-applying sensitivity for every item
+when the menu actually opens (`this.menu`'s own `'open-state-changed'` signal) rather than only
+once at construction - live-verified on the same VM: items show correctly enabled now.
+
+Two real, live-VM-testing gotchas hit along the way, worth remembering: (1) a stale, pre-#189
+copy of this same extension sitting in `~/.local/share/gnome-shell/extensions/` on the test VM
+silently shadowed every edit made to the real system copy for most of this investigation - GNOME
+Shell logs "already installed... will not be loaded" for the shadowed one, easy to miss; (2)
+newly-added *system* extension directories aren't picked up by an already-running GNOME Shell
+without a session restart, even though the files are already on disk.
 
 ## #195: Flatpak channel ships with no capture-complete sound at all - GSound gap was never actually tracked (RESOLVED 2026-09-01)
 
@@ -478,6 +555,69 @@ a broader "is anything else in this app's X11 path resting on similarly old GTK3
 direflail's request as given is general ("make sure it's using modern packaging/techniques"), not scoped
 to the tray icon alone - worth a clarifying pass before writing an implementation plan, same as #184 got
 before its own plan was written.
+
+**RESOLVED 2026-09-05.** `Gtk.StatusIcon` (deprecated, XEmbed-based) is gone entirely. Real finding that
+reframed this ticket: GNOME Shell hasn't hosted XEmbed tray icons since 3.26, regardless of session type
+- GNOME-X11 users very likely got an invisible tray icon before this fix, not a deprecated-but-working one.
+Both real supported desktops now get a native, non-deprecated tray via the same D-Bus export
+(`Gio.Menu`/`org.gtk.Actions`) #184 already built for Wayland:
+
+- **GNOME** (Ubuntu 24.04/26.04, X11 and Wayland both) - the existing `orcshot-tray@orcshot.org` Shell
+  extension, now reachable on X11 too, with real left-click-to-capture added (previously Wayland's tray was
+  menu-only). Left-click required real iterative debugging on an actual Ubuntu 26.04 GNOME Wayland VM to
+  find a working interception mechanism (several real GNOME 45+ Clutter API techniques were tried before
+  landing on the real fix: manual click-target picking via `global.stage`'s `captured-event` signal and
+  `get_actor_at_pos()`, since GNOME 45+'s `PanelMenu.Button` uses a `Clutter.ClickGesture` action that
+  claims raw button events before signal-based approaches see them). Live-verified end to end on two real
+  VMs, one per session type - Wayland on Ubuntu 26.04, X11 on Ubuntu 24.04 (26.04 has no X11 GNOME session
+  at all to test against: confirmed live, and via [OMG! Ubuntu](https://www.omgubuntu.co.uk/2025/05/gnome-dropping-x11-support-ubuntu-impact)
+  and [UbuntuHandbook](https://ubuntuhandbook.org/index.php/2025/06/ubuntu-2510-remove-xorg/), that Ubuntu
+  removed "Ubuntu on Xorg" as a selectable GDM session starting with 25.10, before 26.04 - 24.04 is the
+  last LTS that still offers it, and the correct real target for this project's own support matrix).
+  Left-click produces a real region-select overlay on both; on the 24.04/X11 VM specifically, direflail
+  confirmed live that right-click also opens the tray's own menu correctly. (Right-click's own
+  menu-opening behavior on GNOME/Wayland was verified working at the time this bullet was first written,
+  but is tracked separately as BACKLOG #196 now that it's been found not to open at all in a vanilla
+  build with none of this ticket's code present on that session type - see the note below.)
+- **Cinnamon** (Mint, X11 today) - a brand-new native Cinnamon Spices applet (`orcshot-tray@orcshot.org`,
+  in `resources/cinnamon-applets/`), consuming the exact same D-Bus export. Two real bugs were found and
+  fixed during live verification on the real local Cinnamon dev host: an icon-rendering bug
+  (`set_applet_icon_symbolic_name` doesn't work for Orcshot's full-color icon, fixed to `set_applet_icon_name`),
+  and a menu-population bug (`PopupIconMenuItem`'s icon parameter doesn't accept `Gio.Icon` objects;
+  fixed by using plain `PopupMenuItem` with `item._icon.set_gicon(...)` and tracking only the applet's
+  own menu items for cleanup). Live-verified end to end: left-click produces a full-screen capture overlay;
+  right-click shows Cinnamon's built-in entries plus all 8 real Orcshot menu items.
+- **Cinnamon-on-Wayland**: shipped session-agnostic (no X11/Wayland branching in the applet code) since
+  Cinnamon 6.8/Mint 23's Wayland support is architecturally expected to work the same way - but genuinely
+  **not verified**, since Mint 23 hasn't shipped yet (still in Alpha). Revisit once it has.
+
+Packaging: all three real channels (`.deb`, Snap, Flatpak) now package the new Cinnamon applet the same
+way the GNOME extensions were already packaged. Verified via a real `.deb` build and `dpkg -c` confirming
+both new files land at the right path.
+
+XFCE/KDE/MATE remain explicitly out of scope, matching this project's existing precedent elsewhere.
+
+**Note:** A separate, real, pre-existing bug was found during this work - `OrcshotTrayButton`'s own
+right-click menu doesn't open at all on GNOME Shell/Wayland. This is unrelated to any changes in this
+ticket (reproduces in a fully vanilla build) and is tracked separately as BACKLOG #196.
+
+**Diagnostic logging:** the `orcshot-tray-diag` `log()` calls are kept in `extension.js`, commented out
+in place rather than deleted. The "tray menu inert until a full reboot" failure recorded above (and in
+`REQUIREMENTS.md`) is still open and nobody knows whether it will recur, so reproducing it should be an
+uncomment-and-reinstall, not a git dig. The two click probes (`button-press-event`/`touch-event`) are the
+deliberate exception - this ticket live-confirmed neither signal ever reaches the tray actor at all, so
+keeping them would preserve probes already proven to log nothing; one commented line inside the stage
+`captured-event` handler that superseded them covers click visibility instead. Nothing depends on these
+lines any more: all three CI verify jobs used to wait for the `orcshot-tray-diag` marker as proof the
+Shell had loaded the extension, and that grep silently became a 60-second timeout the moment this
+ticket removed the logging. They now watch one permanent, intentional marker instead -
+`log('orcshot-tray: extension enabled')` at the top of `enable()`, which fires whether or not Orcshot
+itself is running. A `gnome-extensions info` state check was tried first and rejected on real
+evidence: on the headless CI runner it printed nothing at all - no output, no error text, exit
+status swallowed - so the check that actually works in this environment won.
+
+Full design: `docs/superpowers/specs/2026-09-05-tray-modernization-design.md`. Full plan:
+`docs/superpowers/plans/2026-09-05-tray-modernization.md`.
 
 ## #184: Explore a Wayland capture path that doesn't depend on the bundled GNOME Shell extension, to open up Snap and Flatpak (RESOLVED 2026-08-30)
 

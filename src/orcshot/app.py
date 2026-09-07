@@ -96,9 +96,9 @@ def _log_session_info() -> None:
     just more RAM/a different resolution), and every "it works" check
     made afterward was actually exercising the X11-native capture path,
     not the GNOME Shell extension path that session's actual bug fixes
-    targeted. `region_select.py`/`window_picker.py`/`_build_tray_icon`
-    already re-read `XDG_SESSION_TYPE` fresh at each decision point
-    (correct - a session-type change always means a fresh login, which
+    targeted. `region_select.py`/`window_picker.py` already re-read
+    `XDG_SESSION_TYPE` fresh at each decision point (correct - a
+    session-type change always means a fresh login, which
     always means a fresh process via autostart, so there's nothing to
     watch for *during* a run) - what was actually missing was any way
     to see, after the fact, which path a given run took at all.
@@ -168,7 +168,6 @@ def _defer(action) -> None:
 class OrcshotApplication(Gtk.Application):
     def __init__(self):
         super().__init__(application_id=APPLICATION_ID, flags=Gio.ApplicationFlags.HANDLES_COMMAND_LINE)
-        self._tray_icon = None
         self.add_main_option(
             CAPTURE_REGION_OPTION, ord("r"), GLib.OptionFlags.NONE, GLib.OptionArg.NONE,
             "Start a region capture", None,
@@ -190,7 +189,6 @@ class OrcshotApplication(Gtk.Application):
             "Repeat the last captured region", None,
         )
         self.last_region = None
-        self._repeat_item = None
         self._tray_repeat_action = None
         self._tray_menu = None
         self._open_editors = []
@@ -203,31 +201,23 @@ class OrcshotApplication(Gtk.Application):
         _log_session_info()
         Gtk.Window.set_default_icon_from_file(str(LOGO_PATH))
         self._register_tray_actions()
-        if os.environ.get("XDG_SESSION_TYPE") == "wayland":
-            # Best-effort, same reasoning as every other D-Bus call site
-            # in this file (see first_run_setup.py's own
-            # enable_extension_live calls for the same pattern): a
-            # transient D-Bus hiccup here (get_dbus_connection()
-            # returning None, or export_menu_model() raising) must not
-            # silently skip everything else in do_startup - PyGObject
-            # swallows an uncaught exception out of this vfunc, and this
-            # call sits early enough that _build_tray_icon,
-            # _check_shell_extension_health, and first-run setup would
-            # all never run.
-            try:
-                self._export_tray_menu()
-            except (GLib.Error, AttributeError) as e:
-                # AttributeError alongside GLib.Error: a None
-                # get_dbus_connection() (this comment's own named
-                # scenario above) raises AttributeError from
-                # gnome_tray_export.export_tray_menu's own
-                # connection.export_menu_model(...) call, not a
-                # GLib.Error - confirmed by reading that function,
-                # not assumed (final-review re-review finding: the
-                # original except clause here didn't actually cover
-                # this).
-                print(f"[orcshot] _export_tray_menu() failed: {e}", file=sys.stderr)
-        self._tray_icon = self._build_tray_icon()
+        # Every desktop this project supports (GNOME X11/Wayland, Cinnamon
+        # X11/Wayland) now consumes this export - see BACKLOG #189's
+        # tray-modernization plan. _export_tray_menu()'s own body has
+        # nothing session-specific in it.
+        try:
+            self._export_tray_menu()
+        except (GLib.Error, AttributeError) as e:
+            # AttributeError alongside GLib.Error: a None
+            # get_dbus_connection() (this comment's own named
+            # scenario above) raises AttributeError from
+            # gnome_tray_export.export_tray_menu's own
+            # connection.export_menu_model(...) call, not a
+            # GLib.Error - confirmed by reading that function,
+            # not assumed (final-review re-review finding: the
+            # original except clause here didn't actually cover
+            # this).
+            print(f"[orcshot] _export_tray_menu() failed: {e}", file=sys.stderr)
         self._check_shell_extension_health()
         maybe_run_first_run_setup()
         # Separate from maybe_run_first_run_setup's own flag - this
@@ -389,19 +379,12 @@ class OrcshotApplication(Gtk.Application):
 
     def _remember_region(self, rect) -> None:
         self.last_region = rect
-        # Eager, not deferred to the tray menu's own "show" signal: X11's
-        # local Gtk.Menu only ever fires "show" at construction time, not
-        # on a real subsequent open when exported to a remote renderer -
-        # not a reliable place to refresh state. Updating the item
-        # directly the moment last_region actually changes works
-        # identically on both platforms instead - on Wayland this means
-        # flipping the GAction's own `enabled` property, which propagates
-        # to orcshot-tray@orcshot.org automatically over the org.gtk.
-        # Actions D-Bus interface (Gio.SimpleAction.set_enabled), no
-        # export/refresh step of our own needed the way the menu
+        # Updating the exported GAction's own `enabled` property is
+        # sufficient - it propagates to every real consumer (GNOME
+        # Shell extension, Cinnamon applet) automatically over the
+        # org.gtk.Actions D-Bus interface (Gio.SimpleAction.set_enabled),
+        # no export/refresh step of our own needed the way the menu
         # structure itself (_export_tray_menu) does.
-        if self._repeat_item is not None:
-            self._repeat_item.set_sensitive(True)
         if self._tray_repeat_action is not None:
             self._tray_repeat_action.set_enabled(True)
 
@@ -574,12 +557,11 @@ class OrcshotApplication(Gtk.Application):
 
     def _tray_action_handlers(self) -> dict:
         """One handler per capture mode, keyed by the same mode string
-        icons.py's capture_mode_icon_image() already uses - shared
-        between _build_tray_menu's local Gtk.Menu (X11-only - see
-        _build_tray_icon) and _register_tray_actions' GActions
-        (activated by the Shell-native tray panel button in a
-        *different* process on Wayland, see that method's own
-        docstring), rather than defining the same five closures twice.
+        icons.py's capture_mode_icon_image() already uses. Backs
+        _register_tray_actions' GActions (activated by the GNOME Shell
+        extension's or Cinnamon applet's panel button, both living in a
+        *different* process - see that method's own docstring), rather
+        than defining the same five closures inline there.
         """
         return {
             "region": lambda: self.start_region_capture(capture_mouse_cursor=False),
@@ -597,23 +579,22 @@ class OrcshotApplication(Gtk.Application):
         with '.' replaced by '/') via the standard org.gtk.Actions
         interface, since this app is already a registered Gio.
         Application with a fixed application_id (see this file's own
-        docstring). The Shell-native tray panel button
-        (orcshot-tray@orcshot.org, rendering the menu
-        _export_tray_menu publishes for it - see _build_tray_icon)
+        docstring). The orcshot-tray@orcshot.org tray panel button -
+        the GNOME Shell extension or the Cinnamon applet, both
+        rendering the menu _export_tray_menu publishes for them -
         lives in a separate process and activates these by name via
         Gio.DBusActionGroup instead of calling into this process
-        directly - see that extension's own _activateTrayAction.
+        directly - see each one's own _addModelItems/activate wiring.
         """
         for mode, handler in self._tray_action_handlers().items():
             action = Gio.SimpleAction.new(f"tray-{mode}", None)
             action.connect("activate", lambda _action, _param, h=handler: _defer(h))
             self.add_action(action)
             if mode == "repeat_region":
-                # Matches X11's own self._repeat_item.set_sensitive(False)
-                # below - no region captured yet, nothing to repeat.
-                # _remember_region flips this to enabled the moment a
-                # real region capture actually happens (see its own
-                # comment).
+                # Starts disabled - no region captured yet, nothing to
+                # repeat. _remember_region flips this to enabled the
+                # moment a real region capture actually happens (see
+                # its own comment).
                 self._tray_repeat_action = action
                 action.set_enabled(False)
         open_file_action = Gio.SimpleAction.new("tray-open-file", None)
@@ -890,181 +871,6 @@ class OrcshotApplication(Gtk.Application):
                     "still running the previous version. Log out and back in to finish applying it."
                 ),
             )
-
-    def _build_tray_icon(self):
-        """Returns a Gtk.StatusIcon (X11), or None (Wayland - see the
-        branch below for why there's no local widget there at all).
-        """
-        if os.environ.get("XDG_SESSION_TYPE") == "wayland":
-            # No local widget at all, same reasoning as the old
-            # Shell-native panel-button path this replaces (see
-            # docs/superpowers/specs/2026-08-28-wayland-capture-redesign-design.md) -
-            # orcshot-tray@orcshot.org owns the tray unconditionally
-            # on Wayland now; unlike the extension it replaces, there
-            # is no AppIndicator3 fallback to fall through to if it's
-            # unavailable (first boot before a relogin, or the user
-            # disabling extensions) - see _export_tray_menu's own
-            # docstring for how that gap is surfaced instead.
-            return None
-
-        menu = self._build_tray_menu()
-
-        icon = Gtk.StatusIcon()
-        icon.set_from_file(str(LOGO_PATH))
-        icon.set_tooltip_text("Orcshot")  # noqa: i18n (proper noun)
-        icon.connect("activate", lambda _icon: self.start_capture())
-        icon.connect("popup-menu", lambda _icon, button, time: self._show_tray_menu(menu, button, time))
-        return icon
-
-    def _build_tray_menu(self) -> Gtk.Menu:
-        # Task #137: real Windows Greenshot has an icon on every one of
-        # these items too (MainForm.Designer.cs: contextmenu_capturearea.
-        # Image, contextmenu_capturewindow.Image, contextmenu_settings.
-        # Image, contextmenu_exit.Image, etc.) - this menu had never had
-        # any, on any platform, confirmed live by direflail on Ubuntu
-        # 24.04, 26.04, and X11/Mint alike. Capture-mode icons are hand-
-        # drawn (icons.py's capture_mode_icon_image - no standardized
-        # freedesktop name for "region select"/"active window", same
-        # reasoning as the tool-palette icons in that file's own
-        # docstring); Preferences/Quit reuse standard theme icon names,
-        # matching editor_window.py's own menu_item helper and its
-        # existing "preferences-system-symbolic" for the same action.
-        from orcshot.ui.icons import capture_mode_icon_image, stock_icon_image
-
-        menu = Gtk.Menu()
-        icon_color = _rgba_to_color(Gtk.Window().get_style_context().get_color(Gtk.StateFlags.NORMAL))
-
-        def menu_item(label: str, handler, *, icon_mode: str = None, icon_name: str = None) -> Gtk.MenuItem:
-            # Gtk.ImageMenuItem, not a Gtk.MenuItem wrapping a hand-built
-            # Gtk.Box(icon+label) - this menu is X11-only now (see
-            # _build_tray_icon: Wayland returns None before this method
-            # is ever called), but historically (task #137, before the
-            # 2026-08-28 Wayland tray redesign replaced it entirely with
-            # orcshot-tray@orcshot.org's Gio.Menu/GAction export) this
-            # same Gtk.Menu was also handed to
-            # AyatanaAppIndicator3.Indicator.set_menu() under Wayland and
-            # rendered by a *remote* process (the Shell's own AppIndicator
-            # support) over the DBusMenu protocol, not drawn locally at
-            # all - that's why Gtk.ImageMenuItem was picked over a hand-
-            # built Gtk.Box(icon+label): the DBusMenu exporter only knew
-            # how to serialize icons from recognized GTK properties
-            # (ImageMenuItem's own `image`), not by introspecting a menu
-            # item's freeform widget tree. Deprecated since GTK 3.10 but
-            # still functional - the deprecation is *why*
-            # editor_window.py/destination_picker.py moved away from it
-            # for their own (local-only) menus, not evidence it's broken -
-            # and X11 still needs it kept for consistent icon rendering
-            # here regardless of the Wayland history above.
-            item = Gtk.ImageMenuItem(label=label)
-            if icon_mode is not None:
-                item.set_image(capture_mode_icon_image(icon_mode, icon_color))
-            elif icon_name is not None:
-                item.set_image(stock_icon_image(icon_name, icon_color, size=16))
-            item.set_always_show_image(True)
-            # Forcing LTR here is X11-only (this branch never runs on
-            # Wayland - see _build_tray_icon). Historical context for why
-            # this exists at all (task #137): back when this same
-            # Gtk.Menu was also DBusMenu-exported to Wayland (see the
-            # comment above - no longer true today), an attempt to force
-            # RTL direction on these items to match Wayland's then
-            # right-aligned icons broke icon display entirely there
-            # (reverted - RTL evidently reorders GtkImageMenuItem's
-            # internal image+label children, not just their rendering,
-            # and the DBusMenu exporter's icon-extraction was order-
-            # dependent). GtkImageMenuItem's icon side is governed by
-            # gtk_widget_get_direction() - nothing here was setting it
-            # explicitly, so it fell back to whatever the live session's
-            # process-wide default resolved to, which on X11/Mint put
-            # icons on the right. Forcing LTR here is what actually fixes
-            # that for X11, and stays scoped to the X11-only branch below
-            # regardless of how Wayland's own tray icon is built.
-            if os.environ.get("XDG_SESSION_TYPE") != "wayland":
-                item.set_direction(Gtk.TextDirection.LTR)
-            item.connect("activate", lambda _item: handler())
-            return item
-
-        handlers = self._tray_action_handlers()
-
-        region_item = menu_item(
-            _("Capture Region"), lambda: _defer(handlers["region"]), icon_mode="region",
-        )
-        menu.append(region_item)
-
-        full_screen_item = menu_item(
-            _("Capture Full Screen"), lambda: _defer(handlers["full_screen"]), icon_mode="full_screen",
-        )
-        menu.append(full_screen_item)
-
-        active_window_item = menu_item(
-            _("Capture Active Window"), lambda: _defer(handlers["active_window"]), icon_mode="active_window",
-        )
-        menu.append(active_window_item)
-
-        window_picker_item = menu_item(
-            _("Capture Window..."), lambda: _defer(handlers["window_picker"]), icon_mode="window_picker",
-        )
-        from orcshot.capture.backend_select import window_picker_supported
-
-        if not window_picker_supported():
-            window_picker_item.set_sensitive(False)
-            window_picker_item.set_tooltip_text(
-                _(
-                    "Not available on this Wayland session - enable window capture support "
-                    "in Preferences, or use Capture Region instead."
-                )
-            )
-        menu.append(window_picker_item)
-
-        self._repeat_item = menu_item(
-            _("Repeat Last Region"), lambda: _defer(handlers["repeat_region"]), icon_mode="repeat_region",
-        )
-        self._repeat_item.set_sensitive(False)  # no region captured yet
-        menu.append(self._repeat_item)
-
-        menu.append(Gtk.SeparatorMenuItem())
-
-        # Task #140: real Windows' own tray context menu has always had
-        # this (contextmenu_openfile, MainForm.Designer.cs:92), sitting
-        # right after the capture items in the real AddRange order
-        # (MainForm.Designer.cs:83-103) - this port had no equivalent
-        # until now, meaning opening a file required already having an
-        # editor open (its own File > Open) or going through the file
-        # manager.
-        open_file_item = menu_item(
-            _("Open File..."), self.open_file_from_tray, icon_name="document-open-symbolic",
-        )
-        menu.append(open_file_item)
-
-        menu.append(Gtk.SeparatorMenuItem())
-
-        # Task #119: real Windows' own tray context menu has this too
-        # (contextmenu_settings, MainForm.Designer.cs - labeled
-        # "Preferences..." there, language-en-US.xml:62, matching
-        # this port's own Edit menu wording already), sitting after
-        # the capture items and before Exit, same relative position
-        # used here. Before this task, Preferences was only reachable
-        # from inside an already-open editor - this is the only way to
-        # reach it with none open at all.
-        preferences_item = menu_item(
-            _("Preferences..."), self.show_preferences, icon_name="preferences-system-symbolic",
-        )
-        menu.append(preferences_item)
-
-        menu.append(Gtk.SeparatorMenuItem())
-
-        # _quit_and_hide_tray_button, not bare self.quit - task #150
-        # follow-up's quit marker (main()'s own comment) has to be
-        # written on every quit path, and this local X11-only menu item
-        # was the one path that bypassed it (the Shell-native panel
-        # button's own "tray-quit" GAction already routes through it
-        # correctly).
-        quit_item = menu_item(_("Quit"), self._quit_and_hide_tray_button, icon_name="application-exit-symbolic")
-        menu.append(quit_item)
-        menu.show_all()
-        return menu
-
-    def _show_tray_menu(self, menu: Gtk.Menu, button: int, time: int) -> None:
-        menu.popup(None, None, None, None, button, time)
 
     def _start_periodic_update_checks(self) -> bool:
         self._periodic_update_check_tick()

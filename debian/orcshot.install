@@ -19,3 +19,5 @@ src/orcshot/resources/gnome-shell-extensions/orcshot-clipboard@orcshot.org/icons
 # nothing generates anymore.
 src/orcshot/resources/gnome-shell-extensions/orcshot-tray@orcshot.org/extension.js usr/share/gnome-shell/extensions/orcshot-tray@orcshot.org/
 src/orcshot/resources/gnome-shell-extensions/orcshot-tray@orcshot.org/metadata.json usr/share/gnome-shell/extensions/orcshot-tray@orcshot.org/
+src/orcshot/resources/cinnamon-applets/orcshot-tray@orcshot.org/applet.js usr/share/cinnamon/applets/orcshot-tray@orcshot.org/
+src/orcshot/resources/cinnamon-applets/orcshot-tray@orcshot.org/metadata.json usr/share/cinnamon/applets/orcshot-tray@orcshot.org/
