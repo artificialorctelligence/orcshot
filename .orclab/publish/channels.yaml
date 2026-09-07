@@ -11,10 +11,16 @@ desktop:
     linux:
       ppa:
         noble:
-          # Uses a shell glob (../*.changes) rather than a literal versioned filename, since
-          # dpkg-buildpackage produces exactly one .changes file per build and /orc-publish does
-          # not auto-inject filename_template into action (see the v7 spec's Global Constraints).
-          action: "dpkg-buildpackage -us -uc -S -sa && debsign ../*.changes && dput ppa:artificialorctelligence/orcshot ../*.changes"
+          # Derives the exact .changes filename from debian/changelog via dpkg-parsechangelog,
+          # rather than a glob or a hardcoded version. A glob (../*.changes) is actively WRONG
+          # here, found live 2026-09-06: the parent directory accumulates every past build's
+          # .changes file (33 of them at the time, back to 0.1.0-2, including one from an
+          # unrelated package), so `dput ../*.changes` would try to upload all of them. Even in a
+          # clean directory it would break, since step 4's binary build (-b) and this step's
+          # source build (-S) each produce their own .changes for the same version, and a PPA
+          # rejects a binary upload. dpkg-parsechangelog reads debian/changelog in the cwd, so
+          # this stays correct every release with no hand-editing.
+          action: "dpkg-buildpackage -us -uc -S -sa && debsign ../orcshot_$(dpkg-parsechangelog --show-field Version)_source.changes && dput ppa:artificialorctelligence/orcshot ../orcshot_$(dpkg-parsechangelog --show-field Version)_source.changes"
           filename_template: "orcshot_<version>-1_source.changes"
           requirements:
             - "Before confirming a real (non-dry-run) run: unlock gpg-agent yourself, in your own
