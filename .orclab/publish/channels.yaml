@@ -1,0 +1,29 @@
+# Orcshot's real publish channels, resolved by /orc-publish (Orclab).
+#
+# Only `ppa.noble` has a real action - it's the only channel with an actually documented,
+# confirmed publish mechanism (RELEASING.md step 6, 2026-09-06). snap and flatpak are left with
+# no action on purpose: CI (`.github/workflows/{snap,flatpak}.yml`) only builds and verifies them
+# locally today - neither has a real Snap Store push or Flathub submission step, manual or
+# automated (confirmed live, 2026-09-06; see BACKLOG #7). Inventing a plausible-looking command
+# for either would misrepresent something that doesn't exist yet.
+desktop:
+  python:
+    linux:
+      ppa:
+        noble:
+          # Uses a shell glob (../*.changes) rather than a literal versioned filename, since
+          # dpkg-buildpackage produces exactly one .changes file per build and /orc-publish does
+          # not auto-inject filename_template into action (see the v7 spec's Global Constraints).
+          action: "dpkg-buildpackage -us -uc -S -sa && debsign ../*.changes && dput ppa:artificialorctelligence/orcshot ../*.changes"
+          filename_template: "orcshot_<version>-1_source.changes"
+          requirements:
+            - "Before confirming a real (non-dry-run) run: unlock gpg-agent yourself, in your own
+               terminal, so it caches your passphrase - e.g. `echo test | gpg --clearsign >
+               /dev/null` and enter it when prompted. debsign then signs non-interactively against
+               the already-warm agent instead of prompting again from inside the subprocess."
+          issues:
+            - "debsign prompts interactively for a GPG passphrase on stdin - a real, confirmed hang
+               risk for /orc-publish if gpg-agent isn't already unlocked first, since execute_plan
+               sets no subprocess timeout. See Orclab's BACKLOG #11 and the requirement above."
+      snap: {}
+      flatpak: {}

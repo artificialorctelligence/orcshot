@@ -4,6 +4,71 @@ Open items not yet scheduled into a task. Each entry keeps the context that
 led to it - not just "what," but "why this matters" - so picking it up later
 doesn't require re-deriving the reasoning from scratch.
 
+## #197: A real setup step for apt/snap/flatpak publishing - credentials/signing, tailored per channel and per machine
+
+*(Renumbered from #196 to #197 on 2026-09-07, when merging main into BACKLOG #189's branch: both
+branches independently took #196 for unrelated findings. This entry moved because the other one -
+the tray right-click bug below - is referenced by number in shipped code (`extension.js`,
+`debian/orcshot.user.service`, `tests/unit/test_orcshot_user_service.py`) while this one was
+referenced only inside `BACKLOG.md` itself. Numbers stay permanent from here; commits dated before
+this that say "BACKLOG #196: real setup step... publishing credentials" mean this entry.)*
+
+Raised by direflail (2026-09-06/07) while dogfooding Orclab's new `/orc-publish` command against
+Orcshot's real config for the first time. Populating `.orclab/publish/channels.yaml` surfaced that
+none of the three real channels actually have a documented, repeatable "how do I get set up to
+publish to this at all" step - what exists today is scattered and incomplete:
+
+- **PPA (apt)**: `RELEASING.md` step 6 documents the `~/.dput.cf` entry and assumes a GPG key
+  already registered to the Launchpad account, but says nothing about *getting* one set up, and
+  the real operational friction found today - `debsign` prompting for a passphrase on stdin, which
+  `/orc-publish`'s subprocess can't satisfy (a real, confirmed hang risk, see BACKLOG #11 in
+  Orclab) - has no setup guidance at all. The fix worked out today: unlock `gpg-agent` yourself
+  first (`echo test | gpg --clearsign > /dev/null`) so it caches the passphrase, and raise
+  `gpg-agent.conf`'s `default-cache-ttl`/`max-cache-ttl` so it stays warm for a real release
+  session. Written into `.orclab/publish/channels.yaml`'s `ppa.noble` leaf as a `requirement:` (now
+  visible in `/orc-publish`'s dry-run output, per Orclab's own recent fix surfacing
+  requirements/issues there) - but that's a config note, not a setup *guide* someone new to this
+  machine could follow start to finish.
+- **Snap**: has no real publish mechanism at all yet - confirmed live, 2026-09-06 (CI in
+  `.github/workflows/snap.yml` only builds and installs `--dangerous`, no `snapcraft
+  login`/`snapcraft upload`/`snapcraft push` anywhere, manual or automated). Whatever gets built
+  there will need its own credential story - `snapcraft login`/store credentials are a completely
+  different mechanism from GPG, not just "the same problem again."
+- **Flatpak**: same - no real Flathub submission process exists yet, confirmed the same way
+  (`.github/workflows/flatpak.yml` only builds and validates against Flathub's linter). Flathub's
+  own submission/auth model is different again from both PPA and Snap. (Not the same thing as
+  `#186`, which is about *download metrics* per channel, not *publishing* to them - noted here
+  only because both surfaced from the same kind of "what actually exists today" check.)
+
+**Why "tailored to whatever the user is running" matters, not just "write one guide"**: direflail
+was explicit about this. A GPG passphrase-caching setup depends on which agent/pinentry is actually
+installed and how (gnome-keyring integration vs. plain `gpg-agent`, a hardware key like a
+YubiKey/Nitrokey instead of a passphrase entirely - real alternative discussed today, more secure
+*and* more convenient, but real hardware to provision, not something to assume everyone has).
+Snap's and Flatpak's own setup will have their own real per-machine variables once researched. A
+single hardcoded guide would go stale or misfire the moment it's run somewhere different from
+where it was written.
+
+**Scope, deliberately not decided yet**: whether this becomes one combined "get Orcshot's publish
+setup working" walkthrough or three separate per-channel ones; whether it lives as prose in
+`RELEASING.md`, as its own new doc, or as `requirement:`/`issue:` notes directly in
+`.orclab/publish/channels.yaml` once Snap/Flatpak have real leaves to attach them to (the PPA note
+already proves that last pattern works); how "tailored to whatever's running" actually gets
+detected/adapted at guide-writing or guide-running time rather than just listing options and
+leaving the reader to pick.
+
+**Why this belongs here, not purely in Orclab**: the *mechanism* for showing a requirement/issue is
+already generic (Orclab's `/orc-publish`, v7). What's missing is real, Orcshot-specific setup
+content for real Orcshot channels - the same "wrap what's real, populate one project at a time"
+split this whole framework has used everywhere else.
+
+**Next step, when picked up**: probably folds naturally into actually building Snap's and
+Flatpak's real publish mechanisms (no existing entry tracks that yet - it would need its own,
+separate from this one) rather than being tackled standalone - credential setup is part of "what
+does a real publish for this channel even require," not a separate concern from it. Research each
+channel's real, current credential/signing mechanism first (not assumed from memory) before
+writing anything down.
+
 ## #196: `OrcshotTrayButton`'s own right-click menu doesn't open on GNOME Shell/Wayland (RESOLVED 2026-09-05)
 
 Found live during BACKLOG #189's tray-modernization work (2026-09-05), while verifying the new
