@@ -1,0 +1,34 @@
+# Orcshot's real distro targets. Confirmed live against Launchpad's own packages page and
+# RELEASING.md, 2026-09-06 - see Orclab's orc-publish design spec for the full discussion.
+mint:
+  x11:
+    channel: desktop.python.linux.ppa.noble
+  wayland:
+    channel: desktop.python.linux.ppa.noble
+    issues:
+      - "Wayland tray on Mint: not yet tested (Mint's own X11/Wayland session split is separate
+         from Ubuntu's) - no environment-registry entry confirming a real test yet."
+ubuntu2404:
+  x11:
+    channel: desktop.python.linux.ppa.noble
+  wayland:
+    channel: desktop.python.linux.ppa.noble
+ubuntu2604:
+  # RELEASING.md step 6: Orcshot is Architecture: all with no series-specific
+  # build-dependencies, so 26.04 is populated via Launchpad's manual "Copy packages" web UI
+  # step from the noble build - not a second dpkg-buildpackage/debsign/dput upload. Confirmed
+  # live against Launchpad's own packages page (shows "Resolute and Noble" as the two series
+  # with real uploaded packages).
+  shared:
+    issues:
+      - "Reached via Launchpad's manual Copy-packages step, copying the noble build - not a
+         separate source upload. See RELEASING.md step 6."
+  x11:
+    channel: desktop.python.linux.ppa.noble
+  wayland:
+    channel: desktop.python.linux.ppa.noble
+mint-next:
+  # A Mint edition tracking Ubuntu 26.04 is expected within a couple of months of 2026-09-06,
+  # but no channel/publish plan exists for it yet - deliberately left unset rather than guessed.
+  x11: {}
+  wayland: {}
