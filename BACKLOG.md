@@ -536,6 +536,18 @@ XFCE/KDE/MATE remain explicitly out of scope, matching this project's existing p
 right-click menu doesn't open at all on GNOME Shell/Wayland. This is unrelated to any changes in this
 ticket (reproduces in a fully vanilla build) and is tracked separately as BACKLOG #196.
 
+**Diagnostic logging:** the `orcshot-tray-diag` `log()` calls are kept in `extension.js`, commented out
+in place rather than deleted. The "tray menu inert until a full reboot" failure recorded above (and in
+`REQUIREMENTS.md`) is still open and nobody knows whether it will recur, so reproducing it should be an
+uncomment-and-reinstall, not a git dig. The two click probes (`button-press-event`/`touch-event`) are the
+deliberate exception - this ticket live-confirmed neither signal ever reaches the tray actor at all, so
+keeping them would preserve probes already proven to log nothing; one commented line inside the stage
+`captured-event` handler that superseded them covers click visibility instead. Nothing depends on these
+lines any more: all three CI verify jobs used to wait for the `orcshot-tray-diag` marker as proof the
+Shell had loaded the extension, and now ask the Shell itself (`gnome-extensions info` reporting the
+extension ACTIVE/ENABLED) - the old grep silently became a 60-second timeout the moment this ticket
+removed the logging.
+
 Full design: `docs/superpowers/specs/2026-09-05-tray-modernization-design.md`. Full plan:
 `docs/superpowers/plans/2026-09-05-tray-modernization.md`.
 

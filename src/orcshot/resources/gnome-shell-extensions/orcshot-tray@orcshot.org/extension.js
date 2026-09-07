@@ -41,6 +41,25 @@ class OrcshotTrayButton extends PanelMenu.Button {
         this._menuModel = Gio.DBusMenuModel.get(Gio.DBus.session, BUS_NAME, MENU_PATH);
         this._actionGroup = Gio.DBusActionGroup.get(Gio.DBus.session, BUS_NAME, ACTIONS_PATH);
 
+        // Diagnostics for the still-open "tray menu inert until a full
+        // reboot" failure (BACKLOG #189's own entry, REQUIREMENTS.md):
+        // kept commented out rather than deleted, since nobody knows
+        // whether that failure will recur, and reproducing it should be
+        // an uncomment-and-reinstall rather than a git dig. Uncomment
+        // whichever lines are relevant, reinstall the extension, log
+        // out/in, then: journalctl GLIB_DOMAIN='GNOME Shell' -f | grep
+        // orcshot-tray-diag
+        //
+        // The old 'button-press-event'/'touch-event' probes are
+        // deliberately NOT among them: this branch live-confirmed
+        // neither signal ever reaches this actor at all (PanelMenu.
+        // Button's own ClickGesture claims both first - see the long
+        // comment on the captured-event handler below), so keeping them
+        // would preserve a probe already proven to log nothing. The
+        // commented line inside that handler is where real click
+        // visibility lives now.
+        // log(`orcshot-tray-diag: _init starting, get_n_items()=${this._menuModel.get_n_items()}`);
+
         // BACKLOG #189: left-click captures directly (matching the real
         // Windows tray default, and X11's own former Gtk.StatusIcon
         // "activate" signal before it was deleted) - right-click still
@@ -93,6 +112,7 @@ class OrcshotTrayButton extends PanelMenu.Button {
             let picked = global.stage.get_actor_at_pos(Clutter.PickMode.REACTIVE, x, y);
             if (!picked || !this.contains(picked))
                 return Clutter.EVENT_PROPAGATE;
+            // log('orcshot-tray-diag: primary press picked on the tray button');
             this._actionGroup.activate_action('tray-region', null);
             return Clutter.EVENT_STOP;
         });
@@ -104,9 +124,11 @@ class OrcshotTrayButton extends PanelMenu.Button {
         this._actionItems = [];
         this._rebuild();
         this._itemsChangedId = this._menuModel.connect('items-changed', (model, pos, removed, added) => {
+            // log(`orcshot-tray-diag: items-changed pos=${pos} removed=${removed} added=${added}, get_n_items()=${model.get_n_items()}`);
             this._rebuild();
         });
         this._actionEnabledChangedId = this._actionGroup.connect('action-enabled-changed', (group, name, enabled) => {
+            // log(`orcshot-tray-diag: action-enabled-changed name=${name} enabled=${enabled}`);
             // A full rebuild, not a targeted item lookup: this fires
             // rarely (once per capture, for "repeat_region" only, see
             // app.py's _remember_region) so the cost of re-walking the
@@ -134,6 +156,7 @@ class OrcshotTrayButton extends PanelMenu.Button {
         // point the async sync has always completed in practice - is
         // the real fix, not a longer arbitrary delay guess.
         this.menu.connect('open-state-changed', (menu, open) => {
+            // log(`orcshot-tray-diag: menu open-state-changed, open=${open}, numMenuItems=${this.menu.numMenuItems}`);
             if (open)
                 this._refreshSensitivity();
         });
@@ -161,10 +184,12 @@ class OrcshotTrayButton extends PanelMenu.Button {
     }
 
     _rebuild() {
+        // log(`orcshot-tray-diag: _rebuild running, n=${this._menuModel.get_n_items()}`);
         this._disconnectSectionSignals();
         this.menu.removeAll();
         this._actionItems = [];
         this._addModelItems(this._menuModel);
+        // log(`orcshot-tray-diag: _rebuild finished, menu.numMenuItems=${this.menu.numMenuItems}`);
     }
 
     // See the 'open-state-changed' comment in _init() for why this
@@ -253,6 +278,7 @@ export default class OrcshotTrayExtension extends Extension {
         this._watchId = Gio.bus_watch_name(
             Gio.BusType.SESSION, BUS_NAME, Gio.BusNameWatcherFlags.NONE,
             () => {
+                // log('orcshot-tray-diag: bus name appeared');
                 if (this._button)
                     return;
                 try {
@@ -269,11 +295,13 @@ export default class OrcshotTrayExtension extends Extension {
                     // 'orcshot-tray'" (caught below, so it fails safely,
                     // but this button would then silently never appear).
                     Main.panel.addToStatusArea('orcshot-tray-button', this._button);
+                    // log('orcshot-tray-diag: button constructed and added to status area');
                 } catch (e) {
                     logError(e, 'orcshot-tray: failed to build tray button');
                 }
             },
             () => {
+                // log('orcshot-tray-diag: bus name vanished');
                 if (this._button) {
                     this._button.destroy();
                     this._button = null;

@@ -7839,8 +7839,13 @@ the tray menu occasionally failed to populate or respond to clicks at all (diagn
 not just logout/login, reliably fixed it. Matches the general class of issue this file already documents
 under extension-reload caching ([[feedback_extension_reload_caching]]), but this is the first time
 logout/login alone wasn't sufficient. direflail: "we didn't have this issue before. i'm guessing we'll
-see it again." Diagnostic logging (tagged `orcshot-tray-diag`) was deliberately left in `extension.js`
-rather than removed, for exactly this reason. **Not resolved** - if this recurs on a genuinely fresh boot,
+see it again." Diagnostic logging (tagged `orcshot-tray-diag`) is deliberately kept in `extension.js`
+rather than removed, for exactly this reason - commented out in place since BACKLOG #189's tray
+modernization, so reproducing this needs only an uncomment, a reinstall, and a logout/login
+(`journalctl GLIB_DOMAIN='GNOME Shell' -f | grep orcshot-tray-diag`). The former
+`button-press-event`/`touch-event` probes are gone rather than commented: #189 live-confirmed
+neither signal ever reaches the tray actor, so a commented line in the stage `captured-event`
+handler that replaced them carries that diagnostic instead. **Not resolved** - if this recurs on a genuinely fresh boot,
 it needs real investigation, not another reboot-and-move-on. Separately, existing Orcshot installs
 upgrading to this version never get `orcshot-tray@orcshot.org` enabled automatically (BACKLOG.md `#188`)
 - deliberately not auto-fixed, since enabling an extension must only ever follow the user's own
