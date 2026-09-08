@@ -41,7 +41,7 @@ a guard in that loop - skip accounts below the normal `UID_MIN` (1000), or expli
 `lightdm`/`sddm` - but that is a real change to the install path and wants its own testing on a
 logged-in machine, at the login screen, and with multiple users logged in at once.
 
-## #202: A `.deb` upgrade on the Mint host surfaced an unexplained "save this screenshot" prompt
+## #202: A `.deb` upgrade on the Mint host surfaced an unexplained "save this screenshot" prompt (RESOLVED 2026-09-07 - working as designed)
 
 Reported live by direflail during the `0.3.0` release (2026-09-07), immediately after running
 `sudo apt install ./orcshot_0.3.0-1_all.deb` on the Mint/Cinnamon host at `RELEASING.md` step 7:
@@ -74,6 +74,46 @@ exact upgrade path every PPA user will take. `0.3.0` shipped anyway (direflail's
 behavior on the most common install path with no reproduction recorded yet. First real step is
 reproducing it: upgrade over a running instance on the X11 host with a capture deliberately pending,
 and again with none, and watch for the picker.
+
+**Root-caused the same day, and the answer is that nothing is broken.** The guess above was wrong in
+its specifics - it was not the destination picker, and no capture was triggered. `debian/orcshot.preinst`
+(read late; the earlier investigation had only checked `postinst` and `prerm`) deliberately calls into
+any already-running instance over D-Bus **before dpkg replaces a single file**:
+
+```sh
+gdbus call --session --dest org.orcshot.Orcshot --object-path /org/orcshot/Orcshot \
+    --method org.gtk.Actions.Activate 'prepare-for-upgrade' '[]' '{}'
+```
+
+`OrcshotApplication.prepare_for_upgrade` (`src/orcshot/app.py`) handles it by closing every unmodified
+editor and calling `prompt_save_for_restart(_("New install incoming - save your work"))` on every
+editor that `is_modified`. That message *is* the prompt direflail saw. It exists so an open editor's
+unsaved work doesn't silently vanish when the package's files are swapped underneath the process -
+the task #151 follow-up.
+
+**The host journal confirms every step of it**, which is why this closed without needing a
+reproduction: `21:11:21` the `sudo apt install` is logged; `21:11:23` dbus-daemon logs
+`org.freedesktop.hostname1` being activated by **pid 19281, `comm="/usr/bin/python3 /usr/bin/orcshot
+--capture-region"`** - a long-lived instance originally launched by the `Print` hotkey
+(`custom7`), and hostname1 activation is what a GTK file chooser does as it builds its places
+sidebar; `21:11:32` `~/Pictures/Screenshots/screenshot.png` is written (745x397, an older
+conversation screenshot with a red annotation box - real unsaved work, saved back to its own
+existing path, which is why the name doesn't match the configured
+`%Y-%m-%d %H_%M_%S` pattern); `21:11:33` the postinst's `systemctl --user enable --now` starts a
+fresh instance as pid 115046, which could only take the single-instance D-Bus name because 19281
+had already quit.
+
+**One real defect did fall out of it**: `app.py` named the wrong maintainer script in five places -
+"debian/orcshot.postinst calls this", "postinst does NOT wait for this to finish", and so on - when
+the caller is `debian/orcshot.preinst`. Both files exist and both are real, so the comments sent a
+reader to the wrong one, and the distinction is the entire mechanism: preinst runs *before* dpkg
+unpacks anything, postinst only after every file is already replaced. Corrected, with that ordering
+requirement now stated explicitly in the docstring.
+
+**Worth knowing for future releases**: any `.deb` upgrade on a machine with an Orcshot editor holding
+unsaved work will prompt. That is intended, but it does mean an unattended or scripted upgrade can
+leave a modal dialog waiting in a user's session - `prepare_for_upgrade`'s own docstring already
+reasons about exactly this and deliberately does not block the maintainer script on it.
 
 ## #201: The `0.1.1` and `0.2.0` PPA source uploads each shipped the project's entire `.git` directory (RESOLVED going forward 2026-09-07)
 

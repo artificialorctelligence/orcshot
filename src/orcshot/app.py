@@ -607,7 +607,7 @@ class OrcshotApplication(Gtk.Application):
         quit_action.connect("activate", lambda *_args: self._quit_and_hide_tray_button())
         self.add_action(quit_action)
         # Not "tray-*" - never appears in any menu, only ever invoked over
-        # D-Bus by debian/orcshot.postinst (see prepare_for_upgrade below).
+        # D-Bus by debian/orcshot.preinst (see prepare_for_upgrade below).
         prepare_for_upgrade_action = Gio.SimpleAction.new("prepare-for-upgrade", None)
         prepare_for_upgrade_action.connect("activate", lambda *_args: self.prepare_for_upgrade())
         self.add_action(prepare_for_upgrade_action)
@@ -743,20 +743,22 @@ class OrcshotApplication(Gtk.Application):
 
     def prepare_for_upgrade(self) -> None:
         """Best-effort package-upgrade hook (task #151 follow-up):
-        debian/orcshot.postinst calls this (via `gdbus call ...
+        debian/orcshot.preinst calls this (via `gdbus call ...
         org.gtk.Actions.Activate 'prepare-for-upgrade'`, the same
         mechanism the Shell-native tray button uses to invoke every
         other action here) on any already-running instance before
         replacing this package's files on disk, so an open editor with
         unsaved work doesn't just vanish under the user without a
-        chance to save it.
+        chance to save it. It has to be preinst, not postinst, for
+        that ordering to hold: preinst runs before dpkg unpacks
+        anything, postinst only after every file is already replaced.
 
-        Deliberately does NOT block the postinst script that calls
-        it, and postinst does NOT wait for this to finish - a root
+        Deliberately does NOT block the preinst script that calls
+        it, and preinst does NOT wait for this to finish - a root
         maintainer script blocking on a GUI action inside a logged-in
         user's session has no reliable way to know if or when anyone's
         watching to respond (unattended-upgrades, scripted installs,
-        headless CI all run postinst with nobody there to click
+        headless CI all run preinst with nobody there to click
         anything). Replacing this process's files while it keeps
         running is safe on Linux regardless - the already-running
         process just keeps executing the old code it already loaded
