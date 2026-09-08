@@ -4,6 +4,33 @@ Open items not yet scheduled into a task. Each entry keeps the context that
 led to it - not just "what," but "why this matters" - so picking it up later
 doesn't require re-deriving the reasoning from scratch.
 
+## #204: Running the test suite rewrites `po/orcshot.pot`, dirtying the working tree on every run
+
+Hit twice during the `0.3.0` release (2026-09-07), both times mid-release when a clean tree actually
+mattered. `tests/unit/test_extract_pot.py` regenerates `po/orcshot.pot` in place as a side effect of
+running, and that file is deliberately committed (see `.gitignore`'s own note - `TRANSLATING.md`
+points contributors at it as the template to translate from). So `pytest tests/ -q`, the very first
+command `RELEASING.md` step 2 tells you to run, leaves `git status` dirty every single time.
+
+The diff it produces is pure noise: a new `POT-Creation-Date` line plus source line-number churn.
+Verified both times by comparing the msgid sets before and after - 366 msgids each way, identical
+sets, so nothing translatable ever actually changes. It just looks like a real modification until
+someone checks, and during a release it competes for attention with genuine uncommitted work. On
+this release it had to be reverted twice by hand, once before the release commit and once after the
+post-release fixes, purely to keep step 8's `git add` honest.
+
+**Concrete consequence, not hypothetical**: step 8 commits an explicit file list, so the churn never
+gets committed by accident - but anyone running `git commit -a`, or eyeballing `git status` to decide
+whether a tree is clean, gets a false positive. It also means a release can never verify "tree is
+clean" straight after step 2 without a manual `git checkout -- po/orcshot.pot` first, which is
+nowhere in the checklist.
+
+**Scope boundary**: the test itself is doing something legitimate - checking the extraction script
+produces what is committed. The bug is that it verifies by *overwriting the real file* instead of
+extracting to a temp path and comparing. Fixing it means changing the test, not the extraction script
+or the decision to commit the `.pot`, and there is no reason the fix should change what
+`scripts/extract_pot.sh` does for a human running it deliberately.
+
 ## #203: On a machine sitting at the login screen, the postinst starts Orcshot as the `gdm` greeter user
 
 Found on the Ubuntu 24.04 VM during `RELEASING.md` step 7 of the `0.3.0` release (2026-09-07). The
