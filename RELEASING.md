@@ -65,13 +65,34 @@ Not tracked in this repo or `pyproject.toml` - release tooling, not an app depen
 diff <(.venv/bin/pip freeze | grep -iE "^(hypothesis|iniconfig|numpy|packaging|pluggy|pycairo|Pygments|PyGObject|pytest|python-xlib|scipy|shapely|six|sortedcontainers)==" | sort) <(grep -v '^#' requirements.txt | grep -v '^$' | sort)
 ```
 
-`semgrep ci` covers both SAST and Supply Chain (dependency/lockfile) findings in one run, uploaded to
-the Semgrep dashboard - Aikido's own local scan (`aikido_full_scan`, run on the changed files) covers
-SAST and secrets, but its Supply Chain/SCA feed is a paid-tier-only feature this project doesn't have
-(confirmed live, 2026-08-23: `aikido_issues_list` returns "only available for paying customers"), so
-Semgrep is what actually covers dependency vulnerabilities here, not belt-and-suspenders duplication
-of Aikido. The `diff` regenerates `requirements.txt` (see its own header) if it's gone stale - empty
-output means it's still accurate.
+**And confirm Aikido has scanned this commit** - every release, not optionally. Aikido scans the
+repository server-side on every push once it's connected, so this is a result to read rather than a
+job to run, exactly like step 9 reads CI's own view:
+
+```
+aikido_issues_list      (MCP tool - the connected repo's current findings)
+```
+
+If that comes back empty *because the repo isn't connected*, that is a failed check, not a pass -
+scanning is what step 3 exists for, and an unconnected repo means nothing was scanned. Until the
+one-time repo connection is done (tracked as BACKLOG `#200`), the interim substitute is
+`aikido_full_scan` over the source files changed since the previous release tag:
+
+```bash
+git diff --name-only vX.Y.Z..HEAD -- '*.py' | grep -v '^tests/'
+```
+
+fed to the MCP tool in batches (it takes file *contents* inline, max 50 files per call, and there is
+no Aikido CLI available on this machine - checked live 2026-09-07). That interim path is deliberately
+expensive and partial, which is the whole argument for `#200`.
+
+**Why both tools, not one**: `semgrep ci` covers both SAST and Supply Chain (dependency/lockfile)
+findings in one run, uploaded to the Semgrep dashboard. Aikido covers SAST and **secrets**, but its
+Supply Chain/SCA feed is a paid-tier-only feature this project doesn't have (confirmed live,
+2026-08-23: `aikido_issues_list` returns "only available for paying customers"), so Semgrep is what
+actually covers dependency vulnerabilities here and Aikido is what covers secrets - not
+belt-and-suspenders duplication. The `diff` regenerates `requirements.txt` (see its own header) if
+it's gone stale - empty output means it's still accurate.
 
 Any new high/critical finding from either tool gets flagged and understood before continuing, the
 same standard step 5's `lintian` warnings already get - not silently waved through, but not

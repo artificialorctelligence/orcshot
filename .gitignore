@@ -52,3 +52,9 @@ src/orcshot/resources/locale/
 # gettext domain (task #183 follow-up) - compiled from
 # po/orcshot-tray-*.po by debian/rules, never committed.
 src/orcshot/resources/gnome-shell-extensions/orcshot-clipboard@orcshot.org/locale/
+
+# Agent/tool session state - never project content. Also excluded from the
+# source tarball via debian/source/options (see BACKLOG #201: these were
+# being swept into the PPA source upload).
+.claude/
+.orclab/

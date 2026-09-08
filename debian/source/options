@@ -1,5 +1,29 @@
-# dpkg-source's own default -I exclusions (VCS dirs, backups, swap files,
-# Libtool build output) don't cover Python's own local dev/build artifacts -
+# The bare `tar-ignore` below is load-bearing, not decoration: dpkg-source(1)
+# says "-I by itself adds default --exclude options that will filter out
+# control files and directories of the most common revision control systems,
+# backup and swap files and Libtool build output directories" - those
+# defaults apply ONLY when -I appears with no pattern. Listing tar-ignore
+# patterns alone never enabled them, and this file's own comment used to
+# claim otherwise. Caught during the 0.3.0 release: the source tarball was
+# 22.6 MB and carried 3061 .git/ entries; 0.1.1 and 0.2.0 had already been
+# uploaded to the PPA the same way (1415 and 1882 .git/ entries). With -I
+# restored plus the three tool directories below, the same tarball is 1.02 MB.
+#
+# It has to be the long form with no value: a bare -I is rejected outright
+# here ("dpkg-source: warning: short option not allowed in
+# debian/source/options"), which silently leaves the defaults off again.
+tar-ignore
+
+# .claude/.hypothesis/.orclab are agent/test tooling state, not any VCS the
+# default list knows about, so they need naming explicitly - .claude in
+# particular accumulates whole git worktrees, which by 0.3.0 meant a built
+# .deb, a .whl, and duplicate copies of the entire source tree.
+tar-ignore = ".claude"
+tar-ignore = ".hypothesis"
+tar-ignore = ".orclab"
+
+# dpkg-source's default -I exclusions still don't cover Python's own local
+# dev/build artifacts -
 # confirmed live: a `debuild -S -sa` run with a local .venv/ present swept
 # the entire virtualenv (including compiled numpy/scipy/shapely .so files
 # and Windows pip-vendored .exe files) into the source tarball, caught by

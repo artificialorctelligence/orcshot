@@ -4,6 +4,185 @@ Open items not yet scheduled into a task. Each entry keeps the context that
 led to it - not just "what," but "why this matters" - so picking it up later
 doesn't require re-deriving the reasoning from scratch.
 
+## #203: On a machine sitting at the login screen, the postinst starts Orcshot as the `gdm` greeter user
+
+Found on the Ubuntu 24.04 VM during `RELEASING.md` step 7 of the `0.3.0` release (2026-09-07). The
+VM was booted but nobody had logged in - GDM was showing its user list. Installing the `.deb` there
+printed the usual `Orcshot is installed and starting now.` and, checked immediately afterwards,
+`ps aux` showed:
+
+```
+gdm  2666  /usr/bin/python3 /usr/bin/orcshot
+```
+
+Orcshot running as the **`gdm`** system user, in the greeter's own session. Meanwhile the real
+account's own unit was correctly `enabled` but `inactive`, exactly as it should be with no graphical
+session yet - so the intended behavior works; it just also fires for the greeter.
+
+**Mechanism**, read straight out of the built package's `postinst`: it loops over users that have a
+live session bus socket, and for each one runs `runuser -u "$user" -- env
+DBUS_SESSION_BUS_ADDRESS=... XDG_RUNTIME_DIR=... systemctl --user enable --now orcshot.service`
+whenever the debconf answer `orcshot/enable-autostart` is `true`. The GDM greeter is a real user
+with a real session bus, so it matches that loop like any other. There is no filter for system or
+greeter accounts.
+
+**Concrete consequence**: a screenshot-and-annotation tool with tray, hotkey and D-Bus surfaces gets
+started in the display-manager's own session on any machine where the package is installed while
+sitting at the login screen - which is the normal state for an unattended install, an install over
+SSH, or any automated provisioning. It also means `orcshot.service` becomes `enabled` for the `gdm`
+user persistently, not just for this boot. Nothing observed misbehaved as a result, and nothing here
+suggests a capture actually occurred, so this is untidy and wrong rather than known-harmful.
+
+**Scope boundary**: not new in `0.3.0`. `git log` shows `debian/postinst` unchanged since the task
+#141 follow-up that introduced the debconf question, well before `v0.2.0`, so every release carrying
+that postinst behaves this way. It was simply never noticed, because previous install-tests happened
+on VMs that were already logged in. Not a `0.3.0` blocker and not treated as one. The likely fix is
+a guard in that loop - skip accounts below the normal `UID_MIN` (1000), or explicitly skip `gdm`/
+`lightdm`/`sddm` - but that is a real change to the install path and wants its own testing on a
+logged-in machine, at the login screen, and with multiple users logged in at once.
+
+## #202: A `.deb` upgrade on the Mint host surfaced an unexplained "save this screenshot" prompt
+
+Reported live by direflail during the `0.3.0` release (2026-09-07), immediately after running
+`sudo apt install ./orcshot_0.3.0-1_all.deb` on the Mint/Cinnamon host at `RELEASING.md` step 7:
+"why did it have me save a screenshot?" No capture had been requested by hand.
+
+**What the evidence actually shows, and where it stops.** The install itself was clean and did
+nothing screenshot-shaped: `1 upgraded`, `Unpacking orcshot (0.3.0-1) over (0.2.0-1)`, `Setting up
+orcshot (0.3.0-1)`, then the postinst's own `Orcshot is installed and starting now.` - that last
+line is the hand-written debconf/`runuser ... systemctl --user enable --now orcshot.service` path
+in `debian/postinst`, not a capture. The host journal for `orcshot.service` shows a single clean
+start at `Sep 07 21:11:33` with `session_type=x11 desktop=X-Cinnamon -> x11 (X11-native capture
+path)`, no errors, no restart loop, and PID 115046 still alive afterwards. By the time this was
+investigated no Orcshot window remained open (`wmctrl -l` empty), so the dialog itself was never
+captured.
+
+**The one strong clue** is what the same action looks like on the 26.04 VM minutes later: a
+`tray-full_screen` capture there pops Orcshot's own destination picker - Copy to Clipboard / Save /
+Save As... / Edit... / Print / krita. "Save" and "Save As..." live in that picker, so what direflail
+saw is almost certainly the post-capture destination picker rather than any install-time prompt,
+which reframes the question from "why did apt ask me to save" to **"what triggered a capture on the
+host at that moment"**. That part is genuinely unknown. Plausible mechanisms, none of them checked
+yet and none to be treated as the answer: the service restart tearing down a 0.2.0 process that had
+a capture still pending, a hotkey/`repeat_region` path firing during the restart, or something
+unrelated to the upgrade entirely that merely coincided with it.
+
+**Why this is worth an entry rather than a shrug**: a package upgrade that appears to demand a save
+from the user is indistinguishable, from the user's side, from data loss risk - and this is the
+exact upgrade path every PPA user will take. `0.3.0` shipped anyway (direflail's call, 2026-09-07,
+"we'll talk about the random save later"), so this is not a release blocker, just an unexplained
+behavior on the most common install path with no reproduction recorded yet. First real step is
+reproducing it: upgrade over a running instance on the X11 host with a capture deliberately pending,
+and again with none, and watch for the picker.
+
+## #201: The `0.1.1` and `0.2.0` PPA source uploads each shipped the project's entire `.git` directory (RESOLVED going forward 2026-09-07)
+
+Found at `RELEASING.md` step 6 of the `0.3.0` release (2026-09-07), inspecting the built source
+tarball before `dput` rather than after. `debian/source/options` supplied only `tar-ignore =
+"<pattern>"` entries and never a bare `-I`/`tar-ignore`, and dpkg-source(1) is explicit that its
+default exclusion set - "control files and directories of the most common revision control systems,
+backup and swap files and Libtool build output directories" - is added **only when -I appears with
+no pattern**. So those defaults were never on. The file's own header comment asserted the opposite
+("dpkg-source's own default -I exclusions (VCS dirs, backups, swap files, Libtool build output)
+don't cover Python's own local dev/build artifacts"), which is presumably why it went unnoticed
+through two releases: the file read as though the VCS case was already handled.
+
+Measured from the actual tarballs still on disk, not inferred: `orcshot_0.1.1-3.tar.xz` carries 1415
+`.git/` entries at 10.8 MB, `orcshot_0.2.0-1.tar.xz` carries 1882 at 14.8 MB, and `0.3.0-1` as first
+built carried 3061 at 22.6 MB. Both of the first two were uploaded to
+`ppa:artificialorctelligence/orcshot` and are public. `0.3.0` was caught before upload.
+
+**What this is and isn't.** It is not a credential exposure - checked rather than assumed at the
+time: no credential-shaped filenames anywhere under the packed `.claude/`, a presence-only scan of
+`.claude/` for GitHub/AWS/Slack/private-key patterns returned zero matches, and `.claude/settings.json`
+holds a single plugin toggle. The `.git` directory is the same history already public on GitHub, so
+what leaked was redundancy, not information. What it actually cost is a source package roughly 20x
+larger than the project (1.02 MB once fixed), Launchpad build inputs full of irrelevant history, and
+- new in `0.3.0` - 1330 `.claude/` entries that by then included whole stale git worktrees carrying a
+built `orcshot_0.2.0-1_all.deb`, a `.whl`, and duplicate copies of the entire source tree. Shipping a
+prebuilt `.deb` inside a source package is exactly what lintian's `source-contains-prebuilt-*` family
+exists to catch, and step 5 never would have: it lints the binary `.deb`, not the source package.
+
+**Resolved for real, not just tracked**: `debian/source/options` now begins with a valueless
+`tar-ignore` (the long form - a bare `-I` is rejected outright there with "short option not allowed
+in debian/source/options", which fails open and silently leaves the defaults off, confirmed live by
+trying it), plus explicit `tar-ignore` entries for `.claude`, `.hypothesis` and `.orclab`, none of
+which any VCS default list knows about. Verified by rebuilding from the options file alone with no
+command-line flags: `.git`, `.claude`, `.hypothesis`, `.orclab` and `.venv` all at zero entries, zero
+`.deb`/`.whl`/`.so`/`.exe` files, all 82 `src/**/*.py` still present, 22.6 MB down to 1.02 MB, and no
+dpkg-source warning. The stale comment that caused the misreading was corrected in the same edit.
+
+**Still open, deliberately not fixed here**: the two already-public uploads stay as they are.
+Launchpad does not allow re-uploading an existing version, the content is duplicated from a public
+repo anyway, and superseding them would mean burning version numbers to republish history that is
+already on GitHub. Worth knowing about rather than acting on.
+
+## #200: Aikido only scans what a session hand-feeds it - the repo has never been connected for real, continuous scanning
+
+Found while running `RELEASING.md` step 3 for the `0.3.0` release (2026-09-07). Step 3's prose has
+claimed since the `0.1.1` release that "Aikido's own local scan (`aikido_full_scan`, run on the
+changed files) covers SAST and secrets" - but that is a description of a thing a session does by
+hand, not a mechanism the project owns. Nothing in the repo, in CI, or in the release checklist's
+own command block ever actually invokes it, so whether any given release got an Aikido scan at all
+has depended entirely on whether whoever ran the release happened to do it.
+
+The concrete blocker, confirmed live on this machine rather than assumed: there is no Aikido CLI
+installed and none available to install here (`which aikido`, `which aikido-local-scanner`, `pip
+list`, and `docker images` all come back empty). The only working interface is the MCP tool
+`aikido_full_scan`, which takes **file contents inline in the tool call** rather than paths, capped
+at 50 files per request. That makes its cost scale with source size instead of with a command:
+Orcshot's shipped tree is 82 `.py` files totalling 1,052,354 bytes - roughly 260k tokens, larger
+than a single context window, so a whole-tree scan needs about nine batched calls and forces a
+context compaction in the middle of the release. Even narrowing to source files changed since the
+previous release tag was 21 files / 611,272 bytes for `0.3.0`, because `editor_window.py` alone is
+315 KB across 6,182 lines. A release step that expensive and that fragile will get skipped, which
+is exactly the ad-hoc situation step 3 was written to end.
+
+The real fix is to stop scanning from inside a session at all: connect the repository to Aikido so
+it scans server-side on every push, the same shape `.github/workflows/*.yml` already gives us for
+build/test/lint and that step 9 already checks before publishing. That scans the entire repo on
+every commit rather than a hand-picked subset once per release, costs nothing per release, and
+turns step 3's Aikido half into a result to read instead of a job to run. Requires a one-time
+account-side repo connection on Aikido (direflail's own account, web UI - same class of one-time
+per-account setup as `#197`'s publishing setup, and not something to do unilaterally).
+
+**Scope boundary**: this is about coverage *continuity*, not a known unscanned vulnerability. Semgrep's
+half of step 3 (`semgrep ci`) does run for real on every release and covers SAST plus Supply Chain
+across the whole tree, so the gap Aikido is meant to close is specifically **secrets detection** and a
+second SAST opinion - not the project's only scanning. Requested by direflail during the `0.3.0`
+release ("if it's going in the repo it gets scanned") after this constraint was surfaced; `0.3.0`
+itself was scanned via the MCP tool over its changed files as the interim measure.
+
+## #199: Every GitHub Actions `uses:` line is a mutable tag, not a pinned commit SHA
+
+Surfaced by `semgrep ci` during the `0.3.0` release (2026-09-07), running `RELEASING.md` step 3's
+security check for the first time since all three CI workflows came into existence. 15 findings,
+all HIGH impact, all the same rule (`yaml.github-actions.security.github-actions-mutable-action-tag`):
+`.github/workflows/apt.yml` (4), `.github/workflows/flatpak.yml` (5), `.github/workflows/snap.yml` (6).
+They are new only in the sense that the workflows themselves are new - every one of them has been
+written this way since it was added, so this is the finding's first opportunity to fire, not a
+regression.
+
+Four distinct actions are involved: `actions/checkout@v4`, `actions/upload-artifact@v4`,
+`actions/download-artifact@v4` (14 of the 15, all GitHub first-party) and `canonical/action-build@v1`
+(1, Canonical's snapcraft builder - the only third-party one). The concrete consequence is not
+hypothetical and the rule cites real precedent: a git tag is mutable, so whoever controls the action's
+repo can silently repoint `v4` at different code, and that code then runs inside our CI with whatever
+secrets that job holds. The `tj-actions/changed-files` compromise (March 2025) is exactly this
+mechanism playing out - a tag repointed to code that dumped runner memory into public build logs.
+The fix is mechanical: replace each tag with the full 40-character commit SHA it currently resolves
+to, keeping the human-readable tag as a trailing comment, and let Dependabot bump them.
+
+**Scope boundary, stated explicitly because it's what kept this from blocking the `0.3.0` release**:
+this is a CI-supply-chain finding, not a defect in any shipped artifact. Nothing a compromised action
+could reach ends up inside the `.deb` a user installs from the PPA - `RELEASING.md` step 6 uploads a
+*source* package that Launchpad's own build farm compiles independently of GitHub Actions entirely,
+and the `.deb` attached to the GitHub Release in step 10 is built locally in step 4, not by CI. What
+a compromise here would actually get is the CI runner's own environment and whatever repo-scoped
+token that job carries - real, and worth fixing, but not a path to users' machines. Accepted as
+understood-not-blocking by direflail (2026-09-07) under step 3's own "flagged and understood, not
+necessarily a blocker" standard, with this entry as the record.
+
 ## #198: Build the real Snap Store and Flathub publish mechanisms - neither channel has ever been onboarded
 
 Raised 2026-09-07 while finishing Orclab's own v11 work on the apt/snap/flatpak pipeline. This
