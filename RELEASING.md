@@ -38,7 +38,7 @@ Must be fully green before building - the package build itself re-runs the whole
 
 This step, step 4 (`dpkg-buildpackage`), and step 5 (`lintian`) now also run automatically on every
 push and PR via `.github/workflows/apt.yml` - running them by hand here is still the fastest local
-feedback loop, not a redundant step; see step 9 below for confirming CI's own view before release.
+feedback loop, not a redundant step; see step 10 below for confirming CI's own view before release.
 
 ## 3. Security check
 
@@ -119,16 +119,31 @@ dismissed.
 `ppa:artificialorctelligence/orcshot` on Launchpad. PPAs build from a *source* upload, not the
 binary `.deb` from step 4 - Launchpad's own build farm compiles/assembles the package itself.
 
+**One-time setup:** the signing key must exist in this machine's keyring. It cannot be derived
+from the package - see below.
+
+Check whether it is already there: `gpg --list-secret-keys FAF777B27363A1BBB445E2F2596233AC9F58280A`
+
+If it is not, import or generate the key registered to the Launchpad account before going further.
+Discovering this at `debsign` time leaves a built, unsigned package and a half-done step.
+
 ```bash
 dpkg-buildpackage -us -uc -S -sa
-debsign ../orcshot_X.Y.Z-1_source.changes
+debsign -kFAF777B27363A1BBB445E2F2596233AC9F58280A ../orcshot_X.Y.Z-1_source.changes
 dput ppa:artificialorctelligence/orcshot ../orcshot_X.Y.Z-1_source.changes
 ```
 
 `-sa` forces the (native-format) source tarball to be included even on a non-first upload to this
 version - without it `dpkg-genchanges` may assume Launchpad already has it and omit it, which fails
-validation. `debsign` prompts for your GPG key (the one registered to the Launchpad account) to sign
-the `.changes` file - Launchpad rejects unsigned or unrecognized-key uploads.
+validation.
+
+**`-k` is required, and its absence is not a warning.** Found live during the 0.3.0 release: with
+no `-k`, `debsign` derives the signing identity from `debian/changelog`'s maintainer field. That
+field is a GitHub `noreply` address which no key exists for, so it fails outright -
+`gpg: skipped "...": No secret key` / `debsign: gpg error occurred!  Aborting`. The real signing
+identity is a different one, and both previously accepted uploads were verified as signed by this
+same key (`gpg --verify` on the `0.1.1-3` and `0.2.0-1` `.changes` files). Launchpad rejects
+unsigned or unrecognized-key uploads, so this is what stands between a build and a publish.
 
 Requires a one-time local `~/.dput.cf` entry (not part of this repo - it's a per-machine config, not
 project state):
@@ -147,12 +162,27 @@ as above - `dput` understands the `ppa:` shorthand directly without needing the 
 at all; the section above is only needed if that shorthand ever stops resolving correctly).
 
 **Only one series needs a real upload.** Orcshot is `Architecture: all` with no series-specific
-build-dependencies (confirmed against Launchpad's own packaging docs) - once the `noble` (24.04)
-build succeeds, use the PPA's own "Copy packages" page (Launchpad web UI) to copy that same binary
-to `resolute` (26.04) rather than uploading source a second time. Check build status/logs at
+build-dependencies (confirmed against Launchpad's own packaging docs), so the binary built for
+`noble` (24.04) is copied to `resolute` (26.04) rather than built from a second source upload.
+That copy is **step 7**, and it must not run until this step's build has actually succeeded.
+Check build status/logs at
 `https://launchpad.net/~artificialorctelligence/+archive/ubuntu/orcshot/+packages`.
 
-## 7. Install-test on every target
+## 7. Copy the built package to 26.04
+
+**Preconditions:** the `noble` build has **succeeded** on Launchpad — not merely been accepted.
+Check the PPA's package page before running this; the script also refuses if it hasn't.
+
+**One-time setup:** authorizing this machine against Launchpad's API, once per machine.
+
+Check whether it is already done: `python3 scripts/ppa-copy-series.py --check`
+
+If it is not, run `python3 scripts/ppa-copy-series.py --version <X.Y.Z-1>` once and complete the
+browser authorization it opens.
+
+**Run:** /orc-publish desktop.python.linux.ppa.resolute
+
+## 8. Install-test on every target
 
 This is the actual point of tasks #37/#38/#50 - the `.deb` itself never changes per target
 (`Architecture: all`, no compiled code), but whether each target's own repos carry every declared
@@ -175,7 +205,7 @@ appears and a capture round-trips.
 RPM-based distros (Fedora/openSUSE) and Arch/AUR are a separate, later effort (task #132) - a
 different package format entirely, not another entry on this list.
 
-## 8. Commit, tag, push
+## 9. Commit, tag, push
 
 ```bash
 git add pyproject.toml debian/changelog
@@ -185,7 +215,7 @@ git push origin main
 git push origin vX.Y.Z
 ```
 
-## 9. Confirm CI is green on the just-pushed commit
+## 10. Confirm CI is green on the just-pushed commit
 
 Step 8 just pushed the release commit to `main`, which triggers `.github/workflows/apt.yml` (build,
 install-and-launch, the headless-Shell tray check), `.github/workflows/snap.yml` (the same, for the
@@ -201,22 +231,22 @@ gh run list --workflow=flatpak.yml --limit 1
 ```
 
 Expected: `completed` / `success` for that commit, on all three. If any is still running, wait for
-it; if any failed, stop here and fix forward before step 10 - don't publish a release CI itself
+it; if any failed, stop here and fix forward before step 11 - don't publish a release CI itself
 flagged as broken.
 
-## 10. Publish the GitHub Release
+## 11. Publish the GitHub Release
 
 Create a release for the `vX.Y.Z` tag (web UI or `gh release create vX.Y.Z`) and attach the built
 `.deb` as a release asset. This is the step task #103 actually depends on - `releases/latest` only
 returns something once a real, non-draft, non-prerelease release exists.
 
-## 11. Sanity-check the update checker
+## 12. Sanity-check the update checker
 
 Once published, confirm task #103 actually sees it: Help > Check for Updates... on a build one
 version behind should report the new release; on the just-built version itself, "up to date."
 
 For `0.2.0`: covered incidentally rather than via a dedicated re-test - the 24.04 VM was still on
-the prior release (about a week old) going into step 7's install-test, and installing `0.2.0-1`
+the prior release (about a week old) going into step 8's install-test, and installing `0.2.0-1`
 over it is the same real "one version behind" transition this step asks for. Accepted as
 sufficient (direflail, 2026-08-27) rather than reinstalling an old build just to click the menu
 item separately.

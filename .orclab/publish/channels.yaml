@@ -1,11 +1,17 @@
 # Orcshot's real publish channels, resolved by /orc-publish (Orclab).
 #
-# Only `ppa.noble` has a real action - it's the only channel with an actually documented,
-# confirmed publish mechanism (RELEASING.md step 6, 2026-09-06). snap and flatpak are left with
-# no action on purpose: CI (`.github/workflows/{snap,flatpak}.yml`) only builds and verifies them
-# locally today - neither has a real Snap Store push or Flathub submission step, manual or
-# automated (confirmed live, 2026-09-06; see BACKLOG #7). Inventing a plausible-looking command
-# for either would misrepresent something that doesn't exist yet.
+# Both apt channels have real actions: `ppa.noble` uploads (RELEASING.md step 6) and
+# `ppa.resolute` copies that build to 26.04 (step 7, automated 2026-09-07 - it used to be a
+# manual Launchpad web-UI click).
+#
+# snap and flatpak are left with no action on purpose: CI (`.github/workflows/{snap,flatpak}.yml`)
+# only builds and verifies them locally today - neither has a real Snap Store push or Flathub
+# submission step, manual or automated. Confirmed live again 2026-09-07: `snap info orcshot`
+# reports no such snap, and both the Flathub API and flathub/org.orcshot.Orcshot 404, so neither
+# channel has ever been onboarded at all - see BACKLOG #198 (build the mechanisms) and #197
+# (credentials/signing setup). Inventing a plausible-looking command for either would
+# misrepresent something that doesn't exist yet; an action-less leaf reports as
+# "(known channel, not yet actionable)", which is the honest state.
 desktop:
   python:
     linux:
@@ -20,16 +26,48 @@ desktop:
           # source build (-S) each produce their own .changes for the same version, and a PPA
           # rejects a binary upload. dpkg-parsechangelog reads debian/changelog in the cwd, so
           # this stays correct every release with no hand-editing.
-          action: "dpkg-buildpackage -us -uc -S -sa && debsign ../orcshot_$(dpkg-parsechangelog --show-field Version)_source.changes && dput ppa:artificialorctelligence/orcshot ../orcshot_$(dpkg-parsechangelog --show-field Version)_source.changes"
+          action: "dpkg-buildpackage -us -uc -S -sa && debsign -kFAF777B27363A1BBB445E2F2596233AC9F58280A ../orcshot_$(dpkg-parsechangelog --show-field Version)_source.changes && dput ppa:artificialorctelligence/orcshot ../orcshot_$(dpkg-parsechangelog --show-field Version)_source.changes"
           filename_template: "orcshot_<version>-1_source.changes"
           requirements:
+            - "The -k on debsign is load-bearing, not belt-and-braces. Without it debsign derives
+               the signing identity from debian/changelog's maintainer field, which here is a
+               GitHub noreply address that no key exists for - it fails outright with
+               `gpg: skipped ...: No secret key`. Found live during the 0.3.0 release. Confirm the
+               key is present before a real run: `gpg --list-secret-keys <the -k value above>`.
+               Both previously accepted uploads (0.1.1-3, 0.2.0-1) were verified as signed by this
+               same key."
             - "Before confirming a real (non-dry-run) run: unlock gpg-agent yourself, in your own
                terminal, so it caches your passphrase - e.g. `echo test | gpg --clearsign >
                /dev/null` and enter it when prompted. debsign then signs non-interactively against
                the already-warm agent instead of prompting again from inside the subprocess."
           issues:
-            - "debsign prompts interactively for a GPG passphrase on stdin - a real, confirmed hang
-               risk for /orc-publish if gpg-agent isn't already unlocked first, since execute_plan
-               sets no subprocess timeout. See Orclab's BACKLOG #11 and the requirement above."
+            - "debsign asks for a GPG passphrase interactively. Two things changed on 2026-09-07
+               (Orclab v0.11.0, BACKLOG #11 resolved): actions now run under a timeout (600s by
+               default, per-leaf `timeout:` to override), so this can no longer hang the run
+               forever; and they run in their own session with no controlling terminal, so a
+               gpg/pinentry prompt on /dev/tty now fails fast as `failed` with its own error text
+               rather than waiting out the limit. Pre-warming gpg-agent per the requirement above
+               is still the fix - it is just a fast, legible failure now instead of a hang."
+        resolute:
+          # 26.04. Not a second source upload: Orcshot is Architecture: all with no
+          # series-specific build-dependencies, so the binary built for noble is copied as-is.
+          # This is RELEASING.md step 7. It replaced a manual Launchpad "Copy packages"
+          # web-UI click on 2026-09-07; that click is no longer described anywhere.
+          # Version comes from debian/changelog the same way noble's does, so this needs no
+          # hand-editing per release.
+          action: "python3 scripts/ppa-copy-series.py --version $(dpkg-parsechangelog --show-field Version)"
+          requirements:
+            - "One-time per machine: run `python3 scripts/ppa-copy-series.py --check`. If it
+               reports no credentials, run the script once without --check - it opens a browser
+               once to authorize, then stores an OAuth token at
+               ~/.config/orcshot/launchpad-credentials.txt (chmod 0600). Never cat that file."
+          issues:
+            - "Ordering, not optional: this cannot run until noble's build has actually SUCCEEDED
+               on Launchpad's build farm - not merely until the upload was accepted. The script
+               refuses and exits non-zero if the source isn't Published with built binaries, so a
+               too-early run fails safely rather than publishing an installable-less source."
+            - "The copy is asynchronous. Launchpad's own docs: files can take up to twenty minutes
+               to appear, even though the source is listed immediately. A green exit means the
+               copy was accepted, not that it has landed."
       snap: {}
       flatpak: {}
