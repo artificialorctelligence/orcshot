@@ -4,6 +4,75 @@ Open items not yet scheduled into a task. Each entry keeps the context that
 led to it - not just "what," but "why this matters" - so picking it up later
 doesn't require re-deriving the reasoning from scratch.
 
+## #198: Build the real Snap Store and Flathub publish mechanisms - neither channel has ever been onboarded
+
+Raised 2026-09-07 while finishing Orclab's own v11 work on the apt/snap/flatpak pipeline. This
+entry exists because #197 below explicitly said it should ("probably folds naturally into actually
+building Snap's and Flatpak's real publish mechanisms - no existing entry tracks that yet, it
+would need its own, separate from this one") and then nobody created it. The gap sat untracked for
+a day and was only noticed when direflail asked what else was open. Two channels shipping in CI
+with no path to a user is not a small thing to lose track of.
+
+**Confirmed live, 2026-09-07 - not assumed from memory:**
+- `snap info orcshot` -> `error: no snap found for "orcshot"`. The name has never been registered
+  in the Snap Store.
+- `https://flathub.org/api/v2/appstream/org.orcshot.Orcshot` -> 404, and
+  `https://github.com/flathub/org.orcshot.Orcshot` -> 404. Never submitted.
+
+So these are not channels missing an *action*. They have never been **onboarded** - a one-time,
+account-gated, externally-reviewed step, which is a different kind of work from writing a publish
+command.
+
+**What actually exists today:** `.github/workflows/snap.yml` builds the snap and installs it with
+`--dangerous` (no store round-trip), and `.github/workflows/flatpak.yml` builds the bundle and
+validates the metainfo against Flathub's own linter. Both prove the artifact is good. Neither
+pushes it anywhere, and there is no manual push either.
+`.orclab/publish/channels.yaml` carries `snap: {}` and `flatpak: {}` deliberately for exactly this
+reason; as of Orclab v0.11.0 those now report `(known channel, not yet actionable)` in a
+`/orc-publish` dry run rather than reading as a misconfiguration.
+
+**The two channels are genuinely different work, not one task done twice:**
+- **Snap**: a one-time `snapcraft register orcshot` against an Ubuntu One account, then a
+  per-release `snapcraft upload` with a channel release. Store review may apply depending on the
+  confinement and interfaces requested - `snapcraft.yaml` already connects `personal-files`, which
+  CI currently sidesteps with a manual `snap connect` against a local install precisely because
+  that path needs no Canonical review. Whether it needs one for a real store upload is unchecked.
+- **Flatpak**: the first submission is a pull request to `flathub/flathub` reviewed by other
+  people over days - not a command that completes inside a release, and never something to open as
+  a side effect of one. After acceptance, each release is a PR against the app's own
+  `flathub/org.orcshot.Orcshot` repo bumping the manifest's source ref. Only that second half is
+  automatable.
+
+**Already done, and worth not re-deriving:** #194 (RESOLVED 2026-09-04) made the Flatpak manifest
+submission-ready, including the definitive finding that `--talk-name=org.gnome.Shell` cannot be
+narrowed - clipboard and window-calls capture both call custom interfaces on that same bus name,
+and Flatpak filters by bus name only. That is ready to explain to a Flathub reviewer on its own
+terms. The manifest has been submission-ready since then; nothing has been submitted.
+
+**Scope boundary.** This is about *publishing to* these channels. It is not #186 (what download
+metrics each channel exposes - that is downstream, and unmeasurable until something is actually
+published), not #132 (RPM-family and Arch, a different packaging effort entirely), and not #197
+(getting credentials/signing set up per machine). #197 and this entry interlock rather than
+overlap: #197 asks "how do I get set up to publish at all," this asks "what is the publish action
+even made of." Doing this one will answer much of #197 as a side effect, which is exactly why #197
+predicted it would fold in.
+
+**One structural consequence to plan for, not discover late:** `RELEASING.md` has no snap or
+flatpak publish steps at all today - both channels appear only in step 9's "confirm CI is green."
+Whatever gets built here needs real numbered steps inserted in dependency order, which is
+`release-checklist` work. Orclab v0.11.0 added a `**One-time setup:**` marker for precisely this
+shape: the registration and the Flathub submission are one-time and account-gated, and
+`/orc-release` will run only such a block's check, never its setup commands, unless asked
+directly. That marker was designed against this case; this is where it first earns its keep.
+
+**Next step, when picked up:** research each channel's real, current mechanism live before writing
+anything down - Snapcraft's store auth and upload flow, and Flathub's current submission process,
+both of which have changed before and neither of which should be reconstructed from memory
+(`currency-discipline`). Then decide per channel what is a real `channels.yaml` action, what is a
+`RELEASING.md` step, and what is one-time setup. Do it in a session centred on Orcshot: this is a
+real, irreversible, externally-visible publication, and Orclab's own `CLAUDE.md` puts that
+squarely outside a session centred on the framework.
+
 ## #197: A real setup step for apt/snap/flatpak publishing - credentials/signing, tailored per channel and per machine
 
 *(Renumbered from #196 to #197 on 2026-09-07, when merging main into BACKLOG #189's branch: both
