@@ -138,6 +138,12 @@ does a real publish for this channel even require," not a separate concern from 
 channel's real, current credential/signing mechanism first (not assumed from memory) before
 writing anything down.
 
+**Update 2026-09-07 — the entry this one predicted now exists: #198.** This entry's own next step
+said the work "would need its own, separate from this one" and then nothing created it, so it went
+untracked in both repos for a day. #198 covers building the real Snap Store and Flathub publish
+mechanisms; read the two together, since credential setup and "what is the publish action even
+made of" turn out to be the same investigation from two directions.
+
 ## #196: `OrcshotTrayButton`'s own right-click menu doesn't open on GNOME Shell/Wayland (RESOLVED 2026-09-05)
 
 Found live during BACKLOG #189's tray-modernization work (2026-09-05), while verifying the new
