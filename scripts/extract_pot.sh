@@ -5,7 +5,12 @@
 # debian/rules or debian/control).
 set -e
 cd "$(dirname "$0")/.."
-mkdir -p po
+# BACKLOG #204: optional output path. Defaults to the committed po/orcshot.pot,
+# so running this by hand is unchanged - it exists so the test suite can extract
+# to a temp file and compare, instead of overwriting the real file on every run
+# and leaving `git status` dirty mid-release.
+out="${1:-po/orcshot.pot}"
+mkdir -p "$(dirname "$out")"
 find src/orcshot -name '*.py' -print0 | xargs -0 xgettext --language=Python \
-    --keyword=_ --keyword=ngettext:1,2 --force-po --output=po/orcshot.pot
-echo "Wrote po/orcshot.pot"
+    --keyword=_ --keyword=ngettext:1,2 --force-po --output="$out"
+echo "Wrote $out"

@@ -4,7 +4,7 @@ Open items not yet scheduled into a task. Each entry keeps the context that
 led to it - not just "what," but "why this matters" - so picking it up later
 doesn't require re-deriving the reasoning from scratch.
 
-## #204: Running the test suite rewrites `po/orcshot.pot`, dirtying the working tree on every run
+## #204: Running the test suite rewrites `po/orcshot.pot`, dirtying the working tree on every run (RESOLVED 2026-09-07)
 
 Hit twice during the `0.3.0` release (2026-09-07), both times mid-release when a clean tree actually
 mattered. `tests/unit/test_extract_pot.py` regenerates `po/orcshot.pot` in place as a side effect of
@@ -30,6 +30,32 @@ produces what is committed. The bug is that it verifies by *overwriting the real
 extracting to a temp path and comparing. Fixing it means changing the test, not the extraction script
 or the decision to commit the `.pot`, and there is no reason the fix should change what
 `scripts/extract_pot.sh` does for a human running it deliberately.
+
+**Resolved 2026-09-07.** `scripts/extract_pot.sh` now takes an optional output path
+(`out="${1:-po/orcshot.pot}"`), so a human running it bare behaves exactly as before - verified
+live, it still writes the committed file and prints `Wrote po/orcshot.pot`. The test passes
+`tmp_path` instead, and the suite no longer touches the repo: a full `pytest tests/ -q` run
+(1208 passed, 3 skipped) now leaves `git status` showing nothing for `po/orcshot.pot`.
+
+**The seam was used to make the test worth having.** As the scope note above predicted, the old
+test only asserted the script exited 0 and produced a non-empty file - a tautology that would pass
+just as happily with a stale template. Since extraction now goes to a temp path anyway, comparing
+against the committed file was nearly free, and `test_the_committed_pot_is_up_to_date` now fails if
+the two disagree in either direction. Confirmed it can actually fail rather than assuming so:
+mutating `msgid "Eyedropper"` in the committed `.pot` produced
+`AssertionError: po/orcshot.pot is out of date - re-run scripts/extract_pot.sh. Strings in the
+source but not the template: ['Eyedropper']`. A third test asserts directly that running the
+script does not modify the committed file, which is this entry's own bug expressed as a check.
+
+**One correctness detail worth recording**, because the obvious shortcut is wrong: the comparison
+parses full msgids rather than using `grep '^msgid'`. This file has 25 multi-line msgids, which
+begin as a bare `msgid ""` with the text on continuation lines - a grep-based comparison collapses
+every one of them into the same empty string and would miss any change inside them entirely. (The
+ad-hoc "366 msgids, identical either way" checks run by hand during the `0.3.0` release had exactly
+this weakness; their conclusion happened to be right because the diffs visibly contained nothing but
+`POT-Creation-Date` and `#:` line references, but the check alone did not prove it.) msgids only,
+not whole files - the creation date and source line references change on every extraction and mean
+nothing to a translator.
 
 ## #203: On a machine sitting at the login screen, the postinst starts Orcshot as the `gdm` greeter user (RESOLVED 2026-09-07)
 
