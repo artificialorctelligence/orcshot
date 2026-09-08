@@ -1,3 +1,25 @@
+orcshot (0.3.0-1) noble; urgency=medium
+
+  * Adds Snap and Flatpak as real, install-tested distribution channels
+    alongside the existing PPA - both build, install, and launch
+    correctly in CI, and Flatpak passes Flathub's own metadata linter.
+
+  * Redesigns the Wayland tray to export a Gio.Menu directly instead of
+    depending on the legacy AppIndicator3 extension API, and removes
+    Gtk.StatusIcon (deprecated since GTK 3.14, no GTK4 replacement)
+    from the X11 side too - both desktop sessions on both GNOME and
+    Cinnamon now share one tray-export mechanism.
+
+  * Replaces GSound with bundled GStreamer audio for the
+    capture-complete sound, fixing a real gap where Flatpak had no
+    sound at all and unifying playback across all three channels.
+
+  * Fixes a crash when no X11/XWayland display is reachable during
+    cursor capture, adds a "Reuse Editor" preference, and ships a
+    redrawn logo.
+
+ -- Orcshot <314918217+artificialorctelligence@users.noreply.github.com>  Sun, 06 Sep 2026 23:26:02 -0500
+
 orcshot (0.2.0-1) noble; urgency=medium
 
   * Adds full internationalization: the UI and the Wayland tray menu
