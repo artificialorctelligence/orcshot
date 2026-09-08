@@ -31,7 +31,7 @@ extracting to a temp path and comparing. Fixing it means changing the test, not 
 or the decision to commit the `.pot`, and there is no reason the fix should change what
 `scripts/extract_pot.sh` does for a human running it deliberately.
 
-## #203: On a machine sitting at the login screen, the postinst starts Orcshot as the `gdm` greeter user
+## #203: On a machine sitting at the login screen, the postinst starts Orcshot as the `gdm` greeter user (RESOLVED 2026-09-07)
 
 Found on the Ubuntu 24.04 VM during `RELEASING.md` step 7 of the `0.3.0` release (2026-09-07). The
 VM was booted but nobody had logged in - GDM was showing its user list. Installing the `.deb` there
@@ -67,6 +67,59 @@ on VMs that were already logged in. Not a `0.3.0` blocker and not treated as one
 a guard in that loop - skip accounts below the normal `UID_MIN` (1000), or explicitly skip `gdm`/
 `lightdm`/`sddm` - but that is a real change to the install path and wants its own testing on a
 logged-in machine, at the login screen, and with multiple users logged in at once.
+
+**Resolved 2026-09-07, and the fix was wider than this entry first described.** Reading the scripts
+together showed the same user-selection loop lives in **two** maintainer scripts, not one:
+`debian/orcshot.postinst` (which decides whose session to enable in) and `debian/orcshot.config`
+(which decides whether to *ask* the debconf question at all). Fixing only the postinst would have
+been a band-aid - `orcshot.config` would have gone on asking based on the greeter's session while
+the postinst declined to act on it. Both now carry the same guard:
+
+```sh
+uid_min=$(awk '$1 == "UID_MIN" { print $2; exit }' /etc/login.defs 2>/dev/null || true)
+[ -n "$uid_min" ] || uid_min=1000
+...
+    [ "$uid" -ge "$uid_min" ] 2>/dev/null || continue
+```
+
+`UID_MIN` is read from the system rather than hardcoded, with 1000 as the documented fallback. The
+`2>/dev/null` is deliberate: a non-numeric uid makes `[ -ge ]` fail rather than abort - the
+`|| continue` absorbs it even under `set -e`, verified directly - but without redirection it would
+print "Illegal number" into the middle of an apt install.
+
+**A second, separate defect was found in the same loop and fixed with it**: postinst had
+`[ -S "$bus" ] || break`, so a single user with no session bus socket abandoned the search for every
+user after them. Changed to `continue`. The trailing `break` after the first graphical session was
+deliberately left alone - `orcshot.config`'s own comment documents "only the first graphical session
+found is asked about" as a considered decision about fast user switching, and it was only ever a
+problem because a greeter could be the session it stopped at.
+
+**Verified live on the Ubuntu 24.04 VM**, under the exact conditions that produced the bug: `gdm` is
+uid **120** against a `UID_MIN` of 1000, and `loginctl list-users` lists **gdm first**, holding the
+only graphical session - so the old loop matched it and stopped there. The old install had indeed
+left the unit persistently enabled at
+`/var/lib/gdm3/.config/systemd/user/graphical-session.target.wants/orcshot.service`.
+
+- **At the login screen, nobody logged in**: postinst now prints its "Open it from your Applications
+  menu" fallback instead of "starting now"; no orcshot process runs as gdm; `is-enabled` for gdm
+  reports `disabled`.
+- **Logged in as a real user**: from a deliberately cleared baseline (`disabled`/`inactive`), the
+  install prints "Orcshot is installed and starting now.", and the unit comes back `enabled` and
+  `active` with `/usr/bin/python3 /usr/bin/orcshot` running as `vboxuser` - and still nothing as gdm.
+
+**Not separately tested, stated as reasoning rather than evidence**: the greeter and a logged-in user
+holding graphical sessions *simultaneously*. On this single-seat VM gdm's session disappears once a
+user logs in, so the state could not be produced. The argument that it is covered is that the guard
+excludes gdm at any position in the list, making ordering irrelevant - which is exactly the property
+the first scenario above tests directly. A multi-seat or fast-user-switching machine would confirm it
+properly if one is ever available.
+
+`tests/unit/test_maintainer_script_session_selection.py` guards the fix with 7 assertions, written
+failing first. They are static assertions on shell source, for the same reason
+`test_orcshot_user_service.py` gives: `debian/` is packaging metadata, and neither script can run
+standalone because both source `/usr/share/debconf/confmodule`, which re-execs outside a real dpkg
+run. The live install above is the behavioral evidence; the tests exist so the guard is not silently
+dropped later.
 
 ## #202: A `.deb` upgrade on the Mint host surfaced an unexplained "save this screenshot" prompt (RESOLVED 2026-09-07 - working as designed)
 

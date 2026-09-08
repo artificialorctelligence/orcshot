@@ -9,15 +9,29 @@ case "$1" in
         # session config looked for - a fresh invocation, no state
         # shared between the two scripts except debconf's own answer.
         enabled_now=false
+        # BACKLOG #203: skip system accounts. A display manager's greeter (gdm,
+        # lightdm, sddm) has a real uid, a real wayland/x11 session and a real
+        # session bus, so it matches every test below exactly like a human would -
+        # and on a machine sitting at the login screen it is the FIRST match, which
+        # is where the loop stops. Live-observed 2026-09-07: installing with nobody
+        # logged in left orcshot running as gdm. UID_MIN is the system's own
+        # definition of "where human accounts start"; 1000 is the Debian/Ubuntu
+        # default, used only if /etc/login.defs can't be read. The 2>/dev/null on the
+# comparison is deliberate: a non-numeric uid makes `[ -ge ]` fail rather than
+# abort (the `|| continue` absorbs it even under `set -e`, verified), but it
+# would still print "Illegal number" into the middle of an apt install.
+        uid_min=$(awk '$1 == "UID_MIN" { print $2; exit }' /etc/login.defs 2>/dev/null || true)
+        [ -n "$uid_min" ] || uid_min=1000
         if command -v loginctl >/dev/null 2>&1 && command -v runuser >/dev/null 2>&1; then
             for uid in $(loginctl list-users --no-legend 2>/dev/null | awk '{print $1}' || true); do
+                [ "$uid" -ge "$uid_min" ] 2>/dev/null || continue
                 session=$(loginctl list-sessions --no-legend 2>/dev/null | awk -v u="$uid" '$2 == u {print $1; exit}')
                 [ -n "$session" ] || continue
                 type=$(loginctl show-session "$session" -p Type --value 2>/dev/null || echo "")
                 if [ "$type" = "wayland" ] || [ "$type" = "x11" ]; then
                     user=$(id -nu "$uid" 2>/dev/null) || continue
                     bus="/run/user/$uid/bus"
-                    [ -S "$bus" ] || break
+                    [ -S "$bus" ] || continue
 
                     . /usr/share/debconf/confmodule
                     db_get orcshot/enable-autostart || true
