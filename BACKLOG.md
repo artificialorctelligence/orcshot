@@ -117,7 +117,7 @@ Launchpad does not allow re-uploading an existing version, the content is duplic
 repo anyway, and superseding them would mean burning version numbers to republish history that is
 already on GitHub. Worth knowing about rather than acting on.
 
-## #200: Aikido only scans what a session hand-feeds it - the repo has never been connected for real, continuous scanning
+## #200: Aikido only scans what a session hand-feeds it - the repo has never been connected for real, continuous scanning (RESOLVED 2026-09-07)
 
 Found while running `RELEASING.md` step 3 for the `0.3.0` release (2026-09-07). Step 3's prose has
 claimed since the `0.1.1` release that "Aikido's own local scan (`aikido_full_scan`, run on the
@@ -152,6 +152,29 @@ across the whole tree, so the gap Aikido is meant to close is specifically **sec
 second SAST opinion - not the project's only scanning. Requested by direflail during the `0.3.0`
 release ("if it's going in the repo it gets scanned") after this constraint was surfaced; `0.3.0`
 itself was scanned via the MCP tool over its changed files as the interim measure.
+
+**Resolved by removing the requirement, not by meeting it** (direflail, 2026-09-07). Pricing the fix
+killed it: Aikido's free tier genuinely does scan a connected repo server-side every 3 days
+(SCA, SAST, secrets, container/IaC, license - 10 repos, 2 users), so continuous scanning was never
+the blocker. The blocker is *reading* it. Aikido's **Public REST API begins at the Basic tier,
+$300/month** (confirmed live against aikido.dev/pricing, 2026-09-07), and the MCP tools go through
+that API - which is exactly why `aikido_issues_list` answers "This action is only available for
+paying customers" on this account, the same response recorded on 2026-08-23. So the only free way to
+read Aikido's results is a human opening its web dashboard, and the only automated way costs $300 a
+month to duplicate SAST/SCA coverage `semgrep ci` already provides for free across the whole tree.
+
+`RELEASING.md` step 3 now names `semgrep ci` as the whole of its tooling and states outright why
+Aikido is no longer listed.
+
+**The gap this leaves open, deliberately and on the record**: **secrets detection is now covered by
+nothing.** Aikido's unique contribution over Semgrep was secrets, not SAST, so dropping it does not
+merely remove redundancy - it removes the only scanner that was ever nominally looking for committed
+credentials. Free options exist and were put to direflail at the time: a `gitleaks` or `trufflehog`
+step in the existing CI workflows (automated, blocking, no account, no paid tier, machine-readable
+output), or the free Aikido repo connection with a manual dashboard check at release time. Neither
+was adopted - the decision was to drop Aikido and accept Semgrep as the whole gate. Worth revisiting
+if this project ever starts handling real credentials in-repo; nothing about that reasoning changes
+if it does.
 
 ## #199: Every GitHub Actions `uses:` line is a mutable tag, not a pinned commit SHA
 

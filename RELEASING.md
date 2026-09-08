@@ -47,8 +47,7 @@ PPA without ever running a security scan, and `requirements.txt` (kept for SCA s
 header comment) turned out to still be accurate but had never actually been checked against the dev
 venv. This step exists so that stops being ad-hoc.
 
-**One-time setup**, once per machine - Semgrep's CLI needs its own login, separate from the Aikido
-MCP session:
+**One-time setup**, once per machine - Semgrep's CLI needs its own login:
 
 ```bash
 python3 -m venv ~/.venvs/semgrep && ~/.venvs/semgrep/bin/pip install semgrep
@@ -65,36 +64,31 @@ Not tracked in this repo or `pyproject.toml` - release tooling, not an app depen
 diff <(.venv/bin/pip freeze | grep -iE "^(hypothesis|iniconfig|numpy|packaging|pluggy|pycairo|Pygments|PyGObject|pytest|python-xlib|scipy|shapely|six|sortedcontainers)==" | sort) <(grep -v '^#' requirements.txt | grep -v '^$' | sort)
 ```
 
-**And confirm Aikido has scanned this commit** - every release, not optionally. Aikido scans the
-repository server-side on every push once it's connected, so this is a result to read rather than a
-job to run, exactly like step 9 reads CI's own view:
+`semgrep ci` is the whole of this step's tooling, deliberately. It covers both SAST and Supply
+Chain (dependency/lockfile) findings across the entire tree in one run, uploaded to the Semgrep
+dashboard, and it is free.
 
-```
-aikido_issues_list      (MCP tool - the connected repo's current findings)
-```
+**Aikido used to be named here and no longer is** (BACKLOG `#200`, decided 2026-09-07). Its prose
+claimed `aikido_full_scan` covered SAST and secrets, but nothing ever invoked it - whether a release
+got an Aikido scan depended entirely on whether whoever ran the release happened to run one by hand.
+Making it a real requirement turned out to cost real money: Aikido's free tier does scan a connected
+repo server-side every 3 days, but its **Public REST API - which the MCP tools go through - starts at
+the Basic tier, $300/month** (confirmed live on aikido.dev/pricing, 2026-09-07; `aikido_issues_list`
+returns "This action is only available for paying customers" on this account). Automating it was
+therefore not available, and hand-feeding it does not scale: the MCP tool takes file *contents*
+inline, capped at 50 files, so scanning this project's 82 shipped `.py` files (1,052,354 bytes) means
+about nine batched calls per release. A step that expensive gets skipped, which is the exact problem
+this step was written to end.
 
-If that comes back empty *because the repo isn't connected*, that is a failed check, not a pass -
-scanning is what step 3 exists for, and an unconnected repo means nothing was scanned. Until the
-one-time repo connection is done (tracked as BACKLOG `#200`), the interim substitute is
-`aikido_full_scan` over the source files changed since the previous release tag:
+**What that leaves uncovered, stated plainly rather than quietly dropped**: secrets detection. Semgrep
+covers SAST and dependencies; nothing here scans for committed credentials. That is a real gap, not a
+solved problem - see `#200` for the free options considered (a `gitleaks`/`trufflehog` CI step being
+the obvious one) and why none was adopted at the time.
 
-```bash
-git diff --name-only vX.Y.Z..HEAD -- '*.py' | grep -v '^tests/'
-```
+The `diff` regenerates `requirements.txt` (see its own header) if it's gone stale - empty output means
+it's still accurate.
 
-fed to the MCP tool in batches (it takes file *contents* inline, max 50 files per call, and there is
-no Aikido CLI available on this machine - checked live 2026-09-07). That interim path is deliberately
-expensive and partial, which is the whole argument for `#200`.
-
-**Why both tools, not one**: `semgrep ci` covers both SAST and Supply Chain (dependency/lockfile)
-findings in one run, uploaded to the Semgrep dashboard. Aikido covers SAST and **secrets**, but its
-Supply Chain/SCA feed is a paid-tier-only feature this project doesn't have (confirmed live,
-2026-08-23: `aikido_issues_list` returns "only available for paying customers"), so Semgrep is what
-actually covers dependency vulnerabilities here and Aikido is what covers secrets - not
-belt-and-suspenders duplication. The `diff` regenerates `requirements.txt` (see its own header) if
-it's gone stale - empty output means it's still accurate.
-
-Any new high/critical finding from either tool gets flagged and understood before continuing, the
+Any new high/critical finding gets flagged and understood before continuing, the
 same standard step 5's `lintian` warnings already get - not silently waved through, but not
 necessarily a blocker either (a finding can be a confirmed false positive, same as `update_check.py`'s
 own dynamic-`urllib` finding turned out to be: `_RELEASES_LATEST_URL` is a hardcoded module-level
