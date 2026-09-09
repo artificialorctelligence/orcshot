@@ -28,6 +28,14 @@ desktop:
           # this stays correct every release with no hand-editing.
           action: "dpkg-buildpackage -us -uc -S -sa && debsign -kFAF777B27363A1BBB445E2F2596233AC9F58280A ../orcshot_$(dpkg-parsechangelog --show-field Version)_source.changes && dput ppa:artificialorctelligence/orcshot ../orcshot_$(dpkg-parsechangelog --show-field Version)_source.changes"
           filename_template: "orcshot_<version>-1_source.changes"
+          # /orc-publish --metrics. Launchpad counts per (version, series, arch) publication and
+          # has no PPA-wide total, so this is Orclab's own bundled reader rather than a one-liner.
+          # noble and resolute are separate publications of the same upload, counted separately,
+          # so each leaf reads its own series - without --series both would report the same
+          # PPA-wide total twice over, at ~75 HTTP round trips each. Read-only and anonymous:
+          # no credentials, nothing added to Orcshot itself, only numbers Launchpad already
+          # publishes. See Orclab BACKLOG #7.
+          metrics: "python3 $ORC_PUBLISH_SCRIPTS/metrics/launchpad_ppa.py artificialorctelligence/orcshot --package orcshot --series noble"
           requirements:
             - "The -k on debsign is load-bearing, not belt-and-braces. Without it debsign derives
                the signing identity from debian/changelog's maintainer field, which here is a
@@ -56,6 +64,7 @@ desktop:
           # Version comes from debian/changelog the same way noble's does, so this needs no
           # hand-editing per release.
           action: "python3 scripts/ppa-copy-series.py --version $(dpkg-parsechangelog --show-field Version)"
+          metrics: "python3 $ORC_PUBLISH_SCRIPTS/metrics/launchpad_ppa.py artificialorctelligence/orcshot --package orcshot --series resolute"
           requirements:
             - "One-time per machine: run `python3 scripts/ppa-copy-series.py --check`. If it
                reports no credentials, run the script once without --check - it opens a browser
