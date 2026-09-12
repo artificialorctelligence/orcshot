@@ -36,11 +36,6 @@ import json
 from pathlib import Path
 
 EXTENSION_UUID = "orcshot@orcshot.org"
-# Transitional aliases - Task 5 of the 2026-09-11 plan deletes these with
-# their last callers in ui/first_run_setup.py.
-WINDOW_CALLS_EXTENSION_UUID = EXTENSION_UUID
-CLIPBOARD_EXTENSION_UUID = EXTENSION_UUID
-TRAY_EXTENSION_UUID = EXTENSION_UUID
 _SHELL_SCHEMA = "org.gnome.shell"
 _ENABLED_EXTENSIONS_KEY = "enabled-extensions"
 

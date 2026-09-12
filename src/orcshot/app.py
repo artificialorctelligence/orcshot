@@ -109,10 +109,10 @@ def _log_session_info() -> None:
     session_type = os.environ.get("XDG_SESSION_TYPE", "<unset>")
     desktop = os.environ.get("XDG_CURRENT_DESKTOP", "<unset>")
     if session_type == "wayland":
-        from orcshot.capture.gnome_region_select import is_available as gnome_shell_capture_available
-
-        extension = "available" if gnome_shell_capture_available() else "unavailable - falling back to portal-based capture"
-        backend = f"Wayland, GNOME Shell extension {extension}"
+        # The extension announces itself (Hello) after startup, so its
+        # availability is not knowable here - the capture backends decide
+        # per call (spec 2026-09-11 §3). Say what is true at this moment.
+        backend = "Wayland (Shell-native capture once the orcshot@orcshot.org extension says Hello, portal-based until then)"
     else:
         backend = f"{session_type} (X11-native capture path)"
     print(f"[orcshot] session_type={session_type} desktop={desktop} -> {backend}", file=sys.stderr, flush=True)

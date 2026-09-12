@@ -16,6 +16,7 @@ from orcshot.gnome_extension_setup import (
 )
 
 # The one UUID, under the names the older tests below used.
+# The older tests below predate the merge and name the UUID by its old roles.
 WINDOW_CALLS_EXTENSION_UUID = CLIPBOARD_EXTENSION_UUID = TRAY_EXTENSION_UUID = EXTENSION_UUID
 
 

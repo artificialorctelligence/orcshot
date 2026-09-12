@@ -1,15 +1,16 @@
 """The one-time first-run prompt: offers to enable autostart-on-login,
 configure the four capture hotkeys (asking per-binding whether to
 overwrite anything already using that key combo), and - on any real
-GNOME Shell session - enable the bundled GNOME Shell extensions this
-project ships that apply to that session: orcshot-tray (the tray
-icon/menu) on GNOME regardless of session type (BACKLOG #189), plus
-window-calls ("Capture Window" mode) and orcshot-clipboard (reliable
-"Copy to Clipboard") on GNOME Wayland specifically, since X11 has its
-own native mechanisms for those two - see gnome_extension_setup.py
-(extensions_to_enable's own docstring covers the split) and
-REQUIREMENTS.md's Wayland window-picker and "Clipboard under Wayland"
-sections. See hotkey_setup.py's module
+GNOME Shell session - enable Orcshot's GNOME Shell extension
+(orcshot@orcshot.org: tray icon/menu on any GNOME session, plus
+Shell-native capture, clipboard and the window picker on Wayland - one
+extension since the 2026-09-11 spec, see gnome_extension_setup.py).
+Where the extension's *files* come from is per channel and lives in
+ui/extension_install.py: the .deb installed them system-wide, Flatpak
+asks GNOME to fetch them from extensions.gnome.org, Snap sends the user
+there, and Flatpak on Cinnamon sends the user to Cinnamon Spices for
+the applet. Nothing here writes into the user's home on any channel.
+See hotkey_setup.py's module
 docstring for how real conflicts on the dev machine (every one of the
 four defaults collided with something) motivated that question
 existing at all - this dialog is the only place in this codebase where
@@ -51,17 +52,14 @@ resolve_hotkey_choices, configure_all_hotkeys) can be fully unit
 tested there without a live GTK dialog or a real desktop in the loop;
 this file is just the thin GTK glue wiring user clicks to that logic.
 
-None of the three extensions is offered as a checkbox at all - each is only
-ever enabled on a session where it could plausibly work (orcshot-tray: any
-session with gnome_extension_setup.gnome_shell_present(); window-calls/
-orcshot-clipboard: that plus Wayland specifically) - checked, not assumed,
-same empirical-first precedent as the hotkeys section. Enabling one here only
-flips the gsettings flag; it does NOT take effect in the current session -
-confirmed live that GNOME
-Shell caches an extension's JS module and needs a full logout/login to
-pick up a freshly-enabled one, not just a Shell restart or a
-disable/enable toggle - hence the explicit note in the dialog rather
-than implying it works immediately.
+The extension is not offered as a checkbox at all - it is only ever
+enabled on a session where it could plausibly work (any session with
+gnome_extension_setup.gnome_shell_present()) - checked, not assumed,
+same empirical-first precedent as the hotkeys section. Enabling it here
+flips the gsettings flag; on the .deb enable_extension_live also asks
+the running Shell to activate it now. A Shell that has already loaded
+an older copy this session keeps it until logout/login (confirmed live)
+- app.py's health check says so when Hello reports the stale version.
 
 Not unit tested for the same reason editor_window.py/region_select.py
 aren't: GTK dialog glue with no meaningful headless test. Verified by
@@ -71,11 +69,9 @@ the "overwrite an existing binding" path.
 
 from __future__ import annotations
 
-import os
 import shutil
 import subprocess
 import sys
-from pathlib import Path
 
 import gi
 
@@ -83,11 +79,8 @@ gi.require_version("Gtk", "3.0")
 from gi.repository import GLib, Gtk
 
 from orcshot.autostart import enable_autostart
-from orcshot.channel_detect import detect_channel, install_bundled_extension_if_needed
+from orcshot.channel_detect import detect_channel
 from orcshot.gnome_extension_setup import (
-    CLIPBOARD_EXTENSION_UUID,
-    TRAY_EXTENSION_UUID,
-    WINDOW_CALLS_EXTENSION_UUID,
     enable_extension,
     enable_extension_live,
     extensions_to_enable,
@@ -104,6 +97,7 @@ from orcshot.hotkey_setup import (
 )
 from orcshot.i18n import _
 from orcshot.settings import is_first_run_setup_done, mark_first_run_setup_done
+from orcshot.ui.extension_install import plan_install, show_install_dialog
 
 
 def _default_executable(which=shutil.which) -> str:
@@ -122,127 +116,32 @@ def _default_executable(which=shutil.which) -> str:
     return f"{sys.executable} -m orcshot.app"
 
 
-def _extension_bundle_dir(uuid: str, env: dict = None) -> Path:
-    """Where this extension's files are bundled read-only inside a Snap
-    or Flatpak package. Only meaningful when detect_channel() is "snap"
-    or "flatpak" - the caller is responsible for checking that first.
-    Raises ValueError for any other channel rather than silently
-    falling through to a plausible-looking /app path (final-review
-    finding, 2026-08-31) - the old SNAP-only body raised a loud KeyError
-    on a wrong-channel call; a wrong-channel call should still fail
-    loudly now that Flatpak is a second real branch here, not one non-
-    Snap catch-all any future third channel would also silently match.
-    """
-    if env is None:
-        env = os.environ
-    if env.get("SNAP"):
-        return Path(env["SNAP"]) / "share" / "orcshot" / "gnome-shell-extensions" / uuid
-    if env.get("FLATPAK_ID"):
-        # Flatpak always mounts the app's own install prefix at the fixed
-        # path /app - no env-var indirection the way Snap's $SNAP needs
-        # (confirmed live, BACKLOG #187, 2026-08-31).
-        return Path("/app") / "share" / "orcshot" / "gnome-shell-extensions" / uuid
-    raise ValueError("_extension_bundle_dir called outside snap/flatpak (env has neither SNAP nor FLATPAK_ID)")
-
-
-def _cinnamon_applet_bundle_dir(uuid: str, env: dict = None) -> Path:
-    """Where the Cinnamon applet's files are bundled read-only inside a
-    Snap or Flatpak package - same real reasoning as
-    _extension_bundle_dir, pointed at the cinnamon-applets staging path
-    snapcraft.yaml/org.orcshot.Orcshot.yaml's own bundled-cinnamon-applets
-    part/module installs (BACKLOG #189)."""
-    if env is None:
-        env = os.environ
-    if env.get("SNAP"):
-        return Path(env["SNAP"]) / "share" / "orcshot" / "cinnamon-applets" / uuid
-    if env.get("FLATPAK_ID"):
-        return Path("/app") / "share" / "orcshot" / "cinnamon-applets" / uuid
-    raise ValueError("_cinnamon_applet_bundle_dir called outside snap/flatpak (env has neither SNAP nor FLATPAK_ID)")
-
-
-def _snap_real_home_extensions_dir(env: dict = None) -> Path:
-    """The real, non-redirected per-user GNOME Shell extensions path a
-    Snap needs personal-files connected to reach. Built from
-    $SNAP_REAL_HOME, never $HOME - $HOME stays redirected to Snap's own
-    private ~/snap/<name>/<revision>/ directory even with personal-files
-    connected (confirmed live during this feature's own design spike -
-    see docs/superpowers/specs/2026-08-30-snap-channel-design.md),
-    and writing there would silently "succeed" while placing the file
-    somewhere GNOME Shell never scans.
-    """
-    if env is None:
-        env = os.environ
-    return Path(env["SNAP_REAL_HOME"]) / ".local" / "share" / "gnome-shell" / "extensions"
-
-
-def _flatpak_home_extensions_dir(env: dict = None) -> Path:
-    """The real per-user GNOME Shell extensions path a Flatpak install
-    can reach once --filesystem=~/.local/share/gnome-shell/extensions:create
-    is granted (install-time, no separate "connect" step the way Snap's
-    personal-files interface needs - confirmed live, BACKLOG #187,
-    2026-08-31). Unlike Snap, Flatpak doesn't redirect $HOME to a
-    private path at all, so this is plain $HOME, env-injectable for
-    tests to match _snap_real_home_extensions_dir's own convention.
-    """
-    if env is None:
-        env = os.environ
-    return Path(env["HOME"]) / ".local" / "share" / "gnome-shell" / "extensions"
-
-
-def _snap_real_home_cinnamon_applets_dir(env: dict = None) -> Path:
-    """Cinnamon's own per-user applets path, reached the same way
-    _snap_real_home_extensions_dir reaches GNOME Shell's - via
-    $SNAP_REAL_HOME, never $HOME (Snap redirects $HOME to a private,
-    per-snap path Cinnamon never scans)."""
-    if env is None:
-        env = os.environ
-    return Path(env["SNAP_REAL_HOME"]) / ".local" / "share" / "cinnamon" / "applets"
-
-
-def _flatpak_home_cinnamon_applets_dir(env: dict = None) -> Path:
-    """Cinnamon's own per-user applets path under Flatpak - plain
-    $HOME, same reasoning as _flatpak_home_extensions_dir (Flatpak
-    doesn't redirect $HOME the way Snap does)."""
-    if env is None:
-        env = os.environ
-    return Path(env["HOME"]) / ".local" / "share" / "cinnamon" / "applets"
-
-
-def _install_bundled_extensions_for_sandboxed_channel(parent) -> bool:
-    """Copies each bundled extension into the real per-user extensions
-    path when running under Snap or Flatpak - sandboxed channels can't
-    write to the system-wide path the way .deb's own dh_install does.
-    Returns whether this actually ran: True only for snap/flatpak, so a
-    plain .deb install (detect_channel() == "deb") is a verified no-op
-    - the loop body never executes at all, matching this feature's own
-    whole point of channel-gating (BACKLOG #191 - extracted so this
-    gating is exercised by a real test, not just a monkeypatch's own
-    return value asserted back at itself). Generalized from Snap-only to
-    also cover Flatpak (BACKLOG #185/#187, 2026-08-31): Flatpak's own
-    --filesystem=...:create grant is install-time, no separate "connect"
-    step exists the way Snap's personal-files needs, so only Snap's own
-    failure path prompts for one.
-    """
+def _finish_gnome_setup(settings_backend, desktop, parent=None) -> None:
+    """Enables the extension in gsettings (works under every sandbox,
+    proven), asks the running Shell to activate it on the .deb (the only
+    channel whose files are already on disk and whose sandbox-free
+    process may make that call - see enable_extension_live's docstring),
+    and on the channels that cannot install the files themselves shows
+    the redirect dialog for this channel/desktop."""
     channel = detect_channel()
-    if channel == "snap":
-        gnome_dest_parent = _snap_real_home_extensions_dir()
-        cinnamon_dest_parent = _snap_real_home_cinnamon_applets_dir()
-    elif channel == "flatpak":
-        gnome_dest_parent = _flatpak_home_extensions_dir()
-        cinnamon_dest_parent = _flatpak_home_cinnamon_applets_dir()
-    else:
-        return False
-    all_installed = True
-    for uuid in (WINDOW_CALLS_EXTENSION_UUID, CLIPBOARD_EXTENSION_UUID, TRAY_EXTENSION_UUID):
-        bundled_dir = _extension_bundle_dir(uuid)
-        if not install_bundled_extension_if_needed(uuid, bundled_dir, gnome_dest_parent):
-            all_installed = False
-    cinnamon_bundled_dir = _cinnamon_applet_bundle_dir(TRAY_EXTENSION_UUID)
-    if not install_bundled_extension_if_needed(TRAY_EXTENSION_UUID, cinnamon_bundled_dir, cinnamon_dest_parent):
-        all_installed = False
-    if not all_installed and channel == "snap":
-        show_snap_connect_prompt(parent)
-    return True
+    for uuid in extensions_to_enable(True):
+        enable_extension(settings_backend, uuid)
+        if channel == "deb":
+            try:
+                enable_extension_live(uuid)
+            except GLib.Error as e:
+                print(f"[orcshot] enable_extension_live({uuid!r}) failed: {e}", file=sys.stderr)
+    plan = plan_install(channel, desktop)
+    if plan is not None:
+        show_install_dialog(plan, parent)
+
+
+def _finish_cinnamon_setup(parent=None) -> None:
+    """Cinnamon's tray is an applet; the .deb installed it, Flatpak sends
+    the user to Cinnamon Spices, Snap does nothing (decided 2026-09-11)."""
+    plan = plan_install(detect_channel(), "cinnamon")
+    if plan is not None:
+        show_install_dialog(plan, parent)
 
 
 def maybe_run_first_run_setup(parent: Gtk.Window = None, executable: str = None, settings_backend=None) -> None:
@@ -367,12 +266,10 @@ def _run_dialog(parent, executable: str, settings_backend) -> None:
             wrap=True, xalign=0,
         ), False, False, 0)
 
-    # None of the three GNOME extensions is offered as a checkbox - each
-    # is unconditionally enabled below whenever this dialog completes
-    # with OK on a session where it would apply: orcshot-tray on any
-    # real GNOME Shell session (is_gnome), window-calls/orcshot-
-    # clipboard on GNOME Wayland specifically (is_gnome_wayland) - see
-    # gnome_extension_setup.extensions_to_enable for the actual split.
+    # The GNOME extension is not offered as a checkbox - it is
+    # unconditionally enabled below whenever this dialog completes with
+    # OK on any real GNOME Shell session (is_gnome); one extension since
+    # the 2026-09-11 spec, so there is no Wayland/X11 split any more.
     # Checked live rather than assumed (see gnome_extension_setup.
     # gnome_shell_present's docstring), same as autostart/hotkeys aren't
     # re-litigated as individually skippable app-core-functionality
@@ -410,26 +307,12 @@ def _run_dialog(parent, executable: str, settings_backend) -> None:
     # assume the paragraph above also justifies skipping the warning
     # for the tray extension.
     #
-    # orcshot-clipboard@orcshot.org and orcshot-tray@orcshot.org are
-    # this project's own wholly original extension.js files (see each
-    # one's own header comment); window-calls@domandoman.xyz is a
-    # bundled *third-party* patched fork, already documented in
+    # orcshot@orcshot.org is this project's own extension (its windows.js
+    # module is a bundled third-party patched fork, documented in
     # THIRD_PARTY_NOTICES.md and debian/copyright - real provenance
     # worth documenting there, unlike a checkbox that most users have
-    # no context to evaluate.
-    # is_gnome, not just is_gnome_wayland, because orcshot-tray now
-    # applies on GNOME regardless of session type (BACKLOG #189, final-
-    # review finding 2026-09-05: the old is_gnome_wayland-only gate left
-    # GNOME-X11 users with the tray extension never installed/enabled at
-    # all - a real regression versus the Gtk.StatusIcon fallback this
-    # ticket's Task 1 removed, since that fallback at least existed even
-    # if it likely never rendered there). window-calls/orcshot-clipboard
-    # stay gated on is_gnome_wayland - see
-    # gnome_extension_setup.extensions_to_enable's own docstring for why
-    # those two remain Wayland-only. Computed from is_gnome rather than
-    # calling gnome_shell_present() a second time.
+    # no context to evaluate).
     is_gnome = gnome_shell_present()
-    is_gnome_wayland = is_gnome and os.environ.get("XDG_SESSION_TYPE") == "wayland"
 
     dialog.show_all()
     response = dialog.run()
@@ -461,81 +344,9 @@ def _run_dialog(parent, executable: str, settings_backend) -> None:
             configure_all_hotkeys(settings_backend, executable, skip=skip, profile=profile)
 
         if is_gnome:
-            # _install_bundled_extensions_for_sandboxed_channel installs
-            # all three extensions' files unconditionally (its own
-            # docstring/tests) - calling it on GNOME-X11 too just means
-            # window-calls/orcshot-clipboard's files land on disk but
-            # never get enabled below, which is harmless.
-            _install_bundled_extensions_for_sandboxed_channel(parent)
-
-            uuids_to_enable = extensions_to_enable(is_gnome_wayland)
-            for uuid in uuids_to_enable:
-                enable_extension(settings_backend, uuid)
-            # enable_extension above only persists the setting for a
-            # future login - enable_extension_live (task #150 follow-
-            # up, see its own docstring for the live-reproduced bug)
-            # is what actually activates each extension in the running
-            # Shell right now. Each wrapped separately and best-effort:
-            # autostart/hotkeys/the gsettings writes above already
-            # succeeded by this point, and a transient D-Bus hiccup on
-            # one extension shouldn't take the others down with it or
-            # leave the wizard looking like it crashed.
-            #
-            # That "persists for a future login" claim is true for
-            # apt/Snap but NOT for Flatpak (confirmed live, final review
-            # 2026-08-31): a Flatpak-confined gsettings write lands in
-            # the app's own private per-app keyfile
-            # (~/.var/app/org.orcshot.Orcshot/config/glib-2.0/settings/
-            # keyfile), which the host's dconf never reads - so on this
-            # channel there is no fallback if enable_extension_live()
-            # below fails; nothing has happened at all. The channel is
-            # only sound end-to-end because GNOME Shell's own
-            # EnableExtension D-Bus handler writes enabled-extensions
-            # from the Shell's own unconfined process on the app's
-            # behalf - so the live call, when it succeeds, persists the
-            # setting for a future login too, just via a different
-            # writer than enable_extension() above.
-            for uuid in uuids_to_enable:
-                try:
-                    enable_extension_live(uuid)
-                except GLib.Error as e:
-                    print(f"[orcshot] enable_extension_live({uuid!r}) failed: {e}", file=sys.stderr)
+            _finish_gnome_setup(settings_backend, "gnome", parent)
+        elif profile == "cinnamon":
+            _finish_cinnamon_setup(parent)
 
     mark_first_run_setup_done()
-    dialog.destroy()
-
-
-def show_snap_connect_prompt(parent: Gtk.Window = None) -> None:
-    """Shown when running under Snap and the tray extension couldn't be
-    copied into the real per-user extensions path - almost always
-    because the personal-files interface hasn't been connected yet
-    (Snap Store policy: this interface is never auto-connected, even
-    for an approved/published snap - see the Snap channel design spec's
-    own "Known open items"). Matches this same file's existing pattern
-    for desktops without automatic hotkey support: a manual,
-    cut-and-pasteable command, not an attempted automation - running an
-    arbitrary shell command from inside a strict-confinement sandbox
-    isn't reliably possible, and wouldn't be more trustworthy even where
-    it might work.
-    """
-    dialog = Gtk.Dialog(title=_("Orcshot Setup"), transient_for=parent)
-    dialog.add_buttons(_("OK"), Gtk.ResponseType.OK)
-    dialog.set_default_response(Gtk.ResponseType.OK)
-
-    content = dialog.get_content_area()
-    content.set_border_width(12)
-    content.set_spacing(8)
-
-    content.pack_start(Gtk.Label(
-        label=_("Orcshot needs one-time permission to install its tray icon extension. "
-                "Run this command in a terminal, then restart Orcshot:"),
-        wrap=True, xalign=0,
-    ), False, False, 0)
-
-    command_label = Gtk.Label(label="snap connect orcshot:dot-local-share-gnome-shell", xalign=0)  # noqa: i18n (literal shell command, not UI text)
-    command_label.set_selectable(True)
-    content.pack_start(command_label, False, False, 0)
-
-    dialog.show_all()
-    dialog.run()
     dialog.destroy()

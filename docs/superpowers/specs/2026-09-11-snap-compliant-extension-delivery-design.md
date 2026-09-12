@@ -287,7 +287,8 @@ Every "works" claim in the plan cites a command and its output (`verify-before-a
 
 All dialogs: title **Orcshot Setup**, buttons **Later** and one action button; they close
 themselves when `Hello` arrives. **Later** leaves Orcshot fully usable via the portal path; the
-dialog is reachable again from Preferences → *Desktop integration*.
+dialog comes back through the editor's existing *Setup…* entry, which re-runs first-run setup
+(no new Preferences control - found while implementing).
 
 **Snap on GNOME**
 

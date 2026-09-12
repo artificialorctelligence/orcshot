@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-09-06 22:37-0500\n"
+"POT-Creation-Date: 2026-09-11 21:32-0500\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -83,35 +83,6 @@ msgstr ""
 msgid "Eyedropper"
 msgstr ""
 
-#: src/orcshot/ui/destination_picker.py:214
-msgid "Save Screenshot As"
-msgstr ""
-
-#: src/orcshot/ui/destination_picker.py:246
-#: src/orcshot/ui/editor_window.py:1600
-msgid "Copy to Clipboard"
-msgstr ""
-
-#: src/orcshot/ui/destination_picker.py:247
-#: src/orcshot/ui/editor_window.py:1598 src/orcshot/ui/editor_window.py:3736
-msgid "Save"
-msgstr ""
-
-#: src/orcshot/ui/destination_picker.py:248
-#: src/orcshot/ui/editor_window.py:1599
-msgid "Save As..."
-msgstr ""
-
-#: src/orcshot/ui/destination_picker.py:249
-#: src/orcshot/ui/editor_window.py:6037
-msgid "Edit..."
-msgstr ""
-
-#: src/orcshot/ui/destination_picker.py:250
-#: src/orcshot/ui/editor_window.py:3737
-msgid "Print"
-msgstr ""
-
 #: src/orcshot/ui/external_commands.py:506
 msgid "Name is required."
 msgstr ""
@@ -172,7 +143,6 @@ msgid "External Command"
 msgstr ""
 
 #: src/orcshot/ui/external_commands.py:616
-#: src/orcshot/ui/first_run_setup.py:522
 msgid "OK"
 msgstr ""
 
@@ -377,59 +347,33 @@ msgid_plural "{} matches"
 msgstr[0] ""
 msgstr[1] ""
 
-#: src/orcshot/ui/first_run_setup.py:290 src/orcshot/ui/first_run_setup.py:521
-msgid "Orcshot Setup"
+#: src/orcshot/ui/destination_picker.py:214
+msgid "Save Screenshot As"
 msgstr ""
 
-#: src/orcshot/ui/first_run_setup.py:292
-msgid "Not Now"
+#: src/orcshot/ui/destination_picker.py:246
+#: src/orcshot/ui/editor_window.py:1600
+msgid "Copy to Clipboard"
 msgstr ""
 
-#: src/orcshot/ui/first_run_setup.py:293
-msgid "Enable"
+#: src/orcshot/ui/destination_picker.py:247
+#: src/orcshot/ui/editor_window.py:1598 src/orcshot/ui/editor_window.py:3736
+msgid "Save"
 msgstr ""
 
-#: src/orcshot/ui/first_run_setup.py:323
-msgid ""
-"Set up Orcshot to start automatically at login, and enable its capture "
-"keyboard shortcuts?"
+#: src/orcshot/ui/destination_picker.py:248
+#: src/orcshot/ui/editor_window.py:1599
+msgid "Save As..."
 msgstr ""
 
-#: src/orcshot/ui/first_run_setup.py:325
-msgid "Set up Orcshot's capture keyboard shortcuts?"
+#: src/orcshot/ui/destination_picker.py:249
+#: src/orcshot/ui/editor_window.py:6037
+msgid "Edit..."
 msgstr ""
 
-#: src/orcshot/ui/first_run_setup.py:327
-msgid "Set up Orcshot to start automatically at login?"
-msgstr ""
-
-#: src/orcshot/ui/first_run_setup.py:329
-msgid "Set up Orcshot?"
-msgstr ""
-
-#: src/orcshot/ui/first_run_setup.py:334
-msgid "Start automatically at login"
-msgstr ""
-
-#: src/orcshot/ui/first_run_setup.py:346
-msgid "{} ({}) — overwrite {}?"
-msgstr ""
-
-#: src/orcshot/ui/first_run_setup.py:349 src/orcshot/ui/editor_window.py:582
-#: src/orcshot/ui/editor_window.py:2052
-msgid "{} ({})"
-msgstr ""
-
-#: src/orcshot/ui/first_run_setup.py:364
-msgid ""
-"Automatic keyboard shortcut setup isn't available on this desktop. You can "
-"bind shortcuts to these manually instead:\n"
-msgstr ""
-
-#: src/orcshot/ui/first_run_setup.py:530
-msgid ""
-"Orcshot needs one-time permission to install its tray icon extension. Run "
-"this command in a terminal, then restart Orcshot:"
+#: src/orcshot/ui/destination_picker.py:250
+#: src/orcshot/ui/editor_window.py:3737
+msgid "Print"
 msgstr ""
 
 #: src/orcshot/ui/editor_window.py:372
@@ -584,6 +528,11 @@ msgstr ""
 msgid "Emoji"
 msgstr ""
 
+#: src/orcshot/ui/editor_window.py:582 src/orcshot/ui/editor_window.py:2052
+#: src/orcshot/ui/first_run_setup.py:248
+msgid "{} ({})"
+msgstr ""
+
 #: src/orcshot/ui/editor_window.py:710
 msgid "Orcshot image editor"
 msgstr ""
@@ -644,7 +593,7 @@ msgstr ""
 msgid "Duplicate"
 msgstr ""
 
-#: src/orcshot/ui/editor_window.py:1630 src/orcshot/app.py:666
+#: src/orcshot/ui/editor_window.py:1630 src/orcshot/app.py:674
 msgid "Preferences..."
 msgstr ""
 
@@ -1247,7 +1196,7 @@ msgstr ""
 msgid "Any unsaved work will be saved first."
 msgstr ""
 
-#: src/orcshot/ui/editor_window.py:5474
+#: src/orcshot/ui/editor_window.py:5474 src/orcshot/ui/extension_install.py:113
 msgid "Later"
 msgstr ""
 
@@ -1474,93 +1423,206 @@ msgstr ""
 msgid "Show print options dialog every time an image is printed"
 msgstr ""
 
-#: src/orcshot/app.py:334
+#: src/orcshot/ui/extension_install.py:66
+#: src/orcshot/ui/extension_install.py:85
+msgid "One more step for the tray icon and Wayland capture"
+msgstr ""
+
+#: src/orcshot/ui/extension_install.py:68
+msgid ""
+"Orcshot's tray icon, region selection and window picker on Wayland run "
+"inside GNOME Shell as an extension. Snap packages aren't allowed to install "
+"extensions, so this one comes from GNOME's own extension site.\n"
+"\n"
+"1. Click Open extensions.gnome.org below.\n"
+"2. On the Orcshot page, switch the toggle to ON.\n"
+"3. That's it — this window closes by itself when the extension is running.\n"
+"\n"
+"If the page says your browser needs the GNOME Shell integration add-on: "
+"install the add-on it links to, then on Ubuntu run  sudo apt install gnome-"
+"browser-connector  (or install Extension Manager from the Software app and "
+"search for Orcshot there). This is a one-time setup for any extension, not "
+"just Orcshot's.\n"
+"\n"
+"Without the extension Orcshot still works — captures use GNOME's screenshot "
+"service and there's no tray icon."
+msgstr ""
+
+#: src/orcshot/ui/extension_install.py:81
+msgid "Open extensions.gnome.org"
+msgstr ""
+
+#: src/orcshot/ui/extension_install.py:87
+msgid ""
+"Orcshot's tray icon, region selection and window picker on Wayland run "
+"inside GNOME Shell as an extension. Click Install extension and GNOME will "
+"ask you to confirm.\n"
+"\n"
+"Without it Orcshot still works — captures use GNOME's screenshot service and "
+"there's no tray icon."
+msgstr ""
+
+#: src/orcshot/ui/extension_install.py:91
+msgid "Install extension"
+msgstr ""
+
+#: src/orcshot/ui/extension_install.py:95
+msgid "One more step for the tray icon"
+msgstr ""
+
+#: src/orcshot/ui/extension_install.py:97
+msgid ""
+"Orcshot's tray icon on Cinnamon is an applet from Mint's applet library.\n"
+"\n"
+"1. Open System Settings → Applets.\n"
+"2. Choose the Download tab and search for Orcshot.\n"
+"3. Click the install arrow, then add it to your panel from the Manage tab.\n"
+"\n"
+"This window closes by itself when the applet is running. Without it Orcshot "
+"still works; there's just no tray icon."
+msgstr ""
+
+#: src/orcshot/ui/extension_install.py:104
+msgid "Open the Orcshot applet page"
+msgstr ""
+
+#: src/orcshot/ui/extension_install.py:112
+#: src/orcshot/ui/first_run_setup.py:189
+msgid "Orcshot Setup"
+msgstr ""
+
+#: src/orcshot/ui/extension_install.py:142
+#, python-format
+msgid "GNOME could not install it: %s"
+msgstr ""
+
+#: src/orcshot/ui/first_run_setup.py:191
+msgid "Not Now"
+msgstr ""
+
+#: src/orcshot/ui/first_run_setup.py:192
+msgid "Enable"
+msgstr ""
+
+#: src/orcshot/ui/first_run_setup.py:222
+msgid ""
+"Set up Orcshot to start automatically at login, and enable its capture "
+"keyboard shortcuts?"
+msgstr ""
+
+#: src/orcshot/ui/first_run_setup.py:224
+msgid "Set up Orcshot's capture keyboard shortcuts?"
+msgstr ""
+
+#: src/orcshot/ui/first_run_setup.py:226
+msgid "Set up Orcshot to start automatically at login?"
+msgstr ""
+
+#: src/orcshot/ui/first_run_setup.py:228
+msgid "Set up Orcshot?"
+msgstr ""
+
+#: src/orcshot/ui/first_run_setup.py:233
+msgid "Start automatically at login"
+msgstr ""
+
+#: src/orcshot/ui/first_run_setup.py:245
+msgid "{} ({}) — overwrite {}?"
+msgstr ""
+
+#: src/orcshot/ui/first_run_setup.py:263
+msgid ""
+"Automatic keyboard shortcut setup isn't available on this desktop. You can "
+"bind shortcuts to these manually instead:\n"
+msgstr ""
+
+#: src/orcshot/app.py:342
 msgid "Orcshot is already running"
 msgstr ""
 
-#: src/orcshot/app.py:335
+#: src/orcshot/app.py:343
 msgid "Look for its icon in the system tray."
 msgstr ""
 
-#: src/orcshot/app.py:556
+#: src/orcshot/app.py:564
 msgid "Screenshot failed"
 msgstr ""
 
-#: src/orcshot/app.py:556
+#: src/orcshot/app.py:564
 msgid ""
 "The screenshot couldn't be taken.\n"
 "\n"
 "{}"
 msgstr ""
 
-#: src/orcshot/app.py:660
+#: src/orcshot/app.py:668
 msgid "Capture Region"
 msgstr ""
 
-#: src/orcshot/app.py:661
+#: src/orcshot/app.py:669
 msgid "Capture Full Screen"
 msgstr ""
 
-#: src/orcshot/app.py:662
+#: src/orcshot/app.py:670
 msgid "Capture Active Window"
 msgstr ""
 
-#: src/orcshot/app.py:663
+#: src/orcshot/app.py:671
 msgid "Capture Window..."
 msgstr ""
 
-#: src/orcshot/app.py:664
+#: src/orcshot/app.py:672
 msgid "Repeat Last Region"
 msgstr ""
 
-#: src/orcshot/app.py:665
+#: src/orcshot/app.py:673
 msgid "Open File..."
 msgstr ""
 
-#: src/orcshot/app.py:667
+#: src/orcshot/app.py:675
 msgid "Quit"
 msgstr ""
 
-#: src/orcshot/app.py:774
+#: src/orcshot/app.py:784
 msgid "New install incoming — save your work"
 msgstr ""
 
-#: src/orcshot/app.py:795
+#: src/orcshot/app.py:805
 msgid "Restarting Orcshot — save your work"
 msgstr ""
 
-#: src/orcshot/app.py:868
+#: src/orcshot/app.py:874
 msgid "Orcshot's Wayland integration needs a restart"
 msgstr ""
 
-#: src/orcshot/app.py:870
+#: src/orcshot/app.py:876
 msgid ""
 "An update changed how Orcshot's Shell extension works, but your session is "
 "still running the previous version. Log out and back in to finish applying "
 "it."
 msgstr ""
 
-#: src/orcshot/app.py:922
+#: src/orcshot/app.py:931
 msgid "Orcshot update available"
 msgstr ""
 
-#: src/orcshot/app.py:923
+#: src/orcshot/app.py:932
 msgid ""
 "A newer version of Orcshot is available! Do you want to download Orcshot {}?"
 msgstr ""
 
-#: src/orcshot/app.py:955
+#: src/orcshot/app.py:964
 msgid "Couldn't check for updates"
 msgstr ""
 
-#: src/orcshot/app.py:956
+#: src/orcshot/app.py:965
 msgid "No response from GitHub - check your network connection and try again."
 msgstr ""
 
-#: src/orcshot/app.py:964
+#: src/orcshot/app.py:973
 msgid "Orcshot is up to date"
 msgstr ""
 
-#: src/orcshot/app.py:965
+#: src/orcshot/app.py:974
 msgid "You're running the latest version ({})."
 msgstr ""
