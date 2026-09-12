@@ -21,6 +21,7 @@ from dataclasses import asdict, dataclass
 from datetime import datetime
 from pathlib import Path
 
+from orcshot.channel_detect import detect_channel
 from orcshot.core.filename_pattern import DEFAULT_FILENAME_PATTERN
 
 CONFIG_FILENAME = "config.json"
@@ -137,6 +138,23 @@ def set_output_directory(directory: Path, path: Path = None) -> None:
     settings = _load(path)
     settings[_OUTPUT_DIRECTORY_KEY] = str(directory)
     _save(settings, path)
+
+
+def output_directory_is_reachable(directory: Path) -> bool:
+    """True unless we are inside the Flatpak sandbox and ``directory`` is
+    on the sandbox's own tmpfs (BACKLOG #210). Inside the sandbox $HOME
+    is a tmpfs: mkdir and the write both *succeed*, no error is raised,
+    and the file is gone when the process exits - confirmed live in the
+    installed Flatpak. Anything sharing /'s device number is that tmpfs;
+    every real host mount (~/.var/app, /run/user/<uid>/doc, a granted
+    xdg-pictures) has a different st_dev. Only meaningful under
+    Flatpak - on a plain install /home may or may not be its own
+    filesystem, so the comparison says nothing there and is skipped.
+    """
+    if detect_channel() != "flatpak":
+        return True
+    directory.mkdir(parents=True, exist_ok=True)
+    return os.stat(directory).st_dev != os.stat("/").st_dev
 
 
 def quick_save_filename(when: datetime, counter: int) -> str:

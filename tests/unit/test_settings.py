@@ -6,6 +6,7 @@ autostart.py's .desktop entry: real file I/O, exercised for real here
 against a temp path, never the actual default XDG path.
 """
 
+import os
 from datetime import datetime
 from pathlib import Path
 
@@ -30,6 +31,7 @@ from orcshot.settings import (
     get_last_update_check,
     get_output_directory,
     get_output_settings,
+    output_directory_is_reachable,
     get_play_capture_sound,
     get_print_options,
     get_recent_colors,
@@ -669,3 +671,53 @@ class TestDefaultExternalCommandsSeededFlag:
         mark_default_external_commands_seeded(path=path)
 
         assert is_default_external_commands_seeded(path=path) is True
+
+
+class TestOutputDirectoryIsReachable:
+    """BACKLOG #210: inside the Flatpak sandbox, $HOME is the sandbox's
+    own tmpfs - writes succeed and evaporate. Anything on the same
+    device as / is that tmpfs; real host mounts differ."""
+
+    def test_true_outside_flatpak_whatever_the_path(self, tmp_path, monkeypatch):
+        monkeypatch.setattr("orcshot.settings.detect_channel", lambda: "deb")
+        assert output_directory_is_reachable(tmp_path / "Screenshots") is True
+
+    def test_false_under_flatpak_when_on_the_sandbox_root_device(self, tmp_path, monkeypatch):
+        monkeypatch.setattr("orcshot.settings.detect_channel", lambda: "flatpak")
+        root_dev = os.stat("/").st_dev
+        real_stat = os.stat
+
+        def same_device_as_root(path, *args, **kwargs):
+            result = real_stat(path, *args, **kwargs)
+            if str(path) == str(tmp_path / "Screenshots"):
+                return os.stat_result(result[:2] + (root_dev,) + result[3:])
+            return result
+
+        monkeypatch.setattr("orcshot.settings.os.stat", same_device_as_root)
+        assert output_directory_is_reachable(tmp_path / "Screenshots") is False
+
+    def test_true_under_flatpak_on_a_different_device(self, tmp_path, monkeypatch):
+        monkeypatch.setattr("orcshot.settings.detect_channel", lambda: "flatpak")
+        root_dev = os.stat("/").st_dev
+        real_stat = os.stat
+
+        def different_device(path, *args, **kwargs):
+            result = real_stat(path, *args, **kwargs)
+            if str(path) == str(tmp_path / "Screenshots"):
+                return os.stat_result(result[:2] + (root_dev + 1,) + result[3:])
+            return result
+
+        monkeypatch.setattr("orcshot.settings.os.stat", different_device)
+        assert output_directory_is_reachable(tmp_path / "Screenshots") is True
+
+    def test_creates_the_directory_before_checking(self, tmp_path, monkeypatch):
+        monkeypatch.setattr("orcshot.settings.detect_channel", lambda: "deb")
+        target = tmp_path / "Pictures" / "Screenshots"
+        output_directory_is_reachable(target)
+        # "deb" returns early without touching disk; only the flatpak
+        # branch mkdirs. Pin that: the sandbox test above depends on
+        # the directory existing for os.stat.
+        assert not target.exists()
+        monkeypatch.setattr("orcshot.settings.detect_channel", lambda: "flatpak")
+        output_directory_is_reachable(target)
+        assert target.is_dir()
