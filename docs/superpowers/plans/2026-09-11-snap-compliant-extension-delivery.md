@@ -1,5 +1,9 @@
 # Snap-compliant Extension Delivery Implementation Plan
 
+> **Amended 2026-09-12:** every Cinnamon Spices step (Task 8's `spices` leaf and `spices-sync.sh`,
+> RELEASING.md step 4, Task 9 Step 2, the `flatpak-cinnamon` dialog) is withdrawn - BACKLOG #208
+> replaces the Cinnamon applet with an app-owned `XApp.StatusIcon`. Kept below for the record.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Replace the copy-into-home GNOME Shell extension install and the app→`org.gnome.Shell` call direction with one merged extension distributed through extensions.gnome.org (and the Cinnamon applet through Spices), where the extension calls *into* the app — so the snap passes store review and all three channels share one code path.

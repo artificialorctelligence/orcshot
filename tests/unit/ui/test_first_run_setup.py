@@ -54,12 +54,3 @@ def test_gnome_finish_on_flatpak_never_calls_enable_live(monkeypatch):
     monkeypatch.setattr(first_run_setup, "show_install_dialog", lambda plan, parent=None: None)
     first_run_setup._finish_gnome_setup(settings_backend=object(), desktop="gnome", parent=None)
     assert live == []
-
-
-def test_cinnamon_finish_on_flatpak_shows_the_spices_dialog(monkeypatch):
-    from orcshot.ui import first_run_setup
-    shown = []
-    monkeypatch.setattr(first_run_setup, "detect_channel", lambda: "flatpak")
-    monkeypatch.setattr(first_run_setup, "show_install_dialog", lambda plan, parent=None: shown.append(plan))
-    first_run_setup._finish_cinnamon_setup(parent=None)
-    assert shown == ["flatpak-cinnamon"]

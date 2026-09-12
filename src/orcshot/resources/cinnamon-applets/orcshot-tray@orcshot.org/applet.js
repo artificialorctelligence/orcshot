@@ -1,5 +1,6 @@
 const Applet = imports.ui.applet;
 const Gio = imports.gi.Gio;
+const GLib = imports.gi.GLib;
 const PopupMenu = imports.ui.popupMenu;
 
 // Must match app.py's fixed application_id and gnome_tray_export.py's
@@ -45,6 +46,18 @@ class OrcshotTrayApplet extends Applet.IconApplet {
         this._itemsChangedId = this._menuModel.connect('items-changed', () => this._rebuild());
         this._actionEnabledChangedId = this._actionGroup.connect(
             'action-enabled-changed', () => this._rebuild());
+        // BACKLOG #196's fix, ported from the GNOME Shell tray on
+        // 2026-09-11 (found the first time this applet sat on a real
+        // Cinnamon panel): Gio.DBusActionGroup's initial sync with the
+        // app is asynchronous with no "ready" signal, and
+        // get_action_enabled() answers false for every action until it
+        // completes - so the setSensitive() calls in _addModelItems
+        // latch every item greyed at build time and nothing re-reads
+        // them. Re-reading when the menu actually opens is the fix.
+        this._applet_context_menu.connect('open-state-changed', (menu, open) => {
+            if (open)
+                this._refreshSensitivity();
+        });
 
         // An applet's own lifecycle is owned by Cinnamon's panel, not by
         // us - unlike the GNOME Shell extension's status-area button
@@ -88,6 +101,10 @@ class OrcshotTrayApplet extends Applet.IconApplet {
     // connections hold a strong closure reference to `this`; omitting
     // this leaks both the signal connection and the applet instance).
     on_applet_removed_from_panel(deleteConfig) {
+        if (this._activateTimerId) {
+            GLib.source_remove(this._activateTimerId);
+            this._activateTimerId = 0;
+        }
         this._menuModel.disconnect(this._itemsChangedId);
         this._actionGroup.disconnect(this._actionEnabledChangedId);
         this._disconnectSectionSignals();
@@ -98,6 +115,31 @@ class OrcshotTrayApplet extends Applet.IconApplet {
         for (let [model, id] of this._sectionSignalIds)
             model.disconnect(id);
         this._sectionSignalIds = [];
+    }
+
+    // Close the menu instantly, then fire the action a beat later: the
+    // menu is Cinnamon's, with its own fade-out, so the app's one-main-
+    // loop-turn deferral (app.py's _defer, task #134) cannot see it -
+    // captures started from this menu were getting the menu itself
+    // baked in (found live on the Mint host, 2026-09-11). 150 ms is
+    // longer than the fade; the timer id is tracked and cleared in
+    // on_applet_removed_from_panel per Spices' lifecycle rules.
+    _activateAfterClose(bareAction) {
+        this._applet_context_menu.close(false);
+        if (this._activateTimerId)
+            GLib.source_remove(this._activateTimerId);
+        this._activateTimerId = GLib.timeout_add(GLib.PRIORITY_DEFAULT, 150, () => {
+            this._activateTimerId = 0;
+            this._actionGroup.activate_action(bareAction, null);
+            return GLib.SOURCE_REMOVE;
+        });
+    }
+
+    _refreshSensitivity() {
+        for (let item of this._ownMenuItems) {
+            if (item._orcshotAction)
+                item.setSensitive(this._actionGroup.get_action_enabled(item._orcshotAction));
+        }
     }
 
     // Destroys only the items *we* added (this._ownMenuItems), never
@@ -160,7 +202,8 @@ class OrcshotTrayApplet extends Applet.IconApplet {
             }
             if (action) {
                 let bareAction = action.includes('.') ? action.split('.').slice(1).join('.') : action;
-                item.connect('activate', () => this._actionGroup.activate_action(bareAction, null));
+                item._orcshotAction = bareAction;
+                item.connect('activate', () => this._activateAfterClose(bareAction));
                 item.setSensitive(this._actionGroup.get_action_enabled(bareAction));
             }
             this._applet_context_menu.addMenuItem(item);

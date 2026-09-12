@@ -10,9 +10,8 @@ confinement escape; Flathub: a home grant to review). So:
   Exactly how Extension Manager on Flathub does it.
 - Snap on GNOME: no snapd interface reaches GNOME's installer, so the
   dialog sends the user to extensions.gnome.org with explicit steps.
-- Flatpak on Cinnamon: the tray applet lives on Cinnamon Spices; the
-  dialog sends the user to System Settings -> Applets -> Download.
-- Snap on Cinnamon: nothing (decided 2026-09-11: Mint blocks snapd).
+- Cinnamon (any channel): nothing here. The Cinnamon tray is becoming an
+  XApp.StatusIcon owned by the app (BACKLOG #208), which needs no install.
 
 Every dialog closes itself when the extension/applet says Hello. "Later"
 leaves Orcshot fully usable on the portal path; the dialog comes back
@@ -33,17 +32,14 @@ from orcshot.capture.shell_bridge import get_bridge
 from orcshot.i18n import _
 
 EXTENSION_UUID = "orcshot@orcshot.org"
-# Both URLs are replaced with the real listing pages once the first
-# submissions are accepted (plan Task 9); the site roots work meanwhile.
+# Replaced with the real listing page once EGO accepts the first
+# submission (plan Task 9); the site root works meanwhile.
 EGO_URL = "https://extensions.gnome.org/"
-SPICES_URL = "https://cinnamon-spices.linuxmint.com/applets/"
 
 
 def plan_install(channel: str, desktop: str | None) -> str | None:
     if channel == "flatpak" and desktop == "gnome":
         return "flatpak-gnome"
-    if channel == "flatpak" and desktop == "cinnamon":
-        return "flatpak-cinnamon"
     if channel == "snap" and desktop == "gnome":
         return "snap-gnome"
     return None
@@ -93,19 +89,6 @@ _TEXT = {
         ),
         _("Install extension"),
         None,
-    ),
-    "flatpak-cinnamon": (
-        _("One more step for the tray icon"),
-        _(
-            "Orcshot's tray icon on Cinnamon is an applet from Mint's applet library.\n\n"
-            "1. Open System Settings → Applets.\n"
-            "2. Choose the Download tab and search for Orcshot.\n"
-            "3. Click the install arrow, then add it to your panel from the Manage tab.\n\n"
-            "This window closes by itself when the applet is running. Without it Orcshot still works; there's "
-            "just no tray icon."
-        ),
-        _("Open the Orcshot applet page"),
-        SPICES_URL,
     ),
 }
 

@@ -15,7 +15,7 @@ from orcshot.ui.extension_install import plan_install, request_gnome_install
     ("deb", "gnome", None),
     ("deb", "cinnamon", None),
     ("flatpak", "gnome", "flatpak-gnome"),
-    ("flatpak", "cinnamon", "flatpak-cinnamon"),
+    ("flatpak", "cinnamon", None),
     ("snap", "gnome", "snap-gnome"),
     ("snap", "cinnamon", None),
     ("flatpak", None, None),

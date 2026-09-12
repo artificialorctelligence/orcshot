@@ -1,6 +1,9 @@
 # Snap-compliant GNOME Shell extension delivery — design
 
 **Date:** 2026-09-11 · **Backlog:** #205 (this spec), #198 (publish mechanisms, depends on this) ·
+**Amended 2026-09-12:** every Cinnamon Spices piece below is withdrawn - the Cinnamon applet is
+being replaced by an app-owned `XApp.StatusIcon` (BACKLOG #208), which needs no install step on any
+channel. Decision 6 and the Spices parts of §4, §5 and §7 are kept for the record and marked. ·
 **Supersedes:** the copy-into-home extension install from the 2026-08-30 Snap channel design and
 the app→`org.gnome.Shell` call direction from the 2026-08-28 Wayland capture redesign.
 
@@ -53,7 +56,7 @@ Everything below is live-verified on 2026-09-11 unless it says otherwise:
    command (no precedent anywhere), not "no extension on snap" (the user who installs it still gets
    the full app). This is what every tray-bearing snap has done for the AppIndicator extension.
 5. **The snap does nothing for Cinnamon.** Mint blocks snapd by default and ships Flathub.
-6. **Flatpak on Cinnamon: redirect to Cinnamon Spices** — Mint's built-in applet store, reachable
+6. *(Withdrawn 2026-09-12 - see #208.)* **Flatpak on Cinnamon: redirect to Cinnamon Spices** — Mint's built-in applet store, reachable
    from *Applets → Download*. Spices' 2026-09-08 "self-contained" rule targets external versions of
    a spice itself; its "System dependencies" section explicitly allows depending on
    distro-packaged software. Companion applets (NordVPN, ExpressVPN, KDE Connect, Docker) are
@@ -199,7 +202,7 @@ without needing GNOME Shell on the machine. Used by the EGO upload and by CI.
   GNOME shows its own "Install extension?" dialog and installs from EGO. Orcshot explains why
   beforehand and reacts to `successful` / `cancelled`. Then the gsettings enable write, unless
   verification shows GNOME's installer already enabled it.
-- First-run on Cinnamon: the Spices redirect (§7).
+- First-run on Cinnamon: nothing *(was: the Spices redirect - withdrawn, #208)*.
 
 **Snap.**
 - `snapcraft.yaml`: delete the `dot-local-share-gnome-shell` plug and its reference; delete the
@@ -323,7 +326,7 @@ dialog comes back through the editor's existing *Setup…* entry, which re-runs 
 >
 > [ Later ]  [ Install extension ]
 
-**Flatpak on Cinnamon**
+**Flatpak on Cinnamon** *(withdrawn 2026-09-12, #208 - kept for the record)*
 
 > **One more step for the tray icon**
 >

@@ -91,8 +91,7 @@ desktop:
         requirements:
           - "Depends on gnome-shell-extension.js.linux.ego: InstallRemoteExtension fetches from
              extensions.gnome.org and nowhere else (verified live 2026-09-11: it answers Not
-             Found until the listing exists). And on cinnamon-applet.js.linux.spices for the
-             tray on Cinnamon. The publish action itself arrives with /orc-package flatpak."
+             Found until the listing exists). The publish action itself arrives with /orc-package flatpak."
 
 # The GNOME Shell extension is a second artifact with its own store: extensions.gnome.org
 # (EGO). Flatpak installs it from there (InstallRemoteExtension) and GNOME keeps every
@@ -127,24 +126,3 @@ gnome-shell-extension:
           - "Review lag is unbounded and prioritises small diffs; the app tolerates one
              release of extension skew via the capability handshake, so the app release
              never waits on this."
-
-cinnamon-applet:
-  js:
-    linux:
-      spices:
-        # Cinnamon Spices publishes by pull request to linuxmint/cinnamon-spices-applets; this
-        # syncs the applet into a local fork checkout, validates it with Mint's own script and
-        # opens the PR. The fork path is the one machine-local input; it is a working
-        # directory, not a credential. Version comes from debian/changelog like every leaf.
-        action: "scripts/spices-sync.sh \"${ORCSHOT_SPICES_FORK:-$HOME/projects/cinnamon-spices-applets}\" && V=$(dpkg-parsechangelog --show-field Version | sed 's/-[^-]*$//') && cd \"${ORCSHOT_SPICES_FORK:-$HOME/projects/cinnamon-spices-applets}\" && git checkout -q -B \"orcshot-$V\" master && git add orcshot-tray@orcshot.org && git commit -qm \"orcshot-tray@orcshot.org: update to $V\" && git push -q -u origin \"orcshot-$V\" && gh pr create --fill --repo linuxmint/cinnamon-spices-applets"
-        confirm:
-          url: "https://cinnamon-spices.linuxmint.com/applets/view/orcshot-tray@orcshot.org"
-        requirements:
-          - "Only when the applet changed. One-time: fork linuxmint/cinnamon-spices-applets to
-             the artificialorctelligence account, clone it to $ORCSHOT_SPICES_FORK, and have
-             the first PR (with info.json, screenshot.png, README.md) merged."
-        issues:
-          - "Spices' README (2026-09-08) forbids directing users to code outside Spices; the
-             applet's README says it needs the Orcshot app from the Software Manager (Flathub)
-             or the PPA - package channels, not downloads. Expect a reviewer question, not a
-             refusal (NordVPN/ExpressVPN/KDE Connect companion applets are precedent)."

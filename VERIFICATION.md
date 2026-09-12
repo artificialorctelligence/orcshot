@@ -86,6 +86,5 @@ under the headless Shell (#206).
 
 **Store-side, checked by URL, not automated:** `snap info orcshot` shows a channel map (dbus
 declaration granted); `https://extensions.gnome.org/extension-query/?search=orcshot` lists the
-UUID (EGO first submission); `https://cinnamon-spices.linuxmint.com/applets/view/orcshot@orcshot.org`
-returns 200 (Spices PR merged); `flatpak-builder-lint ... manifest org.orcshot.Orcshot.yaml` is
+UUID (EGO first submission); `flatpak-builder-lint ... manifest org.orcshot.Orcshot.yaml` is
 clean without the filesystem grant.

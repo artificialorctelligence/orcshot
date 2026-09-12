@@ -1542,6 +1542,22 @@ wait for the listings. Open until the EGO first submission and the Spices PR are
 Task 9), which is when the Snap and Flatpak first-run redirects point at something real; #198
 then proceeds with `/orc-package snap` and `flatpak`.
 
+**Update 2026-09-12 — EGO first submission uploaded.** direflail created the extensions.gnome.org
+account `artificialorctelligence` and ran `gnome-extensions upload --accept-tos` on the 26.04 VM
+(GNOME 50; the command does not exist on the Mint host). "Orcshot (0.4.0)" now sits in EGO's
+public review queue (`https://extensions.gnome.org/review/`, 298 entries at the time) and is not
+yet in `extension-query` results, which is the expected pre-approval state. Nothing to do but
+wait; a reviewer ping is possible on the GNOME Extensions Matrix channel if it stalls.
+
+**Update 2026-09-12 — Spices withdrawn from this entry's scope.** Putting the Cinnamon applet on a
+real Cinnamon panel for the Spices screenshot showed the mandatory About/Remove items every
+applet carries; direflail does not want them, so the applet is being replaced by an app-owned
+`XApp.StatusIcon` (#208, researched: no apt or Flathub rule in the way, Warpinator is the
+precedent). The Spices leaf, RELEASING.md step, sync script and the Flatpak-on-Cinnamon dialog
+are removed from the branch; RELEASING.md is back to 13 steps. Task 9 is now EGO only, and the
+upload is done. #205 resolves when EGO accepts the extension and the Flatpak install flow is
+re-tested against the real listing.
+
 ## #206: The snap's GUI has never launched: gdk-pixbuf has no loaders.cache under confinement, so Gtk.Window.set_default_icon_from_file crashes do_startup (RESOLVED 2026-09-12)
 
 Found 2026-09-11 during BACKLOG #205's live verification (plan Task 7, step 3), the first time
@@ -1624,3 +1640,56 @@ channel-native way to offer "start at login" on Snap, and Flatpak's equivalent i
 Background/Autostart portal (`org.freedesktop.portal.Background.RequestBackground`). Neither is
 built; both are the deferred half of #185's ruling, now with two channels waiting on it. Not
 part of #205.
+
+## #208: Replace the Cinnamon applet with an XApp.StatusIcon owned by the app - no About/Remove, no Spices submission, native on Mint
+
+Decided by direflail 2026-09-12, after the Cinnamon applet sat on a real Cinnamon panel for the
+first time (the Mint host, during #205's Spices submission prep). Two things were found there,
+both real:
+
+1. Every Cinnamon *applet* carries **About…** and **Remove '<name>'** in its right-click menu -
+   Cinnamon adds them, and Mint's own review rules call them mandatory. None of direflail's other
+   tray icons have them, because those are *status icons* (XApp / StatusNotifier) displayed by
+   Cinnamon's built-in `xapp-status` applet, not applets. The 2026-08-28 tray redesign chose an
+   applet for Cinnamon and nobody showed direflail this consequence before the decision; it was
+   discovered on their panel instead. That is a process failure worth naming
+   (`feedback_show_final_output_before_shipping`): a UI-visible change needs to be *seen* before
+   it is decided, not described.
+2. The applet also had two latent bugs, both fixed the same night on the #205 branch and both
+   confirming it had never really been exercised: #196's "every item greyed" bug (never ported
+   from the GNOME tray), and captures started from the menu getting the menu itself baked in
+   (the applet fired the action before Cinnamon's menu had faded out).
+
+**The replacement, researched live 2026-09-12 (`currency-discipline`), no memory involved:**
+`XApp.StatusIcon` from libxapp - Mint's own, current tray library (3.2.x), the mechanism Mint's
+applications use. The icon belongs to the app process; Cinnamon's stock `xapp-status` applet
+displays it, so it gets the same plain menu as every other tray icon, nothing appended. Nothing
+to install on any channel, so the Spices submission and everything built for it go away.
+
+- **apt/PPA:** `gir1.2-xapp-1.0` is in Ubuntu noble (2.8.2) and resolute (3.2.2), Mint has 3.2.3.
+  One Depends line. The GI API on the Mint host exposes `primary-menu`/`secondary-menu` (plain
+  Gtk menus - `Gtk.Menu.new_from_model` on the menu model the app already exports for the GNOME
+  tray, with the app's action group inserted) and an `activate` signal for the left-click
+  region capture.
+- **Flatpak:** precedent is Warpinator (`flathub/org.x.Warpinator`, Mint's own app, GNOME runtime
+  49): `--own-name=org.x.StatusIcon.warpinator`, `--talk-name=org.x.StatusIconMonitor.*`, and
+  libxapp built as a module from `github.com/linuxmint/xapp` tag 3.2.2 with
+  `-Dapp-lib-only=true` (a build mode Mint added for exactly this). We copy that module and the
+  two lines with `orcshot`. The bus name is deterministic - read from libxapp's
+  `xapp-status-icon.c`: `org.x.StatusIcon.<prgname>` unless `name` is set to a valid 4-part
+  `org.x.StatusIcon.*` name - so `org.x.StatusIcon.orcshot`, no guessing.
+- **Snap:** unaffected (Cinnamon-on-Snap is out of scope by direflail's decision).
+- **GNOME:** unaffected; the Shell extension stays the tray there. XApp is used only when the
+  desktop is Cinnamon, chosen the same way first-run already tells the desktops apart.
+- **Cinnamon on Wayland:** xapp-status works over D-Bus, session-agnostic.
+
+**The one thing not proven by execution:** that the libxapp module builds inside *our* manifest
+(GNOME runtime 50; Warpinator's is 49). It goes in CI before this is called done.
+
+**Scope:** implement `XApp.StatusIcon` for Cinnamon in the app; add the Depends and the Flatpak
+module + two finish-args; delete `src/orcshot/resources/cinnamon-applets/`, its
+`debian/orcshot.install` lines, and the Cinnamon branch of first-run's install redirect. The
+Spices pieces (channels.yaml leaf, RELEASING.md step, `scripts/spices-sync.sh`, the
+`flatpak-cinnamon` dialog) are removed from the #205 branch before it lands, so this entry
+starts from a clean base. direflail's Spices fork
+(`artificialorctelligence/cinnamon-spices-applets`) can be deleted.

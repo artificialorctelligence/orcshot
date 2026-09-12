@@ -8,8 +8,8 @@ extension since the 2026-09-11 spec, see gnome_extension_setup.py).
 Where the extension's *files* come from is per channel and lives in
 ui/extension_install.py: the .deb installed them system-wide, Flatpak
 asks GNOME to fetch them from extensions.gnome.org, Snap sends the user
-there, and Flatpak on Cinnamon sends the user to Cinnamon Spices for
-the applet. Nothing here writes into the user's home on any channel.
+there. Cinnamon's tray needs no install step (BACKLOG #208). Nothing
+here writes into the user's home on any channel.
 See hotkey_setup.py's module
 docstring for how real conflicts on the dev machine (every one of the
 four defaults collided with something) motivated that question
@@ -132,14 +132,6 @@ def _finish_gnome_setup(settings_backend, desktop, parent=None) -> None:
             except GLib.Error as e:
                 print(f"[orcshot] enable_extension_live({uuid!r}) failed: {e}", file=sys.stderr)
     plan = plan_install(channel, desktop)
-    if plan is not None:
-        show_install_dialog(plan, parent)
-
-
-def _finish_cinnamon_setup(parent=None) -> None:
-    """Cinnamon's tray is an applet; the .deb installed it, Flatpak sends
-    the user to Cinnamon Spices, Snap does nothing (decided 2026-09-11)."""
-    plan = plan_install(detect_channel(), "cinnamon")
     if plan is not None:
         show_install_dialog(plan, parent)
 
@@ -348,8 +340,6 @@ def _run_dialog(parent, executable: str, settings_backend) -> None:
 
         if is_gnome:
             _finish_gnome_setup(settings_backend, "gnome", parent)
-        elif profile == "cinnamon":
-            _finish_cinnamon_setup(parent)
 
     mark_first_run_setup_done()
     dialog.destroy()
