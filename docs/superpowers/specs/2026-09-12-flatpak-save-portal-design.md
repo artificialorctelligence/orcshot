@@ -81,8 +81,17 @@ dialog otherwise. Per-site mechanics:
   ids, labels)` and `dialog.get_choice("format")` after ACCEPT. `add_choice` exists on
   `Gtk.FileChooser` since 3.22 for exactly this purpose; the portal renders it as a combo and
   the plain GTK dialog does too. The `on_format_changed` handler that renamed the suggested
-  filename live is dropped — the existing post-dialog `with_suffix` fix-up already makes the
-  extension match the chosen format.
+  filename live is dropped.
+- **A portal-given path is never renamed.** Found live (Scenario D, first run): the portal
+  registers a *file document* for exactly the confirmed name; any sibling name the app writes in
+  that document is backed by a `.xdp-<name>-XXXXXX` temp on the host and finalized only by a
+  rename onto the document's own name (`document-portal-fuse.c`). Save Screenshot's post-dialog
+  `with_suffix(format)` and Save Objects' `with_suffix(".json")` therefore stranded files.
+  `settings.is_portal_document_path(path)` (under `$XDG_RUNTIME_DIR/doc`) gates both: under
+  the portal the confirmed name is the file, its extension is the format (`save_image_to_file`
+  already encodes by extension), and when that differs from the "Save as type" choice an info
+  dialog says which format was written and that the extension decides. Outside the portal the
+  rename behaviour is unchanged.
 - `set_current_folder(get_output_directory())` is skipped when that folder is on the sandbox
   tmpfs (section 3's helper); pointing the portal at a path the host cannot see is at best
   ignored.
@@ -172,4 +181,4 @@ All on the CI-built Flatpak bundle, never on the dev checkout:
 2. `get_choice` returns the chosen id after ACCEPT through the portal on both -gtk/-xapp (Mint)
    and -gnome (VM) backends.
 3. `set_current_folder` on a `/run/user/…/doc/…` path is honoured by the portal (opens there) —
-   if not, harmless; note it.
+   if not, harmless; note it. **Result:** not honoured — the portal dialog opens in Home.
