@@ -48,6 +48,10 @@ The desktop is Cinnamon: `hotkey_setup.cinnamon_keybindings_available()`, the sa
 first-run already uses, on any channel. GNOME keeps the Shell extension tray; the two never
 coexist (a session is one desktop). Snap is untouched (Cinnamon-on-Snap is out of scope).
 
+Shipped as `ui/xapp_tray.py`'s `running_on_cinnamon()` (reads `XDG_CURRENT_DESKTOP`) instead:
+`cinnamon_keybindings_available()`'s GSettings-schema lookup is invisible inside the Flatpak
+sandbox - found live, answering False on a real Cinnamon desktop (BACKLOG #208 resolution).
+
 ### `ui/xapp_tray.py`
 
 One module, no class hierarchy:

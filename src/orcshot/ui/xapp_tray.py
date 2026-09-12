@@ -22,7 +22,7 @@ import gi
 gi.require_version("Gio", "2.0")
 gi.require_version("GLib", "2.0")
 gi.require_version("Gtk", "3.0")
-from gi.repository import Gio, GLib, Gtk
+from gi.repository import Gio, GLib, GObject, Gtk
 
 from orcshot.i18n import _
 
@@ -76,6 +76,21 @@ def build_menu(model: Gio.MenuModel, forward: Callable[[str], None], delay_ms: i
     return menu
 
 
+def bind_action_enabled_states(menu: Gtk.Menu, app) -> None:
+    """Mirrors each real `app.lookup_action(name)` action's `enabled`
+    onto its proxy in menu's "app" action group. Gtk.Menu.new_from_model
+    reads item sensitivity from that group, not from app itself, so
+    without this a disabled real action (e.g. tray-repeat_region
+    before the first capture) renders as clickable and silently drops
+    the forwarded activation (GSimpleAction ignores activate() while
+    disabled)."""
+    proxy = menu.get_action_group("app")
+    for name in proxy.list_actions():
+        real = app.lookup_action(name)
+        if real is not None:
+            real.bind_property("enabled", proxy.lookup_action(name), "enabled", GObject.BindingFlags.SYNC_CREATE)
+
+
 def _forward_once(forward, name) -> bool:
     forward(name)
     return GLib.SOURCE_REMOVE
@@ -108,7 +123,9 @@ def create_status_icon(app):
     icon = XApp.StatusIcon.new()
     icon.set_icon_name(ICON_NAME)
     icon.set_tooltip_text(_("Orcshot"))
-    icon.set_secondary_menu(build_menu(app._tray_menu, lambda name: app.activate_action(name, None)))
+    menu = build_menu(app._tray_menu, lambda name: app.activate_action(name, None))
+    bind_action_enabled_states(menu, app)
+    icon.set_secondary_menu(menu)
 
     def on_activate(_icon, button, _time):
         if button == 1:

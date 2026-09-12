@@ -234,7 +234,7 @@ class OrcshotApplication(Gtk.Application):
         # cannot see (found live 2026-09-12), while the env var crosses
         # the sandbox boundary.
         self._xapp_icon = None
-        if getattr(self, "_tray_menu", None) is not None and running_on_cinnamon():
+        if self._tray_menu is not None and running_on_cinnamon():
             # The D-Bus name is org.x.StatusIcon.orcshot on every launcher: main() sets the prgname.
             self._xapp_icon = create_status_icon(self)
         self._check_shell_extension_health()
@@ -402,12 +402,16 @@ class OrcshotApplication(Gtk.Application):
     def _remember_region(self, rect) -> None:
         self.last_region = rect
         # Updating the exported GAction's own `enabled` property is
-        # sufficient - it propagates to every real consumer (the GNOME
-        # Shell extension, or ui/xapp_tray.py's XApp status icon on
-        # Cinnamon) automatically over the org.gtk.Actions D-Bus
-        # interface (Gio.SimpleAction.set_enabled), no export/refresh
-        # step of our own needed the way the menu structure itself
-        # (_export_tray_menu) does.
+        # sufficient - it propagates to every real consumer with no
+        # export/refresh step of our own needed the way the menu
+        # structure itself (_export_tray_menu) does: the GNOME Shell
+        # extension picks it up automatically over the org.gtk.Actions
+        # D-Bus interface, and ui/xapp_tray.py's XApp status icon picks
+        # it up via the GObject property binding create_status_icon
+        # sets up between this action and its in-process proxy
+        # (bind_action_enabled_states) - the proxy action group
+        # Gtk.Menu.new_from_model actually reads item sensitivity from
+        # is not this action itself.
         if self._tray_repeat_action is not None:
             self._tray_repeat_action.set_enabled(True)
 

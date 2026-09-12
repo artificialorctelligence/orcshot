@@ -58,6 +58,25 @@ def test_build_menu_default_delay_is_150ms():
     assert forwarded == ["tray-region"]
 
 
+def test_bind_action_enabled_states_mirrors_the_real_actions_enabled_flag():
+    Gtk.init_check([])
+    real_actions = Gio.SimpleActionGroup()  # stand-in for the app: same lookup_action() as Gio.Application
+    disabled = Gio.SimpleAction.new("tray-repeat_region", None)
+    disabled.set_enabled(False)
+    real_actions.add_action(disabled)
+
+    model = Gio.Menu()
+    model.append("Repeat Last Region", "app.tray-repeat_region")
+    menu = xapp_tray.build_menu(model, lambda name: None)
+
+    xapp_tray.bind_action_enabled_states(menu, real_actions)
+    proxy = menu.get_action_group("app").lookup_action("tray-repeat_region")
+    assert proxy.get_enabled() is False
+
+    disabled.set_enabled(True)
+    assert proxy.get_enabled() is True
+
+
 def test_create_status_icon_without_xapp_returns_none_and_logs(monkeypatch, capsys):
     import gi as gi_module
     real = gi_module.require_version
