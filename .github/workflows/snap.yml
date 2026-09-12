@@ -107,7 +107,7 @@ jobs:
           # that and matches the real scenario Orcshot actually runs in.
           export XDG_RUNTIME_DIR=/run/user/$(id -u)
           export DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/$(id -u)/bus
-          nohup gnome-shell --headless --virtual-monitor 1024x768 > /tmp/shell.log 2>&1 &
+          nohup gnome-shell --headless --virtual-monitor 1024x768 --wayland-display wayland-9 > /tmp/shell.log 2>&1 &
           disown
           timeout 60 bash -c 'until grep -q "GNOME Shell started" /tmp/shell.log; do sleep 1; done' \
             || { echo "gnome-shell never logged its startup line"; cat /tmp/shell.log; exit 1; }
@@ -169,8 +169,14 @@ jobs:
           # name and log no traceback within 15 seconds.
           export XDG_RUNTIME_DIR=/run/user/$(id -u)
           export DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/$(id -u)/bus
-          export WAYLAND_DISPLAY=$(ls "$XDG_RUNTIME_DIR" | grep -m1 '^wayland-[0-9]*$' || echo wayland-0)
+          echo "sockets in $XDG_RUNTIME_DIR:"; ls -la "$XDG_RUNTIME_DIR" | grep -i "wayland\|X11\|bus" || true
+          SOCK=$(ls "$XDG_RUNTIME_DIR" | grep -m1 -E '^wayland-[0-9]+$' || true)
+          if [ -z "$SOCK" ]; then
+            echo "no Wayland socket from the headless Shell - it must be started with --wayland-display"; cat /tmp/shell.log | tail -20; exit 1
+          fi
+          export WAYLAND_DISPLAY="$SOCK" GDK_BACKEND=wayland
           export XDG_SESSION_TYPE=wayland XDG_CURRENT_DESKTOP=ubuntu:GNOME
+          echo "launching against WAYLAND_DISPLAY=$WAYLAND_DISPLAY"
           orcshot > /tmp/orcshot-gui.log 2>&1 &
           APP=$!
           timeout 15 bash -c 'until gdbus call --session --dest org.freedesktop.DBus --object-path /org/freedesktop/DBus --method org.freedesktop.DBus.NameHasOwner org.orcshot.Orcshot | grep -q true; do sleep 1; done' \
