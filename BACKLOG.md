@@ -421,6 +421,18 @@ both of which have changed before and neither of which should be reconstructed f
 real, irreversible, externally-visible publication, and Orclab's own `CLAUDE.md` puts that
 squarely outside a session centred on the framework.
 
+**Update 2026-09-11 - Snap half started, then blocked on a code change: see #205.** `snapcraft
+login` and `snapcraft register orcshot` are done (checks: `snapcraft whoami`, `snapcraft names`;
+`snap info orcshot` stays "no snap found" until a revision is released, so it is the confirmation
+test, not the registration test). Live research of current store policy then showed the first
+upload would be held for human review twice: the `dbus` slot (routine, ~2 days) and the
+`personal-files` write to `~/.local/share/gnome-shell/extensions` (plausibly never granted - a
+near-identical write request was refused two weeks earlier as a confinement escape). Decision:
+distribute the extensions via extensions.gnome.org and drop the plug, which is Orcshot code work
+and must land before this entry's `/orc-package snap` step is applied. #205 holds the full
+research list and the spec. No `snap` ingredient exists yet in either Orclab location; capturing
+one is the step after #205.
+
 ## #197: A real setup step for apt/snap/flatpak publishing - credentials/signing, tailored per channel and per machine
 
 *(Renumbered from #196 to #197 on 2026-09-07, when merging main into BACKLOG #189's branch: both
@@ -1375,3 +1387,143 @@ enumeration (`gdk_screen_layout`), not a GNOME-specific API, so in principle a d
 Mutter's proven-always-non-negative guarantee. Not checked, and not urgent: orcshot's Wayland support is
 built around a bundled GNOME Shell extension and isn't a supported target on other compositors anyway -
 revisit only if that ever changes.
+
+## #205: Spec the Snap-compliant GNOME Shell extension delivery (extensions.gnome.org instead of a personal-files home write) - and research every open gap before designing, so this does not become another refactor found on the way in
+
+Raised 2026-09-11 while starting #198's Snap half for real. `snapcraft login` and
+`snapcraft register orcshot` were done that night (name registered public, account
+`artificialorctelligence`, login expires 2027-09-11, checkable with `snapcraft names` and
+`snapcraft whoami`). Live research of the store's current review policy then showed that the
+first upload of the snap as it stands would be held for human review on two counts, and that one
+of them may never be granted. direflail's instruction on creating this entry: spec the change out,
+and first research everything still unknown about it - "I've had enough of walking into unexpected
+situations causing refactors, let's put this to bed." So this entry is deliberately the research
+list as much as the change, and the spec it produces must not leave any item below undecided.
+
+**What is proven (live, 2026-09-11), not remembered:**
+- Any use of the `personal-files` interface needs an approved snap declaration before a revision
+  can be released to any channel (snapcraft.io's own interface reference). Our plug
+  `dot-local-share-gnome-shell` writes to `$HOME/.local/share/gnome-shell/extensions`.
+- On 2026-09-03/04 the store refused AppImage-Installer's `personal-files` *write* access to
+  `~/.local/bin` and `~/.local/share/applications` as "a trivial confinement escape" - refused
+  even for manual connect, after 8 days, and the developer deleted the snap
+  (forum.snapcraft.io/t/52903). Orcshot's plug is that pattern in a sharper form: a confined
+  process writing JavaScript into the directory the *unconfined* GNOME Shell loads and executes.
+  No snap was found that has ever been granted write to `gnome-shell/extensions`.
+- The `dbus` slot for `org.orcshot.Orcshot` also triggers "human review required due to
+  'deny-connection' constraint", but that one is routine for an app-owned session name: BusyMax
+  asked 2026-06-23, granted 2026-06-25, later uploads pass automatically (forum t/51941).
+- The store checks only what the snap *declares*, never whether features work. A degraded snap
+  passes review exactly as easily as a full one.
+- Under strict confinement, Orcshot cannot *call* `org.gnome.Shell` at all (AppArmor, #184,
+  live-tested), so today the `personal-files` write only ever buys Snap users the tray extension
+  (Shell-to-app direction, proven in #184). `orcshot-clipboard` and `window-calls` get copied and
+  enabled but never answer; the app already falls back to the portal-based
+  `WaylandCaptureBackend`/`WaylandClipboardBackend`.
+- Read from the code, not live-tested: Snap first-run (`ui/first_run_setup.py`) also copies the
+  Cinnamon applet to `$SNAP_REAL_HOME/.local/share/cinnamon/applets`, a path the plug does not
+  grant. Under confinement that copy fails on every desktop including GNOME, `all_installed`
+  goes False, and `show_snap_connect_prompt` shows on every launch - a prompt whose `snap connect`
+  cannot fix it. CI never sees this because `snap.yml` only exercises the GNOME path. Not tracked
+  separately: the change this entry specs deletes that code path outright.
+
+**The change to spec (alternative chosen 2026-09-11 over petitioning for the declaration):**
+distribute the three GNOME Shell extensions through extensions.gnome.org. The snap then writes
+nothing into the home directory: Snap first-run tells the user the Orcshot extension is needed
+and sends them to install it, then detects it via the `org.gnome.shell enabled-extensions`
+GSettings read that `snap.yml` already proves works under confinement (#192). The
+`personal-files` plug, `show_snap_connect_prompt`, the copy-into-home path, and the
+`snap connect` step in `snap.yml` all go. The only store gate left is the routine `dbus` slot.
+This complies by construction rather than by petition, and costs the user no more friction than
+today's design, which already requires a manual `snap connect` that never auto-connects.
+
+**Research list - every one of these is a gap as of 2026-09-11, and the spec must close each
+with a live-verified answer or an explicit decision, never an assumption:**
+1. Run the store's own reviewer locally before anything else: `snap install review-tools`, then
+   `review-tools.snap-review` on the snap CI already built (run 34188615922, `dd63e61`). That is
+   the exact store verdict on the current `snapcraft.yaml`, on paper, and it may list things
+   beyond the two above. It becomes the pre-upload check in the snap ingredient (#198).
+2. extensions.gnome.org's current submission process and policies: per-extension listing, review
+   on every update (not just the first), current turnaround (unverified - said "days" once, may be
+   weeks), UUID/naming rules, required `metadata.json` fields (`shell-version` ranges,
+   `session-modes`), and anything that would reject code that imports from
+   `resource:///org/gnome/shell/` the way `orcshot-clipboard` imports GrabHelper.
+3. `window-calls@domandoman.xyz` is our patched fork of ickyicky/window-calls, which is itself on
+   EGO. Decide: upstream the four fixes (is upstream maintained?), or publish a renamed fork under
+   a new UUID (EGO rejects duplicate UUIDs; GPL-2.0-or-later terms carry). Either way the app's
+   `WINDOW_CALLS_EXTENSION_UUID` may change.
+4. How a stock Ubuntu 24.04/26.04 user actually installs from EGO today. The in-browser install
+   needs the browser connector Ubuntu no longer ships; `gnome-extensions install` takes a local
+   zip; Extension Manager is a Flatpak. The snap cannot download anything itself. Which path do we
+   send the user down, from inside strict confinement, and does `xdg-open` to the EGO URL through
+   the `desktop` interface's OpenURI portal work there (assumed, not tested)?
+5. The version handshake. Extension updates will arrive through GNOME's own EGO update mechanism
+   on its own schedule, decoupled from app releases. Which side declares compatibility, how a
+   mismatch is detected and surfaced, and whether a user-dir EGO copy shadowing a `.deb`'s
+   system-wide copy (user copies win in GNOME Shell) can produce a mismatch on the *deb* channel
+   too. The existing `metadata.json` `version` field (#191) is the raw material.
+6. Whether the same change should apply to Flatpak in the same pass. The manifest today grants
+   `--filesystem=~/.local/share/gnome-shell/extensions:create` for the same copy-into-home
+   design; Flathub reviewers scrutinize home filesystem grants the same way. If the EGO route
+   drops that override too, it simplifies #198's Flathub half and must be decided now, not found
+   during that submission.
+7. Whether the `.deb` keeps bundling the extensions system-wide (presumably yes - nothing forces a
+   change) and what the first-run dialog says on each channel once the three diverge.
+8. Cinnamon: snapd is blocked by default on Linux Mint, so a Snap-on-Cinnamon user is close to
+   nonexistent. Decide whether the snap's first-run drops the Cinnamon applet install entirely,
+   and whether Cinnamon Spices is ever worth a listing. The `.deb` is unaffected.
+9. The one thing the EGO route does not fix: `orcshot-clipboard` and `window-calls` still cannot
+   be *called* from a strict snap. #184 proved the inversion for the tray (Orcshot exports on its
+   own `dbus` slot, the unconfined extension reaches in). Whether the same inversion works for
+   request/response features - the extension subscribing to signals the confined app emits on its
+   own connection and calling results back - is a hypothesis from that precedent, never tested.
+   The spec must decide whether that is in this change's scope or explicitly deferred with its
+   own entry; it must not be left implied.
+10. Release strategy: the store has `stable`/`candidate`/`beta`/`edge`. Releasing to `edge` or
+    `beta` first gets the `dbus` declaration granted and the pipeline exercised without the public
+    `stable` listing. Review holds apply to every channel. Also the one-time store listing (icon,
+    screenshots, category) lives in the snapcraft.io dashboard, not `snapcraft.yaml`, and the snap
+    is amd64-only because CI builds one architecture - both to be stated in RELEASING.md's
+    one-time setup, not discovered at release time.
+
+**Scope boundary:** this is a code and design change to Orcshot's extension delivery and Snap
+first-run, and it must land *before* `/orc-package snap` is applied - the `personal-files` plug
+in `snapcraft.yaml` on the first upload would hold that upload regardless of anything decided
+afterwards. #198 stays the entry for the publish mechanism itself (ingredient, `channels.yaml`
+leaf, RELEASING.md steps); it now depends on this one for Snap. #186 (metrics) and #197
+(credentials) are unchanged. Deliverable: a spec under `docs/superpowers/specs/` via
+`superpowers:brainstorming`, with the ten items above each answered in it, then a plan.
+
+**Update 2026-09-11 (later the same day) - research done, scope widened by two decisions.**
+Items 1, 2, 3, 4, 5, 6 and 9 are closed with live evidence (notes carried into the spec):
+`review-tools` on the CI-built 0.3.0 snap fails on exactly the two predicted holds and on
+nothing else, and with only the plug removed the `dbus` slot is the sole hold; a stock Ubuntu
+26.04 has no EGO install helper at all (no Extensions app, no Extension Manager, no browser
+connector - all in universe, none seeded), so "send the user to EGO" does not work as written;
+the sanctioned paths differ per channel - Flatpak calls `org.gnome.Shell.Extensions.InstallRemoteExtension`
+(already permitted by our `--talk-name=org.gnome.Shell`; exactly how Extension Manager on
+Flathub does it, with no filesystem grant), Snap bundles a packed zip and the user runs
+`gnome-extensions install` once, since no snapd interface grants `org.gnome.Shell.Extensions`;
+GNOME Shell's own `extensionDownloader.js` forces any per-user copy of an EGO-listed UUID to
+EGO's version on login (upgrade *and* downgrade), so EGO owns the version once published; EGO
+overwrites `metadata.json`'s `version` with its own counter, which breaks #191's comparison the
+moment we publish. And item 9 is proven, not hypothesised: on the VM, inside the #184 strict
+test snap (same interface set as the real one), a stateful GAction state change reached an
+unconfined listener as `org.gtk.Actions.Changed` and the listener's method call back into the
+confined app was answered - zero AppArmor denials. snapd's own `dbus.go`/`desktop.go` confirm
+why: the slot grants receive-from-unconfined on the app's name and path, and `desktop` grants
+exactly that one signal outbound.
+
+Decisions taken with direflail: **one merged extension** (`orcshot@orcshot.org`; three UUIDs
+would mean three EGO listings and three reviews per update, and EGO rejects unrenamed forks
+anyway); **capability handshake** - the extension calls the app on enable with what it can do,
+rather than a version compare; **the inversion is in scope** (one code path across all three
+channels, one EGO review instead of two, and the `.deb` on the VM is the ungated test bed for
+it); **the snap does nothing for Cinnamon** (Mint blocks snapd by default and ships Flathub, so
+Mint = PPA or Flatpak); and **EGO is a fourth channel in its own right**, not a snap detail:
+its own account, one-time first-submission review, per-release `gnome-extensions upload`
+(verified present on GNOME 50; absent on the Mint host, so it runs where GNOME Shell lives),
+its own confirmation via the `extension-info` API, and an `ego` ingredient captured for Orclab
+alongside `snap` and `flatpak`. Its RELEASING.md step is deliberately not a gate on the app
+channels - review lag is unbounded, so the app must tolerate one release of extension skew,
+which is what the capability handshake buys. Items 7, 8 and 10 are settled by those decisions.
