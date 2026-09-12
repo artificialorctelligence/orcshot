@@ -3403,18 +3403,11 @@ class EditorWindow(Gtk.Window):
         title = title or _("Save Screenshot")
         self._commit_text_editing_if_active()
         output_settings = get_output_settings()
-        dialog = Gtk.FileChooserDialog(
-            title=title, transient_for=self, action=Gtk.FileChooserAction.SAVE
-        )
-        dialog.add_buttons(
-            Gtk.STOCK_CANCEL, Gtk.ResponseType.CANCEL,
-            Gtk.STOCK_SAVE, Gtk.ResponseType.OK,
-        )
-        dialog.set_current_folder(str(get_output_directory()))
+        dialog = Gtk.FileChooserNative(title=title, transient_for=self, action=Gtk.FileChooserAction.SAVE)
+        directory = get_output_directory()
+        if output_directory_is_reachable(directory):
+            dialog.set_current_folder(str(directory))
 
-        format_combo = Gtk.ComboBoxText()
-        for value, label in _SAVE_AS_FORMATS:
-            format_combo.append(value, label)
         # "orcshot" only here, not in _SAVE_AS_FORMATS - that list is
         # shared with the Output tab's "Primary format" dropdown
         # (quick-save's default raster format), and this isn't a valid
@@ -3423,27 +3416,23 @@ class EditorWindow(Gtk.Window):
         # "bmp, gif, jpg, png, tiff" - "greenshot" is a Save-As-only
         # format on Windows too, never a quick-save default there
         # either (ICoreConfiguration.cs:130-132).
-        format_combo.append("orcshot", "Orcshot")
-        format_combo.set_active_id(output_settings.primary_format)
-        if format_combo.get_active_id() is None:
-            format_combo.set_active_id("png")
-
-        def on_format_changed(combo: Gtk.ComboBoxText) -> None:
-            dialog.set_current_name(f"screenshot.{combo.get_active_id()}")
-
-        format_combo.connect("changed", on_format_changed)
-        extra = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
-        extra.pack_start(Gtk.Label(label=_("Save as type:")), False, False, 0)
-        extra.pack_start(format_combo, False, False, 0)
-        extra.show_all()
-        dialog.set_extra_widget(extra)
-        dialog.set_current_name(f"screenshot.{format_combo.get_active_id()}")
+        formats = list(_SAVE_AS_FORMATS) + [("orcshot", "Orcshot")]
+        # A chooser *choice* rather than set_extra_widget: choices are
+        # the one custom control the FileChooser portal carries into
+        # its dialog (BACKLOG #210); the plain GTK dialog shows them as
+        # a combo too. The live rename on change that the old combo did
+        # is gone - the with_suffix fix-up below already makes the
+        # extension follow the chosen format.
+        dialog.add_choice("format", _("Save as type:"), [v for v, _l in formats], [l for _v, l in formats])
+        initial = output_settings.primary_format if output_settings.primary_format in dict(formats) else "png"
+        dialog.set_choice("format", initial)
+        dialog.set_current_name(f"screenshot.{initial}")
         dialog.set_do_overwrite_confirmation(True)
 
         saved = False
         try:
-            if dialog.run() == Gtk.ResponseType.OK:
-                output_format = format_combo.get_active_id()
+            if dialog.run() == Gtk.ResponseType.ACCEPT:
+                output_format = dialog.get_choice("format") or initial
                 path = Path(dialog.get_filename())
                 if path.suffix.lower().lstrip(".") != output_format:
                     path = path.with_suffix(f".{output_format}")
