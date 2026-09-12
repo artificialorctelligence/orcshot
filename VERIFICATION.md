@@ -118,3 +118,42 @@ Scenarios for docs/superpowers/specs/2026-09-12-xapp-status-icon-design.md, all 
 - Two stale Flatpak instances survived a `kill` of the wrong PIDs during this pass; use
   `flatpak kill org.orcshot.Orcshot`, then confirm both names have one owner with
   `gdbus ... GetNameOwner` before judging anything.
+
+## Scenario 3: Flatpak Save through the file-chooser portal (spec 2026-09-12)
+
+Scenarios for docs/superpowers/specs/2026-09-12-flatpak-save-portal-design.md, 2026-09-12, on
+the CI bundle from PR #25 (run 34717483024, `flatpak install --user --reinstall`). The bus
+name owner was checked before every scenario (`GetConnectionUnixProcessID` + `/proc/<pid>/root/
+.flatpak-info`): the first attempt on the Mint host had been answered by the installed .deb tray
+app, which owns `org.orcshot.Orcshot` and silently takes over a Flatpak launch - quit it
+(`tray-quit`) before testing the Flatpak. Captures triggered with `gdbus ... Activate
+tray-full_screen`, the picker driven with xdotool.
+
+- **C. Out of the box (Mint host, Cinnamon/X11).** No `output_directory` in the Flatpak's
+  config, host has `~/Pictures`. *Save*: no dialog; `~/Pictures/Screenshots/2026-09-12
+  15_25_16.png` on the host (4480x1440 PNG); the Flatpak's own `filename_counter` advanced. —
+  PASS.
+- **A. Folder outside the grant (Mint host).** `output_directory` = `~/Screenshots`. *Save*:
+  the *Screenshot Save Location* dialog appeared once, owned by `xdg-desktop-portal-gtk` (PID
+  4582, a host process), showing the real home; picked `~/Screenshots`; file landed there; config
+  now `/run/user/1000/doc/7c103d25/Screenshots`. Second *Save*: no dialog, second file. — PASS.
+- **B. Restart persistence (Mint host).** `flatpak kill`, relaunch (new PID), *Save*: no dialog,
+  third file; `/run/user/1000/doc/7c103d25/Screenshots` still mounted. — PASS.
+- **D. Save As with the format choice (Mint host).** The portal save dialog shows *Save as
+  type:* with PNG/JPEG/BMP/TIFF/GIF/Orcshot. Typed `~/Screenshots/portal-test.jpg` + JPEG →
+  real JPEG on the host (`file`). Typed `portal-noext` + JPEG → the *Saved as PNG* info dialog,
+  then `~/Screenshots/portal-noext`, a PNG. — PASS. **First run of this scenario failed** and
+  found the never-rename rule (spec §2): `with_suffix(".jpg")` on the portal path left
+  `~/Screenshots/.xdp-portal-test.jpg-VWhcUm` - complete, never finalized. Fixed in d1452c2,
+  re-verified on the second bundle. The -gtk portal ignores `set_current_folder` on a doc path
+  (opens Home); the -gnome one honours it (opened `Home/Screenshots`).
+- **E. Insert Image through the portal (Mint host).** `~/Downloads/orcshot-insert-test.jpg`
+  (outside Pictures) picked in the portal dialog (PID 4582); the image appeared on the canvas. —
+  PASS.
+- **F. Ubuntu 26.04 / GNOME 50 / Wayland VM.** Bundle installed; launched via `systemd-run
+  --user` (inherits `WAYLAND_DISPLAY`; startup line says `session_type=wayland`; extension
+  ACTIVE, Shell-native picker). `output_directory` = `~/Screenshots`: *Save* → GNOME's portal
+  folder picker once → `~/Screenshots/2026-09-12 15_48_52.png`; config now
+  `/run/user/1000/doc/e4453c62/Screenshots`; second *Save* → no dialog, `15_49_57.png`. — PASS.
+- Not verified: Save Objects under the portal (same guard as D, not separately run); Cinnamon
+  on Wayland.

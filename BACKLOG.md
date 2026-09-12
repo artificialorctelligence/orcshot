@@ -1733,7 +1733,7 @@ exactly that one error (the linter supports `--exceptions` for a local exception
 step greps the JSON), never a blanket pass. If Flathub refuses, Flatpak-on-Cinnamon has no
 tray icon - the state it is in today - and nothing else changes.
 
-## #210: Under Flatpak, Save writes nowhere: the sandbox has no grant for the output directory and Save does not use the file-chooser portal
+## #210: Under Flatpak, Save writes nowhere: the sandbox has no grant for the output directory and Save does not use the file-chooser portal (RESOLVED 2026-09-12)
 
 Found 2026-09-12 on the Mint host while accepting #208's XApp tray on the CI-built Flatpak:
 direflail chose *Capture Full Screen → Save* from the tray menu and no file appeared anywhere -
@@ -1758,6 +1758,23 @@ check the other destinations the same way (Save As, Open File, external commands
 **Scope boundary:** Flatpak only; the .deb and the snap (which has `home` via its plugs? -
 verify, the snap's `home` plug was in the #184 test snap, not necessarily in snapcraft.yaml)
 are separate questions. Not part of #208.
+
+**Resolved for real, not just tracked** (2026-09-12, spec `docs/superpowers/specs/2026-09-12-
+flatpak-save-portal-design.md`, PR #25): why it was *silent* is proven, not inferred - the
+sandbox's `$HOME` is its own tmpfs, so `mkdir` and the write succeed and the file evaporates at
+exit. Option (c) shipped: `--filesystem=xdg-pictures:create` (the grant Flameshot/Kooha carry on
+Flathub) makes the out-of-box `~/Pictures/Screenshots` work with no dialog; every
+`Gtk.FileChooserDialog` (nine sites) became `Gtk.FileChooserNative`, the portal dialog under
+Flatpak and the plain GTK one elsewhere (a grep test pins it); quick Save on both paths goes
+through `destination_picker.ensure_output_directory`, which detects the tmpfs by `st_dev ==
+/`'s and runs the Screenshot Save Location picker once - the portal's document grant is
+persistent. Verified on the CI bundle: VERIFICATION.md Scenario 3, A-F all PASS on the Mint host
+(Cinnamon/X11, -gtk portal) and the Ubuntu 26.04 GNOME 50 Wayland VM (-gnome portal), including
+restart persistence. The "check the other destinations" ask found two more things, tracked as
+#212 (snap: no `home` plug) and #213 (external commands can't reach host apps under Flatpak),
+and one rule nobody anticipated: a portal-given path must never be renamed (the document portal
+strands sibling names as `.xdp-` temp files) - `settings.is_portal_document_path` now guards
+the two sites that did.
 
 ## #211: Flatpak on Cinnamon: hotkey auto-setup silently skipped (schema check invisible in sandbox)
 
