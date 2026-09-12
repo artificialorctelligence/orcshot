@@ -160,6 +160,27 @@ jobs:
           fi
           echo "Extension loaded from the persisted write alone, no JS errors logged"
 
+      - name: "Launch the real GUI under the headless Shell; do_startup must survive (BACKLOG #206)"
+        run: |
+          # `orcshot --help` exits before do_startup ever runs, which is how
+          # a snap whose main window had never opened passed this job for
+          # weeks. The headless Shell above exposes a Wayland socket, so
+          # launch the actual app against it and require it to own its bus
+          # name and log no traceback within 15 seconds.
+          export XDG_RUNTIME_DIR=/run/user/$(id -u)
+          export DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/$(id -u)/bus
+          export WAYLAND_DISPLAY=$(ls "$XDG_RUNTIME_DIR" | grep -m1 '^wayland-[0-9]*$' || echo wayland-0)
+          export XDG_SESSION_TYPE=wayland XDG_CURRENT_DESKTOP=ubuntu:GNOME
+          orcshot > /tmp/orcshot-gui.log 2>&1 &
+          APP=$!
+          timeout 15 bash -c 'until gdbus call --session --dest org.freedesktop.DBus --object-path /org/freedesktop/DBus --method org.freedesktop.DBus.NameHasOwner org.orcshot.Orcshot | grep -q true; do sleep 1; done' \
+            || { echo "the app never owned org.orcshot.Orcshot"; cat /tmp/orcshot-gui.log; exit 1; }
+          sleep 3
+          if grep -q "Traceback" /tmp/orcshot-gui.log; then echo "do_startup crashed:"; cat /tmp/orcshot-gui.log; exit 1; fi
+          kill -0 $APP || { echo "the app exited"; cat /tmp/orcshot-gui.log; exit 1; }
+          echo "GUI launched and stayed up:"; cat /tmp/orcshot-gui.log
+          kill $APP
+
       - name: "Hello and one list-windows round trip through the confined app (spec 2026-09-11 §6)"
         run: |
           export XDG_RUNTIME_DIR=/run/user/$(id -u)

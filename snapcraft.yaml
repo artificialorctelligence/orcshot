@@ -41,6 +41,16 @@ apps:
       # GIO_EXTRA_MODULES is GLib's own documented variable for adding
       # extra module search directories without replacing the default one.
       GIO_EXTRA_MODULES: $SNAP/usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR/gio/modules
+      # BACKLOG #206: gdk-pixbuf 2.42 detects image formats through GIO's
+      # content-type sniffing, which needs the shared-mime-info database
+      # on XDG_DATA_DIRS. Inside the snap that variable was empty and the
+      # base has no /usr/share/mime, so every image (the app's own icon
+      # first) was "application/octet-stream" and do_startup crashed on
+      # Gtk.Window.set_default_icon_from_file - the snap's GUI had never
+      # launched. Confirmed live by injecting a compiled mime database
+      # into the sandbox and watching the same call succeed. The compiled
+      # database itself is produced in override-prime below.
+      XDG_DATA_DIRS: $SNAP/usr/share:/usr/share
     plugs:
       - x11
       - wayland
@@ -95,12 +105,17 @@ parts:
       - python3-gi-cairo
       - python3-cairo
       - libglib2.0-bin
+      # BACKLOG #206: update-mime-database, run in override-prime.
+      - shared-mime-info
     build-environment:
       - PARTS_PYTHON_VENV_ARGS: "--system-site-packages"
     stage-packages:
       - python3-gi
       - python3-gi-cairo
       - python3-cairo
+      # BACKLOG #206: explicit, though a dependency already dragged it in -
+      # override-prime compiles its database and XDG_DATA_DIRS points at it.
+      - shared-mime-info
       - python3-numpy
       - python3-shapely
       - python3-xlib
@@ -147,3 +162,8 @@ parts:
       # glib-compile-schemas). Compile it explicitly so
       # Gio.SettingsSchemaSource.get_default() can find it.
       glib-compile-schemas "$CRAFT_PRIME/usr/share/glib-2.0/schemas"
+      # BACKLOG #206: the same class of gap for shared-mime-info - it ships
+      # packages/freedesktop.org.xml and a real install compiles mime.cache
+      # and magic via a dpkg trigger that staging never runs. Without them
+      # GIO cannot sniff a PNG and gdk-pixbuf refuses every image.
+      update-mime-database "$CRAFT_PRIME/usr/share/mime"

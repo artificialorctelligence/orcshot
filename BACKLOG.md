@@ -1527,3 +1527,50 @@ its own confirmation via the `extension-info` API, and an `ego` ingredient captu
 alongside `snap` and `flatpak`. Its RELEASING.md step is deliberately not a gate on the app
 channels - review lag is unbounded, so the app must tolerate one release of extension skew,
 which is what the capability handshake buys. Items 7, 8 and 10 are settled by those decisions.
+
+## #206: The snap's GUI has never launched: gdk-pixbuf has no loaders.cache under confinement, so Gtk.Window.set_default_icon_from_file crashes do_startup
+
+Found 2026-09-11 during BACKLOG #205's live verification (plan Task 7, step 3), the first time
+anyone launched the Orcshot snap as a GUI app rather than `orcshot --help`. Under strict
+confinement `do_startup` dies on its second line:
+
+    gi.repository.GLib.GError: gdk-pixbuf-error-quark: Couldn't recognize the image file format
+    for file "/snap/orcshot/x1/lib/python3.12/site-packages/orcshot/resources/orcshot.png" (3)
+
+Confirmed pre-existing, not introduced by #205: the `main`-branch snap (CI run 34188615922,
+dd63e61) crashes identically when launched the same way (`systemd-run --user ... snap run
+orcshot` inside the 26.04 VM's graphical session). It has always been this way; CI's
+`verify-snap` job runs `orcshot --help`, which exits before `do_startup`, and every other check
+in that job is a Python snippet under `snap run --shell`. So the store-declaration work (#198,
+#205) was being done for a snap whose main window has never opened. The tray icon still
+appears for a second before the crash because the bus name is owned before the icon load.
+
+**Root cause, read inside the confined shell, not assumed:** the PNG loader *is* staged
+(`$SNAP/usr/lib/x86_64-linux-gnu/gdk-pixbuf-2.0/2.10.0/loaders/` is populated) but there is no
+`loaders.cache` beside it and neither `GDK_PIXBUF_MODULE_FILE` nor `GDK_PIXBUF_MODULEDIR` is
+set, so gdk-pixbuf consults its compiled-in default path under the core24 base, which has no
+loaders at all. Same class of gap as #192's `GSETTINGS_SCHEMA_DIR` / `GIO_EXTRA_MODULES` findings:
+a dpkg trigger (`gdk-pixbuf-query-loaders` via libgdk-pixbuf-2.0-0's postinst) that a real apt
+install runs and snapcraft's staging never does, plus an environment variable the `gnome`
+snapcraft extension would have set and this hand-rolled snapcraft.yaml does not.
+
+**Fix (this branch, since #205's snap verification is blocked on it):** run
+`gdk-pixbuf-query-loaders` in `override-prime` to write `loaders.cache` with `$SNAP`-relative
+paths, and set `GDK_PIXBUF_MODULE_FILE` in the app's `environment:`. Verified by the same
+launch method once CI rebuilds the snap. `verify-snap` also gains a real GUI launch so this
+class of crash cannot hide behind `--help` again.
+
+**Scope boundary:** snap only. The Flatpak uses the GNOME runtime, which carries its own loader
+cache; the .deb installs via apt, whose trigger runs. Neither is affected.
+
+**Correction, same session, after testing the fix in place:** the root cause is one layer
+lower than the loader cache. A `loaders.cache` generated inside the sandbox and passed via
+`GDK_PIXBUF_MODULE_FILE` changed nothing, and `PixbufLoader.new_with_type("png")` decoded the
+file fine - so the loaders were never the problem. gdk-pixbuf 2.42 detects a file's format
+through GIO's `g_content_type_guess`, which inside the snap answered `application/octet-stream`
+for a real PNG: `XDG_DATA_DIRS` is empty there, the core24 base has no `/usr/share/mime`, and
+the staged `shared-mime-info` carries only `packages/freedesktop.org.xml` because
+`update-mime-database` is a dpkg trigger staging never runs (#192's pattern exactly). Injecting a
+compiled mime database into the sandbox's private /tmp and setting `XDG_DATA_DIRS` to it made
+`set_default_icon_from_file` succeed on the spot. The fix is therefore `update-mime-database`
+in `override-prime` plus `XDG_DATA_DIRS: $SNAP/usr/share:/usr/share` in the app environment.
