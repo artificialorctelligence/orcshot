@@ -43,3 +43,20 @@ def test_request_gnome_install_asks_the_shell():
         "org.gnome.Shell", "/org/gnome/Shell", "org.gnome.Shell.Extensions", "InstallRemoteExtension",
         ("orcshot@orcshot.org",),
     )
+
+
+def test_show_install_dialog_is_a_no_op_when_the_extension_already_said_hello(monkeypatch):
+    """Found live on the 26.04 VM: Hello arrives the moment the app owns
+    its bus name, before first-run has built any dialog, so a listener
+    registered by the dialog never fires and the dialog sits there asking
+    the user to install something that is already running."""
+    from orcshot.capture import shell_bridge
+    from orcshot.ui import extension_install
+
+    class Bridge:
+        capabilities = frozenset({"tray"})
+        def on_capabilities_changed(self, cb): pytest.fail("must not subscribe")
+
+    monkeypatch.setattr(shell_bridge, "_bridge", Bridge())
+    monkeypatch.setattr(extension_install.Gtk, "Dialog", lambda **kw: pytest.fail("must not build a dialog"))
+    extension_install.show_install_dialog("flatpak-gnome")

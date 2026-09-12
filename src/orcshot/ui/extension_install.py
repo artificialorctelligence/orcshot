@@ -111,9 +111,18 @@ _TEXT = {
 
 
 def show_install_dialog(plan: str, parent: Gtk.Window = None) -> None:
+    bridge = get_bridge()
+    if bridge.capabilities:
+        # Hello already arrived - the extension/applet is running (it says
+        # so the moment the app owns its bus name, usually before this
+        # dialog could exist). Nothing to install; found live on the VM.
+        return
     title, body, action_label, url = _TEXT[plan]
     dialog = Gtk.Dialog(title=_("Orcshot Setup"), transient_for=parent)
     dialog.add_buttons(_("Later"), Gtk.ResponseType.CANCEL, action_label, Gtk.ResponseType.OK)
+    # Enter means "do it", not "Later" - GTK otherwise focuses the first
+    # button added (found live: Enter on the VM dismissed the dialog).
+    dialog.set_default_response(Gtk.ResponseType.OK)
     box = dialog.get_content_area()
     heading = Gtk.Label(label=f"<b>{GLib.markup_escape_text(title)}</b>", use_markup=True, xalign=0)
     text = Gtk.Label(label=body, wrap=True, xalign=0, max_width_chars=70)
@@ -123,8 +132,6 @@ def show_install_dialog(plan: str, parent: Gtk.Window = None) -> None:
         widget.set_margin_top(8)
         box.add(widget)
     box.show_all()
-
-    bridge = get_bridge()
 
     def on_capabilities(capabilities):
         # Hello arrived: the extension/applet is running. Done.
