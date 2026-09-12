@@ -60,7 +60,9 @@ editor_window.py's _do_insert_image uses.
 
 from __future__ import annotations
 
+import logging
 from datetime import datetime
+from pathlib import Path
 
 import numpy as np
 import gi
@@ -82,12 +84,15 @@ from orcshot.settings import (
     get_output_directory,
     get_output_settings,
     get_reuse_editor,
+    output_directory_is_reachable,
 )
 from orcshot.ui.composite import composite_to_numpy
 from orcshot.ui.external_commands import run_external_command
 from orcshot.ui.file_export import save_image_to_file
 from orcshot.ui.icons import destination_icon_geometry_key, destination_icon_image
 from orcshot.ui.printing import print_image
+
+_LOG = logging.getLogger(__name__)
 
 
 def _rgba_to_color(rgba: Gdk.RGBA) -> tuple:
@@ -161,6 +166,33 @@ def _open_editor(image: np.ndarray, cursor_shape: CursorShape = None, title: str
     editor.present()
 
 
+def _choose_location(parent) -> None:
+    # Lazy, like _open_editor's EditorWindow import above: editor_window
+    # is the heavy module and destination_picker is imported first.
+    from orcshot.ui.editor_window import _choose_save_location
+    _choose_save_location(parent)
+
+
+def ensure_output_directory(parent: Gtk.Window = None) -> Path | None:
+    """The folder quick Save writes into, or None if there is none
+    (BACKLOG #210). Under Flatpak the configured folder may sit on the
+    sandbox's own tmpfs, where a write succeeds and evaporates; when it
+    does, run the Screenshot Save Location picker once - through the
+    portal, whose document grant is persistent - and re-check. Shared by
+    this module's _quick_save and EditorWindow._do_quick_save so neither
+    path can save into nothing.
+    """
+    directory = get_output_directory()
+    if output_directory_is_reachable(directory):
+        return directory
+    _choose_location(parent)
+    directory = get_output_directory()
+    if output_directory_is_reachable(directory):
+        return directory
+    _LOG.warning("Save skipped: no reachable output directory was chosen")
+    return None
+
+
 def _quick_save(image: np.ndarray, cursor_shape: CursorShape = None, title: str = "") -> None:
     """Task #95's Output tab - now uses the same settings.OutputSettings
     (filename pattern/primary format/JPEG quality/copy-path-to-
@@ -175,7 +207,10 @@ def _quick_save(image: np.ndarray, cursor_shape: CursorShape = None, title: str 
     core/filename_pattern.py's ``${title}`` token.
     """
     output_settings = get_output_settings()
-    directory = get_output_directory()
+    app = Gio.Application.get_default()
+    directory = ensure_output_directory(app.topmost_editor() if app is not None else None)
+    if directory is None:
+        return
     directory.mkdir(parents=True, exist_ok=True)
     counter = consume_filename_counter()
     filename = (

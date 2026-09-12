@@ -1784,7 +1784,10 @@ class EditorWindow(Gtk.Window):
         settings = get_output_settings()
         self._maybe_show_quality_dialog(settings.primary_format)
         settings = get_output_settings()  # re-read - the dialog may have changed jpeg_quality
-        directory = get_output_directory()
+        from orcshot.ui.destination_picker import ensure_output_directory  # lazy: see _open_editor's mirror import there
+        directory = ensure_output_directory(self)
+        if directory is None:
+            return
         counter = consume_filename_counter()
         filename = (
             resolve_filename_pattern(
