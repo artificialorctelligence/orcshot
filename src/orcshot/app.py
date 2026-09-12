@@ -57,6 +57,7 @@ from orcshot.ui.capture_modes import (
     start_last_region_capture,
 )
 from orcshot.autostart import remove_legacy_autostart_entry
+from orcshot.capture.shell_bridge import get_bridge
 from orcshot.resources import LOGO_PATH
 from orcshot.ui.external_commands import maybe_seed_default_external_commands
 from orcshot.ui.first_run_setup import maybe_run_first_run_setup
@@ -108,10 +109,10 @@ def _log_session_info() -> None:
     session_type = os.environ.get("XDG_SESSION_TYPE", "<unset>")
     desktop = os.environ.get("XDG_CURRENT_DESKTOP", "<unset>")
     if session_type == "wayland":
-        from orcshot.capture.gnome_region_select import is_available as gnome_shell_capture_available
-
-        extension = "available" if gnome_shell_capture_available() else "unavailable - falling back to portal-based capture"
-        backend = f"Wayland, GNOME Shell extension {extension}"
+        # The extension announces itself (Hello) after startup, so its
+        # availability is not knowable here - the capture backends decide
+        # per call (spec 2026-09-11 §3). Say what is true at this moment.
+        backend = "Wayland (Shell-native capture once the orcshot@orcshot.org extension says Hello, portal-based until then)"
     else:
         backend = f"{session_type} (X11-native capture path)"
     print(f"[orcshot] session_type={session_type} desktop={desktop} -> {backend}", file=sys.stderr, flush=True)
@@ -168,6 +169,10 @@ def _defer(action) -> None:
 class OrcshotApplication(Gtk.Application):
     def __init__(self):
         super().__init__(application_id=APPLICATION_ID, flags=Gio.ApplicationFlags.HANDLES_COMMAND_LINE)
+        # Spec 2026-09-11 §2: the GNOME Shell extension calls in here; the
+        # app's only outbound signal is the shell-request action the
+        # bridge registers in do_dbus_register.
+        self._shell_bridge = get_bridge()
         self.add_main_option(
             CAPTURE_REGION_OPTION, ord("r"), GLib.OptionFlags.NONE, GLib.OptionArg.NONE,
             "Start a region capture", None,
@@ -286,6 +291,9 @@ class OrcshotApplication(Gtk.Application):
                 invocation.return_value(GLib.Variant("(a(sss))", (destinations_for_shell(),)))
 
         connection.register_object(object_path, interface_info, handle_method_call)
+        # object_path is /org/orcshot/Orcshot and self is the ActionMap;
+        # the bridge exports its own object at /org/orcshot/Orcshot/Shell.
+        self._shell_bridge.register(connection, object_path, self)
         return True
 
     def do_command_line(self, command_line):
@@ -858,21 +866,20 @@ class OrcshotApplication(Gtk.Application):
         """
         if os.environ.get("XDG_SESSION_TYPE") != "wayland":
             return
-        from orcshot.capture.gnome_clipboard import EXPECTED_API_VERSION, get_live_api_version
-        from orcshot.capture.gnome_region_select import is_available
+        from orcshot.gnome_extension_setup import bundled_version_name, needs_relogin
 
-        if not is_available():
-            return
+        def check(_capabilities):
+            if needs_relogin(self._shell_bridge.version_name, bundled_version_name()):
+                self._notify(
+                    _("Orcshot's Wayland integration needs a restart"),
+                    _(
+                        "An update changed how Orcshot's Shell extension works, but your session is "
+                        "still running the previous version. Log out and back in to finish applying it."
+                    ),
+                )
 
-        live_version = get_live_api_version()
-        if live_version is not None and live_version < EXPECTED_API_VERSION:
-            self._notify(
-                _("Orcshot's Wayland integration needs a restart"),
-                _(
-                    "An update changed how Orcshot's Shell extension works, but your session is "
-                    "still running the previous version. Log out and back in to finish applying it."
-                ),
-            )
+        # Hello arrives after startup, asynchronously - check when it does.
+        self._shell_bridge.on_capabilities_changed(check)
 
     def _start_periodic_update_checks(self) -> bool:
         self._periodic_update_check_tick()

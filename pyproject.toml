@@ -54,9 +54,12 @@ artifacts = ["src/orcshot/resources/locale/**/*.mo"]
 # crashed on first launch with FileNotFoundError, confirmed live via
 # a real .deb install (task #145) after task #146 quietly broke this
 # rule's original "nothing Python-side reads these" premise.
+# metadata.json is the second exception (spec 2026-09-11 §3):
+# gnome_extension_setup.bundled_version_name() reads its version-name
+# to detect a stale Shell copy after an upgrade - on every channel,
+# including the two that no longer install the extension at all.
 exclude = [
     "src/orcshot/resources/gnome-shell-extensions/**/*.js",
-    "src/orcshot/resources/gnome-shell-extensions/**/metadata.json",
     "src/orcshot/resources/gnome-shell-extensions/**/icons/*.png",
 ]
 

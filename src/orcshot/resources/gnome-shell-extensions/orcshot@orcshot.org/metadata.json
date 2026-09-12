@@ -1,0 +1,8 @@
+{
+  "uuid": "orcshot@orcshot.org",
+  "name": "Orcshot",
+  "description": "Orcshot's tray icon, Wayland clipboard, region/window/eyedropper capture and window list, running inside GNOME Shell. Calls into the Orcshot app; exposes nothing on D-Bus itself.",
+  "shell-version": ["45", "46", "47", "48", "49", "50"],
+  "version-name": "0.4.0",
+  "url": "https://github.com/artificialorctelligence/orcshot"
+}

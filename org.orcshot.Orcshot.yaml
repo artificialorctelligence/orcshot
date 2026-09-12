@@ -6,47 +6,18 @@ command: orcshot
 finish-args:
   - --socket=wayland
   - --socket=fallback-x11
-  - --filesystem=~/.local/share/gnome-shell/extensions:create
-  # gnome_extension_setup.enable_extension_live() calls
-  # org.gnome.Shell.Extensions.EnableExtension over the D-Bus session
-  # bus, asking the already-running Shell to activate an extension this
-  # session, independent of the enable_extension() gsettings write
-  # (which only takes effect on a future login/reload - see that
-  # module's own docstring). bwrap denies session-bus method calls to
-  # any well-known name the app hasn't been granted --talk-name= for by
-  # default (the sandbox's dbus-proxy filters by name), so without this
-  # grant the call fails outright regardless of AppArmor/dconf
-  # concerns - this is the Flatpak-specific permission that gates it.
-  #
-  # Tried narrowing this to --talk-name=org.gnome.Shell.Extensions
-  # (final-review finding, 2026-08-31 - com.mattjakeman.ExtensionManager,
-  # a real Flathub app doing the identical EnableExtension call, uses
-  # that narrower name). Confirmed, definitively, 2026-09-04 (BACKLOG
-  # #194): narrowing to that name alone is not actually possible for
-  # this app, regardless of whether it works in isolation - two other
-  # real, currently-shipping features also call custom interfaces on
-  # this exact same bus name, not just EnableExtension:
-  # capture/gnome_clipboard.py's own BUS_NAME/OBJECT_PATH/INTERFACE
-  # ("org.gnome.Shell", ".../Extensions/OrcshotClipboard",
-  # "org.gnome.Shell.Extensions.OrcshotClipboard") and
-  # capture/gnome_window_calls.py's identical pattern for the bundled
-  # window-calls extension. Flatpak's --talk-name filters by bus name
-  # only, not by object path or interface, so there is no manifest-level
-  # grant narrower than the shared bus name itself
-  # ("org.gnome.Shell") that all three real features actually need -
-  # narrowing to org.gnome.Shell.Extensions would silently break
-  # clipboard support and window-calls capture, not just fail to help.
-  # (Separately confirmed live the same day, on a real GNOME Shell 50.1
-  # desktop session: org.gnome.Shell.Extensions itself genuinely is a
-  # real, activatable D-Bus name there via its own real service file at
-  # /usr/share/dbus-1/services/org.gnome.Shell.Extensions.service - the
-  # original 2026-08-31 finding that it wasn't appears to have been
-  # specific to that test's own headless CI environment, not GNOME
-  # Shell generally. Doesn't change the conclusion above either way -
-  # the blocker is structural, not version-specific.)
-  # --talk-name=org.gnome.Shell is the correct, minimal grant this app's
-  # real feature set needs, not an unnarrowed placeholder - ready to
-  # explain to a Flathub reviewer on exactly these terms if asked.
+  # The one org.gnome.Shell call left in the app (spec 2026-09-11):
+  # ui/extension_install.py asks GNOME to install the extension from
+  # extensions.gnome.org (org.gnome.Shell.Extensions.InstallRemoteExtension),
+  # and GNOME does it behind its own confirmation dialog - exactly how
+  # com.mattjakeman.ExtensionManager on Flathub does it. Nothing else
+  # calls the Shell: the extension calls the app, on the app's own name.
+  # No --filesystem grant into the home directory any more, and no
+  # bundled extension: the sandbox never writes where GNOME loads code.
+  # Whether this can be narrowed to --talk-name=org.gnome.Shell.Extensions
+  # (Extension Manager's form) is spec verification item 2 - the reason
+  # BACKLOG #194 found it could not be narrowed (custom interfaces on
+  # the same bus name) no longer exists.
   - --talk-name=org.gnome.Shell
   # capture_feedback.py's capture-complete sound (GStreamer playing a
   # bundled file, see that module's own docstring - replaced GSound,
@@ -259,22 +230,6 @@ modules:
       - type: file
         url: https://files.pythonhosted.org/packages/b7/ce/149a00dd41f10bc29e5921b496af8b574d8413afcd5e30dfa0ed46c2cc5e/six-1.17.0-py2.py3-none-any.whl
         sha256: 4721f391ed90541fddacab5acf947aa0d3dc7d27b2e1e8eda2be8970586c3274
-  - name: bundled-extensions
-    buildsystem: simple
-    sources:
-      - type: dir
-        path: src/orcshot/resources/gnome-shell-extensions
-    build-commands:
-      - mkdir -p /app/share/orcshot/gnome-shell-extensions
-      - cp -r . /app/share/orcshot/gnome-shell-extensions/
-  - name: bundled-cinnamon-applets
-    buildsystem: simple
-    sources:
-      - type: dir
-        path: src/orcshot/resources/cinnamon-applets
-    build-commands:
-      - mkdir -p /app/share/orcshot/cinnamon-applets
-      - cp -r . /app/share/orcshot/cinnamon-applets/
   - name: gnome-shell-schema
     buildsystem: simple
     # BACKLOG #192's own real fix, ported: gnome_shell_present()'s

@@ -92,7 +92,7 @@ jobs:
           # not mistaken for broader coverage than it actually has.
           export XDG_RUNTIME_DIR=/run/user/$(id -u)
           export DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/$(id -u)/bus
-          gnome-extensions enable orcshot-tray@orcshot.org
+          gnome-extensions enable orcshot@orcshot.org
           # The extension's own permanent load marker, logged from
           # enable() - see extension.js's own comment on that line. It
           # replaces the "orcshot-tray-diag" debug lines this check used
@@ -101,7 +101,7 @@ jobs:
           # printed nothing at all on this headless runner (no output,
           # no error), so this stayed on the log-marker mechanism that
           # is actually proven to work in this environment.
-          timeout 60 bash -c 'until grep -q "orcshot-tray: extension enabled" /tmp/shell.log; do sleep 1; done' \
+          timeout 60 bash -c 'until grep -q "orcshot: extension enabled" /tmp/shell.log; do sleep 1; done' \
             || { echo "extension never logged its load marker - did not load"; cat /tmp/shell.log; exit 1; }
           if grep -qi "JS ERROR\|Gjs-CRITICAL" /tmp/shell.log; then
             echo "A real JS error was logged - see the log below"

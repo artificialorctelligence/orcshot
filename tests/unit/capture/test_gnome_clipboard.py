@@ -14,6 +14,7 @@ gi.require_version("GLib", "2.0")
 from gi.repository import GdkPixbuf, Gio, GLib
 
 import numpy as np
+import pytest
 
 from orcshot.capture.gnome_clipboard import _encode_png
 
@@ -47,3 +48,28 @@ class TestEncodePng:
     def test_returns_real_bytes_not_a_glib_wrapper(self):
         image = np.zeros((1, 1, 4), dtype=np.uint8)
         assert isinstance(_encode_png(image), bytes)
+
+
+from orcshot.capture import shell_bridge
+from orcshot.capture.gnome_clipboard import GnomeClipboardBackend, GnomeClipboardUnavailable, is_available
+from tests.unit.capture.fake_bridge import install as install_fake_bridge
+
+
+class TestBridgePlumbing:
+    def test_is_available_is_the_clipboard_capability(self, monkeypatch):
+        install_fake_bridge(monkeypatch)
+        assert is_available() is False
+        install_fake_bridge(monkeypatch, capabilities=["set-clipboard-image"])
+        assert is_available() is True
+
+    def test_set_image_sends_png_bytes_as_a_request(self, monkeypatch):
+        bridge = install_fake_bridge(monkeypatch, capabilities=["set-clipboard-image"], result={"ok": True})
+        GnomeClipboardBackend().set_image(np.zeros((2, 2, 4), dtype=np.uint8))
+        (kind, params), = bridge.calls
+        assert kind == "set-clipboard-image"
+        assert params["pngBytes"].startswith(b"\x89PNG")
+
+    def test_set_image_maps_bridge_errors_to_unavailable(self, monkeypatch):
+        install_fake_bridge(monkeypatch, capabilities=["set-clipboard-image"], error=shell_bridge.ShellUnavailable("gone"))
+        with pytest.raises(GnomeClipboardUnavailable):
+            GnomeClipboardBackend().set_image(np.zeros((2, 2, 4), dtype=np.uint8))

@@ -1,26 +1,15 @@
-"""_default_executable, _extension_bundle_dir, and
-_snap_real_home_extensions_dir are the pieces of ui/first_run_setup.py
-that are pure enough to test without GTK - the rest is dialog glue, not
-unit tested for the same reason editor_window.py isn't (see that
-module's own docstring). _cinnamon_applet_bundle_dir and the Cinnamon
-dest-dir helpers (BACKLOG #189) are the same kind of pure logic, just
-pointed at the Cinnamon applet's own staging/dest paths instead of the
-GNOME extensions'.
+"""_default_executable and _finish_gnome_setup are the pieces of
+ui/first_run_setup.py that are pure enough to test without GTK - the
+rest is dialog glue, not unit tested for the same reason
+editor_window.py isn't (see that module's own docstring). The
+copy-into-home helpers this file used to cover were deleted by the
+2026-09-11 spec: no channel writes into the user's home any more;
+ui/extension_install.py (own tests) decides the per-channel redirect.
 """
-
-from pathlib import Path
 
 import sys
 
-from orcshot.ui.first_run_setup import (
-    _default_executable,
-    _extension_bundle_dir,
-    _snap_real_home_extensions_dir,
-    _flatpak_home_extensions_dir,
-    _cinnamon_applet_bundle_dir,
-    _snap_real_home_cinnamon_applets_dir,
-    _flatpak_home_cinnamon_applets_dir,
-)
+from orcshot.ui.first_run_setup import _default_executable
 
 
 class TestDefaultExecutable:
@@ -33,165 +22,35 @@ class TestDefaultExecutable:
         assert _default_executable(which=which) == f"{sys.executable} -m orcshot.app"
 
 
-def test_extension_bundle_dir_snap(tmp_path):
-    env = {"SNAP": str(tmp_path)}
-    result = _extension_bundle_dir("orcshot-tray@orcshot.org", env=env)
-    assert result == Path(tmp_path) / "share" / "orcshot" / "gnome-shell-extensions" / "orcshot-tray@orcshot.org"
+def test_gnome_finish_enables_the_one_extension_and_shows_the_channel_dialog(monkeypatch):
+    from orcshot.ui import first_run_setup
+    enabled, shown = [], []
+    monkeypatch.setattr(first_run_setup, "enable_extension", lambda backend, uuid: enabled.append(uuid))
+    monkeypatch.setattr(first_run_setup, "detect_channel", lambda: "snap")
+    monkeypatch.setattr(first_run_setup, "show_install_dialog", lambda plan, parent=None: shown.append(plan))
+    first_run_setup._finish_gnome_setup(settings_backend=object(), desktop="gnome", parent=None)
+    assert enabled == ["orcshot@orcshot.org"]
+    assert shown == ["snap-gnome"]
 
 
-def test_snap_real_home_extensions_dir_uses_snap_real_home_not_home(tmp_path):
-    real_home = tmp_path / "real-home"
-    snap_redirected_home = tmp_path / "snap-redirected-home"
-    env = {"SNAP_REAL_HOME": str(real_home), "HOME": str(snap_redirected_home)}
-    result = _snap_real_home_extensions_dir(env=env)
-    assert result == real_home / ".local" / "share" / "gnome-shell" / "extensions"
-    assert snap_redirected_home not in result.parents
+def test_gnome_finish_on_deb_shows_nothing_and_activates_live(monkeypatch):
+    from orcshot.ui import first_run_setup
+    shown, live = [], []
+    monkeypatch.setattr(first_run_setup, "enable_extension", lambda backend, uuid: None)
+    monkeypatch.setattr(first_run_setup, "enable_extension_live", lambda uuid: live.append(uuid))
+    monkeypatch.setattr(first_run_setup, "detect_channel", lambda: "deb")
+    monkeypatch.setattr(first_run_setup, "show_install_dialog", lambda plan, parent=None: shown.append(plan))
+    first_run_setup._finish_gnome_setup(settings_backend=object(), desktop="gnome", parent=None)
+    assert shown == []
+    assert live == ["orcshot@orcshot.org"]
 
 
-def test_deb_channel_never_installs_bundled_extensions(monkeypatch):
-    """The whole point of channel-gating this: a plain .deb install
-    must behave exactly as it did before this feature existed. Calls
-    the real gating helper (_install_bundled_extensions_for_sandboxed_channel)
-    rather than asserting a monkeypatch's own return value back at
-    itself - the previous version of this test only proved
-    detect_channel() != "snap" when detect_channel() had literally
-    been replaced with a lambda returning "deb", not that the real
-    guard behaves correctly."""
-    import orcshot.ui.first_run_setup as mod
-
-    monkeypatch.setattr(mod, "detect_channel", lambda: "deb")
-    calls = []
-    monkeypatch.setattr(mod, "install_bundled_extension_if_needed", lambda *a, **kw: calls.append(a))
-
-    acted = mod._install_bundled_extensions_for_sandboxed_channel(None)
-
-    assert acted is False
-    assert calls == []
-
-
-def test_snap_channel_installs_each_bundled_extension(monkeypatch, tmp_path):
-    import orcshot.ui.first_run_setup as mod
-
-    monkeypatch.setattr(mod, "detect_channel", lambda: "snap")
-    monkeypatch.setattr(mod, "_extension_bundle_dir", lambda uuid: tmp_path / "bundled" / uuid)
-    monkeypatch.setattr(mod, "_snap_real_home_extensions_dir", lambda: tmp_path / "real-home")
-    monkeypatch.setattr(mod, "_cinnamon_applet_bundle_dir", lambda uuid: tmp_path / "cinnamon-bundled" / uuid)
-    monkeypatch.setattr(mod, "_snap_real_home_cinnamon_applets_dir", lambda: tmp_path / "cinnamon-real-home")
-    calls = []
-    monkeypatch.setattr(
-        mod, "install_bundled_extension_if_needed", lambda uuid, bundled, dest: calls.append(uuid) or True
-    )
-    prompted = []
-    monkeypatch.setattr(mod, "show_snap_connect_prompt", lambda parent: prompted.append(parent))
-
-    acted = mod._install_bundled_extensions_for_sandboxed_channel(None)
-
-    assert acted is True
-    assert calls == [
-        mod.WINDOW_CALLS_EXTENSION_UUID,
-        mod.CLIPBOARD_EXTENSION_UUID,
-        mod.TRAY_EXTENSION_UUID,
-        mod.TRAY_EXTENSION_UUID,
-    ]
-    assert prompted == []
-
-
-def test_snap_channel_prompts_when_an_install_fails(monkeypatch, tmp_path):
-    import orcshot.ui.first_run_setup as mod
-
-    monkeypatch.setattr(mod, "detect_channel", lambda: "snap")
-    monkeypatch.setattr(mod, "_extension_bundle_dir", lambda uuid: tmp_path / "bundled" / uuid)
-    monkeypatch.setattr(mod, "_snap_real_home_extensions_dir", lambda: tmp_path / "real-home")
-    monkeypatch.setattr(mod, "_cinnamon_applet_bundle_dir", lambda uuid: tmp_path / "cinnamon-bundled" / uuid)
-    monkeypatch.setattr(mod, "_snap_real_home_cinnamon_applets_dir", lambda: tmp_path / "cinnamon-real-home")
-    monkeypatch.setattr(mod, "install_bundled_extension_if_needed", lambda *a, **kw: False)
-    prompted = []
-    monkeypatch.setattr(mod, "show_snap_connect_prompt", lambda parent: prompted.append(parent))
-
-    acted = mod._install_bundled_extensions_for_sandboxed_channel("sentinel-parent")
-
-    assert acted is True
-    assert prompted == ["sentinel-parent"]
-
-
-def test_extension_bundle_dir_flatpak(tmp_path):
-    env = {"FLATPAK_ID": "org.orcshot.Orcshot"}
-    result = _extension_bundle_dir("orcshot-tray@orcshot.org", env=env)
-    assert result == Path("/app") / "share" / "orcshot" / "gnome-shell-extensions" / "orcshot-tray@orcshot.org"
-
-
-def test_flatpak_home_extensions_dir_uses_real_home(tmp_path):
-    real_home = tmp_path / "home" / "direflail"
-    env = {"HOME": str(real_home)}
-    result = _flatpak_home_extensions_dir(env=env)
-    assert result == real_home / ".local" / "share" / "gnome-shell" / "extensions"
-
-
-def test_flatpak_channel_installs_each_bundled_extension(monkeypatch, tmp_path):
-    import orcshot.ui.first_run_setup as mod
-
-    monkeypatch.setattr(mod, "detect_channel", lambda: "flatpak")
-    monkeypatch.setattr(mod, "_extension_bundle_dir", lambda uuid: tmp_path / "bundled" / uuid)
-    monkeypatch.setattr(mod, "_flatpak_home_extensions_dir", lambda: tmp_path / "real-home")
-    monkeypatch.setattr(mod, "_cinnamon_applet_bundle_dir", lambda uuid: tmp_path / "cinnamon-bundled" / uuid)
-    monkeypatch.setattr(mod, "_flatpak_home_cinnamon_applets_dir", lambda: tmp_path / "cinnamon-real-home")
-    calls = []
-    monkeypatch.setattr(
-        mod, "install_bundled_extension_if_needed", lambda uuid, bundled, dest: calls.append(uuid) or True
-    )
-    prompted = []
-    monkeypatch.setattr(mod, "show_snap_connect_prompt", lambda parent: prompted.append(parent))
-
-    acted = mod._install_bundled_extensions_for_sandboxed_channel(None)
-
-    assert acted is True
-    assert calls == [
-        mod.WINDOW_CALLS_EXTENSION_UUID,
-        mod.CLIPBOARD_EXTENSION_UUID,
-        mod.TRAY_EXTENSION_UUID,
-        mod.TRAY_EXTENSION_UUID,
-    ]
-    # Flatpak's --filesystem grant is install-time - there's no "connect"
-    # step to prompt for the way Snap has, so even a failed install must
-    # not trigger Snap's own connect-prompt dialog.
-    assert prompted == []
-
-
-def test_flatpak_channel_never_prompts_on_install_failure(monkeypatch, tmp_path):
-    import orcshot.ui.first_run_setup as mod
-
-    monkeypatch.setattr(mod, "detect_channel", lambda: "flatpak")
-    monkeypatch.setattr(mod, "_extension_bundle_dir", lambda uuid: tmp_path / "bundled" / uuid)
-    monkeypatch.setattr(mod, "_flatpak_home_extensions_dir", lambda: tmp_path / "real-home")
-    monkeypatch.setattr(mod, "_cinnamon_applet_bundle_dir", lambda uuid: tmp_path / "cinnamon-bundled" / uuid)
-    monkeypatch.setattr(mod, "_flatpak_home_cinnamon_applets_dir", lambda: tmp_path / "cinnamon-real-home")
-    monkeypatch.setattr(mod, "install_bundled_extension_if_needed", lambda *a, **kw: False)
-    prompted = []
-    monkeypatch.setattr(mod, "show_snap_connect_prompt", lambda parent: prompted.append(parent))
-
-    acted = mod._install_bundled_extensions_for_sandboxed_channel(None)
-
-    assert acted is True
-    assert prompted == []
-
-
-def test_snap_real_home_cinnamon_applets_dir():
-    env = {"SNAP_REAL_HOME": "/home/real-user"}
-    assert _snap_real_home_cinnamon_applets_dir(env) == Path("/home/real-user/.local/share/cinnamon/applets")
-
-
-def test_flatpak_home_cinnamon_applets_dir():
-    env = {"HOME": "/home/real-user"}
-    assert _flatpak_home_cinnamon_applets_dir(env) == Path("/home/real-user/.local/share/cinnamon/applets")
-
-
-def test_cinnamon_applet_bundle_dir_snap():
-    env = {"SNAP": "/snap/orcshot/x1"}
-    assert _cinnamon_applet_bundle_dir("orcshot-tray@orcshot.org", env) == \
-        Path("/snap/orcshot/x1/share/orcshot/cinnamon-applets/orcshot-tray@orcshot.org")
-
-
-def test_cinnamon_applet_bundle_dir_flatpak():
-    env = {"FLATPAK_ID": "org.orcshot.Orcshot"}
-    assert _cinnamon_applet_bundle_dir("orcshot-tray@orcshot.org", env) == \
-        Path("/app/share/orcshot/cinnamon-applets/orcshot-tray@orcshot.org")
+def test_gnome_finish_on_flatpak_never_calls_enable_live(monkeypatch):
+    from orcshot.ui import first_run_setup
+    live = []
+    monkeypatch.setattr(first_run_setup, "enable_extension", lambda backend, uuid: None)
+    monkeypatch.setattr(first_run_setup, "enable_extension_live", lambda uuid: live.append(uuid))
+    monkeypatch.setattr(first_run_setup, "detect_channel", lambda: "flatpak")
+    monkeypatch.setattr(first_run_setup, "show_install_dialog", lambda plan, parent=None: None)
+    first_run_setup._finish_gnome_setup(settings_backend=object(), desktop="gnome", parent=None)
+    assert live == []

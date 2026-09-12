@@ -5,7 +5,6 @@ import Clutter from 'gi://Clutter';
 import * as PanelMenu from 'resource:///org/gnome/shell/ui/panelMenu.js';
 import * as PopupMenu from 'resource:///org/gnome/shell/ui/popupMenu.js';
 import * as Main from 'resource:///org/gnome/shell/ui/main.js';
-import { Extension } from 'resource:///org/gnome/shell/extensions/extension.js';
 
 // Must match app.py's fixed application_id and
 // gnome_tray_export.py's TRAY_MENU_PATH exactly.
@@ -272,61 +271,16 @@ class OrcshotTrayButton extends PanelMenu.Button {
 
 });
 
-export default class OrcshotTrayExtension extends Extension {
-    enable() {
-        // One permanent, intentional load marker (not part of the
-        // commented-out orcshot-tray-diag diagnostics above): all three
-        // CI verify jobs grep /tmp/shell.log for this exact string as
-        // their proof that GNOME Shell really loaded this extension, so
-        // it must stay live and keep its wording. It fires here rather
-        // than in OrcshotTrayButton's own _init because enable() runs
-        // whether or not Orcshot itself is running - the button is only
-        // constructed once the app owns its bus name.
-        log('orcshot-tray: extension enabled');
-        this._button = null;
-        this._watchId = Gio.bus_watch_name(
-            Gio.BusType.SESSION, BUS_NAME, Gio.BusNameWatcherFlags.NONE,
-            () => {
-                // log('orcshot-tray-diag: bus name appeared');
-                if (this._button)
-                    return;
-                try {
-                    this._button = new OrcshotTrayButton();
-                    // Role name deliberately distinct from the old,
-                    // now-removed orcshot-clipboard@orcshot.org tray
-                    // button, which used to register itself under the
-                    // plain 'orcshot-tray' role - if a stale, cached
-                    // copy of that old extension's JS module is still
-                    // resident in a GNOME Shell process during an
-                    // upgrade (see [[feedback_extension_reload_caching]]),
-                    // reusing the same role name here would throw
-                    // "there is already a status indicator for role
-                    // 'orcshot-tray'" (caught below, so it fails safely,
-                    // but this button would then silently never appear).
-                    Main.panel.addToStatusArea('orcshot-tray-button', this._button);
-                    // log('orcshot-tray-diag: button constructed and added to status area');
-                } catch (e) {
-                    logError(e, 'orcshot-tray: failed to build tray button');
-                }
-            },
-            () => {
-                // log('orcshot-tray-diag: bus name vanished');
-                if (this._button) {
-                    this._button.destroy();
-                    this._button = null;
-                }
-            },
-        );
-    }
-
-    disable() {
-        if (this._watchId) {
-            Gio.bus_unwatch_name(this._watchId);
-            this._watchId = null;
-        }
-        if (this._button) {
-            this._button.destroy();
-            this._button = null;
-        }
-    }
+/** The panel button, built while org.orcshot.Orcshot is owned. extension.js
+ *  drives create/destroy from its own single name watcher (there is exactly
+ *  one watcher for the whole merged extension) and logs the load marker CI
+ *  greps for. The status-area role stays 'orcshot-tray-button', distinct
+ *  from the pre-2026-08-28 'orcshot-tray' role a stale cached copy of the
+ *  old clipboard extension might still hold in an upgraded session (see
+ *  [[feedback_extension_reload_caching]]) - reusing it would throw "there
+ *  is already a status indicator for role ...". */
+export function createTrayButton() {
+    const button = new OrcshotTrayButton();
+    Main.panel.addToStatusArea('orcshot-tray-button', button);
+    return button;
 }

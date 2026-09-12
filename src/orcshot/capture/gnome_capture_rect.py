@@ -20,7 +20,7 @@ dock/taskbar flash under this Wayland session, the same class of
 artifact task #76/#77 eliminated for region-select/window-picker by
 moving their own destination picker Shell-side too.
 
-Genuinely async (Gio.DBusConnection.call(), not call_sync), same
+Genuinely async (shell_bridge.request_async, not the blocking request()), same
 reasoning as gnome_region_select.start_region_select: once the
 destination choice is folded in, this is an open-ended, user-timed
 wait (however long picking a destination takes), not the bounded,
@@ -35,26 +35,16 @@ import traceback
 
 import gi
 
-gi.require_version("Gio", "2.0")
-gi.require_version("GLib", "2.0")
-from gi.repository import Gio, GLib
 
-from orcshot.capture.gnome_clipboard import BUS_NAME
+from orcshot.capture.shell_bridge import ShellRequestError, ShellUnavailable, get_bridge
 from orcshot.capture.gnome_region_select import decode_png
 from orcshot.core.geometry import Rect
 
-OBJECT_PATH = "/org/gnome/Shell/Extensions/OrcshotCapture"
-INTERFACE = "org.gnome.Shell.Extensions.OrcshotCapture"
+CAPABILITY = "capture-rect"
 
 
 def is_available() -> bool:
-    from orcshot.capture.gnome_clipboard import is_available as clipboard_is_available
-
-    # Same bundled extension/object as gnome_clipboard.py/gnome_region_
-    # select.py, just a different method on the same interface - Ping()
-    # answering for one confirms all three are present, since they're
-    # exported together by extension.js's own enable().
-    return clipboard_is_available()
+    return get_bridge().has(CAPABILITY)
 
 
 def start_capture_rect(rect: Rect, on_captured, on_cancelled=None) -> None:
@@ -66,34 +56,18 @@ def start_capture_rect(rect: Rect, on_captured, on_cancelled=None) -> None:
     this can't be a bounded/synchronous call the way an earlier
     version of it was.
     """
-    bus = Gio.bus_get_sync(Gio.BusType.SESSION, None)
-
-    def on_reply(connection, result, _user_data=None):
-        # PyGObject async D-Bus callbacks can swallow exceptions
-        # silently depending on context (same caveat gnome_region_
-        # select.py's own on_reply documents) - print a full traceback
-        # rather than lose it.
+    def on_result(result: dict):
         try:
-            try:
-                reply = connection.call_finish(result)
-            except GLib.Error:
-                if on_cancelled is not None:
-                    on_cancelled()
-                return
-            ok, destination, png_bytes = reply.unpack()
-            if not ok:
-                if on_cancelled is not None:
-                    on_cancelled()
-                return
-            image = decode_png(bytes(png_bytes))
-            on_captured(image, destination)
+            on_captured(decode_png(bytes(result["pngBytes"])), result["destination"])
         except Exception:
-            print("[gnome_capture_rect] exception in on_reply:", file=sys.stderr, flush=True)
+            print("[gnome_capture_rect] exception in on_result:", file=sys.stderr, flush=True)
             traceback.print_exc()
 
-    bus.call(
-        BUS_NAME, OBJECT_PATH, INTERFACE, "CaptureRect",
-        GLib.Variant("(iiii)", (rect.left, rect.top, rect.width, rect.height)),
-        GLib.VariantType("(bsay)"), Gio.DBusCallFlags.NONE,
-        GLib.MAXINT, None, on_reply, None,
-    )
+    def on_error(_error):
+        if on_cancelled is not None:
+            on_cancelled()
+
+    try:
+        get_bridge().request_async(CAPABILITY, {"x": rect.left, "y": rect.top, "width": rect.width, "height": rect.height}, on_result, on_error)
+    except ShellUnavailable:
+        on_error(None)

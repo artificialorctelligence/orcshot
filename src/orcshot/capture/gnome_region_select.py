@@ -13,14 +13,12 @@ has already been chosen (or the whole thing was cancelled) - this
 module hands the caller the destination id straight through, it
 doesn't show or know about any picker UI itself.
 
-The D-Bus call is genuinely async (Gio.DBusConnection.call(), not
-call_sync) with an explicit infinite timeout: StartRegionSelect's
-reply only arrives once the user finishes the *entire* selection-
-through-destination-choice interaction, so this app's own GTK main
-loop must keep running throughout (so its own UI - tray menu, any open
-windows - stays responsive) and must never hit GDBus's own ~25s
-default per-call timeout for what could legitimately be a much longer
-wait. See [[feedback-wayland-portal-reentrancy]] in memory for why
+The request is genuinely async (shell_bridge.request_async, never the
+blocking request()) with no timeout: the extension's Deliver only
+arrives once the user finishes the *entire* selection-through-
+destination-choice interaction, so this app's own GTK main loop must
+keep running throughout (so its own UI - tray menu, any open windows -
+stays responsive, and so the Deliver call can be serviced at all). See [[feedback-wayland-portal-reentrancy]] in memory for why
 this project treats any interactive-D-Bus-round-trip-from-an-event-
 handler with this much care.
 """
@@ -33,11 +31,9 @@ import traceback
 import gi
 
 gi.require_version("GdkPixbuf", "2.0")
-gi.require_version("Gio", "2.0")
-gi.require_version("GLib", "2.0")
 from gi.repository import GdkPixbuf, Gio, GLib
 
-from orcshot.capture.gnome_clipboard import BUS_NAME
+from orcshot.capture.shell_bridge import ShellRequestError, ShellUnavailable, get_bridge
 from orcshot.core.geometry import Rect
 from orcshot.settings import get_show_magnifier_while_selecting
 from orcshot.ui.gdk_convert import pixbuf_to_numpy
@@ -48,18 +44,11 @@ from orcshot.ui.gdk_convert import pixbuf_to_numpy
 # path is silently a no-op in GJS (see extension.js's enable() for the
 # full story), so the two D-Bus capabilities this same bundled
 # extension offers need two separate paths.
-OBJECT_PATH = "/org/gnome/Shell/Extensions/OrcshotCapture"
-INTERFACE = "org.gnome.Shell.Extensions.OrcshotCapture"
+CAPABILITY = "region-select"
 
 
 def is_available() -> bool:
-    from orcshot.capture.gnome_clipboard import is_available as clipboard_is_available
-
-    # Same bundled extension/object as gnome_clipboard.py, just a
-    # different D-Bus interface on it - both are exported together by
-    # extension.js's enable(), so Ping() answering for one confirms
-    # the other is present too.
-    return clipboard_is_available()
+    return get_bridge().has(CAPABILITY)
 
 
 def decode_png(data: bytes):
@@ -86,34 +75,20 @@ def start_region_select(on_selected, on_cancelled=None) -> None:
     so the extension's own RegionSelectOverlay always showed the
     magnifier regardless of what the user had configured.
     """
-    bus = Gio.bus_get_sync(Gio.BusType.SESSION, None)
-
-    def on_reply(connection, result, _user_data=None):
-        # PyGObject async D-Bus callbacks can swallow exceptions
-        # silently depending on context (same caveat documented in
-        # ui/monitor_window.py's _call_with_traceback) - print a full
-        # traceback rather than lose it, since this drives real
-        # user-facing capture results.
+    def on_result(result: dict):
         try:
-            try:
-                reply = connection.call_finish(result)
-            except GLib.Error:
-                if on_cancelled is not None:
-                    on_cancelled()
-                return
-            ok, destination, png_bytes, x, y, width, height = reply.unpack()
-            if not ok:
-                if on_cancelled is not None:
-                    on_cancelled()
-                return
-            image = decode_png(bytes(png_bytes))
-            on_selected(image, Rect(x, y, x + width, y + height), destination)
+            image = decode_png(bytes(result["pngBytes"]))
+            x, y, w, h = result["x"], result["y"], result["width"], result["height"]
+            on_selected(image, Rect(x, y, x + w, y + h), result["destination"])
         except Exception:
-            print("[gnome_region_select] exception in on_reply:", file=sys.stderr, flush=True)
+            print("[gnome_region_select] exception in on_result:", file=sys.stderr, flush=True)
             traceback.print_exc()
 
-    bus.call(
-        BUS_NAME, OBJECT_PATH, INTERFACE, "StartRegionSelect",
-        GLib.Variant("(b)", (get_show_magnifier_while_selecting(),)), GLib.VariantType("(bsayiiii)"),
-        Gio.DBusCallFlags.NONE, GLib.MAXINT, None, on_reply, None,
-    )
+    def on_error(_error):
+        if on_cancelled is not None:
+            on_cancelled()
+
+    try:
+        get_bridge().request_async(CAPABILITY, {"showMagnifier": get_show_magnifier_while_selecting()}, on_result, on_error)
+    except ShellUnavailable:
+        on_error(None)

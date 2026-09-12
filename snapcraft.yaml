@@ -13,41 +13,24 @@ adopt-info: orcshot
 apps:
   orcshot:
     command: bin/orcshot
+    # BACKLOG #206: snapcraft's gnome extension. It supplies the GNOME
+    # platform content snap (GTK, gdk-pixbuf loaders, XKB data, mime
+    # database, icon/sound/gtk themes, GI typelibs) and a desktop-launch
+    # command-chain that sets XDG_DATA_DIRS, GI_TYPELIB_PATH,
+    # GIO_EXTRA_MODULES, GSETTINGS_SCHEMA_DIR, GDK_PIXBUF_MODULE_FILE,
+    # XKB_CONFIG_ROOT and the rest before the app starts. #192 had set
+    # it aside for a "minimal manual-plugs approach" and then patched
+    # each of those variables in by hand as the extension side needed
+    # them; the app's own main window, never launched under confinement
+    # until 2026-09-11, needed the rest (icon loading crashed on the
+    # missing mime database, then GTK segfaulted on the missing XKB
+    # data). The #184 throwaway snap used this same extension and its
+    # tray was proven live under it. The extension also adds the
+    # desktop, desktop-legacy, gsettings, opengl, wayland and x11 plugs.
+    extensions: [gnome]
     environment:
       PYTHONPATH: $SNAP/usr/lib/python3/dist-packages
-      GI_TYPELIB_PATH: $SNAP/usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR/girepository-1.0:$GI_TYPELIB_PATH
-      # BACKLOG #192: same class of gap as the two vars above - there's no
-      # desktop-launch wrapper here (this app doesn't use extensions:[gnome]
-      # or similar) to set this automatically. Confirmed live in real CI:
-      # a confined orcshot process has neither XDG_DATA_DIRS nor
-      # GSETTINGS_SCHEMA_DIR set at all, so
-      # Gio.SettingsSchemaSource.get_default() has nothing to search even
-      # though gnome-shell-common's compiled schema is staged and readable.
-      # GSETTINGS_SCHEMA_DIR is GLib's own dedicated override for exactly
-      # this case, so it's what's set here rather than the broader
-      # XDG_DATA_DIRS (which many other things also key off of).
-      GSETTINGS_SCHEMA_DIR: $SNAP/usr/share/glib-2.0/schemas
-      # BACKLOG #192: the schema being resolvable (above) only lets
-      # gnome_shell_present() answer the question - actually writing
-      # through GioSettingsBackend needs GLib's dconf GSettingsBackend
-      # module (dconf-gsettings-backend's libdconfsettings.so, a dynamically
-      # loaded GIO module) staged and discoverable too. Without it, GLib
-      # silently falls back to its keyfile backend, which then fails
-      # outright under confinement - confirmed live: "Failed to create
-      # /home/runner/.config/glib-2.0/settings: Permission denied", and the
-      # write never persisting (enabled-extensions stayed []). Same class
-      # of gap as GI_TYPELIB_PATH above - GIO's compiled-in default module
-      # path points at the base snap's own /usr, not this staged tree.
-      # GIO_EXTRA_MODULES is GLib's own documented variable for adding
-      # extra module search directories without replacing the default one.
-      GIO_EXTRA_MODULES: $SNAP/usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR/gio/modules
     plugs:
-      - x11
-      - wayland
-      - desktop
-      - desktop-legacy
-      - gsettings
-      - dot-local-share-gnome-shell
       # capture_feedback.py's capture-complete sound (GStreamer, see
       # that module's own docstring) needs real PulseAudio/PipeWire
       # client access under strict confinement, same reasoning as
@@ -66,12 +49,6 @@ slots:
     interface: dbus
     bus: session
     name: org.orcshot.Orcshot
-
-plugs:
-  dot-local-share-gnome-shell:
-    interface: personal-files
-    write:
-      - $HOME/.local/share/gnome-shell/extensions
 
 parts:
   orcshot:
@@ -102,12 +79,17 @@ parts:
       - python3-gi-cairo
       - python3-cairo
       - libglib2.0-bin
+      # BACKLOG #206: update-mime-database, run in override-prime.
+      - shared-mime-info
     build-environment:
       - PARTS_PYTHON_VENV_ARGS: "--system-site-packages"
     stage-packages:
       - python3-gi
       - python3-gi-cairo
       - python3-cairo
+      # BACKLOG #206: explicit, though a dependency already dragged it in -
+      # override-prime compiles its database; the gnome extension puts $SNAP/usr/share on XDG_DATA_DIRS.
+      - shared-mime-info
       - python3-numpy
       - python3-shapely
       - python3-xlib
@@ -154,15 +136,8 @@ parts:
       # glib-compile-schemas). Compile it explicitly so
       # Gio.SettingsSchemaSource.get_default() can find it.
       glib-compile-schemas "$CRAFT_PRIME/usr/share/glib-2.0/schemas"
-
-  bundled-extensions:
-    plugin: dump
-    source: src/orcshot/resources/gnome-shell-extensions
-    organize:
-      "*": share/orcshot/gnome-shell-extensions/
-
-  bundled-cinnamon-applets:
-    plugin: dump
-    source: src/orcshot/resources/cinnamon-applets
-    organize:
-      "*": share/orcshot/cinnamon-applets/
+      # BACKLOG #206: the same class of gap for shared-mime-info - it ships
+      # packages/freedesktop.org.xml and a real install compiles mime.cache
+      # and magic via a dpkg trigger that staging never runs. Without them
+      # GIO cannot sniff a PNG and gdk-pixbuf refuses every image.
+      update-mime-database "$CRAFT_PRIME/usr/share/mime"

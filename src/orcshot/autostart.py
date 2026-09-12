@@ -22,7 +22,7 @@ state of that already-installed unit.
 
 Real, live `systemctl --user` calls - no safe way to test without a
 real systemd user manager and a real installed unit, same category as
-gnome_extension_setup.enable_extension_live and hotkey_setup.py's
+gnome_extension_setup.enable_extension_live (.deb only) and hotkey_setup.py's
 GioSettingsBackend (see either module's own docstring). The same
 standing rule applies: nothing in this codebase calls these
 automatically. Only a real user click (ui/first_run_setup.py, or the
@@ -79,7 +79,10 @@ def _run_systemctl_user(*args: str) -> None:
     """
     try:
         subprocess.run(["systemctl", "--user", *args, SERVICE_NAME], check=True)
-    except FileNotFoundError as e:
+    except (FileNotFoundError, PermissionError) as e:
+        # PermissionError is a strict snap's answer (systemctl exists but
+        # is not executable from inside confinement) - same failure class
+        # as "not installed", reported the same way. BACKLOG #207.
         raise subprocess.CalledProcessError(returncode=127, cmd=e.filename or "systemctl") from e
 
 

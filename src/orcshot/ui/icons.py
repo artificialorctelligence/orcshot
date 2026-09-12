@@ -139,7 +139,7 @@ def _render_icon_geometry(ctx: cairo.Context, ops: list, size: float) -> None:
             raise ValueError(f"unknown icon geometry op: {kind!r}")
 
 
-_ICON_GEOMETRY_PATH = RESOURCES_DIR / "gnome-shell-extensions" / "orcshot-clipboard@orcshot.org" / "icon_geometry.json"
+_ICON_GEOMETRY_PATH = RESOURCES_DIR / "gnome-shell-extensions" / "orcshot@orcshot.org" / "icon_geometry.json"
 
 
 @functools.lru_cache(maxsize=1)

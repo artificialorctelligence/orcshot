@@ -39,7 +39,7 @@ from orcshot.resources import RESOURCES_DIR
 Point = Tuple[int, int]
 
 _MAGNIFIER_CONSTANTS_PATH = (
-    RESOURCES_DIR / "gnome-shell-extensions" / "orcshot-clipboard@orcshot.org" / "magnifier_constants.json"
+    RESOURCES_DIR / "gnome-shell-extensions" / "orcshot@orcshot.org" / "magnifier_constants.json"
 )
 
 

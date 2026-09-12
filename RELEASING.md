@@ -21,7 +21,7 @@ match, or the built `.deb`'s own version won't line up with the source tree that
    -- Orcshot <314918217+artificialorctelligence@users.noreply.github.com>  <RFC 2822 date>
   ```
 
-  `noble` (not `unstable`) - this targets the PPA build in step 6 below. `unstable` is a
+  `noble` (not `unstable`) - this targets the PPA build in step 7 below. `unstable` is a
   Debian-native distribution name; Launchpad rejects an upload whose changelog distribution isn't
   one of the PPA's own supported Ubuntu series, so an `unstable` upload just fails outright.
 
@@ -34,13 +34,32 @@ match, or the built `.deb`'s own version won't line up with the source tree that
 ```
 
 Must be fully green before building - the package build itself re-runs the whole suite for real via
-`dh_auto_test`/pybuild (see step 4), so a failure here just means finding out later instead of now.
+`dh_auto_test`/pybuild (see step 5), so a failure here just means finding out later instead of now.
 
-This step, step 4 (`dpkg-buildpackage`), and step 5 (`lintian`) now also run automatically on every
+This step, step 5 (`dpkg-buildpackage`), and step 6 (`lintian`) now also run automatically on every
 push and PR via `.github/workflows/apt.yml` - running them by hand here is still the fastest local
-feedback loop, not a redundant step; see step 10 below for confirming CI's own view before release.
+feedback loop, not a redundant step; see step 11 below for confirming CI's own view before release.
 
-## 3. Security check
+## 3. Upload the GNOME Shell extension to extensions.gnome.org (only if it changed)
+
+The extension (`orcshot@orcshot.org`) is a second artifact with its own store. Flatpak installs it
+from there, Snap sends users there, and GNOME keeps every per-user copy on EGO's version - EGO
+owns the version once published (spec 2026-09-11 §5). This step is **not a gate**: EGO review is
+human, unbounded, and prioritises small diffs; the app tolerates one release of extension skew via
+the capability handshake. Skip it entirely when
+`git diff $(git describe --tags --abbrev=0) -- src/orcshot/resources/gnome-shell-extensions` is empty.
+
+**One-time setup:** an extensions.gnome.org account for `artificialorctelligence`, its password in
+`~/.config/orcshot/ego-password` (chmod 0600, never printed, never committed), and the first
+submission accepted by EGO's reviewers. Check:
+`curl -sf 'https://extensions.gnome.org/extension-query/?search=orcshot' | grep -q orcshot@orcshot.org`
+
+**Preconditions:** `metadata.json`'s `version-name` was bumped in the commit that changed the
+extension. This runs on a machine with GNOME Shell ≥ 50 (the 26.04 VM over SSH), not the Mint host.
+
+**Run:** /orc-publish gnome-shell-extension.js.linux.ego
+
+## 4. Security check
 
 Surfaced as a real gap during the 0.1.1 release (direflail, 2026-08-23): the release went to the
 PPA without ever running a security scan, and `requirements.txt` (kept for SCA scanning, see its own
@@ -89,12 +108,12 @@ The `diff` regenerates `requirements.txt` (see its own header) if it's gone stal
 it's still accurate.
 
 Any new high/critical finding gets flagged and understood before continuing, the
-same standard step 5's `lintian` warnings already get - not silently waved through, but not
+same standard step 6's `lintian` warnings already get - not silently waved through, but not
 necessarily a blocker either (a finding can be a confirmed false positive, same as `update_check.py`'s
 own dynamic-`urllib` finding turned out to be: `_RELEASES_LATEST_URL` is a hardcoded module-level
 constant, never influenced by user or network input).
 
-## 4. Build the `.deb`
+## 5. Build the `.deb`
 
 ```bash
 dpkg-buildpackage -us -uc -b
@@ -104,7 +123,7 @@ Produces `../orcshot_X.Y.Z-1_all.deb` (and a `.buildinfo`/`.changes` alongside i
 test suite again as part of the build - a real build failure here (not just a test failure) means
 something's wrong with `debian/control`'s dependency list or `pyproject.toml` itself, not the code.
 
-## 5. Lint it
+## 6. Lint it
 
 ```bash
 lintian ../orcshot_X.Y.Z-1_all.deb
@@ -114,10 +133,10 @@ Zero errors expected. A few harmless warnings are already documented in REQUIREM
 Packaging section (e.g. the icon-size mismatch) - anything new should be understood, not just
 dismissed.
 
-## 6. Upload to the PPA (task #102)
+## 7. Upload to the PPA (task #102)
 
 `ppa:artificialorctelligence/orcshot` on Launchpad. PPAs build from a *source* upload, not the
-binary `.deb` from step 4 - Launchpad's own build farm compiles/assembles the package itself.
+binary `.deb` from step 5 - Launchpad's own build farm compiles/assembles the package itself.
 
 **One-time setup:** the signing key must exist in this machine's keyring. It cannot be derived
 from the package - see below.
@@ -164,11 +183,11 @@ at all; the section above is only needed if that shorthand ever stops resolving 
 **Only one series needs a real upload.** Orcshot is `Architecture: all` with no series-specific
 build-dependencies (confirmed against Launchpad's own packaging docs), so the binary built for
 `noble` (24.04) is copied to `resolute` (26.04) rather than built from a second source upload.
-That copy is **step 7**, and it must not run until this step's build has actually succeeded.
+That copy is **step 8**, and it must not run until this step's build has actually succeeded.
 Check build status/logs at
 `https://launchpad.net/~artificialorctelligence/+archive/ubuntu/orcshot/+packages`.
 
-## 7. Copy the built package to 26.04
+## 8. Copy the built package to 26.04
 
 **Preconditions:** the `noble` build has **succeeded** on Launchpad — not merely been accepted.
 Check the PPA's package page before running this; the script also refuses if it hasn't.
@@ -182,7 +201,7 @@ browser authorization it opens.
 
 **Run:** /orc-publish desktop.python.linux.ppa.resolute
 
-## 8. Install-test on every target
+## 9. Install-test on every target
 
 This is the actual point of tasks #37/#38/#50 - the `.deb` itself never changes per target
 (`Architecture: all`, no compiled code), but whether each target's own repos carry every declared
@@ -205,7 +224,7 @@ appears and a capture round-trips.
 RPM-based distros (Fedora/openSUSE) and Arch/AUR are a separate, later effort (task #132) - a
 different package format entirely, not another entry on this list.
 
-## 9. Commit, tag, push
+## 10. Commit, tag, push
 
 ```bash
 git add pyproject.toml debian/changelog
@@ -215,9 +234,9 @@ git push origin main
 git push origin vX.Y.Z
 ```
 
-## 10. Confirm CI is green on the just-pushed commit
+## 11. Confirm CI is green on the just-pushed commit
 
-Step 8 just pushed the release commit to `main`, which triggers `.github/workflows/apt.yml` (build,
+Step 10 just pushed the release commit to `main`, which triggers `.github/workflows/apt.yml` (build,
 install-and-launch, the headless-Shell tray check), `.github/workflows/snap.yml` (the same, for the
 Snap channel), and `.github/workflows/flatpak.yml` (the same, for the Flatpak channel) for real -
 confirm all three actually passed before publishing anything downstream. See `CI.md` for what this
@@ -231,22 +250,22 @@ gh run list --workflow=flatpak.yml --limit 1
 ```
 
 Expected: `completed` / `success` for that commit, on all three. If any is still running, wait for
-it; if any failed, stop here and fix forward before step 11 - don't publish a release CI itself
+it; if any failed, stop here and fix forward before step 12 - don't publish a release CI itself
 flagged as broken.
 
-## 11. Publish the GitHub Release
+## 12. Publish the GitHub Release
 
 Create a release for the `vX.Y.Z` tag (web UI or `gh release create vX.Y.Z`) and attach the built
 `.deb` as a release asset. This is the step task #103 actually depends on - `releases/latest` only
 returns something once a real, non-draft, non-prerelease release exists.
 
-## 12. Sanity-check the update checker
+## 13. Sanity-check the update checker
 
 Once published, confirm task #103 actually sees it: Help > Check for Updates... on a build one
 version behind should report the new release; on the just-built version itself, "up to date."
 
 For `0.2.0`: covered incidentally rather than via a dedicated re-test - the 24.04 VM was still on
-the prior release (about a week old) going into step 8's install-test, and installing `0.2.0-1`
+the prior release (about a week old) going into step 9's install-test, and installing `0.2.0-1`
 over it is the same real "one version behind" transition this step asks for. Accepted as
 sufficient (direflail, 2026-08-27) rather than reinstalling an old build just to click the menu
 item separately.
