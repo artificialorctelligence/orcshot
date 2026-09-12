@@ -175,6 +175,8 @@ from orcshot.settings import (
     get_icon_size,
     get_language,
     get_output_directory,
+    is_portal_document_path,
+    output_directory_is_reachable,
     get_output_settings,
     get_play_capture_sound,
     get_print_options,
@@ -1784,7 +1786,10 @@ class EditorWindow(Gtk.Window):
         settings = get_output_settings()
         self._maybe_show_quality_dialog(settings.primary_format)
         settings = get_output_settings()  # re-read - the dialog may have changed jpeg_quality
-        directory = get_output_directory()
+        from orcshot.ui.destination_picker import ensure_output_directory  # lazy: see _open_editor's mirror import there
+        directory = ensure_output_directory(self)
+        if directory is None:
+            return
         counter = consume_filename_counter()
         filename = (
             resolve_filename_pattern(
@@ -3298,9 +3303,10 @@ class EditorWindow(Gtk.Window):
         extension rather than claiming to write a real .gst file.
         """
         self._commit_text_editing_if_active()
-        dialog = Gtk.FileChooserDialog(title=_("Save Objects"), transient_for=self, action=Gtk.FileChooserAction.SAVE)
-        dialog.add_buttons(Gtk.STOCK_CANCEL, Gtk.ResponseType.CANCEL, Gtk.STOCK_SAVE, Gtk.ResponseType.OK)
-        dialog.set_current_folder(str(get_output_directory()))
+        dialog = Gtk.FileChooserNative(title=_("Save Objects"), transient_for=self, action=Gtk.FileChooserAction.SAVE)
+        directory = get_output_directory()
+        if output_directory_is_reachable(directory):
+            dialog.set_current_folder(str(directory))
         dialog.set_current_name("objects.json")
         dialog.set_do_overwrite_confirmation(True)
         object_filter = Gtk.FileFilter()
@@ -3308,10 +3314,10 @@ class EditorWindow(Gtk.Window):
         object_filter.add_pattern("*.json")
         dialog.add_filter(object_filter)
         try:
-            if dialog.run() == Gtk.ResponseType.OK:
+            if dialog.run() == Gtk.ResponseType.ACCEPT:
                 path = Path(dialog.get_filename())
-                if path.suffix.lower() != ".json":
-                    path = path.with_suffix(".json")
+                if path.suffix.lower() != ".json" and not is_portal_document_path(path):
+                    path = path.with_suffix(".json")  # never under the portal - see settings.is_portal_document_path
                 save_objects_file(self.layer, path)
         finally:
             dialog.destroy()
@@ -3333,15 +3339,14 @@ class EditorWindow(Gtk.Window):
         behavior.
         """
         self._commit_text_editing_if_active()
-        dialog = Gtk.FileChooserDialog(title=_("Load Objects"), transient_for=self, action=Gtk.FileChooserAction.OPEN)
-        dialog.add_buttons(Gtk.STOCK_CANCEL, Gtk.ResponseType.CANCEL, Gtk.STOCK_OPEN, Gtk.ResponseType.OK)
+        dialog = Gtk.FileChooserNative(title=_("Load Objects"), transient_for=self, action=Gtk.FileChooserAction.OPEN)
         object_filter = Gtk.FileFilter()
         object_filter.set_name(_("Orcshot objects"))
         for pattern in ("*.json", "*.orcshot"):
             object_filter.add_pattern(pattern)
         dialog.add_filter(object_filter)
         try:
-            if dialog.run() != Gtk.ResponseType.OK:
+            if dialog.run() != Gtk.ResponseType.ACCEPT:
                 return
             path = dialog.get_filename()
         finally:
@@ -3399,18 +3404,11 @@ class EditorWindow(Gtk.Window):
         title = title or _("Save Screenshot")
         self._commit_text_editing_if_active()
         output_settings = get_output_settings()
-        dialog = Gtk.FileChooserDialog(
-            title=title, transient_for=self, action=Gtk.FileChooserAction.SAVE
-        )
-        dialog.add_buttons(
-            Gtk.STOCK_CANCEL, Gtk.ResponseType.CANCEL,
-            Gtk.STOCK_SAVE, Gtk.ResponseType.OK,
-        )
-        dialog.set_current_folder(str(get_output_directory()))
+        dialog = Gtk.FileChooserNative(title=title, transient_for=self, action=Gtk.FileChooserAction.SAVE)
+        directory = get_output_directory()
+        if output_directory_is_reachable(directory):
+            dialog.set_current_folder(str(directory))
 
-        format_combo = Gtk.ComboBoxText()
-        for value, label in _SAVE_AS_FORMATS:
-            format_combo.append(value, label)
         # "orcshot" only here, not in _SAVE_AS_FORMATS - that list is
         # shared with the Output tab's "Primary format" dropdown
         # (quick-save's default raster format), and this isn't a valid
@@ -3419,29 +3417,40 @@ class EditorWindow(Gtk.Window):
         # "bmp, gif, jpg, png, tiff" - "greenshot" is a Save-As-only
         # format on Windows too, never a quick-save default there
         # either (ICoreConfiguration.cs:130-132).
-        format_combo.append("orcshot", "Orcshot")
-        format_combo.set_active_id(output_settings.primary_format)
-        if format_combo.get_active_id() is None:
-            format_combo.set_active_id("png")
-
-        def on_format_changed(combo: Gtk.ComboBoxText) -> None:
-            dialog.set_current_name(f"screenshot.{combo.get_active_id()}")
-
-        format_combo.connect("changed", on_format_changed)
-        extra = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
-        extra.pack_start(Gtk.Label(label=_("Save as type:")), False, False, 0)
-        extra.pack_start(format_combo, False, False, 0)
-        extra.show_all()
-        dialog.set_extra_widget(extra)
-        dialog.set_current_name(f"screenshot.{format_combo.get_active_id()}")
+        formats = list(_SAVE_AS_FORMATS) + [("orcshot", "Orcshot")]
+        # A chooser *choice* rather than set_extra_widget: choices are
+        # the one custom control the FileChooser portal carries into
+        # its dialog (BACKLOG #210); the plain GTK dialog shows them as
+        # a combo too. The live rename on change that the old combo did
+        # is gone - the with_suffix fix-up below already makes the
+        # extension follow the chosen format.
+        dialog.add_choice("format", _("Save as type:"), [v for v, _l in formats], [l for _v, l in formats])
+        initial = output_settings.primary_format if output_settings.primary_format in dict(formats) else "png"
+        dialog.set_choice("format", initial)
+        dialog.set_current_name(f"screenshot.{initial}")
         dialog.set_do_overwrite_confirmation(True)
 
         saved = False
         try:
-            if dialog.run() == Gtk.ResponseType.OK:
-                output_format = format_combo.get_active_id()
+            if dialog.run() == Gtk.ResponseType.ACCEPT:
+                output_format = dialog.get_choice("format") or initial
                 path = Path(dialog.get_filename())
-                if path.suffix.lower().lstrip(".") != output_format:
+                if is_portal_document_path(path):
+                    # The portal hands over one exact filename and
+                    # renaming it strands the file (see
+                    # settings.is_portal_document_path). The name the
+                    # user confirmed wins; its extension is the format
+                    # - which is what save_image_to_file encodes by
+                    # anyway - and the combo can only have seeded the
+                    # suggested name. Windows keeps the two in sync by
+                    # rewriting the extension as the type changes;
+                    # a portal dialog can't, so say so when they differ
+                    # instead of silently writing the other format.
+                    typed = path.suffix.lower().lstrip(".")
+                    if typed != output_format:
+                        _explain_format_followed_extension(self, path.name, typed or "png")
+                    output_format = typed if typed in dict(formats) else "png"
+                elif path.suffix.lower().lstrip(".") != output_format:
                     path = path.with_suffix(f".{output_format}")
                 if output_format == "orcshot":
                     # The whole point is preserving shapes separately,
@@ -3482,15 +3491,14 @@ class EditorWindow(Gtk.Window):
         trigger it at all, so nothing was dropped by folding it in.
         """
         self._commit_text_editing_if_active()
-        dialog = Gtk.FileChooserDialog(title=_("Insert Image"), transient_for=self, action=Gtk.FileChooserAction.OPEN)
-        dialog.add_buttons(Gtk.STOCK_CANCEL, Gtk.ResponseType.CANCEL, Gtk.STOCK_OPEN, Gtk.ResponseType.OK)
+        dialog = Gtk.FileChooserNative(title=_("Insert Image"), transient_for=self, action=Gtk.FileChooserAction.OPEN)
         image_filter = Gtk.FileFilter()
         image_filter.set_name(_("Images"))
         for pattern in ("*.png", "*.jpg", "*.jpeg", "*.bmp", "*.gif", "*.ico", "*.cur", "*.tif", "*.tiff"):
             image_filter.add_pattern(pattern)
         dialog.add_filter(image_filter)
         try:
-            if dialog.run() != Gtk.ResponseType.OK:
+            if dialog.run() != Gtk.ResponseType.ACCEPT:
                 return
             path = dialog.get_filename()
         finally:
@@ -3512,14 +3520,13 @@ class EditorWindow(Gtk.Window):
         SVG support as a generic IFileFormatHandler too
         (SvgFileFormatHandler.cs), not a dedicated toolbar tool."""
         self._commit_text_editing_if_active()
-        dialog = Gtk.FileChooserDialog(title=_("Insert SVG"), transient_for=self, action=Gtk.FileChooserAction.OPEN)
-        dialog.add_buttons(Gtk.STOCK_CANCEL, Gtk.ResponseType.CANCEL, Gtk.STOCK_OPEN, Gtk.ResponseType.OK)
+        dialog = Gtk.FileChooserNative(title=_("Insert SVG"), transient_for=self, action=Gtk.FileChooserAction.OPEN)
         svg_filter = Gtk.FileFilter()
         svg_filter.set_name(_("SVG images"))
         svg_filter.add_pattern("*.svg")
         dialog.add_filter(svg_filter)
         try:
-            if dialog.run() != Gtk.ResponseType.OK:
+            if dialog.run() != Gtk.ResponseType.ACCEPT:
                 return
             path = dialog.get_filename()
         finally:
@@ -5299,15 +5306,16 @@ def choose_and_open_orcshot_file(transient_for: Gtk.Window = None) -> None:
     identical dialog and error handling, and both always open into a
     brand-new window.
     """
-    dialog = Gtk.FileChooserDialog(title=_("Open"), transient_for=transient_for, action=Gtk.FileChooserAction.OPEN)
-    dialog.add_buttons(Gtk.STOCK_CANCEL, Gtk.ResponseType.CANCEL, Gtk.STOCK_OPEN, Gtk.ResponseType.OK)
-    dialog.set_current_folder(str(get_output_directory()))
+    dialog = Gtk.FileChooserNative(title=_("Open"), transient_for=transient_for, action=Gtk.FileChooserAction.OPEN)
+    directory = get_output_directory()
+    if output_directory_is_reachable(directory):
+        dialog.set_current_folder(str(directory))
     orcshot_filter = Gtk.FileFilter()
     orcshot_filter.set_name(_("Orcshot files"))
     orcshot_filter.add_pattern("*.orcshot")
     dialog.add_filter(orcshot_filter)
     try:
-        if dialog.run() != Gtk.ResponseType.OK:
+        if dialog.run() != Gtk.ResponseType.ACCEPT:
             return
         path = dialog.get_filename()
     finally:
@@ -5350,6 +5358,22 @@ def open_orcshot_file_in_new_window(path, transient_for: Gtk.Window = None) -> "
     return editor
 
 
+def _explain_format_followed_extension(parent: Gtk.Window, filename: str, actual_format: str) -> None:
+    """BACKLOG #210: shown by _do_save when a portal dialog's confirmed
+    name ends in one format and the "Save as type" choice said another
+    - the name can't be rewritten there, so the file follows its own
+    extension and the user is told which."""
+    dialog = Gtk.MessageDialog(
+        transient_for=parent, message_type=Gtk.MessageType.INFO, buttons=Gtk.ButtonsType.OK,
+        text=_("Saved as {0}").format(actual_format.upper()),
+    )
+    dialog.format_secondary_text(
+        _("The file name \"{0}\" decides the format. To save as a different type, change the extension in the name.").format(filename)
+    )
+    dialog.run()
+    dialog.destroy()
+
+
 def _choose_save_location(parent: Gtk.Window = None) -> None:
     """Lets the user view/change the folder the destination
     picker's silent "Save" (ui/destination_picker.py) and
@@ -5359,18 +5383,15 @@ def _choose_save_location(parent: Gtk.Window = None) -> None:
     task #119 made this reachable from the tray icon's own
     Preferences dialog too, with no editor open at all.
     """
-    dialog = Gtk.FileChooserDialog(
-        title=_("Screenshot Save Location"), transient_for=parent, action=Gtk.FileChooserAction.SELECT_FOLDER
-    )
-    dialog.add_buttons(
-        Gtk.STOCK_CANCEL, Gtk.ResponseType.CANCEL,
-        _("Select"), Gtk.ResponseType.OK,
+    dialog = Gtk.FileChooserNative(
+        title=_("Screenshot Save Location"), transient_for=parent, action=Gtk.FileChooserAction.SELECT_FOLDER,
+        accept_label=_("Select"),
     )
     current = get_output_directory()
-    current.mkdir(parents=True, exist_ok=True)
-    dialog.set_current_folder(str(current))
+    if output_directory_is_reachable(current):
+        dialog.set_current_folder(str(current))
     try:
-        if dialog.run() == Gtk.ResponseType.OK:
+        if dialog.run() == Gtk.ResponseType.ACCEPT:
             set_output_directory(Path(dialog.get_filename()))
     finally:
         dialog.destroy()
@@ -5886,6 +5907,9 @@ def _build_output_settings_tab(parent: Gtk.Window) -> Gtk.Box:
 
     location_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
     location_row.pack_start(Gtk.Label(label=_("Screenshot Save Location:")), False, False, 0)
+    # ponytail: under Flatpak a portal-picked folder shows as
+    # /run/user/<uid>/doc/<id>/<name>; show the host path via the
+    # Documents portal's GetHostPaths if anyone minds (BACKLOG #210).
     location_label = Gtk.Label(label=str(get_output_directory()))
     location_row.pack_start(location_label, True, True, 0)
     change_button = Gtk.Button(label=_("Change..."))

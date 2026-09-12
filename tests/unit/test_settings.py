@@ -6,6 +6,7 @@ autostart.py's .desktop entry: real file I/O, exercised for real here
 against a temp path, never the actual default XDG path.
 """
 
+import os
 from datetime import datetime
 from pathlib import Path
 
@@ -30,6 +31,8 @@ from orcshot.settings import (
     get_last_update_check,
     get_output_directory,
     get_output_settings,
+    is_portal_document_path,
+    output_directory_is_reachable,
     get_play_capture_sound,
     get_print_options,
     get_recent_colors,
@@ -669,3 +672,78 @@ class TestDefaultExternalCommandsSeededFlag:
         mark_default_external_commands_seeded(path=path)
 
         assert is_default_external_commands_seeded(path=path) is True
+
+
+class TestOutputDirectoryIsReachable:
+    """BACKLOG #210: inside the Flatpak sandbox, $HOME is the sandbox's
+    own tmpfs - writes succeed and evaporate. Anything on the same
+    device as / is that tmpfs; real host mounts differ."""
+
+    def test_true_outside_flatpak_whatever_the_path(self, tmp_path, monkeypatch):
+        monkeypatch.setattr("orcshot.settings.detect_channel", lambda: "deb")
+        assert output_directory_is_reachable(tmp_path / "Screenshots") is True
+
+    def test_false_under_flatpak_when_on_the_sandbox_root_device(self, tmp_path, monkeypatch):
+        monkeypatch.setattr("orcshot.settings.detect_channel", lambda: "flatpak")
+        root_dev = os.stat("/").st_dev
+        real_stat = os.stat
+
+        def same_device_as_root(path, *args, **kwargs):
+            result = real_stat(path, *args, **kwargs)
+            if str(path) == str(tmp_path / "Screenshots"):
+                return os.stat_result(result[:2] + (root_dev,) + result[3:])
+            return result
+
+        monkeypatch.setattr("orcshot.settings.os.stat", same_device_as_root)
+        assert output_directory_is_reachable(tmp_path / "Screenshots") is False
+
+    def test_true_under_flatpak_on_a_different_device(self, tmp_path, monkeypatch):
+        monkeypatch.setattr("orcshot.settings.detect_channel", lambda: "flatpak")
+        root_dev = os.stat("/").st_dev
+        real_stat = os.stat
+
+        def different_device(path, *args, **kwargs):
+            result = real_stat(path, *args, **kwargs)
+            if str(path) == str(tmp_path / "Screenshots"):
+                return os.stat_result(result[:2] + (root_dev + 1,) + result[3:])
+            return result
+
+        monkeypatch.setattr("orcshot.settings.os.stat", different_device)
+        assert output_directory_is_reachable(tmp_path / "Screenshots") is True
+
+    def test_creates_the_directory_before_checking(self, tmp_path, monkeypatch):
+        monkeypatch.setattr("orcshot.settings.detect_channel", lambda: "deb")
+        target = tmp_path / "Pictures" / "Screenshots"
+        output_directory_is_reachable(target)
+        # "deb" returns early without touching disk; only the flatpak
+        # branch mkdirs. Pin that: the sandbox test above depends on
+        # the directory existing for os.stat.
+        assert not target.exists()
+        monkeypatch.setattr("orcshot.settings.detect_channel", lambda: "flatpak")
+        output_directory_is_reachable(target)
+        assert target.is_dir()
+
+
+class TestIsPortalDocumentPath:
+    """BACKLOG #210: a path under $XDG_RUNTIME_DIR/doc came from the
+    document portal and must never be renamed by the app."""
+
+    def test_true_for_a_document_portal_file(self, monkeypatch):
+        monkeypatch.setenv("XDG_RUNTIME_DIR", "/run/user/1000")
+        assert is_portal_document_path(Path("/run/user/1000/doc/54b8e4a6/portal-test")) is True
+
+    def test_true_for_a_file_inside_a_directory_document(self, monkeypatch):
+        monkeypatch.setenv("XDG_RUNTIME_DIR", "/run/user/1000")
+        assert is_portal_document_path(Path("/run/user/1000/doc/7c103d25/Screenshots/x.png")) is True
+
+    def test_false_for_an_ordinary_home_path(self, monkeypatch):
+        monkeypatch.setenv("XDG_RUNTIME_DIR", "/run/user/1000")
+        assert is_portal_document_path(Path("/home/direflail/Screenshots/x.png")) is False
+
+    def test_false_for_the_runtime_dir_itself(self, monkeypatch):
+        monkeypatch.setenv("XDG_RUNTIME_DIR", "/run/user/1000")
+        assert is_portal_document_path(Path("/run/user/1000/orcshot.sock")) is False
+
+    def test_falls_back_to_run_user_uid_without_the_env_var(self, monkeypatch):
+        monkeypatch.delenv("XDG_RUNTIME_DIR", raising=False)
+        assert is_portal_document_path(Path(f"/run/user/{os.getuid()}/doc/abc/f.png")) is True

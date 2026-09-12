@@ -11,6 +11,6 @@ cd "$(dirname "$0")/.."
 # and leaving `git status` dirty mid-release.
 out="${1:-po/orcshot.pot}"
 mkdir -p "$(dirname "$out")"
-find src/orcshot -name '*.py' -print0 | xargs -0 xgettext --language=Python \
+find src/orcshot -name '*.py' -print0 | sort -z | xargs -0 xgettext --language=Python \
     --keyword=_ --keyword=ngettext:1,2 --force-po --output="$out"
 echo "Wrote $out"

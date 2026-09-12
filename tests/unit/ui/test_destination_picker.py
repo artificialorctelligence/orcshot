@@ -5,8 +5,10 @@ ExternalCommand entries - instead of a hardcoded copy that drifts out
 of sync with destination_picker.py's own _all_destinations().
 """
 
+import logging
+
 from orcshot.settings import ExternalCommand
-from orcshot.ui.destination_picker import _should_reuse_editor, destinations_for_shell
+from orcshot.ui.destination_picker import _should_reuse_editor, destinations_for_shell, ensure_output_directory
 
 
 def test_includes_the_five_built_in_destinations(monkeypatch):
@@ -72,3 +74,42 @@ def test_geometry_key_matches_the_known_icon_for_a_built_in_destination(monkeypa
     entries = dict((item_id, geometry_key) for item_id, _label, geometry_key in destinations_for_shell())
 
     assert entries["clipboard"] == "edit-copy-symbolic"
+
+
+class TestEnsureOutputDirectory:
+    """BACKLOG #210: quick Save must never write into the Flatpak
+    sandbox's evaporating tmpfs. Both quick-save paths (tray/picker and
+    the editor menu) go through this one function."""
+
+    def test_returns_the_directory_when_reachable_without_asking(self, tmp_path, monkeypatch):
+        monkeypatch.setattr("orcshot.ui.destination_picker.get_output_directory", lambda: tmp_path)
+        monkeypatch.setattr("orcshot.ui.destination_picker.output_directory_is_reachable", lambda d: True)
+        asked = []
+        monkeypatch.setattr("orcshot.ui.destination_picker._choose_location", lambda parent: asked.append(parent))
+
+        assert ensure_output_directory(parent=None) == tmp_path
+        assert asked == []
+
+    def test_asks_once_and_returns_the_newly_chosen_directory(self, tmp_path, monkeypatch):
+        chosen = tmp_path / "picked"
+        current = {"dir": tmp_path / "tmpfs"}
+        monkeypatch.setattr("orcshot.ui.destination_picker.get_output_directory", lambda: current["dir"])
+        monkeypatch.setattr(
+            "orcshot.ui.destination_picker.output_directory_is_reachable", lambda d: d == chosen,
+        )
+
+        def pick(parent):
+            current["dir"] = chosen
+
+        monkeypatch.setattr("orcshot.ui.destination_picker._choose_location", pick)
+
+        assert ensure_output_directory(parent=None) == chosen
+
+    def test_cancelled_picker_returns_none_and_warns(self, tmp_path, monkeypatch, caplog):
+        monkeypatch.setattr("orcshot.ui.destination_picker.get_output_directory", lambda: tmp_path / "tmpfs")
+        monkeypatch.setattr("orcshot.ui.destination_picker.output_directory_is_reachable", lambda d: False)
+        monkeypatch.setattr("orcshot.ui.destination_picker._choose_location", lambda parent: None)
+
+        with caplog.at_level(logging.WARNING, logger="orcshot.ui.destination_picker"):
+            assert ensure_output_directory(parent=None) is None
+        assert "no reachable" in caplog.text

@@ -21,6 +21,7 @@ from dataclasses import asdict, dataclass
 from datetime import datetime
 from pathlib import Path
 
+from orcshot.channel_detect import detect_channel
 from orcshot.core.filename_pattern import DEFAULT_FILENAME_PATTERN
 
 CONFIG_FILENAME = "config.json"
@@ -137,6 +138,40 @@ def set_output_directory(directory: Path, path: Path = None) -> None:
     settings = _load(path)
     settings[_OUTPUT_DIRECTORY_KEY] = str(directory)
     _save(settings, path)
+
+
+def output_directory_is_reachable(directory: Path) -> bool:
+    """True unless we are inside the Flatpak sandbox and ``directory`` is
+    on the sandbox's own tmpfs (BACKLOG #210). Inside the sandbox $HOME
+    is a tmpfs: mkdir and the write both *succeed*, no error is raised,
+    and the file is gone when the process exits - confirmed live in the
+    installed Flatpak. Anything sharing /'s device number is that tmpfs;
+    every real host mount (~/.var/app, /run/user/<uid>/doc, a granted
+    xdg-pictures) has a different st_dev. Only meaningful under
+    Flatpak - on a plain install /home may or may not be its own
+    filesystem, so the comparison says nothing there and is skipped.
+    """
+    if detect_channel() != "flatpak":
+        return True
+    directory.mkdir(parents=True, exist_ok=True)
+    return os.stat(directory).st_dev != os.stat("/").st_dev
+
+
+def is_portal_document_path(path: Path) -> bool:
+    """True when ``path`` was handed out by the desktop's document
+    portal ($XDG_RUNTIME_DIR/doc/<id>/<name>) - i.e. by a portal file
+    dialog under Flatpak (BACKLOG #210). Such a path is the *one* name
+    the app may write in that document: the portal's FUSE backs any
+    sibling name by a ".xdp-<name>-XXXXXX" temp file on the host and
+    finalizes it only through a rename onto the document's own name
+    (xdg-desktop-portal document-portal-fuse.c). Found live: a Save
+    As of "portal-test" with JPEG chosen, then with_suffix(".jpg"),
+    left ~/Screenshots/.xdp-portal-test.jpg-VWhcUm behind, complete
+    and invisible. So callers must never rename a path this says yes
+    to - the name the user confirmed is the file they get.
+    """
+    runtime_dir = os.environ.get("XDG_RUNTIME_DIR") or f"/run/user/{os.getuid()}"
+    return Path(path).is_relative_to(Path(runtime_dir) / "doc")
 
 
 def quick_save_filename(when: datetime, counter: int) -> str:
