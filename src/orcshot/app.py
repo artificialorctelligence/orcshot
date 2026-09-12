@@ -58,12 +58,14 @@ from orcshot.ui.capture_modes import (
 )
 from orcshot.autostart import remove_legacy_autostart_entry
 from orcshot.capture.shell_bridge import get_bridge
+from orcshot.hotkey_setup import cinnamon_keybindings_available
 from orcshot.resources import LOGO_PATH
 from orcshot.ui.external_commands import maybe_seed_default_external_commands
 from orcshot.ui.first_run_setup import maybe_run_first_run_setup
 from orcshot.ui.region_select import start_region_capture
 from orcshot.ui.update_check import fetch_latest_release
 from orcshot.ui.window_picker import start_window_picker
+from orcshot.ui.xapp_tray import create_status_icon
 
 APPLICATION_ID = "org.orcshot.Orcshot"
 CAPTURE_REGION_OPTION = "capture-region"
@@ -223,6 +225,21 @@ class OrcshotApplication(Gtk.Application):
             # original except clause here didn't actually cover
             # this).
             print(f"[orcshot] _export_tray_menu() failed: {e}", file=sys.stderr)
+        # BACKLOG #208: on Cinnamon the tray is an XApp status icon owned
+        # by this process (no applet, no About/Remove, nothing to
+        # install) rendering the same self._tray_menu the GNOME Shell
+        # extension consumes. Created here, after the export, because
+        # build_menu reads self._tray_menu.
+        self._xapp_icon = None
+        if getattr(self, "_tray_menu", None) is not None and cinnamon_keybindings_available():
+            # libxapp derives the icon's D-Bus name (org.x.StatusIcon.*)
+            # from the process's program name, which defaults to argv[0]'s
+            # basename - "app.py" for this dev checkout's `python -m
+            # orcshot.app`, not "orcshot". Force it so the bus name is
+            # always org.x.StatusIcon.orcshot regardless of launcher; the
+            # Flatpak's --own-name grant is for that exact name.
+            GLib.set_prgname("orcshot")
+            self._xapp_icon = create_status_icon(self)
         self._check_shell_extension_health()
         maybe_run_first_run_setup()
         # Separate from maybe_run_first_run_setup's own flag - this
@@ -729,6 +746,9 @@ class OrcshotApplication(Gtk.Application):
         it comes back (via systemd's own Restart=on-failure, or the
         next login) - so it must not leave the marker behind to
         incorrectly swallow the very next capture hotkey.
+
+        The XApp status icon (BACKLOG #208) dies with the process too -
+        `self._xapp_icon` needs no explicit teardown.
         """
         if write_marker:
             write_quit_marker()
