@@ -6,6 +6,10 @@ command: orcshot
 finish-args:
   - --socket=wayland
   - --socket=fallback-x11
+  # X11 clients need shared-memory transport (MIT-SHM); Flathub's own
+  # linter requires --share=ipc alongside any X11 socket. Found by the
+  # first manifest lint ever run against this file (BACKLOG #209).
+  - --share=ipc
   # The one org.gnome.Shell call left in the app (spec 2026-09-11):
   # ui/extension_install.py asks GNOME to install the extension from
   # extensions.gnome.org (org.gnome.Shell.Extensions.InstallRemoteExtension),
@@ -24,6 +28,10 @@ finish-args:
   # (read from xapp-status-icon.c) and talks to Cinnamon's monitor
   # applet under org.x.StatusIconMonitor.*. Same two lines Warpinator
   # (flathub/org.x.Warpinator, Mint's own app) declares.
+  # Flathub's linter flags this as an owned name outside the app id
+  # (finish-args-own-name-org.x.StatusIcon.orcshot) - expected, not a
+  # defect: a reviewer-granted exception will be requested in the
+  # Flathub submission (decision 2026-09-12, BACKLOG #209).
   - --own-name=org.x.StatusIcon.orcshot
   - --talk-name=org.x.StatusIconMonitor.*
   # capture_feedback.py's capture-complete sound (GStreamer playing a
