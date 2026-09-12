@@ -1,8 +1,8 @@
 """The Cinnamon tray: an XApp.StatusIcon owned by this process, showing
 the same Gio.Menu the GNOME Shell extension renders. Replaces the
-Cinnamon applet (BACKLOG #208): a Cinnamon applet always carries
-Cinnamon's own About/Remove entries, a status icon does not, and a
-status icon needs nothing installed on any channel.
+retired Cinnamon panel applet (see BACKLOG #208): a panel applet
+always carries Cinnamon's own About/Remove entries, a status icon
+does not, and a status icon needs nothing installed on any channel.
 
 Two things were verified on a real Cinnamon panel before this existed
 (spec docs/superpowers/specs/2026-09-12-xapp-status-icon-design.md):

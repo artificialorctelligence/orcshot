@@ -399,11 +399,12 @@ class OrcshotApplication(Gtk.Application):
     def _remember_region(self, rect) -> None:
         self.last_region = rect
         # Updating the exported GAction's own `enabled` property is
-        # sufficient - it propagates to every real consumer (GNOME
-        # Shell extension, Cinnamon applet) automatically over the
-        # org.gtk.Actions D-Bus interface (Gio.SimpleAction.set_enabled),
-        # no export/refresh step of our own needed the way the menu
-        # structure itself (_export_tray_menu) does.
+        # sufficient - it propagates to every real consumer (the GNOME
+        # Shell extension, or ui/xapp_tray.py's XApp status icon on
+        # Cinnamon) automatically over the org.gtk.Actions D-Bus
+        # interface (Gio.SimpleAction.set_enabled), no export/refresh
+        # step of our own needed the way the menu structure itself
+        # (_export_tray_menu) does.
         if self._tray_repeat_action is not None:
             self._tray_repeat_action.set_enabled(True)
 
@@ -578,9 +579,10 @@ class OrcshotApplication(Gtk.Application):
         """One handler per capture mode, keyed by the same mode string
         icons.py's capture_mode_icon_image() already uses. Backs
         _register_tray_actions' GActions (activated by the GNOME Shell
-        extension's or Cinnamon applet's panel button, both living in a
-        *different* process - see that method's own docstring), rather
-        than defining the same five closures inline there.
+        extension's panel button, in a *different* process, or by
+        ui/xapp_tray.py's XApp status icon on Cinnamon, in-process -
+        see that method's own docstring), rather than defining the
+        same five closures inline there.
         """
         return {
             "region": lambda: self.start_region_capture(capture_mouse_cursor=False),
@@ -598,12 +600,14 @@ class OrcshotApplication(Gtk.Application):
         with '.' replaced by '/') via the standard org.gtk.Actions
         interface, since this app is already a registered Gio.
         Application with a fixed application_id (see this file's own
-        docstring). The orcshot-tray@orcshot.org tray panel button -
-        the GNOME Shell extension or the Cinnamon applet, both
-        rendering the menu _export_tray_menu publishes for them -
-        lives in a separate process and activates these by name via
+        docstring). The GNOME Shell extension's tray panel button -
+        rendering the menu _export_tray_menu publishes for it - lives
+        in a separate process and activates these by name via
         Gio.DBusActionGroup instead of calling into this process
-        directly - see each one's own _addModelItems/activate wiring.
+        directly - see its own _addModelItems/activate wiring. On
+        Cinnamon, ui/xapp_tray.py's XApp status icon runs in-process
+        instead, so it calls self.activate_action directly rather
+        than going over D-Bus at all.
         """
         for mode, handler in self._tray_action_handlers().items():
             action = Gio.SimpleAction.new(f"tray-{mode}", None)
@@ -647,10 +651,10 @@ class OrcshotApplication(Gtk.Application):
         self.add_action(play_capture_sound_action)
 
     def _export_tray_menu(self) -> None:
-        """Publishes the Wayland tray menu for orcshot-tray@orcshot.org
-        to render - see gnome_tray_export.py's own module docstring
-        for why this doesn't need a new bus name or action group, just
-        the menu structure itself.
+        """Publishes the Wayland tray menu for the GNOME Shell extension
+        (orcshot@orcshot.org) to render - see gnome_tray_export.py's
+        own module docstring for why this doesn't need a new bus name
+        or action group, just the menu structure itself.
 
         Task 7 live-verification bug, root-caused: the built Gio.Menu
         must be kept alive for as long as it stays exported -
@@ -663,7 +667,7 @@ class OrcshotApplication(Gtk.Application):
         version of this method built `menu` as a plain local variable
         with nothing keeping it alive past this function returning -
         live-confirmed as the actual cause of a real bug: a
-        Gio.DBusMenuModel client (orcshot-tray@orcshot.org's own
+        Gio.DBusMenuModel client (the GNOME Shell extension's own
         panel button, and independently a brand-new test proxy
         created straight from Looking Glass) both got stuck at
         get_n_items() == 0 forever, never populating, despite a raw
@@ -703,8 +707,9 @@ class OrcshotApplication(Gtk.Application):
         orcshot-clipboard@orcshot.org extension's own Shell-native tray
         panel button used to need an explicit best-effort Quitting()
         D-Bus call here so it would actually disappear instead of
-        sticking around dimmed. The new orcshot-tray@orcshot.org
-        extension (Backlog #184 follow-up) tears its own button down on
+        sticking around dimmed. The tray-specific extension that
+        replaced it (Backlog #184 follow-up, later folded into
+        orcshot@orcshot.org by #205) tears its own button down on
         its own via Gio.bus_watch_name's vanished callback the moment
         this process's D-Bus name drops, so there's nothing left for
         this method to notify.
@@ -850,8 +855,9 @@ class OrcshotApplication(Gtk.Application):
         old orcshot-clipboard@orcshot.org extension used to need an
         explicit _notify_tray_extension_quitting() D-Bus heads-up here so
         its own long-lived panel button would rebuild fresh on the next
-        appear rather than staying stale. The new orcshot-tray@orcshot.org
-        extension (Backlog #184 follow-up) has no such stale-build problem -
+        appear rather than staying stale. The tray-specific extension
+        that replaced it (Backlog #184 follow-up, later folded into
+        orcshot@orcshot.org by #205) has no such stale-build problem -
         it reads the tray menu live from the exported Gio.Menu/
         items-changed on every appear - so there's nothing left for this
         method to notify.

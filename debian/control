@@ -33,6 +33,9 @@ Architecture: all
 Depends: ${python3:Depends},
          ${misc:Depends},
          python3-gi,
+# gir1.2-xapp-1.0: XApp.StatusIcon, the Cinnamon tray icon (BACKLOG #208).
+# Harmless on GNOME, where it is never imported.
+         gir1.2-xapp-1.0,
          python3-gi-cairo,
          python3-cairo,
          python3-numpy,
