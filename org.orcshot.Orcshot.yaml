@@ -34,6 +34,12 @@ finish-args:
   # Flathub submission (decision 2026-09-12, BACKLOG #209).
   - --own-name=org.x.StatusIcon.orcshot
   - --talk-name=org.x.StatusIconMonitor.*
+  # BACKLOG #210: the default output directory is ~/Pictures/Screenshots.
+  # The same static grant Flameshot (xdg-pictures) and Kooha (xdg-videos)
+  # ship on Flathub; :create so the folder can be made on first Save.
+  # Any other folder the user picks goes through the FileChooser portal
+  # (persistent document grant) - see settings.output_directory_is_reachable.
+  - --filesystem=xdg-pictures:create
   # capture_feedback.py's capture-complete sound (GStreamer playing a
   # bundled file, see that module's own docstring - replaced GSound,
   # 2026-09-01) needs a real audio sink to actually produce sound, not
