@@ -88,3 +88,33 @@ under the headless Shell (#206).
 declaration granted); `https://extensions.gnome.org/extension-query/?search=orcshot` lists the
 UUID (EGO first submission); `flatpak-builder-lint ... manifest org.orcshot.Orcshot.yaml` is
 clean without the filesystem grant.
+
+## Scenario 2: XApp status icon on Cinnamon (spec 2026-09-12)
+
+Scenarios for docs/superpowers/specs/2026-09-12-xapp-status-icon-design.md, all on the Mint host
+(Cinnamon 6.x, X11), 2026-09-12.
+
+- Dev checkout (`.venv/bin/python -m orcshot.app`, the .deb code path): the process owns both
+  `org.orcshot.Orcshot` and `org.x.StatusIcon.orcshot` (`gdbus ... ListNames`); the icon sits
+  among the status icons; right-click shows the app's menu with per-item icons and no About /
+  Remove (`real-menu.png` in the session scratchpad); Quit removes icon and process. — PASS.
+- Menu-in-capture, dev checkout: direflail chose *Capture Full Screen → Save* from the icon's
+  menu; the saved 4480×1440 PNG cropped at the menu's screen position shows the desktop and
+  panel, no menu (`user-saved-menu-region.png`). — PASS. This is in-process code identical on
+  every channel (ui/xapp_tray.py's proxy).
+- Flatpak (CI bundle from run 34679321587, `flatpak install --user`):
+  `flatpak info --show-permissions` lists `shared=ipc`, `org.x.StatusIcon.orcshot=own`,
+  `org.x.StatusIconMonitor.*=talk`; `gi.require_version("XApp","1.0")` succeeds inside the
+  sandbox (after `-Dlibdir=lib`; before it the typelib sat in /app/lib64 and failed);
+  `running_on_cinnamon()` is True inside the sandbox (after switching to XDG_CURRENT_DESKTOP;
+  the GSettings-schema check answered False); one instance owns both bus names (`:1.1096`);
+  Cinnamon's log: `Adding XAppStatusIcon: orcshot (:1.1096/org/x/StatusIcon/Icon)`; direflail
+  sees the icon and its menu. — PASS. *Save* from that menu wrote nothing: BACKLOG #210
+  (pre-existing Flatpak gap, not this feature's).
+- Left-click → region capture: verified on the prototype (`xapp_proto3.py`) by direflail;
+  the shipped code path is the same `activate` handler. Not separately re-run on the shipped
+  build. — RECORDED, not re-verified.
+- Not verified: Cinnamon on Wayland (no session at hand); xapp-status is D-Bus, same code path.
+- Two stale Flatpak instances survived a `kill` of the wrong PIDs during this pass; use
+  `flatpak kill org.orcshot.Orcshot`, then confirm both names have one owner with
+  `gdbus ... GetNameOwner` before judging anything.

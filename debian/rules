@@ -55,7 +55,7 @@ override_dh_auto_test:
 # that leaked into this wheel too, confirmed live via a real build
 # before this fix. Those files were deleted along with the rest of
 # that gettext domain by the 2026-08-28 Wayland tray redesign (Task 5)
-# - orcshot-tray@orcshot.org now renders labels it receives already-
+# - that extension now renders labels it receives already-
 # translated over D-Bus, no domain of its own - but the ??.po glob
 # stays exactly this specific regardless, still the correct discipline
 # against po/ picking up any other non-2-letter-code file (po/orcshot.

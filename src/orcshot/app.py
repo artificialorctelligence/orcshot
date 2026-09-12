@@ -64,6 +64,7 @@ from orcshot.ui.first_run_setup import maybe_run_first_run_setup
 from orcshot.ui.region_select import start_region_capture
 from orcshot.ui.update_check import fetch_latest_release
 from orcshot.ui.window_picker import start_window_picker
+from orcshot.ui.xapp_tray import create_status_icon, running_on_cinnamon
 
 APPLICATION_ID = "org.orcshot.Orcshot"
 CAPTURE_REGION_OPTION = "capture-region"
@@ -223,6 +224,19 @@ class OrcshotApplication(Gtk.Application):
             # original except clause here didn't actually cover
             # this).
             print(f"[orcshot] _export_tray_menu() failed: {e}", file=sys.stderr)
+        # BACKLOG #208: on Cinnamon the tray is an XApp status icon owned
+        # by this process (no applet, no About/Remove, nothing to
+        # install) rendering the same self._tray_menu the GNOME Shell
+        # extension consumes. Created here, after the export, because
+        # build_menu reads self._tray_menu.
+        # Detected via XDG_CURRENT_DESKTOP, not hotkey_setup's GSettings
+        # schema lookup: that schema is a host setting a Flatpak sandbox
+        # cannot see (found live 2026-09-12), while the env var crosses
+        # the sandbox boundary.
+        self._xapp_icon = None
+        if self._tray_menu is not None and running_on_cinnamon():
+            # The D-Bus name is org.x.StatusIcon.orcshot on every launcher: main() sets the prgname.
+            self._xapp_icon = create_status_icon(self)
         self._check_shell_extension_health()
         maybe_run_first_run_setup()
         # Separate from maybe_run_first_run_setup's own flag - this
@@ -388,11 +402,16 @@ class OrcshotApplication(Gtk.Application):
     def _remember_region(self, rect) -> None:
         self.last_region = rect
         # Updating the exported GAction's own `enabled` property is
-        # sufficient - it propagates to every real consumer (GNOME
-        # Shell extension, Cinnamon applet) automatically over the
-        # org.gtk.Actions D-Bus interface (Gio.SimpleAction.set_enabled),
-        # no export/refresh step of our own needed the way the menu
-        # structure itself (_export_tray_menu) does.
+        # sufficient - it propagates to every real consumer with no
+        # export/refresh step of our own needed the way the menu
+        # structure itself (_export_tray_menu) does: the GNOME Shell
+        # extension picks it up automatically over the org.gtk.Actions
+        # D-Bus interface, and ui/xapp_tray.py's XApp status icon picks
+        # it up via the GObject property binding create_status_icon
+        # sets up between this action and its in-process proxy
+        # (bind_action_enabled_states) - the proxy action group
+        # Gtk.Menu.new_from_model actually reads item sensitivity from
+        # is not this action itself.
         if self._tray_repeat_action is not None:
             self._tray_repeat_action.set_enabled(True)
 
@@ -567,9 +586,10 @@ class OrcshotApplication(Gtk.Application):
         """One handler per capture mode, keyed by the same mode string
         icons.py's capture_mode_icon_image() already uses. Backs
         _register_tray_actions' GActions (activated by the GNOME Shell
-        extension's or Cinnamon applet's panel button, both living in a
-        *different* process - see that method's own docstring), rather
-        than defining the same five closures inline there.
+        extension's panel button, in a *different* process, or by
+        ui/xapp_tray.py's XApp status icon on Cinnamon, in-process -
+        see that method's own docstring), rather than defining the
+        same five closures inline there.
         """
         return {
             "region": lambda: self.start_region_capture(capture_mouse_cursor=False),
@@ -587,12 +607,14 @@ class OrcshotApplication(Gtk.Application):
         with '.' replaced by '/') via the standard org.gtk.Actions
         interface, since this app is already a registered Gio.
         Application with a fixed application_id (see this file's own
-        docstring). The orcshot-tray@orcshot.org tray panel button -
-        the GNOME Shell extension or the Cinnamon applet, both
-        rendering the menu _export_tray_menu publishes for them -
-        lives in a separate process and activates these by name via
+        docstring). The GNOME Shell extension's tray panel button -
+        rendering the menu _export_tray_menu publishes for it - lives
+        in a separate process and activates these by name via
         Gio.DBusActionGroup instead of calling into this process
-        directly - see each one's own _addModelItems/activate wiring.
+        directly - see its own _addModelItems/activate wiring. On
+        Cinnamon, ui/xapp_tray.py's XApp status icon runs in-process
+        instead, so it calls self.activate_action directly rather
+        than going over D-Bus at all.
         """
         for mode, handler in self._tray_action_handlers().items():
             action = Gio.SimpleAction.new(f"tray-{mode}", None)
@@ -636,10 +658,10 @@ class OrcshotApplication(Gtk.Application):
         self.add_action(play_capture_sound_action)
 
     def _export_tray_menu(self) -> None:
-        """Publishes the Wayland tray menu for orcshot-tray@orcshot.org
-        to render - see gnome_tray_export.py's own module docstring
-        for why this doesn't need a new bus name or action group, just
-        the menu structure itself.
+        """Publishes the Wayland tray menu for the GNOME Shell extension
+        (orcshot@orcshot.org) to render - see gnome_tray_export.py's
+        own module docstring for why this doesn't need a new bus name
+        or action group, just the menu structure itself.
 
         Task 7 live-verification bug, root-caused: the built Gio.Menu
         must be kept alive for as long as it stays exported -
@@ -652,7 +674,7 @@ class OrcshotApplication(Gtk.Application):
         version of this method built `menu` as a plain local variable
         with nothing keeping it alive past this function returning -
         live-confirmed as the actual cause of a real bug: a
-        Gio.DBusMenuModel client (orcshot-tray@orcshot.org's own
+        Gio.DBusMenuModel client (the GNOME Shell extension's own
         panel button, and independently a brand-new test proxy
         created straight from Looking Glass) both got stuck at
         get_n_items() == 0 forever, never populating, despite a raw
@@ -692,8 +714,9 @@ class OrcshotApplication(Gtk.Application):
         orcshot-clipboard@orcshot.org extension's own Shell-native tray
         panel button used to need an explicit best-effort Quitting()
         D-Bus call here so it would actually disappear instead of
-        sticking around dimmed. The new orcshot-tray@orcshot.org
-        extension (Backlog #184 follow-up) tears its own button down on
+        sticking around dimmed. The tray-specific extension that
+        replaced it (Backlog #184 follow-up, later folded into
+        orcshot@orcshot.org by #205) tears its own button down on
         its own via Gio.bus_watch_name's vanished callback the moment
         this process's D-Bus name drops, so there's nothing left for
         this method to notify.
@@ -729,6 +752,9 @@ class OrcshotApplication(Gtk.Application):
         it comes back (via systemd's own Restart=on-failure, or the
         next login) - so it must not leave the marker behind to
         incorrectly swallow the very next capture hotkey.
+
+        The XApp status icon (BACKLOG #208) dies with the process too -
+        `self._xapp_icon` needs no explicit teardown.
         """
         if write_marker:
             write_quit_marker()
@@ -836,8 +862,9 @@ class OrcshotApplication(Gtk.Application):
         old orcshot-clipboard@orcshot.org extension used to need an
         explicit _notify_tray_extension_quitting() D-Bus heads-up here so
         its own long-lived panel button would rebuild fresh on the next
-        appear rather than staying stale. The new orcshot-tray@orcshot.org
-        extension (Backlog #184 follow-up) has no such stale-build problem -
+        appear rather than staying stale. The tray-specific extension
+        that replaced it (Backlog #184 follow-up, later folded into
+        orcshot@orcshot.org by #205) has no such stale-build problem -
         it reads the tray menu live from the exported Gio.Menu/
         items-changed on every appear - so there's nothing left for this
         method to notify.

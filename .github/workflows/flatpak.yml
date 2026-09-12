@@ -50,6 +50,11 @@ jobs:
           sudo flatpak install -y flathub org.flatpak.Builder
           flatpak run --command=flatpak-builder-lint org.flatpak.Builder appstream org.orcshot.Orcshot.metainfo.xml
 
+      - name: Lint the manifest against Flathub's linter (BACKLOG #209; one accepted exception)
+        run: |
+          flatpak run --command=flatpak-builder-lint org.flatpak.Builder --exceptions \
+            --user-exceptions flathub-lint-exceptions.json manifest org.orcshot.Orcshot.yaml
+
       - name: Bundle it into a single distributable file
         run: flatpak build-bundle repo "orcshot_${{ steps.version.outputs.version }}.flatpak" org.orcshot.Orcshot
 

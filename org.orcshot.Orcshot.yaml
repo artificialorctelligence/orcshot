@@ -6,6 +6,10 @@ command: orcshot
 finish-args:
   - --socket=wayland
   - --socket=fallback-x11
+  # X11 clients need shared-memory transport (MIT-SHM); Flathub's own
+  # linter requires --share=ipc alongside any X11 socket. Found by the
+  # first manifest lint ever run against this file (BACKLOG #209).
+  - --share=ipc
   # The one org.gnome.Shell call left in the app (spec 2026-09-11):
   # ui/extension_install.py asks GNOME to install the extension from
   # extensions.gnome.org (org.gnome.Shell.Extensions.InstallRemoteExtension),
@@ -19,6 +23,17 @@ finish-args:
   # BACKLOG #194 found it could not be narrowed (custom interfaces on
   # the same bus name) no longer exists.
   - --talk-name=org.gnome.Shell
+  # BACKLOG #208: the Cinnamon tray is an XApp.StatusIcon owned by the
+  # app. libxapp registers the icon under org.x.StatusIcon.<prgname>
+  # (read from xapp-status-icon.c) and talks to Cinnamon's monitor
+  # applet under org.x.StatusIconMonitor.*. Same two lines Warpinator
+  # (flathub/org.x.Warpinator, Mint's own app) declares.
+  # Flathub's linter flags this as an owned name outside the app id
+  # (finish-args-own-name-org.x.StatusIcon.orcshot) - expected, not a
+  # defect: a reviewer-granted exception will be requested in the
+  # Flathub submission (decision 2026-09-12, BACKLOG #209).
+  - --own-name=org.x.StatusIcon.orcshot
+  - --talk-name=org.x.StatusIconMonitor.*
   # capture_feedback.py's capture-complete sound (GStreamer playing a
   # bundled file, see that module's own docstring - replaced GSound,
   # 2026-09-01) needs a real audio sink to actually produce sound, not
@@ -84,6 +99,23 @@ modules:
       - type: file
         url: https://files.pythonhosted.org/packages/7c/a4/81502f486f01db95bc8320646a8a12511f5e556cb63d5e224d91816605c4/trove_classifiers-2026.6.1.19-py3-none-any.whl
         sha256: ab4c4ec93cc4a4e7815fa759906e05e6bb3f2fbd92ea0f897288c6a43efd15b3
+  # BACKLOG #208: libxapp for XApp.StatusIcon, exactly as Warpinator's
+  # Flathub manifest builds it - app-lib-only skips everything but the
+  # library and its GI/Python bindings. The GNOME 50 runtime's Python is
+  # 3.13 (checked), hence the overrides dir. Only used on Cinnamon; on
+  # GNOME the module is dead weight of a few hundred kB.
+  - name: xapps
+    buildsystem: meson
+    config-opts:
+      - -Dapp-lib-only=true
+      - -Dpy-overrides-dir=/app/lib/python3.13/site-packages/gi/overrides
+      # meson defaults to lib64 on this runtime; GI searches /app/lib/girepository-1.0 (found live 2026-09-12).
+      - -Dlibdir=lib
+    sources:
+      - type: git
+        url: https://github.com/linuxmint/xapp.git
+        tag: "3.2.2"
+        commit: 913b2a2b441ec24daf3aa92e2863cc40e1c43650
   - name: orcshot
     buildsystem: simple
     sources:

@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-09-12 00:00-0500\n"
+"POT-Creation-Date: 2026-09-12 00:33-0500\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -1514,6 +1514,10 @@ msgstr ""
 msgid ""
 "Automatic keyboard shortcut setup isn't available on this desktop. You can "
 "bind shortcuts to these manually instead:\n"
+msgstr ""
+
+#: src/orcshot/ui/xapp_tray.py:97
+msgid "Orcshot"
 msgstr ""
 
 #: src/orcshot/app.py:342

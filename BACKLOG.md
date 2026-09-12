@@ -1641,7 +1641,7 @@ Background/Autostart portal (`org.freedesktop.portal.Background.RequestBackgroun
 built; both are the deferred half of #185's ruling, now with two channels waiting on it. Not
 part of #205.
 
-## #208: Replace the Cinnamon applet with an XApp.StatusIcon owned by the app - no About/Remove, no Spices submission, native on Mint
+## #208: Replace the Cinnamon applet with an XApp.StatusIcon owned by the app - no About/Remove, no Spices submission, native on Mint (RESOLVED 2026-09-12)
 
 Decided by direflail 2026-09-12, after the Cinnamon applet sat on a real Cinnamon panel for the
 first time (the Mint host, during #205's Spices submission prep). Two things were found there,
@@ -1693,3 +1693,72 @@ Spices pieces (channels.yaml leaf, RELEASING.md step, `scripts/spices-sync.sh`, 
 `flatpak-cinnamon` dialog) are removed from the #205 branch before it lands, so this entry
 starts from a clean base. direflail's Spices fork
 (`artificialorctelligence/cinnamon-spices-applets`) can be deleted.
+
+**Resolved for real, not just tracked (2026-09-12):** `ui/xapp_tray.py` + `app.py` create an
+`XApp.StatusIcon` on Cinnamon from the same `Gio.Menu` the GNOME tray uses, behind a proxy that
+pops the menu down and forwards the action 150 ms later; the applet directory and its install
+lines are gone; the .deb depends on `gir1.2-xapp-1.0`; the Flatpak builds libxapp (Warpinator's
+module, `-Dlibdir=lib`) and grants the two bus names. Verified on the Mint host - VERIFICATION.md
+Scenario 2: icon present, menu with icons and no About/Remove, a menu-launched full-screen
+capture with no menu in it, and the Flatpak's icon registering from inside the sandbox
+(Cinnamon's own log names the sandboxed connection). Two things the live pass corrected in the
+spec: libxapp installs to lib64 by default on this runtime, and Cinnamon must be detected from
+`XDG_CURRENT_DESKTOP` because the GSettings schema check cannot see the host from a Flatpak. Two
+things it found beside the feature, each its own entry: #209 (the manifest linter had never run;
+the own-name exception to request at Flathub submission) and #210 (Save writes nowhere under
+Flatpak). CI: flatpak runs 34677307006, 34678723491, 34679321587 green.
+
+## #209: Flathub's manifest linter has never run on the manifest: --socket=fallback-x11 without --share=ipc is a pre-existing lint error
+
+Found 2026-09-12 during #208's Task 4, the first time `flatpak-builder-lint manifest` was run
+against `org.orcshot.Orcshot.yaml` (CI's flatpak.yml lints only the metainfo; the linter
+invocation for the manifest existed in the Flatpak ingredient's prose and nowhere in this
+repo). On `main` the manifest fails with `finish-args-x11-without-ipc`: it grants
+`--socket=fallback-x11` but not `--share=ipc`, which X11 clients need for shared-memory
+transport and which Flathub requires alongside any X11 socket. This would have blocked the
+Flathub submission (#198) at the first review comment.
+
+**Fixed on the #208 branch** with one line, `--share=ipc`, commented. `flatpak.yml` gains a
+manifest lint step so the linter's verdict is CI's, not a thing someone remembers to run.
+
+**Related, not the same thing:** the same lint run also flags
+`finish-args-own-name-org.x.StatusIcon.orcshot` from #208's XApp status icon. That one is not
+a defect: libxapp can only register a tray icon under `org.x.StatusIcon.*` (Cinnamon's monitor
+applet discovers icons by that prefix - read in libxapp's `xapp-status-icon.c`), and Flathub's
+linter flags any owned name outside the app id. Warpinator's identical line is on Flathub via a
+grandfathered exception ("Predates the linter rule" - the only StatusIcon exception in the
+linter's list). direflail decided 2026-09-12 to keep the line and request the exception in
+the Flathub submission with that justification; the CI lint step therefore has to allow
+exactly that one error (the linter supports `--exceptions` for a local exceptions file, or the
+step greps the JSON), never a blanket pass. If Flathub refuses, Flatpak-on-Cinnamon has no
+tray icon - the state it is in today - and nothing else changes.
+
+## #210: Under Flatpak, Save writes nowhere: the sandbox has no grant for the output directory and Save does not use the file-chooser portal
+
+Found 2026-09-12 on the Mint host while accepting #208's XApp tray on the CI-built Flatpak:
+direflail chose *Capture Full Screen → Save* from the tray menu and no file appeared anywhere -
+not in `~/Screenshots` (the configured `output_directory`, unreachable from the sandbox), not
+under `~/.var/app/org.orcshot.Orcshot/`. The app's log showed no error either. The manifest
+grants no `--filesystem=` at all since #205 removed the extensions grant (correctly), and the
+Save destination writes straight to a path rather than going through the FileChooser portal, so
+inside the sandbox the write can only fail. Never seen before because every Flatpak check so
+far was CI (headless) or the VM's extension tests; nobody had pressed Save in the Flatpak.
+
+**Consequence:** the first Flathub user who presses Save loses their capture silently. Blocks a
+Flathub submission (#198) in practice, if not in review.
+
+**Options, to be decided (spec territory, not a one-liner):** (a) `--filesystem=xdg-pictures`
+(or `xdg-pictures:create`) - simple, but Flathub reviewers ask why a screenshot tool needs
+static access; (b) route Save through the FileChooser portal (`Gtk.FileChooserNative` already
+goes through the portal under Flatpak) so the user picks once and the app keeps a portal
+document handle; (c) both: a portal-picked folder remembered via the Documents portal. Also
+check the other destinations the same way (Save As, Open File, external commands' temp files)
+- anything that writes a path the user chose outside a portal has the same problem.
+
+**Scope boundary:** Flatpak only; the .deb and the snap (which has `home` via its plugs? -
+verify, the snap's `home` plug was in the #184 test snap, not necessarily in snapcraft.yaml)
+are separate questions. Not part of #208.
+
+## #211: Flatpak on Cinnamon: hotkey auto-setup silently skipped (schema check invisible in sandbox)
+
+Found by the #208 final review, 2026-09-12. `hotkey_setup.cinnamon_keybindings_available()` looks up the `org.cinnamon.desktop.keybindings` GSettings schema, which is not visible inside the Flatpak sandbox (VERIFICATION.md Scenario 2 recorded it answering False on a real Cinnamon desktop). #208 switched the *tray* to `ui/xapp_tray.running_on_cinnamon()` (XDG_CURRENT_DESKTOP), but hotkey setup still uses the schema check, so the Flatpak on Cinnamon never offers or registers the custom keybindings. Not user-visible as an error - it just does nothing. Fix candidates: detect Cinnamon via `running_on_cinnamon()` and write the keybindings through the host's `gsettings` via `flatpak-spawn --host`, or via the settings portal if one exists for custom keybindings. Verify on the Mint host with the CI bundle.

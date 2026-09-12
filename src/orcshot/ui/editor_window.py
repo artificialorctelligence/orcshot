@@ -3757,9 +3757,12 @@ class EditorWindow(Gtk.Window):
         Gtk.StatusIcon could distinguish left/right click. #189
         replaced both with a D-Bus-exported menu/action model consumed
         by the same GNOME Shell extension on GNOME regardless of
-        session type, and by a native Cinnamon applet, both of which
+        session type, and (originally) by a native Cinnamon panel
+        applet consuming that same D-Bus model. BACKLOG #208 retired
+        that applet in favor of ui/xapp_tray.py's XApp status icon, which
+        reads the in-process menu directly instead - both routes
         support the same left-click-capture/right-click-menu behavior
-        X11 always had - so there's nothing left to branch on.
+        X11 always had, so there's nothing left to branch on.
         """
         return [
             (_("Left-click"), _("Start a region capture immediately")),

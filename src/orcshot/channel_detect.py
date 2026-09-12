@@ -1,7 +1,7 @@
 """Detecting which packaging channel this running process is inside of
 (plain .deb, Flatpak, or Snap). ui/extension_install.py turns that,
-plus the desktop, into how the GNOME Shell extension / Cinnamon applet
-reaches the user - never by this app writing into the home directory
+plus the desktop, into how the GNOME Shell extension reaches the user
+- never by this app writing into the home directory
 (spec 2026-09-11). This module used to also do that copying; it does
 not any more.
 """

@@ -1,4 +1,4 @@
-"""How Orcshot's GNOME Shell extension (or Cinnamon applet) gets installed
+"""How Orcshot's GNOME Shell extension gets installed
 on each channel - spec 2026-09-11 §4 and §7. The app never writes into the
 user's home on any channel: a sandboxed app is not allowed to put code
 where the desktop shell loads it from (Snap Store: refused as a
@@ -10,10 +10,10 @@ confinement escape; Flathub: a home grant to review). So:
   Exactly how Extension Manager on Flathub does it.
 - Snap on GNOME: no snapd interface reaches GNOME's installer, so the
   dialog sends the user to extensions.gnome.org with explicit steps.
-- Cinnamon (any channel): nothing here. The Cinnamon tray is becoming an
-  XApp.StatusIcon owned by the app (BACKLOG #208), which needs no install.
+- Cinnamon (any channel): nothing here. The Cinnamon tray is an
+  XApp.StatusIcon owned by the app (ui/xapp_tray.py), which needs no install.
 
-Every dialog closes itself when the extension/applet says Hello. "Later"
+Every dialog closes itself when the extension says Hello. "Later"
 leaves Orcshot fully usable on the portal path; the dialog comes back
 through the editor's existing Setup... entry, which re-runs first-run
 setup and therefore this.
@@ -96,7 +96,7 @@ _TEXT = {
 def show_install_dialog(plan: str, parent: Gtk.Window = None) -> None:
     bridge = get_bridge()
     if bridge.capabilities:
-        # Hello already arrived - the extension/applet is running (it says
+        # Hello already arrived - the extension is running (it says
         # so the moment the app owns its bus name, usually before this
         # dialog could exist). Nothing to install; found live on the VM.
         return
@@ -117,7 +117,7 @@ def show_install_dialog(plan: str, parent: Gtk.Window = None) -> None:
     box.show_all()
 
     def on_capabilities(capabilities):
-        # Hello arrived: the extension/applet is running. Done.
+        # Hello arrived: the extension is running. Done.
         if capabilities:
             dialog.response(Gtk.ResponseType.DELETE_EVENT)
 

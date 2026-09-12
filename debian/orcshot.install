@@ -10,5 +10,3 @@ src/orcshot/resources/gnome-shell-extensions/orcshot@orcshot.org/metadata.json u
 src/orcshot/resources/gnome-shell-extensions/orcshot@orcshot.org/icon_geometry.json usr/share/gnome-shell/extensions/orcshot@orcshot.org/
 src/orcshot/resources/gnome-shell-extensions/orcshot@orcshot.org/magnifier_constants.json usr/share/gnome-shell/extensions/orcshot@orcshot.org/
 src/orcshot/resources/gnome-shell-extensions/orcshot@orcshot.org/icons/*.png usr/share/gnome-shell/extensions/orcshot@orcshot.org/icons/
-src/orcshot/resources/cinnamon-applets/orcshot-tray@orcshot.org/applet.js usr/share/cinnamon/applets/orcshot-tray@orcshot.org/
-src/orcshot/resources/cinnamon-applets/orcshot-tray@orcshot.org/metadata.json usr/share/cinnamon/applets/orcshot-tray@orcshot.org/
