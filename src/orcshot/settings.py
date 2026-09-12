@@ -157,6 +157,23 @@ def output_directory_is_reachable(directory: Path) -> bool:
     return os.stat(directory).st_dev != os.stat("/").st_dev
 
 
+def is_portal_document_path(path: Path) -> bool:
+    """True when ``path`` was handed out by the desktop's document
+    portal ($XDG_RUNTIME_DIR/doc/<id>/<name>) - i.e. by a portal file
+    dialog under Flatpak (BACKLOG #210). Such a path is the *one* name
+    the app may write in that document: the portal's FUSE backs any
+    sibling name by a ".xdp-<name>-XXXXXX" temp file on the host and
+    finalizes it only through a rename onto the document's own name
+    (xdg-desktop-portal document-portal-fuse.c). Found live: a Save
+    As of "portal-test" with JPEG chosen, then with_suffix(".jpg"),
+    left ~/Screenshots/.xdp-portal-test.jpg-VWhcUm behind, complete
+    and invisible. So callers must never rename a path this says yes
+    to - the name the user confirmed is the file they get.
+    """
+    runtime_dir = os.environ.get("XDG_RUNTIME_DIR") or f"/run/user/{os.getuid()}"
+    return Path(path).is_relative_to(Path(runtime_dir) / "doc")
+
+
 def quick_save_filename(when: datetime, counter: int) -> str:
     """The filename a silent quick-save (destination picker's "Save",
     see ui/destination_picker.py) writes to. Matches Windows' own

@@ -31,6 +31,7 @@ from orcshot.settings import (
     get_last_update_check,
     get_output_directory,
     get_output_settings,
+    is_portal_document_path,
     output_directory_is_reachable,
     get_play_capture_sound,
     get_print_options,
@@ -721,3 +722,28 @@ class TestOutputDirectoryIsReachable:
         monkeypatch.setattr("orcshot.settings.detect_channel", lambda: "flatpak")
         output_directory_is_reachable(target)
         assert target.is_dir()
+
+
+class TestIsPortalDocumentPath:
+    """BACKLOG #210: a path under $XDG_RUNTIME_DIR/doc came from the
+    document portal and must never be renamed by the app."""
+
+    def test_true_for_a_document_portal_file(self, monkeypatch):
+        monkeypatch.setenv("XDG_RUNTIME_DIR", "/run/user/1000")
+        assert is_portal_document_path(Path("/run/user/1000/doc/54b8e4a6/portal-test")) is True
+
+    def test_true_for_a_file_inside_a_directory_document(self, monkeypatch):
+        monkeypatch.setenv("XDG_RUNTIME_DIR", "/run/user/1000")
+        assert is_portal_document_path(Path("/run/user/1000/doc/7c103d25/Screenshots/x.png")) is True
+
+    def test_false_for_an_ordinary_home_path(self, monkeypatch):
+        monkeypatch.setenv("XDG_RUNTIME_DIR", "/run/user/1000")
+        assert is_portal_document_path(Path("/home/direflail/Screenshots/x.png")) is False
+
+    def test_false_for_the_runtime_dir_itself(self, monkeypatch):
+        monkeypatch.setenv("XDG_RUNTIME_DIR", "/run/user/1000")
+        assert is_portal_document_path(Path("/run/user/1000/orcshot.sock")) is False
+
+    def test_falls_back_to_run_user_uid_without_the_env_var(self, monkeypatch):
+        monkeypatch.delenv("XDG_RUNTIME_DIR", raising=False)
+        assert is_portal_document_path(Path(f"/run/user/{os.getuid()}/doc/abc/f.png")) is True

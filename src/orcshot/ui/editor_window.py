@@ -175,6 +175,7 @@ from orcshot.settings import (
     get_icon_size,
     get_language,
     get_output_directory,
+    is_portal_document_path,
     output_directory_is_reachable,
     get_output_settings,
     get_play_capture_sound,
@@ -3315,8 +3316,8 @@ class EditorWindow(Gtk.Window):
         try:
             if dialog.run() == Gtk.ResponseType.ACCEPT:
                 path = Path(dialog.get_filename())
-                if path.suffix.lower() != ".json":
-                    path = path.with_suffix(".json")
+                if path.suffix.lower() != ".json" and not is_portal_document_path(path):
+                    path = path.with_suffix(".json")  # never under the portal - see settings.is_portal_document_path
                 save_objects_file(self.layer, path)
         finally:
             dialog.destroy()
@@ -3434,7 +3435,22 @@ class EditorWindow(Gtk.Window):
             if dialog.run() == Gtk.ResponseType.ACCEPT:
                 output_format = dialog.get_choice("format") or initial
                 path = Path(dialog.get_filename())
-                if path.suffix.lower().lstrip(".") != output_format:
+                if is_portal_document_path(path):
+                    # The portal hands over one exact filename and
+                    # renaming it strands the file (see
+                    # settings.is_portal_document_path). The name the
+                    # user confirmed wins; its extension is the format
+                    # - which is what save_image_to_file encodes by
+                    # anyway - and the combo can only have seeded the
+                    # suggested name. Windows keeps the two in sync by
+                    # rewriting the extension as the type changes;
+                    # a portal dialog can't, so say so when they differ
+                    # instead of silently writing the other format.
+                    typed = path.suffix.lower().lstrip(".")
+                    if typed != output_format:
+                        _explain_format_followed_extension(self, path.name, typed or "png")
+                    output_format = typed if typed in dict(formats) else "png"
+                elif path.suffix.lower().lstrip(".") != output_format:
                     path = path.with_suffix(f".{output_format}")
                 if output_format == "orcshot":
                     # The whole point is preserving shapes separately,
@@ -5340,6 +5356,22 @@ def open_orcshot_file_in_new_window(path, transient_for: Gtk.Window = None) -> "
         editor.layer.add(shape)
     editor.show_all()
     return editor
+
+
+def _explain_format_followed_extension(parent: Gtk.Window, filename: str, actual_format: str) -> None:
+    """BACKLOG #210: shown by _do_save when a portal dialog's confirmed
+    name ends in one format and the "Save as type" choice said another
+    - the name can't be rewritten there, so the file follows its own
+    extension and the user is told which."""
+    dialog = Gtk.MessageDialog(
+        transient_for=parent, message_type=Gtk.MessageType.INFO, buttons=Gtk.ButtonsType.OK,
+        text=_("Saved as {0}").format(actual_format.upper()),
+    )
+    dialog.format_secondary_text(
+        _("The file name \"{0}\" decides the format. To save as a different type, change the extension in the name.").format(filename)
+    )
+    dialog.run()
+    dialog.destroy()
 
 
 def _choose_save_location(parent: Gtk.Window = None) -> None:
