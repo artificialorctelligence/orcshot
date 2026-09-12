@@ -56,18 +56,36 @@ def default_clipboard_backend() -> ClipboardBackend:
     clipboard offer servable, not an explicit persistence call.
     """
     if os.environ.get("XDG_SESSION_TYPE") == "wayland":
-        from orcshot.capture.gnome_clipboard import GnomeClipboardBackend, is_available
-
-        if is_available():
-            return GnomeClipboardBackend()
-
-        from orcshot.capture.wayland_clipboard import WaylandClipboardBackend
-
-        return WaylandClipboardBackend()
+        return _WaylandClipboard()
 
     from orcshot.capture.x11_clipboard import X11ClipboardBackend
 
     return X11ClipboardBackend()
+
+
+class _WaylandClipboard:
+    """Shell-native when the extension has said Hello, portal-style
+    otherwise - decided on every call, not once at startup: Hello
+    arrives asynchronously after the app owns its bus name, so a
+    one-time probe here could race it and cache the wrong answer for
+    the whole session (spec 2026-09-11 §3). A late Hello simply
+    upgrades the next copy."""
+
+    def __init__(self):
+        from orcshot.capture.wayland_clipboard import WaylandClipboardBackend
+
+        self._portal = WaylandClipboardBackend()
+
+    def set_image(self, image) -> None:
+        from orcshot.capture.gnome_clipboard import GnomeClipboardBackend, GnomeClipboardUnavailable, is_available
+
+        if is_available():
+            try:
+                GnomeClipboardBackend().set_image(image)
+                return
+            except GnomeClipboardUnavailable:
+                pass
+        self._portal.set_image(image)
 
 
 def default_window_enumerator_and_activator() -> tuple[WindowEnumerator, WindowActivator | None]:

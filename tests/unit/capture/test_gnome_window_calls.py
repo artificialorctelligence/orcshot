@@ -62,3 +62,27 @@ class TestParseWindowInfo:
     def test_bounds_derived_from_position_and_size(self):
         info = parse_window_info(_raw(x=10, y=20, width=100, height=50))
         assert info.bounds == Rect(10, 20, 110, 70)
+
+
+import json
+
+from orcshot.capture.gnome_window_calls import GnomeWindowCallsBackend, is_available
+from tests.unit.capture.fake_bridge import install as install_fake_bridge
+
+
+class TestBridgePlumbing:
+    def test_list_windows_parses_the_delivered_json(self, monkeypatch):
+        install_fake_bridge(monkeypatch, capabilities=["list-windows"], result={"windows": json.dumps([_raw()])})
+        windows = GnomeWindowCallsBackend().list_windows()
+        assert [w.window_id for w in windows] == [12345]
+
+    def test_activate_sends_the_window_id(self, monkeypatch):
+        bridge = install_fake_bridge(monkeypatch, capabilities=["activate-window"], result={"ok": True})
+        GnomeWindowCallsBackend().activate(7)
+        assert bridge.calls == [("activate-window", {"id": 7})]
+
+    def test_is_available_is_the_list_windows_capability(self, monkeypatch):
+        install_fake_bridge(monkeypatch)
+        assert is_available() is False
+        install_fake_bridge(monkeypatch, capabilities=["list-windows"])
+        assert is_available() is True

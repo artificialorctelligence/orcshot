@@ -1,8 +1,11 @@
-"""Clipboard support under GNOME/Wayland, via the bundled
-orcshot-clipboard GNOME Shell extension (this project's own,
-wholly original code - see the extension's own extension.js docstring
-for why it exists and REQUIREMENTS.md's "Clipboard under Wayland"
-section for the full write-up).
+"""Clipboard support under GNOME/Wayland, via Orcshot's GNOME Shell
+extension (orcshot@orcshot.org - this project's own, wholly original
+code; see its capture.js docstring for why it exists and
+REQUIREMENTS.md's "Clipboard under Wayland" section for the full
+write-up). Since the 2026-09-11 spec the app never calls the Shell:
+this asks through capture/shell_bridge.py (a request the extension
+picks up and answers), which is what makes it work identically under
+a strict snap, a Flatpak, and the .deb.
 
 Preferred over wayland_clipboard.py's invisible-window/focus-wait
 technique when available: this calls into St.Clipboard's privileged,
@@ -18,24 +21,13 @@ from __future__ import annotations
 
 import gi
 
-gi.require_version("Gio", "2.0")
-gi.require_version("GLib", "2.0")
-from gi.repository import Gio, GLib
-
 import numpy as np
 
 from orcshot.ui.gdk_convert import numpy_to_pixbuf
 
-BUS_NAME = "org.gnome.Shell"
-OBJECT_PATH = "/org/gnome/Shell/Extensions/OrcshotClipboard"
-INTERFACE = "org.gnome.Shell.Extensions.OrcshotClipboard"
+from orcshot.capture.shell_bridge import ShellRequestError, get_bridge
 
-# Bump this alongside extension.js's own API_VERSION constant whenever the
-# D-Bus contract of any of the bundled extension's interfaces changes -
-# see get_live_api_version's own docstring for why this exists at all.
-EXPECTED_API_VERSION = 2
-_VERSION_OBJECT_PATH = "/org/gnome/Shell/Extensions/OrcshotVersion"
-_VERSION_INTERFACE = "org.gnome.Shell.Extensions.OrcshotVersion"
+CAPABILITY = "set-clipboard-image"
 
 
 class GnomeClipboardUnavailable(RuntimeError):
@@ -53,64 +45,14 @@ def _encode_png(image: np.ndarray) -> bytes:
 
 
 class GnomeClipboardBackend:
-    def __init__(self):
-        self._bus = Gio.bus_get_sync(Gio.BusType.SESSION, None)
-
-    def _call(self, method: str, arg_variant=None, arg_type="()"):
-        args = arg_variant if arg_variant is not None else GLib.Variant(arg_type, ())
-        try:
-            reply = self._bus.call_sync(
-                BUS_NAME, OBJECT_PATH, INTERFACE, method, args,
-                None, Gio.DBusCallFlags.NONE, -1, None,
-            )
-        except GLib.Error as error:
-            raise GnomeClipboardUnavailable(
-                f"orcshot-clipboard extension call {method} failed: {error.message}"
-            ) from error
-        return reply.unpack()
-
     def set_image(self, image: np.ndarray) -> None:
-        self._call("SetImage", GLib.Variant("(ay)", (_encode_png(image),)))
-
-    def ping(self) -> None:
-        self._call("Ping")
+        try:
+            get_bridge().request(CAPABILITY, {"pngBytes": _encode_png(image)}, timeout_ms=5000)
+        except ShellRequestError as error:
+            raise GnomeClipboardUnavailable(f"Shell extension {CAPABILITY} failed: {error}") from error
 
 
 def is_available() -> bool:
-    """Empirical probe, not an assumption from session/desktop name -
-    a GNOME Wayland session with the extension not installed, not
-    enabled, or an incompatible Shell version all look identical from
-    the outside otherwise (see gnome_window_calls.is_available, the
-    same pattern applied to window enumeration). Calls the dedicated
-    Ping() method, not SetImage() - probing availability must never
-    have the side effect of overwriting the user's real clipboard,
-    which opening the destination picker would trigger before the user
-    has chosen to copy anything at all."""
-    try:
-        GnomeClipboardBackend().ping()
-        return True
-    except GnomeClipboardUnavailable:
-        return False
-
-
-def get_live_api_version() -> int | None:
-    """The API version the *currently loaded* extension process reports,
-    or None if it isn't running at all (not installed/enabled - the same
-    case is_available() already covers, kept separate rather than
-    merged into it since most callers only care about one or the
-    other). Distinct from is_available(): GNOME Shell caches an
-    extension's JS module for the whole login session (see
-    gnome_extension_setup.py's own docstring) - a package upgrade only
-    replaces the file on disk, so an already-running Shell keeps
-    serving the *old* module, Ping() included, until a full logout/
-    login. This is what actually lets Orcshot tell "not running" apart
-    from "running, but stale" and say so (task #137 follow-up)."""
-    try:
-        bus = Gio.bus_get_sync(Gio.BusType.SESSION, None)
-        reply = bus.call_sync(
-            BUS_NAME, _VERSION_OBJECT_PATH, _VERSION_INTERFACE, "GetApiVersion",
-            None, GLib.VariantType("(i)"), Gio.DBusCallFlags.NONE, 2000, None,
-        )
-        return reply.unpack()[0]
-    except GLib.Error:
-        return None
+    """A capability the extension announced in Hello - a dictionary
+    lookup, no probe, and no side effect on the user's clipboard."""
+    return get_bridge().has(CAPABILITY)

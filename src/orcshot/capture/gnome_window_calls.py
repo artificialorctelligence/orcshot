@@ -27,18 +27,10 @@ from __future__ import annotations
 
 import json
 
-import gi
-
-gi.require_version("Gio", "2.0")
-gi.require_version("GLib", "2.0")
-from gi.repository import Gio, GLib
-
 from orcshot.capture.window import WindowInfo, is_capturable
 from orcshot.core.geometry import Rect
 
-BUS_NAME = "org.gnome.Shell"
-OBJECT_PATH = "/org/gnome/Shell/Extensions/Windows"
-INTERFACE = "org.gnome.Shell.Extensions.Windows"
+from orcshot.capture.shell_bridge import ShellRequestError, get_bridge
 
 _META_WINDOW_TYPE_NAMES = (
     "normal", "desktop", "dock", "dialog", "modal_dialog", "toolbar",
@@ -80,25 +72,12 @@ class GnomeWindowCallsBackend:
     object plays both roles rather than splitting into two for no
     reason."""
 
-    def __init__(self):
-        self._bus = Gio.bus_get_sync(Gio.BusType.SESSION, None)
-
-    def _call(self, method: str, arg_variant=None, arg_type="()"):
-        args = arg_variant if arg_variant is not None else GLib.Variant(arg_type, ())
-        try:
-            reply = self._bus.call_sync(
-                BUS_NAME, OBJECT_PATH, INTERFACE, method, args,
-                None, Gio.DBusCallFlags.NONE, -1, None,
-            )
-        except GLib.Error as error:
-            raise GnomeWindowCallsUnavailable(
-                f"window-calls extension call {method} failed: {error.message}"
-            ) from error
-        return reply.unpack()
-
     def _list_raw(self) -> list[dict]:
-        (raw,) = self._call("List")
-        return json.loads(raw)
+        try:
+            result = get_bridge().request("list-windows", timeout_ms=5000)
+        except ShellRequestError as error:
+            raise GnomeWindowCallsUnavailable(f"Shell extension list-windows failed: {error}") from error
+        return json.loads(result["windows"])
 
     def list_windows(self):
         windows = [parse_window_info(w) for w in self._list_raw()]
@@ -111,18 +90,14 @@ class GnomeWindowCallsBackend:
         return None
 
     def activate(self, window_id: int) -> None:
-        self._call("Activate", GLib.Variant("(u)", (window_id,)))
+        try:
+            get_bridge().request("activate-window", {"id": int(window_id)}, timeout_ms=5000)
+        except ShellRequestError as error:
+            raise GnomeWindowCallsUnavailable(f"Shell extension activate-window failed: {error}") from error
 
 
 def is_available() -> bool:
-    """Empirical check, matching this project's established pattern
-    (see hotkey_setup.cinnamon_keybindings_available) of probing real
-    behavior rather than assuming from desktop/session name alone - a
-    GNOME session with the extension not installed, not enabled, or an
-    incompatible Shell version all look the same from the outside
-    (window-picker should just be unavailable, not crash)."""
-    try:
-        GnomeWindowCallsBackend().list_windows()
-        return True
-    except GnomeWindowCallsUnavailable:
-        return False
+    """A capability the extension announced in Hello - a dictionary
+    lookup, no probe. "GNOME on Wayland" and "GNOME on Wayland with the
+    extension actually running" are told apart by whether Hello came."""
+    return get_bridge().has("list-windows")
