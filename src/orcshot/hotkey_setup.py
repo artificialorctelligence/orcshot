@@ -504,10 +504,10 @@ class GioSettingsBackend:
     depends on dconf's own commit-then-notify cycle from the first's
     write having actually completed, which isn't instant. Live-
     confirmed as the real cause of a long-standing, previously
-    unexplained bug: calling enable_extension twice in a row (for
-    window-calls then orcshot-clipboard, both writing the same
-    `enabled-extensions` key) reliably left the second UUID missing -
-    window-calls persisted, orcshot-clipboard silently didn't, on a
+    unexplained bug: calling enable_extension twice in a row (for two
+    of the then-three extensions, both writing the same
+    `enabled-extensions` key - one extension since 2026-09-11) reliably
+    left the second UUID missing - the first persisted, the second silently didn't, on a
     real .deb install with no checkbox or dev-checkout complications
     involved this time. The same fragile pattern almost certainly
     explains the still-open "hotkey rewrite doesn't stick" symptom

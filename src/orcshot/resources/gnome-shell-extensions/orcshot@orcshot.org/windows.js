@@ -39,94 +39,15 @@
  * ---
  */
 
-import Gio from 'gi://Gio';
-
-const MR_DBUS_IFACE = `
-<node>
-   <interface name="org.gnome.Shell.Extensions.Windows">
-      <method name="List">
-         <arg type="s" direction="out" name="win" />
-      </method>
-      <method name="Details">
-         <arg type="u" direction="in" name="winid" />
-         <arg type="s" direction="out" name="win" />
-      </method>
-      <method name="GetTitle">
-         <arg type="u" direction="in" name="winid" />
-         <arg type="s" direction="out" name="win" />
-      </method>
-      <method name="GetFrameRect">
-         <arg type="u" direction="in" name="winid" />
-         <arg type="s" direction="out" name="frameRect" />
-      </method>
-      <method name="GetFrameBounds">
-         <arg type="u" direction="in" name="winid" />
-         <arg type="s" direction="out" name="frameBounds" />
-      </method>
-      <method name="MoveToWorkspace">
-         <arg type="u" direction="in" name="winid" />
-         <arg type="u" direction="in" name="workspaceNum" />
-      </method>
-      <method name="MoveResize">
-         <arg type="u" direction="in" name="winid" />
-         <arg type="i" direction="in" name="x" />
-         <arg type="i" direction="in" name="y" />
-         <arg type="u" direction="in" name="width" />
-         <arg type="u" direction="in" name="height" />
-      </method>
-      <method name="Resize">
-         <arg type="u" direction="in" name="winid" />
-         <arg type="u" direction="in" name="width" />
-         <arg type="u" direction="in" name="height" />
-      </method>
-      <method name="Move">
-         <arg type="u" direction="in" name="winid" />
-         <arg type="i" direction="in" name="x" />
-         <arg type="i" direction="in" name="y" />
-      </method>
-      <method name="MakeFullscreen">
-         <arg type="u" direction="in" name="winid" />
-      </method>
-      <method name="Maximize">
-         <arg type="u" direction="in" name="winid" />
-      </method>
-      <method name="Minimize">
-         <arg type="u" direction="in" name="winid" />
-      </method>
-      <method name="Unmaximize">
-         <arg type="u" direction="in" name="winid" />
-      </method>
-      <method name="Unminimize">
-         <arg type="u" direction="in" name="winid" />
-      </method>
-      <method name="Activate">
-         <arg type="u" direction="in" name="winid" />
-      </method>
-      <method name="Close">
-         <arg type="u" direction="in" name="winid" />
-      </method>
-      <method name="MakeAbove">
-         <arg type="u" direction="in" name="winid" />
-      </method>
-      <method name="UnmakeAbove">
-         <arg type="u" direction="in" name="winid" />
-      </method>
-   </interface>
-</node>`;
+// --- Modified by the Orcshot project (2026-09-11) ---
+//   5. No D-Bus interface of its own any more: this is a module of the
+//      merged orcshot@orcshot.org extension, and the app asks for
+//      List/Activate through extension.js's request loop (spec
+//      docs/superpowers/specs/2026-09-11-snap-compliant-extension-delivery-design.md).
+//      The method bodies below are unchanged from change 4.
 
 
-export default class Extension {
-  enable() {
-    this._dbus = Gio.DBusExportedObject.wrapJSObject(MR_DBUS_IFACE, this);
-    this._dbus.export(Gio.DBus.session, '/org/gnome/Shell/Extensions/Windows');
-  }
-
-  disable() {
-    this._dbus.flush();
-    this._dbus.unexport();
-    delete this._dbus;
-  }
-
+class WindowCalls {
   _get_window_by_wid(winid) {
     let win = global.get_window_actors().find(w => w.meta_window.get_id() == winid);
 
@@ -332,3 +253,15 @@ export default class Extension {
     win.unmake_above()
   }
 }
+
+const _calls = new WindowCalls();
+
+export const handlers = {
+  async 'list-windows'() {
+    return { windows: _calls.List() };   // List() already returns the JSON string
+  },
+  async 'activate-window'({ id }) {
+    _calls.Activate(id);                  // throws 'winid not found' -> extension.js reports ok:false
+    return { ok: true };
+  },
+};

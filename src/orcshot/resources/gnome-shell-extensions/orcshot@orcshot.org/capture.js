@@ -60,10 +60,8 @@ import Meta from 'gi://Meta';
 import Shell from 'gi://Shell';
 import St from 'gi://St';
 
-import { Extension as ShellExtension } from 'resource:///org/gnome/shell/extensions/extension.js';
 import * as Main from 'resource:///org/gnome/shell/ui/main.js';
 import { GrabHelper } from 'resource:///org/gnome/shell/ui/grabHelper.js';
-import * as PanelMenu from 'resource:///org/gnome/shell/ui/panelMenu.js';
 import * as PopupMenu from 'resource:///org/gnome/shell/ui/popupMenu.js';
 
 // Neither is promisified by default - GNOME Shell's own screenshot.js
@@ -93,133 +91,9 @@ Gio._promisify(Shell.Screenshot, 'composite_to_stream');
 // than assumed once EyedropperOverlay's own use of it was working.
 Gio._promisify(Shell.Screenshot.prototype, 'pick_color');
 
-// Two separate single-interface documents, not one <node> with both
-// <interface> elements - confirmed against GJS's own source
-// (modules/core/overrides/Gio.js) that Gio.DBusExportedObject.
-// wrapJSObject() parses XML via Gio.DBusInterfaceInfo.new_for_xml(),
-// which only picks up one interface per call; a combined multi-
-// interface document silently dropped the second interface (caught
-// live: gdbus introspect showed only OrcshotClipboard after
-// deploying a combined-XML version - not assumed, observed).
-const CLIPBOARD_IFACE = `
-<node>
-   <interface name="org.gnome.Shell.Extensions.OrcshotClipboard">
-      <method name="SetImage">
-         <arg type="ay" direction="in" name="pngBytes" />
-      </method>
-      <method name="Ping">
-         <arg type="b" direction="out" name="ok" />
-      </method>
-   </interface>
-</node>`;
-
-// StartRegionSelect now chains the whole selection-through-destination-
-// choice interaction into one continuous Shell-side flow (drag-select,
-// then immediately a native Shell popup menu for the destination) -
-// see this file's own docstring (and REQUIREMENTS.md's Shell-side
-// rewrite section) for why: a client-side Gtk.Menu popup here needs a
-// real, recent input-event serial to be legitimately created at all
-// under Wayland (a deliberate protocol-level anti-spoofing rule, not a
-// GTK quirk), and nothing in the new Shell-side selection flow ever
-// gives the Python client one - confirmed live: menu.get_visible()
-// reported True on every attempt, yet only the very first ever
-// actually took real compositor focus (has_toplevel_focus went False
-// right after, matching a real popup grab; later attempts kept
-// keyboard focus the whole time, meaning the popup was silently never
-// really mapped). destination is one of "clipboard"/"save"/"save_as"/
-// "edit"/"print", or "" if the user dismissed the picker without
-// choosing (Escape/click-outside) - Python only ever executes the
-// chosen action, no picker UI of its own for this flow at all anymore.
-// StartWindowPicker follows the exact same shape/reasoning as
-// StartRegionSelect above (see that method's own comment) - same
-// reused pickDestinationAsync for the destination choice, same
-// reasons a client-side Gtk.Menu can't do that part - plus one extra
-// "title" field StartRegionSelect has no equivalent of (task #139):
-// the picked Meta.Window's own title, for ${title} filename-pattern
-// resolution (core/filename_pattern.py) - meaningful for a specific
-// window the same way active-window capture's title already is
-// (ui/capture_modes.py), unlike a region select with no single
-// associated window.
-//
-// CaptureRect has no gesture/overlay of its own, unlike the two
-// methods above (task #73), used by ui/capture_modes.py's full-screen/
-// active-window/last-region-repeat capture in place of the XDG portal
-// round trip those three still used even after task #77's rewrite
-// (they never needed an interactive overlay, so #77 didn't touch
-// them) - but it *does* chain into pickDestinationAsync just like
-// StartRegionSelect/StartWindowPicker do, anchored at the current
-// pointer position (no drag-release/click point to anchor at instead,
-// since there's no gesture here). Two real, separate artifacts of the
-// old ui/destination_picker.py Gtk.Menu path motivated folding the
-// picker in here too, not just the pixel grab, both confirmed live:
-// xdg-desktop-portal-gnome's own audible camera-shutter feedback on
-// the portal's Screenshot() method (Shell.Screenshot, used here
-// exactly as the overlays above already use it, has none), and even
-// after switching only the pixel grab, the Gtk.Menu itself - a real
-// client-side window - still caused a brief dock/taskbar flash under
-// this Wayland session, the same class of artifact task #76/#77
-// already eliminated for region-select/window-picker this same way.
-const CAPTURE_IFACE = `
-<node>
-   <interface name="org.gnome.Shell.Extensions.OrcshotCapture">
-      <method name="StartRegionSelect">
-         <arg type="b" direction="in" name="showMagnifier" />
-         <arg type="b" direction="out" name="ok" />
-         <arg type="s" direction="out" name="destination" />
-         <arg type="ay" direction="out" name="pngBytes" />
-         <arg type="i" direction="out" name="x" />
-         <arg type="i" direction="out" name="y" />
-         <arg type="i" direction="out" name="width" />
-         <arg type="i" direction="out" name="height" />
-      </method>
-      <method name="StartWindowPicker">
-         <arg type="b" direction="out" name="ok" />
-         <arg type="s" direction="out" name="destination" />
-         <arg type="s" direction="out" name="title" />
-         <arg type="ay" direction="out" name="pngBytes" />
-         <arg type="i" direction="out" name="x" />
-         <arg type="i" direction="out" name="y" />
-         <arg type="i" direction="out" name="width" />
-         <arg type="i" direction="out" name="height" />
-      </method>
-      <method name="StartEyedropper">
-         <arg type="b" direction="out" name="ok" />
-         <arg type="y" direction="out" name="r" />
-         <arg type="y" direction="out" name="g" />
-         <arg type="y" direction="out" name="b" />
-         <arg type="y" direction="out" name="a" />
-      </method>
-      <method name="CaptureRect">
-         <arg type="i" direction="in" name="x" />
-         <arg type="i" direction="in" name="y" />
-         <arg type="i" direction="in" name="width" />
-         <arg type="i" direction="in" name="height" />
-         <arg type="b" direction="out" name="ok" />
-         <arg type="s" direction="out" name="destination" />
-         <arg type="ay" direction="out" name="pngBytes" />
-      </method>
-   </interface>
-</node>`;
-
-// Bumped whenever the D-Bus contract any of the interfaces above expose
-// changes shape - lets app.py's own _check_shell_extension_health tell
-// "not running at all" apart from "running, but an already-open Shell
-// session is still serving a *stale* cached copy from before the last
-// update" (see gnome_extension_setup.py's own docstring for why that's
-// a real, ordinary state and not a hypothetical one - GNOME Shell never
-// reloads an extension's .js on its own, only a full logout/login does).
-// Bump this alongside any future change to CLIPBOARD_IFACE/CAPTURE_IFACE,
-// not just this file's own version control history.
-const API_VERSION = 2;
-
-const VERSION_IFACE = `
-<node>
-   <interface name="org.gnome.Shell.Extensions.OrcshotVersion">
-      <method name="GetApiVersion">
-         <arg type="i" direction="out" name="version" />
-      </method>
-   </interface>
-</node>`;
+// D-Bus: this module exposes nothing. Since the 2026-09-11 spec the
+// extension only ever CALLS the Orcshot app (extension.js drives that);
+// the handlers at the bottom of this file are what those requests run.
 
 // magnifier_constants.json (task #168 follow-up) - the shared source
 // of truth for every magnifier/eyedropper/selection-overlay number in
@@ -316,7 +190,7 @@ function _activateOrcshotAction(name) {
 // automatically by PopupMenuManager, no custom code needed for that
 // part, matching GrabHelper's own equivalent free behavior for the
 // selection overlay above). Deliberately not a Gtk.Menu (see
-// CAPTURE_IFACE's own comment for why that doesn't work reliably here
+// gnome_capture_rect.py's module docstring for why that doesn't work reliably here
 // at all past the first call) - PopupMenu needs a real sourceActor to
 // anchor to rather than arbitrary coordinates (confirmed against
 // GNOME Shell's own popupMenu.js), hence the tiny invisible St.Widget
@@ -1763,162 +1637,65 @@ function _buildDrawnMenuItem(iconGeometry, geometryKey, label, size = 16) {
   return { item, iconArea };
 }
 
-export default class Extension extends ShellExtension {
-  // Two separate exported objects at two separate paths - tried a
-  // single combined multi-<interface> document first (wrong, GJS only
-  // parses one interface per wrapJSObject call - see CAPTURE_IFACE's
-  // comment), then tried two single-interface exports at the *same*
-  // path (also wrong: confirmed live that a second .export() call to
-  // an already-exported path is silently a no-op - `gdbus call`
-  // against OrcshotCapture at the shared path came back "No such
-  // interface", with enable() itself reporting no error either way).
-  // Two distinct paths sidesteps whatever that limitation is entirely.
-  enable() {
-    this._dbus = Gio.DBusExportedObject.wrapJSObject(CLIPBOARD_IFACE, this);
-    this._dbus.export(Gio.DBus.session, '/org/gnome/Shell/Extensions/OrcshotClipboard');
-    this._captureDbus = Gio.DBusExportedObject.wrapJSObject(CAPTURE_IFACE, this);
-    this._captureDbus.export(Gio.DBus.session, '/org/gnome/Shell/Extensions/OrcshotCapture');
-    this._versionDbus = Gio.DBusExportedObject.wrapJSObject(VERSION_IFACE, this);
-    this._versionDbus.export(Gio.DBus.session, '/org/gnome/Shell/Extensions/OrcshotVersion');
-  }
-
-  disable() {
-    this._dbus.flush();
-    this._dbus.unexport();
-    delete this._dbus;
-    this._captureDbus.flush();
-    this._captureDbus.unexport();
-    delete this._captureDbus;
-    this._versionDbus.flush();
-    this._versionDbus.unexport();
-    delete this._versionDbus;
-  }
-
-  GetApiVersion() {
-    return API_VERSION;
-  }
-
-  SetImage(pngBytes) {
-    const bytes = new GLib.Bytes(pngBytes);
-    St.Clipboard.get_default().set_content(St.ClipboardType.CLIPBOARD, 'image/png', bytes);
-  }
-
-  // Availability probe only - deliberately does not touch the
-  // clipboard. Orcshot's own is_available() check needs a
-  // real method call to distinguish "not installed/enabled" from "a
-  // stale version whose SetImage signature changed", the same
-  // reasoning window-calls' own is_available() uses - but probing
-  // with SetImage itself would silently overwrite the user's real
-  // clipboard just from checking availability, which happens before
-  // the user has chosen to copy anything at all.
-  Ping() {
-    return true;
-  }
-
-  // Named with the "Async" suffix and taking (parameters, invocation)
-  // rather than a plain `async StartRegionSelect()` - GJS's own
-  // Gio.DBusExportedObject dispatch (modules/core/overrides/Gio.js,
-  // _handleMethodCall) only recognizes this as the async calling
-  // convention via `this[`${methodName}Async`]`; a bare `async
-  // <MethodName>()` is invoked *synchronously*, so `retval` is just
-  // the returned Promise object itself, which then fails to pack into
-  // a GLib.Variant and gets silently turned into a DBus error reply
-  // with no local logging at all (that catch block has no logError
-  // call) - confirmed live, not assumed: GJS 1.80.2 (bundled with
-  // Ubuntu 24.04/GNOME Shell 46/mutter-14) has no Promise-detection
-  // branch in _handleMethodCall whatsoever, unlike whatever newer GJS
-  // ships with GNOME Shell 50/Ubuntu 26.04/mutter-18 (where a bare
-  // async method name was already confirmed working - this file's own
-  // prior citation of _handleMethodCall's retval?.then?.() branch was
-  // real for that GJS version, just not this one). This was task #38's
-  // actual root cause for "Edit never opens the editor" - and, since
-  // the D-Bus reply is the only thing every destination depends on
-  // (not just Edit - the drag/select UI itself needs no D-Bus round
-  // trip at all, which is why capture *looked* fully working up to the
-  // destination-picker click), this silently broke every destination
-  // on GNOME 46, not only the one that happened to get tested first.
-  // Each method below now marshals its own out-Variant and calls
-  // invocation.return_value() directly rather than returning a value,
-  // matching CAPTURE_IFACE's declared out-arg types exactly.
-  async StartRegionSelectAsync(parameters, invocation) {
-    // try/catch + logError matches CaptureRect's own existing
-    // pattern below - without it, a thrown/rejected error here was
-    // only ever visible as a bare "Unhandled promise rejection" with
-    // a stack trace but no message at all (GJS's own D-Bus dispatch,
-    // modules/core/overrides/Gio.js, doesn't log the actual error),
-    // which cost real diagnostic time chasing task #38's GNOME-46
-    // Clutter.PanGesture incompatibility blind.
-    //
-    // parameters arrives pre-unpacked as a plain JS array on this GJS
-    // version, not via .deepUnpack() - see CaptureRectAsync's own
-    // comment below for the live-confirmed reasoning (task #150).
-    const [showMagnifier] = parameters;
-    let reply;
+// ---- request handlers: kind -> async (params) => result object ----
+// Each is the body of what used to be a D-Bus method on this
+// extension (StartRegionSelect, StartWindowPicker, StartEyedropper,
+// CaptureRect, SetImage). Same code, two differences: params arrive
+// as a plain object from extension.js's GetRequest, and the outcome is
+// returned as a result object that extension.js packs into Deliver's
+// a{sv} - ok:false with an error string where the D-Bus reply used to
+// carry a leading `false`. pngBytes stay Uint8Array (what
+// selectAsync/steal_as_bytes().toArray() already produce), which packs
+// as 'ay'.
+export const handlers = {
+  async 'region-select'({ showMagnifier }) {
     try {
-      const overlay = new RegionSelectOverlay(showMagnifier);
+      const overlay = new RegionSelectOverlay(!!showMagnifier);
       const result = await overlay.selectAsync();
-      reply = result === null
-        ? [false, '', [], 0, 0, 0, 0]
-        : [true, result.destination, result.pngBytes, result.x, result.y, result.width, result.height];
+      return result === null
+        ? { ok: false, error: 'cancelled' }
+        : { ok: true, destination: result.destination, pngBytes: result.pngBytes,
+            x: result.x, y: result.y, width: result.width, height: result.height };
     } catch (e) {
-      logError(e, 'Error in StartRegionSelect');
-      reply = [false, '', [], 0, 0, 0, 0];
+      logError(e, 'Error in region-select');
+      return { ok: false, error: String(e) };
     }
-    invocation.return_value(new GLib.Variant('(bsayiiii)', reply));
-  }
+  },
 
-  async StartWindowPickerAsync(_parameters, invocation) {
-    let reply;
+  async 'window-picker'() {
     try {
       const overlay = new WindowPickerOverlay();
       const result = await overlay.selectAsync();
-      reply = result === null
-        ? [false, '', '', [], 0, 0, 0, 0]
-        : [true, result.destination, result.title, result.pngBytes, result.x, result.y, result.width, result.height];
+      return result === null
+        ? { ok: false, error: 'cancelled' }
+        : { ok: true, destination: result.destination, title: result.title, pngBytes: result.pngBytes,
+            x: result.x, y: result.y, width: result.width, height: result.height };
     } catch (e) {
-      logError(e, 'Error in StartWindowPicker');
-      reply = [false, '', '', [], 0, 0, 0, 0];
+      logError(e, 'Error in window-picker');
+      return { ok: false, error: String(e) };
     }
-    invocation.return_value(new GLib.Variant('(bssayiiii)', reply));
-  }
+  },
 
-  async StartEyedropperAsync(_parameters, invocation) {
-    let reply;
+  async 'eyedropper'() {
     try {
       const overlay = new EyedropperOverlay();
       const result = await overlay.selectAsync();
-      reply = result === null ? [false, 0, 0, 0, 0] : [true, ...result];
+      if (result === null)
+        return { ok: false, error: 'cancelled' };
+      const [r, g, b, a] = result;
+      return { ok: true, r, g, b, a };
     } catch (e) {
-      logError(e, 'Error in StartEyedropper');
-      reply = [false, 0, 0, 0, 0];
+      logError(e, 'Error in eyedropper');
+      return { ok: false, error: String(e) };
     }
-    invocation.return_value(new GLib.Variant('(byyyy)', reply));
-  }
+  },
 
   // No overlay actor/grab/gesture of its own, unlike the interactive
-  // methods above - just a single frozen stage screenshot cropped to
+  // handlers above - just a single frozen stage screenshot cropped to
   // the given rect (same primitive RegionSelectOverlay/
   // WindowPickerOverlay already use for their own final crop), then
-  // straight into the same pickDestinationAsync those two use, see
-  // CAPTURE_IFACE's own comment for why. Genuinely async from the
-  // D-Bus caller's own point of view now that a destination choice is
-  // part of the round trip (see gnome_capture_rect.py's docstring).
-  async CaptureRectAsync(parameters, invocation) {
-    // parameters arrives already unpacked into a plain JS array by
-    // GDBusExportedObject's own async-method calling convention on
-    // this GJS version (1.88.0/Shell 50.1) - confirmed live with an
-    // isolated standalone D-Bus test server outside the extension
-    // entirely (no logout/login needed to check this), not assumed:
-    // typeof parameters === 'object', parameters.constructor.name ===
-    // 'Array', parameters value [5, 10] for a two-int test call. The
-    // previous `.deepUnpack()` call here was simply wrong - a plain
-    // Array has no such method - and had evidently never been
-    // exercised end-to-end before task #150's investigation (direflail:
-    // "capture full screen/active window/repeat last region - does
-    // nothing"), unlike every other async D-Bus method in this file,
-    // none of which call deepUnpack on their own parameters.
-    const [x, y, width, height] = parameters;
-    let reply;
+  // straight into the same pickDestinationAsync those two use.
+  async 'capture-rect'({ x, y, width, height }) {
     try {
       const [content, scale] = await new Shell.Screenshot().screenshot_stage_to_content();
       const texture = content.get_texture();
@@ -1932,11 +1709,22 @@ export default class Extension extends ShellExtension {
 
       const [pointerX, pointerY] = global.get_pointer();
       const destination = await pickDestinationAsync(pointerX, pointerY);
-      reply = destination === null ? [false, '', []] : [true, destination, pngBytes];
+      return destination === null
+        ? { ok: false, error: 'cancelled' }
+        : { ok: true, destination, pngBytes };
     } catch (e) {
-      logError(e, 'Error in CaptureRect');
-      reply = [false, '', []];
+      logError(e, 'Error in capture-rect');
+      return { ok: false, error: String(e) };
     }
-    invocation.return_value(new GLib.Variant('(bsay)', reply));
-  }
-}
+  },
+
+  async 'set-clipboard-image'({ pngBytes }) {
+    const bytes = new GLib.Bytes(pngBytes);
+    St.Clipboard.get_default().set_content(St.ClipboardType.CLIPBOARD, 'image/png', bytes);
+    return { ok: true };
+  },
+
+  async 'ping'() {
+    return { ok: true };
+  },
+};
