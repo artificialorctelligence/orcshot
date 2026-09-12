@@ -79,7 +79,10 @@ def _run_systemctl_user(*args: str) -> None:
     """
     try:
         subprocess.run(["systemctl", "--user", *args, SERVICE_NAME], check=True)
-    except FileNotFoundError as e:
+    except (FileNotFoundError, PermissionError) as e:
+        # PermissionError is a strict snap's answer (systemctl exists but
+        # is not executable from inside confinement) - same failure class
+        # as "not installed", reported the same way. BACKLOG #207.
         raise subprocess.CalledProcessError(returncode=127, cmd=e.filename or "systemctl") from e
 
 

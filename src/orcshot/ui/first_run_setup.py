@@ -209,8 +209,11 @@ def _run_dialog(parent, executable: str, settings_backend) -> None:
     # (BACKLOG #185's own framing) - so the checkbox is hidden outright
     # on this channel rather than left to silently no-op. Same ruling
     # applied to the Preferences "Launch Orcshot on startup" checkbox
-    # (ui/editor_window.py), which has the identical bug.
-    autostart_available = detect_channel() != "flatpak"
+    # (ui/editor_window.py), which has the identical bug. Snap joined
+    # Flatpak here on 2026-09-11 (BACKLOG #207): systemctl is not
+    # executable inside strict confinement either - found on the snap's
+    # first-ever GUI launch, where clicking Enable raised PermissionError.
+    autostart_available = detect_channel() == "deb"
 
     # Kept as two full sentences (not built by concatenating a fixed
     # base with a conditional suffix fragment) so each is one complete,

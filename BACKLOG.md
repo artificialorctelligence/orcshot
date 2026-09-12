@@ -1588,3 +1588,26 @@ the staged `shared-mime-info` carries only `packages/freedesktop.org.xml` becaus
 compiled mime database into the sandbox's private /tmp and setting `XDG_DATA_DIRS` to it made
 `set_default_icon_from_file` succeed on the spot. The fix is therefore `update-mime-database`
 in `override-prime` plus `XDG_DATA_DIRS: $SNAP/usr/share:/usr/share` in the app environment.
+
+## #207: Autostart-on-login has no working mechanism under the snap: systemctl --user is not executable inside strict confinement
+
+Found 2026-09-11 on the snap's first-ever GUI launch (the #206 fix made that possible; plan Task
+7 for #205). First-run offered "Start automatically at login" checked by default, and clicking
+Enable raised `PermissionError: [Errno 13] Permission denied: 'systemctl'` out of
+`autostart.enable_autostart` -> `_run_systemctl_user`, leaving the dialog stuck. The autostart
+feature is implemented as a systemd user unit shipped by the .deb and toggled with
+`systemctl --user`; a strict snap can execute neither (no systemd access, and the unit is not
+installed anyway) - the same reason BACKLOG #185 hid the checkbox on Flatpak.
+
+**Fixed now:** the checkbox is hidden on every channel but the .deb (first-run and the
+Preferences checkbox both key on `detect_channel() == "deb"`), and `_run_systemctl_user` reports
+`PermissionError` the way it reports "not installed" instead of letting it escape a GTK
+callback. Snap users get no autostart offer rather than a crash.
+
+**Still open - the real feature:** snapd has its own autostart mechanism (a desktop file under
+`$SNAP_USER_DATA/.config/autostart` plus `autostart: <file>.desktop` on the app in
+`snapcraft.yaml`, honoured by snapd's own user-session-autostart at login). That is the
+channel-native way to offer "start at login" on Snap, and Flatpak's equivalent is the
+Background/Autostart portal (`org.freedesktop.portal.Background.RequestBackground`). Neither is
+built; both are the deferred half of #185's ruling, now with two channels waiting on it. Not
+part of #205.

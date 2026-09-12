@@ -5542,7 +5542,7 @@ def _build_general_settings_tab(parent: Gtk.Window) -> Gtk.Box:
     # --user access from inside the sandbox at all, so this feature
     # cannot work here, and this project's own bar is "if it can't work
     # correctly, don't ship it looking like it works" (BACKLOG #185).
-    if detect_channel() != "flatpak":
+    if detect_channel() == "deb":
         autostart_check = Gtk.CheckButton(label=_("Launch Orcshot on startup"))
         autostart_check.set_active(is_autostart_enabled())
 
