@@ -47,9 +47,6 @@ jobs:
       - name: Install it locally (--dangerous, no store review needed)
         run: sudo snap install --dangerous ./orcshot_*.snap
 
-      - name: Connect personal-files (manual connect against a local install needs no Canonical review)
-        run: sudo snap connect orcshot:dot-local-share-gnome-shell
-
       - name: "Assert gnome_shell_present() resolves org.gnome.shell under confinement (BACKLOG #192)"
         run: |
           snap run --shell orcshot -c "python3 -c 'from orcshot.gnome_extension_setup import gnome_shell_present; result = gnome_shell_present(); print(\"gnome_shell_present() ->\", result); assert result is True, \"schema unresolvable - gnome-shell-common staging/compile regressed\"'"
@@ -57,45 +54,17 @@ jobs:
       - name: Confirm the installed binary launches without crashing
         run: orcshot --help
 
-      - name: Trigger the app's real first-run extension-install path
+      - name: Install the extension the way a user would (unpacked into the user dir, unconfined)
         run: |
-          export XDG_RUNTIME_DIR=/run/user/$(id -u)
-          # A real GTK dialog can't run headlessly in this job; call the
-          # underlying function this task's own Task 1/2 wired in
-          # directly, exactly as ui/first_run_setup.py itself calls it -
-          # this is deliberately the real production code path, not a
-          # CI-only stand-in. Run through `snap run --shell` so $SNAP/
-          # $SNAP_REAL_HOME are the real, snapd-set values for a
-          # confined process - a bare `python3` call in this shell step
-          # would have neither var set at all (Plan Amendment 1 below).
-          #
-          # The check script is written under $HOME/.local/share/gnome-shell/extensions,
-          # not /tmp and not bare $HOME: strict confinement gives the
-          # confined shell its own private, empty /tmp via a per-snap
-          # mount namespace (confirmed live - a file written to the
-          # host's /tmp is simply not there inside `snap run --shell`),
-          # ruling out /tmp entirely. Bare $HOME doesn't work either: the
-          # mount namespace does show the real host home directory (a
-          # file placed there is visible), but reading it from inside
-          # confinement fails with EACCES (confirmed live), because this
-          # app's snapcraft.yaml plugs only `personal-files`
-          # (dot-local-share-gnome-shell) - a narrow AppArmor grant
-          # limited to exactly $HOME/.local/share/gnome-shell/extensions -
-          # not the broad `home` interface. Writing the check script
-          # inside that one already-granted directory keeps it inside
-          # the path AppArmor actually allows this snap to read.
-          mkdir -p "$HOME/.local/share/gnome-shell/extensions"
-          cat > "$HOME/.local/share/gnome-shell/extensions/install_check.py" << 'PYEOF'
-          from orcshot.channel_detect import install_bundled_extension_if_needed
-          from pathlib import Path
-          import os
-          bundled = Path(os.environ['SNAP']) / 'share' / 'orcshot' / 'gnome-shell-extensions' / 'orcshot-tray@orcshot.org'
-          dest_parent = Path(os.environ['SNAP_REAL_HOME']) / '.local' / 'share' / 'gnome-shell' / 'extensions'
-          ok = install_bundled_extension_if_needed('orcshot-tray@orcshot.org', bundled, dest_parent)
-          print(f'install_bundled_extension_if_needed -> {ok}')
-          assert ok, 'extension install failed even with personal-files connected'
-          PYEOF
-          snap run --shell orcshot -c 'python3 $SNAP_REAL_HOME/.local/share/gnome-shell/extensions/install_check.py'
+          # The snap ships no extension (spec 2026-09-11 §4): a strict snap
+          # may neither write it into the home directory nor ask GNOME to
+          # install it. A real user gets it from extensions.gnome.org; this
+          # runner unpacks the same zip that upload carries, as
+          # `gnome-extensions install` would.
+          scripts/pack-extension.sh /tmp/ext
+          mkdir -p "$HOME/.local/share/gnome-shell/extensions/orcshot@orcshot.org"
+          unzip -q -o /tmp/ext/orcshot@orcshot.org.shell-extension.zip -d "$HOME/.local/share/gnome-shell/extensions/orcshot@orcshot.org"
+          test -f "$HOME/.local/share/gnome-shell/extensions/orcshot@orcshot.org/extension.js"
 
       - name: Install gnome-shell and headless deps
         run: |
@@ -155,8 +124,8 @@ jobs:
           # D-Bus-activate it from cold) - ordering here matters and is
           # deliberate, not incidental.
           export XDG_RUNTIME_DIR=/run/user/$(id -u)
-          snap run --shell orcshot -c "python3 -c 'import os; os.environ[\"DBUS_SESSION_BUS_ADDRESS\"] = \"unix:path=/run/user/\" + str(os.getuid()) + \"/bus\"; from orcshot.hotkey_setup import GioSettingsBackend; from orcshot.gnome_extension_setup import enable_extension, TRAY_EXTENSION_UUID; enable_extension(GioSettingsBackend(), TRAY_EXTENSION_UUID)'"
-          snap run --shell orcshot -c "python3 -c 'import os; os.environ[\"DBUS_SESSION_BUS_ADDRESS\"] = \"unix:path=/run/user/\" + str(os.getuid()) + \"/bus\"; from orcshot.hotkey_setup import GioSettingsBackend; current = GioSettingsBackend().get_strv(\"org.gnome.shell\", \"/\", \"enabled-extensions\"); print(\"enabled-extensions ->\", current); assert \"orcshot-tray@orcshot.org\" in current, \"enable_extension write did not persist\"'"
+          snap run --shell orcshot -c "python3 -c 'import os; os.environ[\"DBUS_SESSION_BUS_ADDRESS\"] = \"unix:path=/run/user/\" + str(os.getuid()) + \"/bus\"; from orcshot.hotkey_setup import GioSettingsBackend; from orcshot.gnome_extension_setup import enable_extension, EXTENSION_UUID; enable_extension(GioSettingsBackend(), EXTENSION_UUID)'"
+          snap run --shell orcshot -c "python3 -c 'import os; os.environ[\"DBUS_SESSION_BUS_ADDRESS\"] = \"unix:path=/run/user/\" + str(os.getuid()) + \"/bus\"; from orcshot.hotkey_setup import GioSettingsBackend; current = GioSettingsBackend().get_strv(\"org.gnome.shell\", \"/\", \"enabled-extensions\"); print(\"enabled-extensions ->\", current); assert \"orcshot@orcshot.org\" in current, \"enable_extension write did not persist\"'"
 
       - name: "Confirm the already-running Shell loads the extension from that write alone (BACKLOG #192)"
         run: |
@@ -182,7 +151,7 @@ jobs:
           # printed nothing at all on this headless runner (no output,
           # no error), so this stayed on the log-marker mechanism that
           # is actually proven to work in this environment.
-          timeout 60 bash -c 'until grep -q "orcshot-tray: extension enabled" /tmp/shell.log; do sleep 1; done' \
+          timeout 60 bash -c 'until grep -q "orcshot: extension enabled" /tmp/shell.log; do sleep 1; done' \
             || { echo "extension never logged its load marker - did not load"; cat /tmp/shell.log; exit 1; }
           if grep -qi "JS ERROR\|Gjs-CRITICAL" /tmp/shell.log; then
             echo "A real JS error was logged - see the log below"
@@ -190,6 +159,13 @@ jobs:
             exit 1
           fi
           echo "Extension loaded from the persisted write alone, no JS errors logged"
+
+      - name: "Hello and one list-windows round trip through the confined app (spec 2026-09-11 §6)"
+        run: |
+          export XDG_RUNTIME_DIR=/run/user/$(id -u)
+          export DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/$(id -u)/bus
+          # Fed on stdin: the confined shell cannot read the checkout.
+          snap run --shell orcshot -c 'python3 -' < scripts/ci-shell-roundtrip.py
 
       - name: Always upload the shell log for diagnosis
         if: always()

@@ -47,7 +47,6 @@ apps:
       - desktop
       - desktop-legacy
       - gsettings
-      - dot-local-share-gnome-shell
       # capture_feedback.py's capture-complete sound (GStreamer, see
       # that module's own docstring) needs real PulseAudio/PipeWire
       # client access under strict confinement, same reasoning as
@@ -66,12 +65,6 @@ slots:
     interface: dbus
     bus: session
     name: org.orcshot.Orcshot
-
-plugs:
-  dot-local-share-gnome-shell:
-    interface: personal-files
-    write:
-      - $HOME/.local/share/gnome-shell/extensions
 
 parts:
   orcshot:
@@ -154,15 +147,3 @@ parts:
       # glib-compile-schemas). Compile it explicitly so
       # Gio.SettingsSchemaSource.get_default() can find it.
       glib-compile-schemas "$CRAFT_PRIME/usr/share/glib-2.0/schemas"
-
-  bundled-extensions:
-    plugin: dump
-    source: src/orcshot/resources/gnome-shell-extensions
-    organize:
-      "*": share/orcshot/gnome-shell-extensions/
-
-  bundled-cinnamon-applets:
-    plugin: dump
-    source: src/orcshot/resources/cinnamon-applets
-    organize:
-      "*": share/orcshot/cinnamon-applets/

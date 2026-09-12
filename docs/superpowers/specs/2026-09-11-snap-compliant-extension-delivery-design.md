@@ -264,8 +264,8 @@ granted and one real install is confirmed.
 Snap→EGO steps; Flatpak-on-Cinnamon→Spices steps).
 
 **Extension, real headless Shell, in CI (`snap.yml`).** Existing load/no-JS-error assertions stay;
-add: a `Hello` arrives at a stub app with the expected capabilities; one `capture-rect` round trip
-completes (no interaction needed).
+add: a `Hello` arrives at a stub app with the expected capabilities; one `list-windows` round trip
+completes (no interaction needed - every capture kind ends in the destination menu, found while implementing).
 
 **Live on the VMs, before packaging is touched.**
 1. `.deb` on 26.04 Wayland: every capture mode, tray, clipboard, window picker, eyedropper against
