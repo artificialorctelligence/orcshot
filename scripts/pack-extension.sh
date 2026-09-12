@@ -9,7 +9,7 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 UUID="orcshot@orcshot.org"
 SRC="$ROOT/src/orcshot/resources/gnome-shell-extensions/$UUID"
-OUT="${1:-$ROOT/dist}"
+OUT="$(mkdir -p "${1:-$ROOT/dist}" && cd "${1:-$ROOT/dist}" && pwd)"   # absolute: the zip is written from inside the temp stage dir
 STAGE="$(mktemp -d)"
 trap 'rm -rf "$STAGE"' EXIT
 cp -r "$SRC/." "$STAGE/"
