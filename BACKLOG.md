@@ -1693,3 +1693,28 @@ Spices pieces (channels.yaml leaf, RELEASING.md step, `scripts/spices-sync.sh`, 
 `flatpak-cinnamon` dialog) are removed from the #205 branch before it lands, so this entry
 starts from a clean base. direflail's Spices fork
 (`artificialorctelligence/cinnamon-spices-applets`) can be deleted.
+
+## #209: Flathub's manifest linter has never run on the manifest: --socket=fallback-x11 without --share=ipc is a pre-existing lint error
+
+Found 2026-09-12 during #208's Task 4, the first time `flatpak-builder-lint manifest` was run
+against `org.orcshot.Orcshot.yaml` (CI's flatpak.yml lints only the metainfo; the linter
+invocation for the manifest existed in the Flatpak ingredient's prose and nowhere in this
+repo). On `main` the manifest fails with `finish-args-x11-without-ipc`: it grants
+`--socket=fallback-x11` but not `--share=ipc`, which X11 clients need for shared-memory
+transport and which Flathub requires alongside any X11 socket. This would have blocked the
+Flathub submission (#198) at the first review comment.
+
+**Fixed on the #208 branch** with one line, `--share=ipc`, commented. `flatpak.yml` gains a
+manifest lint step so the linter's verdict is CI's, not a thing someone remembers to run.
+
+**Related, not the same thing:** the same lint run also flags
+`finish-args-own-name-org.x.StatusIcon.orcshot` from #208's XApp status icon. That one is not
+a defect: libxapp can only register a tray icon under `org.x.StatusIcon.*` (Cinnamon's monitor
+applet discovers icons by that prefix - read in libxapp's `xapp-status-icon.c`), and Flathub's
+linter flags any owned name outside the app id. Warpinator's identical line is on Flathub via a
+grandfathered exception ("Predates the linter rule" - the only StatusIcon exception in the
+linter's list). direflail decided 2026-09-12 to keep the line and request the exception in
+the Flathub submission with that justification; the CI lint step therefore has to allow
+exactly that one error (the linter supports `--exceptions` for a local exceptions file, or the
+step greps the JSON), never a blanket pass. If Flathub refuses, Flatpak-on-Cinnamon has no
+tray icon - the state it is in today - and nothing else changes.
