@@ -96,7 +96,7 @@ New helper in `settings.py`:
 def output_directory_is_reachable(directory: Path) -> bool:
     """True unless we are inside the Flatpak sandbox and `directory` is on the
     sandbox's own tmpfs, where writes succeed and evaporate (BACKLOG #210)."""
-    if channel_detect() != "flatpak":
+    if detect_channel() != "flatpak":
         return True
     directory.mkdir(parents=True, exist_ok=True)
     return os.stat(directory).st_dev != os.stat("/").st_dev
@@ -105,13 +105,15 @@ def output_directory_is_reachable(directory: Path) -> bool:
 The `st_dev` test runs only under Flatpak: on a plain install `/home` may or may not be its own
 filesystem, so the comparison means nothing there.
 
-`destination_picker._quick_save` calls it before writing. If the directory is unreachable, it
-runs the existing `_choose_save_location` picker (module-level in `editor_window.py`, now
-portal-backed by section 2). The portal returns a persistent `/run/user/…/doc/…` path;
+There are two quick-save paths — `destination_picker._quick_save` (tray / picker) and
+`EditorWindow._do_quick_save` (editor menu) — and both start with `get_output_directory()`.
+One new function in `destination_picker.py`, `ensure_output_directory(parent) -> Path | None`,
+replaces that call in both: it returns the directory when reachable; otherwise it runs the
+existing `_choose_save_location` picker (module-level in `editor_window.py`, now portal-backed
+by section 2) and re-checks. The portal returns a persistent `/run/user/…/doc/…` path;
 `set_output_directory` stores it as today; the save proceeds into it, and every later quick Save
-is silent. If the picker is cancelled, nothing is written and a warning is logged — no more
-silent success. The tray's Save and the editor's Save both route through `_quick_save`, so one
-guard covers both.
+is silent. If the picker is cancelled or the chosen folder is still unreachable, it returns
+`None`, the caller writes nothing, and a warning is logged — no more silent success.
 
 Out of the box under Flatpak (no configured directory, host has `~/Pictures`): `~/Pictures` is
 visible through the section-1 grant, `default_output_directory()` returns
@@ -126,7 +128,7 @@ upgrade (show the folder's display name, or resolve through the Documents portal
 
 ## Testing
 
-- `output_directory_is_reachable`: True outside Flatpak for any path (channel_detect
+- `output_directory_is_reachable`: True outside Flatpak for any path (detect_channel
   monkeypatched to "deb"); under "flatpak", False when `os.stat` reports the same `st_dev` as
   `/`, True otherwise. Realistic paths, `os.stat` monkeypatched — never touches a real sandbox.
 - `_quick_save` under "flatpak" with an unreachable directory calls the picker; picker cancelled
