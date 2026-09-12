@@ -232,13 +232,7 @@ class OrcshotApplication(Gtk.Application):
         # build_menu reads self._tray_menu.
         self._xapp_icon = None
         if getattr(self, "_tray_menu", None) is not None and cinnamon_keybindings_available():
-            # libxapp derives the icon's D-Bus name (org.x.StatusIcon.*)
-            # from the process's program name, which defaults to argv[0]'s
-            # basename - "app.py" for this dev checkout's `python -m
-            # orcshot.app`, not "orcshot". Force it so the bus name is
-            # always org.x.StatusIcon.orcshot regardless of launcher; the
-            # Flatpak's --own-name grant is for that exact name.
-            GLib.set_prgname("orcshot")
+            # The D-Bus name is org.x.StatusIcon.orcshot on every launcher: main() sets the prgname.
             self._xapp_icon = create_status_icon(self)
         self._check_shell_extension_health()
         maybe_run_first_run_setup()
