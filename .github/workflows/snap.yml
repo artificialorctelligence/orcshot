@@ -174,7 +174,11 @@ jobs:
           if [ -z "$SOCK" ]; then
             echo "no Wayland socket from the headless Shell - it must be started with --wayland-display"; cat /tmp/shell.log | tail -20; exit 1
           fi
-          export WAYLAND_DISPLAY="$SOCK" GDK_BACKEND=wayland
+          # Absolute path, not the bare name: inside strict confinement
+          # XDG_RUNTIME_DIR is the snap's private directory and snapd only
+          # links the default wayland-0 into it (found live: the bare
+          # name gave "cannot open display"). libwayland accepts a path.
+          export WAYLAND_DISPLAY="$XDG_RUNTIME_DIR/$SOCK" GDK_BACKEND=wayland
           export XDG_SESSION_TYPE=wayland XDG_CURRENT_DESKTOP=ubuntu:GNOME
           echo "launching against WAYLAND_DISPLAY=$WAYLAND_DISPLAY"
           orcshot > /tmp/orcshot-gui.log 2>&1 &
