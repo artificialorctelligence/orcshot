@@ -27,7 +27,9 @@ desktop:
           # rejects a binary upload. dpkg-parsechangelog reads debian/changelog in the cwd, so
           # this stays correct every release with no hand-editing.
           action: "dpkg-buildpackage -us -uc -S -sa && debsign -kFAF777B27363A1BBB445E2F2596233AC9F58280A ../orcshot_$(dpkg-parsechangelog --show-field Version)_source.changes && dput ppa:artificialorctelligence/orcshot ../orcshot_$(dpkg-parsechangelog --show-field Version)_source.changes"
-          filename_template: "orcshot_<version>-1_source.changes"
+          # (The .changes filename the action derives: orcshot_<version>-1_source.changes.
+          # This used to be a `filename_template:` key - unknown to /orc-publish, which
+          # therefore mistook this leaf for a branch and crashed on every run since 8f52377.)
           # /orc-publish --metrics. Launchpad counts per (version, series, arch) publication and
           # has no PPA-wide total, so this is Orclab's own bundled reader rather than a one-liner.
           # noble and resolute are separate publications of the same upload, counted separately,
@@ -78,5 +80,71 @@ desktop:
             - "The copy is asynchronous. Launchpad's own docs: files can take up to twenty minutes
                to appear, even though the source is listed immediately. A green exit means the
                copy was accepted, not that it has landed."
-      snap: {}
-      flatpak: {}
+      snap:
+        requirements:
+          - "Depends on gnome-shell-extension.js.linux.ego: the snap installs no extension
+             itself; its first-run sends the user to extensions.gnome.org (spec 2026-09-11 §4).
+             Until orcshot@orcshot.org is listed there, the snap's GNOME-Wayland features run
+             on the portal fallback only. The publish action itself arrives with BACKLOG #198's
+             /orc-package snap."
+      flatpak:
+        requirements:
+          - "Depends on gnome-shell-extension.js.linux.ego: InstallRemoteExtension fetches from
+             extensions.gnome.org and nowhere else (verified live 2026-09-11: it answers Not
+             Found until the listing exists). And on cinnamon-applet.js.linux.spices for the
+             tray on Cinnamon. The publish action itself arrives with /orc-package flatpak."
+
+# The GNOME Shell extension is a second artifact with its own store: extensions.gnome.org
+# (EGO). Flatpak installs it from there (InstallRemoteExtension) and GNOME keeps every
+# per-user copy on EGO's version - so EGO owns the version once published, and this leaf is
+# the only place the extension is ever uploaded from. Its RELEASING.md step is deliberately
+# not a gate on the app channels: EGO review is human and unbounded (297 in the queue on
+# 2026-09-11). Spec: docs/superpowers/specs/2026-09-11-snap-compliant-extension-delivery-design.md §5.
+gnome-shell-extension:
+  js:
+    linux:
+      ego:
+        prepare: "scripts/pack-extension.sh dist"
+        artifact: "dist/orcshot@orcshot.org.shell-extension.zip"
+        # `gnome-extensions upload` ships with GNOME Shell 50 (verified on the 26.04 VM); the
+        # Mint host has no gnome-extensions at all, so this runs where GNOME Shell lives - the
+        # 26.04 VM over SSH (see the VM registry memory) or any GNOME machine. The password
+        # file is the EGO account password, 0600, outside the repo, never printed
+        # (secret-hygiene); --password-file reads it so nothing is typed into a transcript.
+        action: "gnome-extensions upload --user artificialorctelligence --password-file ${XDG_CONFIG_HOME:-$HOME/.config}/orcshot/ego-password --accept-tos dist/orcshot@orcshot.org.shell-extension.zip"
+        confirm:
+          url: "https://extensions.gnome.org/extension-query/?search=orcshot"
+        metrics: "curl -sf 'https://extensions.gnome.org/extension-query/?search=orcshot' | python3 -c 'import sys,json; [print(e[\"uuid\"], \"downloads:\", e.get(\"downloads\")) for e in json.load(sys.stdin)[\"extensions\"] if e[\"uuid\"]==\"orcshot@orcshot.org\"]'"
+        requirements:
+          - "Only when the extension changed since the last upload: every upload is a human
+             review. Bump metadata.json's version-name in the same commit as the change."
+          - "Runs on a machine with GNOME Shell >= 50 (`gnome-extensions help upload` must
+             succeed there). Not the Mint host."
+          - "One-time: an EGO account for artificialorctelligence with its password in the
+             file above, and the first submission accepted (the confirm URL lists
+             orcshot@orcshot.org). Until then the upload reports an error, which is correct."
+        issues:
+          - "Review lag is unbounded and prioritises small diffs; the app tolerates one
+             release of extension skew via the capability handshake, so the app release
+             never waits on this."
+
+cinnamon-applet:
+  js:
+    linux:
+      spices:
+        # Cinnamon Spices publishes by pull request to linuxmint/cinnamon-spices-applets; this
+        # syncs the applet into a local fork checkout, validates it with Mint's own script and
+        # opens the PR. The fork path is the one machine-local input; it is a working
+        # directory, not a credential. Version comes from debian/changelog like every leaf.
+        action: "scripts/spices-sync.sh \"${ORCSHOT_SPICES_FORK:-$HOME/projects/cinnamon-spices-applets}\" && V=$(dpkg-parsechangelog --show-field Version | sed 's/-[^-]*$//') && cd \"${ORCSHOT_SPICES_FORK:-$HOME/projects/cinnamon-spices-applets}\" && git checkout -q -B \"orcshot-$V\" master && git add orcshot-tray@orcshot.org && git commit -qm \"orcshot-tray@orcshot.org: update to $V\" && git push -q -u origin \"orcshot-$V\" && gh pr create --fill --repo linuxmint/cinnamon-spices-applets"
+        confirm:
+          url: "https://cinnamon-spices.linuxmint.com/applets/view/orcshot-tray@orcshot.org"
+        requirements:
+          - "Only when the applet changed. One-time: fork linuxmint/cinnamon-spices-applets to
+             the artificialorctelligence account, clone it to $ORCSHOT_SPICES_FORK, and have
+             the first PR (with info.json, screenshot.png, README.md) merged."
+        issues:
+          - "Spices' README (2026-09-08) forbids directing users to code outside Spices; the
+             applet's README says it needs the Orcshot app from the Software Manager (Flathub)
+             or the PPA - package channels, not downloads. Expect a reviewer question, not a
+             refusal (NordVPN/ExpressVPN/KDE Connect companion applets are precedent)."

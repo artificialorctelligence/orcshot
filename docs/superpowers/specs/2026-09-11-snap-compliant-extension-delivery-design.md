@@ -221,8 +221,8 @@ Shell assertion; add the two in §6. `flatpak.yml`: unchanged beyond the manifes
 
 **Artifacts.** `scripts/pack-extension.sh` (above). `scripts/spices-sync.sh`: copy the applet into a
 local checkout of the `cinnamon-spices-applets` fork at
-`orcshot@orcshot.org/files/orcshot@orcshot.org/`, bump `metadata.json`'s version, run their
-`validate-spice`.
+`orcshot-tray@orcshot.org/files/orcshot-tray@orcshot.org/` (the applet keeps its own UUID -
+found while implementing), bump `metadata.json`'s version, run their `validate-spice`.
 
 **`channels.yaml`** — two new leaves under new components (neither artifact is the Python app):
 
@@ -233,7 +233,7 @@ local checkout of the `cinnamon-spices-applets` fork at
   the repo, never printed (`secret-hygiene`). `confirm:` EGO's `extension-query` API lists the UUID.
   `metrics:` the same API's `downloads` field (present, read live).
 - `cinnamon-applet.js.linux.spices` — `action:` sync + `gh pr create` on the fork. `confirm:` the
-  Spices site's public JSON index lists the UUID at the new version. Metrics: verify at ingredient
+  Spices site's public JSON index lists `orcshot-tray@orcshot.org` at the new version. Metrics: verify at ingredient
   capture whether the index carries downloads.
 - `snap` / `flatpak` stay `{}` until #198 captures them; each gains a `requirements:` line naming
   the EGO leaf.

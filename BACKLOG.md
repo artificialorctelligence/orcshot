@@ -1528,6 +1528,20 @@ alongside `snap` and `flatpak`. Its RELEASING.md step is deliberately not a gate
 channels - review lag is unbounded, so the app must tolerate one release of extension skew,
 which is what the capability handshake buys. Items 7, 8 and 10 are settled by those decisions.
 
+**Update 2026-09-12 — implemented, not yet resolved.** Tasks 1–8 of
+`docs/superpowers/plans/2026-09-11-snap-compliant-extension-delivery.md` are on branch
+`snap-compliant-extension-delivery` (PR #23): one extension, inverted direction, per-channel
+first-run, packaging without the plug/grant, the two publishing leaves and RELEASING.md steps 3-4.
+Live-verified on 26.04 (GNOME 50) and 24.04 (GNOME 46) - `VERIFICATION.md` Scenario 1 has every
+command and result. Three things the verification pass found and fixed on the way: the snap's GUI
+had never launched at all (#206, pre-existing, fixed on the branch); the install dialog must be a
+no-op when Hello already arrived; and `/orc-publish` had been crashing on this project's
+`channels.yaml` since 8f52377 (an unknown `filename_template:` key - now a comment). Spec
+verification items 2, 3 and 4 are answered by test (see VERIFICATION.md E and D); items 1 and 5
+wait for the listings. Open until the EGO first submission and the Spices PR are accepted (plan
+Task 9), which is when the Snap and Flatpak first-run redirects point at something real; #198
+then proceeds with `/orc-package snap` and `flatpak`.
+
 ## #206: The snap's GUI has never launched: gdk-pixbuf has no loaders.cache under confinement, so Gtk.Window.set_default_icon_from_file crashes do_startup
 
 Found 2026-09-11 during BACKLOG #205's live verification (plan Task 7, step 3), the first time
