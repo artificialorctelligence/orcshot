@@ -183,8 +183,10 @@ jobs:
           echo "launching against WAYLAND_DISPLAY=$WAYLAND_DISPLAY"
           orcshot > /tmp/orcshot-gui.log 2>&1 &
           APP=$!
-          timeout 15 bash -c 'until gdbus call --session --dest org.freedesktop.DBus --object-path /org/freedesktop/DBus --method org.freedesktop.DBus.NameHasOwner org.orcshot.Orcshot | grep -q true; do sleep 1; done' \
-            || { echo "the app never owned org.orcshot.Orcshot"; cat /tmp/orcshot-gui.log; exit 1; }
+          # 120 s, not 15: the gnome extension's desktop-launch does one-time
+          # setup on a cold first run (font cache, immodules, schemas).
+          timeout 120 bash -c 'until gdbus call --session --dest org.freedesktop.DBus --object-path /org/freedesktop/DBus --method org.freedesktop.DBus.NameHasOwner org.orcshot.Orcshot | grep -q true; do sleep 1; done' \
+            || { echo "the app never owned org.orcshot.Orcshot within 120 s; its log:"; cat /tmp/orcshot-gui.log; echo "--- process:"; ps -o pid,etime,cmd -p $APP || true; exit 1; }
           sleep 3
           if grep -q "Traceback" /tmp/orcshot-gui.log; then echo "do_startup crashed:"; cat /tmp/orcshot-gui.log; exit 1; fi
           kill -0 $APP || { echo "the app exited"; cat /tmp/orcshot-gui.log; exit 1; }
