@@ -1762,3 +1762,65 @@ are separate questions. Not part of #208.
 ## #211: Flatpak on Cinnamon: hotkey auto-setup silently skipped (schema check invisible in sandbox)
 
 Found by the #208 final review, 2026-09-12. `hotkey_setup.cinnamon_keybindings_available()` looks up the `org.cinnamon.desktop.keybindings` GSettings schema, which is not visible inside the Flatpak sandbox (VERIFICATION.md Scenario 2 recorded it answering False on a real Cinnamon desktop). #208 switched the *tray* to `ui/xapp_tray.running_on_cinnamon()` (XDG_CURRENT_DESKTOP), but hotkey setup still uses the schema check, so the Flatpak on Cinnamon never offers or registers the custom keybindings. Not user-visible as an error - it just does nothing. Fix candidates: detect Cinnamon via `running_on_cinnamon()` and write the keybindings through the host's `gsettings` via `flatpak-spawn --host`, or via the settings portal if one exists for custom keybindings. Verify on the Mint host with the CI bundle.
+
+## #212: Under the snap, Save has no filesystem grant: snapcraft.yaml declares no home plug, so every write to the output directory is AppArmor-denied
+
+Found 2026-09-12 while specing #210 (Flatpak Save), whose entry explicitly asked for the snap to
+be checked "the same way". `snapcraft.yaml` is `confinement: strict` and its `plugs:` list is
+`audio-playback` only - no `home`, no `removable-media`. Under strict confinement a snap can write
+only to its own `$SNAP_USER_DATA`/`$SNAP_USER_COMMON`; a write to `~/Pictures/Screenshots` (the
+default output directory) is denied by AppArmor. So *Capture → Save* in the snap cannot produce a
+file anywhere the user can find it.
+
+**Not proven live, stated as the mechanism it must be:** the snap is not installed on this host
+and nobody has pressed Save in it (`.github/workflows/snap.yml` installs with `--dangerous` and
+checks the app launches; the extension work in #184/#205 exercised capture, not Save). The
+failure mode differs from #210's: Flatpak's sandbox home is a tmpfs, so the write silently
+succeeds and evaporates; here the write should raise `PermissionError`, which `_quick_save` does
+not catch, so the user most likely sees a traceback in the log and nothing on screen. Confirm
+which when fixing.
+
+**Consequence:** a Snap Store user's first Save loses the capture. Blocks the snap half of #198
+(store upload) in practice, exactly as #210 blocks the Flathub half.
+
+**Fix shape:** add `home` to the app's `plugs:`. `home` auto-connects on classic distros without
+store review - after #205 removed `personal-files`, this would leave the snap with no
+review-gated interface at all. Then press Save in a real installed snap and find the file.
+`Gtk.FileChooserNative` (which #210 adopts everywhere) behaves as the plain GTK dialog under
+snap, so the dialog sites need nothing snap-specific; only the plug is missing.
+
+**Scope boundary:** snap only. The Flatpak side is #210; apt/PPA has no sandbox and is unaffected.
+
+## #213: External commands and Open in External Editor cannot reach host applications from inside the Flatpak sandbox
+
+Found 2026-09-12 while specing #210, whose entry asked for "external commands' temp files" to be
+checked. The temp file is not the problem - `ui/file_export.orcshot_cache_dir()` already puts it
+under `$XDG_CACHE_HOME`, which inside the sandbox maps to `~/.var/app/org.orcshot.Orcshot/cache`
+on the host, a real directory. The problem is one level up: `ui/external_commands.py` runs the
+configured command with `subprocess.run(argv)` and discovers candidates with `flatpak list`
+(`_installed_flatpak_apps`) and PATH lookups. Inside the Flatpak sandbox none of the host's
+binaries exist - there is no `gimp`, no `flatpak`, and no way to exec a host program without
+`flatpak-spawn --host` (which itself needs `--talk-name=org.freedesktop.Flatpak`, a grant Flathub
+treats as sandbox escape and reviews accordingly). The editor's "Open in External Editor" button
+uses the same mechanism and fails the same way.
+
+**Consequence:** in the Flatpak, every external command silently does nothing useful - the
+subprocess fails with `FileNotFoundError` (or the picker lists no apps), the temp file is deleted,
+the user sees no editor open. Not data loss (the capture is still in the editor), so not a #198
+blocker, but a whole feature that appears in the UI and does not work in one channel.
+
+**Options, to be decided, not a one-liner:** (a) `--talk-name=org.freedesktop.Flatpak` +
+`flatpak-spawn --host`, full feature, needs a reviewer exception and is the same class of grant
+Flathub pushes back on hardest; (b) the OpenURI portal (`org.freedesktop.portal.OpenURI.OpenFile`)
+- hand the temp file to the host's "open with" chooser, which covers "open this in GIMP/Inkscape"
+with no grant, but drops the argument templating and the auto-discovered command list; (c) hide
+the External Commands feature under Flatpak (`channel_detect() == "flatpak"`) and offer only the
+portal-backed Open With. (b)/(c) are Flathub-clean; (a) is the only one that keeps the feature
+identical. Also check whether the `.orcshot` file association / "open in Orcshot from Files"
+direction works from inside the sandbox - that is the reverse path and uses the desktop file's
+MIME registration, which Flatpak exports.
+
+**Scope boundary:** Flatpak only. Under the snap, `_is_snap_command` and `orcshot_visible_temp_dir`
+already handle a snap-confined *target*; whether a strictly confined Orcshot *snap* can exec host
+programs is a separate question not examined here (it generally cannot without `classic` or a
+matching interface) - note it when #212 is picked up rather than opening a fourth entry now.
