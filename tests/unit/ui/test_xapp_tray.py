@@ -75,3 +75,18 @@ def test_create_status_icon_without_xapp_returns_none_and_logs(monkeypatch, caps
 
     assert xapp_tray.create_status_icon(App()) is None
     assert "XApp" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize("value,expected", [
+    ("X-Cinnamon", True),
+    ("Cinnamon", True),
+    ("X-Cinnamon:GNOME", True),
+    ("ubuntu:GNOME", False),
+    ("", False),
+])
+def test_running_on_cinnamon_reads_xdg_current_desktop(value, expected):
+    assert xapp_tray.running_on_cinnamon({"XDG_CURRENT_DESKTOP": value}) is expected
+
+
+def test_running_on_cinnamon_with_no_variable_is_false():
+    assert xapp_tray.running_on_cinnamon({}) is False

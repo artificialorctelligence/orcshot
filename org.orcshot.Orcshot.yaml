@@ -109,6 +109,8 @@ modules:
     config-opts:
       - -Dapp-lib-only=true
       - -Dpy-overrides-dir=/app/lib/python3.13/site-packages/gi/overrides
+      # meson defaults to lib64 on this runtime; GI searches /app/lib/girepository-1.0 (found live 2026-09-12).
+      - -Dlibdir=lib
     sources:
       - type: git
         url: https://github.com/linuxmint/xapp.git

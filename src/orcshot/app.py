@@ -58,14 +58,13 @@ from orcshot.ui.capture_modes import (
 )
 from orcshot.autostart import remove_legacy_autostart_entry
 from orcshot.capture.shell_bridge import get_bridge
-from orcshot.hotkey_setup import cinnamon_keybindings_available
 from orcshot.resources import LOGO_PATH
 from orcshot.ui.external_commands import maybe_seed_default_external_commands
 from orcshot.ui.first_run_setup import maybe_run_first_run_setup
 from orcshot.ui.region_select import start_region_capture
 from orcshot.ui.update_check import fetch_latest_release
 from orcshot.ui.window_picker import start_window_picker
-from orcshot.ui.xapp_tray import create_status_icon
+from orcshot.ui.xapp_tray import create_status_icon, running_on_cinnamon
 
 APPLICATION_ID = "org.orcshot.Orcshot"
 CAPTURE_REGION_OPTION = "capture-region"
@@ -230,8 +229,12 @@ class OrcshotApplication(Gtk.Application):
         # install) rendering the same self._tray_menu the GNOME Shell
         # extension consumes. Created here, after the export, because
         # build_menu reads self._tray_menu.
+        # Detected via XDG_CURRENT_DESKTOP, not hotkey_setup's GSettings
+        # schema lookup: that schema is a host setting a Flatpak sandbox
+        # cannot see (found live 2026-09-12), while the env var crosses
+        # the sandbox boundary.
         self._xapp_icon = None
-        if getattr(self, "_tray_menu", None) is not None and cinnamon_keybindings_available():
+        if getattr(self, "_tray_menu", None) is not None and running_on_cinnamon():
             # The D-Bus name is org.x.StatusIcon.orcshot on every launcher: main() sets the prgname.
             self._xapp_icon = create_status_icon(self)
         self._check_shell_extension_health()

@@ -13,6 +13,7 @@ popped down and the action delayed - hence build_menu's proxy.
 
 from __future__ import annotations
 
+import os
 import sys
 from typing import Callable
 
@@ -78,6 +79,18 @@ def build_menu(model: Gio.MenuModel, forward: Callable[[str], None], delay_ms: i
 def _forward_once(forward, name) -> bool:
     forward(name)
     return GLib.SOURCE_REMOVE
+
+
+def running_on_cinnamon(environ=None) -> bool:
+    """Whether the session desktop is Cinnamon, from XDG_CURRENT_DESKTOP
+    (a colon-separated list; Cinnamon reports "X-Cinnamon"). Deliberately
+    not hotkey_setup.cinnamon_keybindings_available(): that reads a host
+    GSettings schema, which a Flatpak sandbox cannot see - found live on
+    2026-09-12, where it answered False on a real Cinnamon desktop. The
+    environment variable crosses the sandbox boundary; the schema does not."""
+    if environ is None:
+        environ = os.environ
+    return any(part.lower() in ("x-cinnamon", "cinnamon") for part in environ.get("XDG_CURRENT_DESKTOP", "").split(":"))
 
 
 def create_status_icon(app):
