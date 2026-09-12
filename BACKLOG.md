@@ -1641,7 +1641,7 @@ Background/Autostart portal (`org.freedesktop.portal.Background.RequestBackgroun
 built; both are the deferred half of #185's ruling, now with two channels waiting on it. Not
 part of #205.
 
-## #208: Replace the Cinnamon applet with an XApp.StatusIcon owned by the app - no About/Remove, no Spices submission, native on Mint
+## #208: Replace the Cinnamon applet with an XApp.StatusIcon owned by the app - no About/Remove, no Spices submission, native on Mint (RESOLVED 2026-09-12)
 
 Decided by direflail 2026-09-12, after the Cinnamon applet sat on a real Cinnamon panel for the
 first time (the Mint host, during #205's Spices submission prep). Two things were found there,
@@ -1694,6 +1694,20 @@ Spices pieces (channels.yaml leaf, RELEASING.md step, `scripts/spices-sync.sh`, 
 starts from a clean base. direflail's Spices fork
 (`artificialorctelligence/cinnamon-spices-applets`) can be deleted.
 
+**Resolved for real, not just tracked (2026-09-12):** `ui/xapp_tray.py` + `app.py` create an
+`XApp.StatusIcon` on Cinnamon from the same `Gio.Menu` the GNOME tray uses, behind a proxy that
+pops the menu down and forwards the action 150 ms later; the applet directory and its install
+lines are gone; the .deb depends on `gir1.2-xapp-1.0`; the Flatpak builds libxapp (Warpinator's
+module, `-Dlibdir=lib`) and grants the two bus names. Verified on the Mint host - VERIFICATION.md
+Scenario 2: icon present, menu with icons and no About/Remove, a menu-launched full-screen
+capture with no menu in it, and the Flatpak's icon registering from inside the sandbox
+(Cinnamon's own log names the sandboxed connection). Two things the live pass corrected in the
+spec: libxapp installs to lib64 by default on this runtime, and Cinnamon must be detected from
+`XDG_CURRENT_DESKTOP` because the GSettings schema check cannot see the host from a Flatpak. Two
+things it found beside the feature, each its own entry: #209 (the manifest linter had never run;
+the own-name exception to request at Flathub submission) and #210 (Save writes nowhere under
+Flatpak). CI: flatpak runs 34677307006, 34678723491, 34679321587 green.
+
 ## #209: Flathub's manifest linter has never run on the manifest: --socket=fallback-x11 without --share=ipc is a pre-existing lint error
 
 Found 2026-09-12 during #208's Task 4, the first time `flatpak-builder-lint manifest` was run
@@ -1718,3 +1732,29 @@ the Flathub submission with that justification; the CI lint step therefore has t
 exactly that one error (the linter supports `--exceptions` for a local exceptions file, or the
 step greps the JSON), never a blanket pass. If Flathub refuses, Flatpak-on-Cinnamon has no
 tray icon - the state it is in today - and nothing else changes.
+
+## #210: Under Flatpak, Save writes nowhere: the sandbox has no grant for the output directory and Save does not use the file-chooser portal
+
+Found 2026-09-12 on the Mint host while accepting #208's XApp tray on the CI-built Flatpak:
+direflail chose *Capture Full Screen → Save* from the tray menu and no file appeared anywhere -
+not in `~/Screenshots` (the configured `output_directory`, unreachable from the sandbox), not
+under `~/.var/app/org.orcshot.Orcshot/`. The app's log showed no error either. The manifest
+grants no `--filesystem=` at all since #205 removed the extensions grant (correctly), and the
+Save destination writes straight to a path rather than going through the FileChooser portal, so
+inside the sandbox the write can only fail. Never seen before because every Flatpak check so
+far was CI (headless) or the VM's extension tests; nobody had pressed Save in the Flatpak.
+
+**Consequence:** the first Flathub user who presses Save loses their capture silently. Blocks a
+Flathub submission (#198) in practice, if not in review.
+
+**Options, to be decided (spec territory, not a one-liner):** (a) `--filesystem=xdg-pictures`
+(or `xdg-pictures:create`) - simple, but Flathub reviewers ask why a screenshot tool needs
+static access; (b) route Save through the FileChooser portal (`Gtk.FileChooserNative` already
+goes through the portal under Flatpak) so the user picks once and the app keeps a portal
+document handle; (c) both: a portal-picked folder remembered via the Documents portal. Also
+check the other destinations the same way (Save As, Open File, external commands' temp files)
+- anything that writes a path the user chose outside a portal has the same problem.
+
+**Scope boundary:** Flatpak only; the .deb and the snap (which has `home` via its plugs? -
+verify, the snap's `home` plug was in the #184 test snap, not necessarily in snapcraft.yaml)
+are separate questions. Not part of #208.
