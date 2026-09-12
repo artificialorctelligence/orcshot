@@ -433,7 +433,7 @@ Before `- name: orcshot`:
         commit: 913b2a2b441ec24daf3aa92e2863cc40e1c43650
 ```
 
-(The commit hash is the one Warpinator pins for tag 3.2.2; confirm with `git ls-remote https://github.com/linuxmint/xapp.git refs/tags/3.2.2` before committing — a tag's commit vs its annotated object can differ; use whichever `ls-remote` prints for `refs/tags/3.2.2^{}` if present.)
+(Checked 2026-09-12: `3.2.2` is an annotated tag — `913b2a2b…` is the tag object, which is what Warpinator pins and Flathub builds; the commit it points at is `6b60e1f709502a23f6f68213563c7dad6e852bd6`. Keep Warpinator's value; if flatpak-builder rejects it with a commit-mismatch error, switch to `6b60e1f7…`.)
 
 - [ ] **Step 3: Lint and build locally if flatpak-builder is available, else rely on CI**
 
