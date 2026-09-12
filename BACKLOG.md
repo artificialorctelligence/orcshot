@@ -1758,3 +1758,7 @@ check the other destinations the same way (Save As, Open File, external commands
 **Scope boundary:** Flatpak only; the .deb and the snap (which has `home` via its plugs? -
 verify, the snap's `home` plug was in the #184 test snap, not necessarily in snapcraft.yaml)
 are separate questions. Not part of #208.
+
+## #211: Flatpak on Cinnamon: hotkey auto-setup silently skipped (schema check invisible in sandbox)
+
+Found by the #208 final review, 2026-09-12. `hotkey_setup.cinnamon_keybindings_available()` looks up the `org.cinnamon.desktop.keybindings` GSettings schema, which is not visible inside the Flatpak sandbox (VERIFICATION.md Scenario 2 recorded it answering False on a real Cinnamon desktop). #208 switched the *tray* to `ui/xapp_tray.running_on_cinnamon()` (XDG_CURRENT_DESKTOP), but hotkey setup still uses the schema check, so the Flatpak on Cinnamon never offers or registers the custom keybindings. Not user-visible as an error - it just does nothing. Fix candidates: detect Cinnamon via `running_on_cinnamon()` and write the keybindings through the host's `gsettings` via `flatpak-spawn --host`, or via the settings portal if one exists for custom keybindings. Verify on the Mint host with the CI bundle.
