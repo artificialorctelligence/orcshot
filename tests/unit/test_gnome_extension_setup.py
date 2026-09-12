@@ -6,14 +6,17 @@ click, never a test.
 """
 
 from orcshot.gnome_extension_setup import (
-    CLIPBOARD_EXTENSION_UUID,
-    TRAY_EXTENSION_UUID,
-    WINDOW_CALLS_EXTENSION_UUID,
+    EXTENSION_UUID,
+    bundled_version_name,
     enable_extension,
     enabled_extensions_after_adding,
     extensions_to_enable,
     gnome_shell_present,
+    needs_relogin,
 )
+
+# The one UUID, under the names the older tests below used.
+WINDOW_CALLS_EXTENSION_UUID = CLIPBOARD_EXTENSION_UUID = TRAY_EXTENSION_UUID = EXTENSION_UUID
 
 
 class FakeSettingsBackend:
@@ -58,31 +61,39 @@ class TestEnableExtension:
         enable_extension(backend, WINDOW_CALLS_EXTENSION_UUID)
         assert backend.get_strv("org.gnome.shell", "/", "enabled-extensions") == [WINDOW_CALLS_EXTENSION_UUID]
 
-    def test_can_enable_all_three_bundled_extensions_independently(self):
+    def test_enabling_the_one_extension_is_idempotent(self):
         backend = FakeSettingsBackend()
-        enable_extension(backend, WINDOW_CALLS_EXTENSION_UUID)
-        enable_extension(backend, CLIPBOARD_EXTENSION_UUID)
-        enable_extension(backend, TRAY_EXTENSION_UUID)
-        assert backend.get_strv("org.gnome.shell", "/", "enabled-extensions") == [
-            WINDOW_CALLS_EXTENSION_UUID, CLIPBOARD_EXTENSION_UUID, TRAY_EXTENSION_UUID,
-        ]
+        enable_extension(backend, EXTENSION_UUID)
+        enable_extension(backend, EXTENSION_UUID)
+        assert backend.get_strv("org.gnome.shell", "/", "enabled-extensions") == [EXTENSION_UUID]
 
 
 class TestExtensionsToEnable:
-    """Final-review finding, 2026-09-05: the tray extension used to be
-    gated behind the same is_gnome_wayland check as window-calls/
-    orcshot-clipboard, which meant GNOME-X11 never got the tray
-    extension installed or enabled at all. TRAY_EXTENSION_UUID must come
-    back regardless of session type; the other two only on Wayland.
-    """
+    """One extension carries tray, capture and window-calls since the
+    2026-09-11 spec; the tray is wanted on X11 too, so the session type
+    no longer changes the answer."""
 
-    def test_gnome_wayland_enables_all_three(self):
-        assert extensions_to_enable(is_gnome_wayland=True) == [
-            WINDOW_CALLS_EXTENSION_UUID, CLIPBOARD_EXTENSION_UUID, TRAY_EXTENSION_UUID,
-        ]
+    def test_wayland_enables_the_one_extension(self):
+        assert extensions_to_enable(is_gnome_wayland=True) == [EXTENSION_UUID]
 
-    def test_gnome_x11_enables_only_tray(self):
-        assert extensions_to_enable(is_gnome_wayland=False) == [TRAY_EXTENSION_UUID]
+    def test_x11_enables_it_too_for_the_tray(self):
+        assert extensions_to_enable(is_gnome_wayland=False) == [EXTENSION_UUID]
+
+
+class TestVersionName:
+    def test_bundled_version_name_is_a_dotted_version(self):
+        name = bundled_version_name()
+        assert name and all(part.isdigit() for part in name.split("."))
+
+    def test_needs_relogin_when_live_is_older(self):
+        assert needs_relogin("0.3.0", "0.4.0") is True
+
+    def test_no_relogin_when_equal_or_newer(self):
+        assert needs_relogin("0.4.0", "0.4.0") is False
+        assert needs_relogin("0.5.0", "0.4.0") is False
+
+    def test_no_relogin_when_no_extension_at_all(self):
+        assert needs_relogin(None, "0.4.0") is False
 
 
 class TestGnomeShellPresent:

@@ -1,6 +1,7 @@
-"""Enabling this project's bundled GNOME Shell extensions (window-calls,
-see THIRD_PARTY_NOTICES.md; orcshot-clipboard and orcshot-tray, this
-project's own original code) - the equivalent of what hotkey_setup.py does for
+"""Enabling this project's GNOME Shell extension (orcshot@orcshot.org -
+one extension carrying tray, capture and window-calls since the
+2026-09-11 spec; the window-calls part is a third-party fork, see
+THIRD_PARTY_NOTICES.md) - the equivalent of what hotkey_setup.py does for
 Cinnamon keybindings: a real write to the user's desktop settings that
 must only ever happen from their own confirmation click, never as a
 side effect of installing or running the app. The .deb only places the
@@ -31,9 +32,15 @@ this module's whole subject, does not.
 
 from __future__ import annotations
 
-WINDOW_CALLS_EXTENSION_UUID = "window-calls@domandoman.xyz"
-CLIPBOARD_EXTENSION_UUID = "orcshot-clipboard@orcshot.org"
-TRAY_EXTENSION_UUID = "orcshot-tray@orcshot.org"
+import json
+from pathlib import Path
+
+EXTENSION_UUID = "orcshot@orcshot.org"
+# Transitional aliases - Task 5 of the 2026-09-11 plan deletes these with
+# their last callers in ui/first_run_setup.py.
+WINDOW_CALLS_EXTENSION_UUID = EXTENSION_UUID
+CLIPBOARD_EXTENSION_UUID = EXTENSION_UUID
+TRAY_EXTENSION_UUID = EXTENSION_UUID
 _SHELL_SCHEMA = "org.gnome.shell"
 _ENABLED_EXTENSIONS_KEY = "enabled-extensions"
 
@@ -66,21 +73,36 @@ def gnome_shell_present() -> bool:
 
 
 def extensions_to_enable(is_gnome_wayland: bool) -> list:
-    """Which bundled extension UUIDs should be enabled, given the
-    caller has already confirmed GNOME Shell is present at all
-    (gnome_shell_present()). TRAY_EXTENSION_UUID applies on GNOME
-    regardless of session type (BACKLOG #189 - it's this ticket's whole
-    point that the tray no longer depends on Wayland). WINDOW_CALLS_
-    EXTENSION_UUID and CLIPBOARD_EXTENSION_UUID stay Wayland-only: X11
-    has its own native Xlib mechanisms for window enumeration and
-    clipboard access that don't need a Shell extension at all. Pure so
-    it's unit-testable without a live GNOME Shell or GTK dialog - same
-    testability precedent as hotkey_setup.py's check_all_conflicts/
-    resolve_hotkey_choices (see ui/first_run_setup.py's own module
-    docstring on why that logic lives apart from the dialog glue)."""
-    if is_gnome_wayland:
-        return [WINDOW_CALLS_EXTENSION_UUID, CLIPBOARD_EXTENSION_UUID, TRAY_EXTENSION_UUID]
-    return [TRAY_EXTENSION_UUID]
+    """One extension now carries tray, capture and window-calls (spec
+    2026-09-11 section 2); the tray is wanted on X11 too, so the session
+    type no longer changes the answer. Kept as a function so first-run
+    setup's call site is unchanged."""
+    return [EXTENSION_UUID]
+
+
+def bundled_version_name() -> str:
+    """The extension's own protocol version, from the copy bundled in
+    this package's resources - `version-name`, the field EGO leaves alone
+    (EGO overwrites `version` with its own counter, so that one is never
+    read). The resources ship in every channel even though only the
+    .deb *installs* them; this is why."""
+    metadata = Path(__file__).parent / "resources" / "gnome-shell-extensions" / EXTENSION_UUID / "metadata.json"
+    return json.loads(metadata.read_text())["version-name"]
+
+
+def _version_tuple(name: str) -> tuple:
+    return tuple(int(p) for p in name.split("."))
+
+
+def needs_relogin(live_version_name, bundled: str) -> bool:
+    """True when the running Shell serves an older copy than the one
+    shipped - the state after an upgrade until the user logs out and in
+    (GNOME Shell never reloads an extension's JS mid-session). None
+    means no extension said Hello at all, which is the ordinary "not
+    installed" state and not something to nag about."""
+    if live_version_name is None:
+        return False
+    return _version_tuple(live_version_name) < _version_tuple(bundled)
 
 
 def enabled_extensions_after_adding(current: list, uuid: str) -> list:
@@ -108,6 +130,15 @@ def enable_extension_live(uuid: str) -> None:
     now, via its own org.gnome.Shell.Extensions.EnableExtension D-Bus
     method - not exercised by any test, real-system-only, same
     category as GioSettingsBackend itself (task #150 follow-up).
+
+    .deb channel only, since the 2026-09-11 spec: this is the one
+    remaining app->org.gnome.Shell call, and it is AppArmor-denied under
+    a strict snap (#184) and unnecessary under Flatpak, where GNOME's
+    own InstallRemoteExtension enables what it installs. On the .deb
+    there is no sandbox, and the live-reproduced bug below is why it
+    stays there rather than being deleted with the rest. Task 7 of the
+    plan decides, on the VM, whether the gsettings write alone now
+    suffices; delete this then if it does.
 
     This turned out to be the missing piece behind a long-standing,
     previously unexplained bug (the 2026-08-15 "extension-enable
