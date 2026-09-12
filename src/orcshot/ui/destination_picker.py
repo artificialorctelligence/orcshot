@@ -246,12 +246,10 @@ def _save_as(image: np.ndarray, cursor_shape: CursorShape = None, title: str = "
     output_settings = get_output_settings()
     app = Gio.Application.get_default()
     parent = app.topmost_editor() if app is not None else None
-    dialog = Gtk.FileChooserDialog(title=_("Save Screenshot As"), transient_for=parent, action=Gtk.FileChooserAction.SAVE)
-    dialog.add_buttons(
-        Gtk.STOCK_CANCEL, Gtk.ResponseType.CANCEL,
-        Gtk.STOCK_SAVE, Gtk.ResponseType.OK,
-    )
-    dialog.set_current_folder(str(get_output_directory()))
+    dialog = Gtk.FileChooserNative(title=_("Save Screenshot As"), transient_for=parent, action=Gtk.FileChooserAction.SAVE)
+    directory = get_output_directory()
+    if output_directory_is_reachable(directory):
+        dialog.set_current_folder(str(directory))
     # Peek, don't consume - the counter should only advance once a save
     # actually happens (below), not just because a dialog with a
     # suggested name was shown and possibly cancelled.
@@ -261,7 +259,7 @@ def _save_as(image: np.ndarray, cursor_shape: CursorShape = None, title: str = "
     dialog.set_current_name(f"{suggested}.{output_settings.primary_format}")
     dialog.set_do_overwrite_confirmation(True)
     try:
-        if dialog.run() == Gtk.ResponseType.OK:
+        if dialog.run() == Gtk.ResponseType.ACCEPT:
             path = dialog.get_filename()
             save_image_to_file(_flattened(image, cursor_shape), path, jpeg_quality=output_settings.jpeg_quality)
             consume_filename_counter()

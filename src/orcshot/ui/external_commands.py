@@ -565,12 +565,11 @@ def _build_command_form(grid: Gtk.Grid, existing: ExternalCommand | None, parent
     browse_button = Gtk.Button(label=_("Browse..."))
 
     def on_browse(_button) -> None:
-        chooser = Gtk.FileChooserDialog(
+        chooser = Gtk.FileChooserNative(
             title=_("Select Command"), transient_for=parent_dialog, action=Gtk.FileChooserAction.OPEN,
         )
-        chooser.add_buttons(Gtk.STOCK_CANCEL, Gtk.ResponseType.CANCEL, Gtk.STOCK_OPEN, Gtk.ResponseType.OK)
         try:
-            if chooser.run() == Gtk.ResponseType.OK:
+            if chooser.run() == Gtk.ResponseType.ACCEPT:
                 command_entry.set_text(chooser.get_filename())
         finally:
             chooser.destroy()

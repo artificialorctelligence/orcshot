@@ -175,6 +175,7 @@ from orcshot.settings import (
     get_icon_size,
     get_language,
     get_output_directory,
+    output_directory_is_reachable,
     get_output_settings,
     get_play_capture_sound,
     get_print_options,
@@ -3301,9 +3302,10 @@ class EditorWindow(Gtk.Window):
         extension rather than claiming to write a real .gst file.
         """
         self._commit_text_editing_if_active()
-        dialog = Gtk.FileChooserDialog(title=_("Save Objects"), transient_for=self, action=Gtk.FileChooserAction.SAVE)
-        dialog.add_buttons(Gtk.STOCK_CANCEL, Gtk.ResponseType.CANCEL, Gtk.STOCK_SAVE, Gtk.ResponseType.OK)
-        dialog.set_current_folder(str(get_output_directory()))
+        dialog = Gtk.FileChooserNative(title=_("Save Objects"), transient_for=self, action=Gtk.FileChooserAction.SAVE)
+        directory = get_output_directory()
+        if output_directory_is_reachable(directory):
+            dialog.set_current_folder(str(directory))
         dialog.set_current_name("objects.json")
         dialog.set_do_overwrite_confirmation(True)
         object_filter = Gtk.FileFilter()
@@ -3311,7 +3313,7 @@ class EditorWindow(Gtk.Window):
         object_filter.add_pattern("*.json")
         dialog.add_filter(object_filter)
         try:
-            if dialog.run() == Gtk.ResponseType.OK:
+            if dialog.run() == Gtk.ResponseType.ACCEPT:
                 path = Path(dialog.get_filename())
                 if path.suffix.lower() != ".json":
                     path = path.with_suffix(".json")
@@ -3336,15 +3338,14 @@ class EditorWindow(Gtk.Window):
         behavior.
         """
         self._commit_text_editing_if_active()
-        dialog = Gtk.FileChooserDialog(title=_("Load Objects"), transient_for=self, action=Gtk.FileChooserAction.OPEN)
-        dialog.add_buttons(Gtk.STOCK_CANCEL, Gtk.ResponseType.CANCEL, Gtk.STOCK_OPEN, Gtk.ResponseType.OK)
+        dialog = Gtk.FileChooserNative(title=_("Load Objects"), transient_for=self, action=Gtk.FileChooserAction.OPEN)
         object_filter = Gtk.FileFilter()
         object_filter.set_name(_("Orcshot objects"))
         for pattern in ("*.json", "*.orcshot"):
             object_filter.add_pattern(pattern)
         dialog.add_filter(object_filter)
         try:
-            if dialog.run() != Gtk.ResponseType.OK:
+            if dialog.run() != Gtk.ResponseType.ACCEPT:
                 return
             path = dialog.get_filename()
         finally:
@@ -3485,15 +3486,14 @@ class EditorWindow(Gtk.Window):
         trigger it at all, so nothing was dropped by folding it in.
         """
         self._commit_text_editing_if_active()
-        dialog = Gtk.FileChooserDialog(title=_("Insert Image"), transient_for=self, action=Gtk.FileChooserAction.OPEN)
-        dialog.add_buttons(Gtk.STOCK_CANCEL, Gtk.ResponseType.CANCEL, Gtk.STOCK_OPEN, Gtk.ResponseType.OK)
+        dialog = Gtk.FileChooserNative(title=_("Insert Image"), transient_for=self, action=Gtk.FileChooserAction.OPEN)
         image_filter = Gtk.FileFilter()
         image_filter.set_name(_("Images"))
         for pattern in ("*.png", "*.jpg", "*.jpeg", "*.bmp", "*.gif", "*.ico", "*.cur", "*.tif", "*.tiff"):
             image_filter.add_pattern(pattern)
         dialog.add_filter(image_filter)
         try:
-            if dialog.run() != Gtk.ResponseType.OK:
+            if dialog.run() != Gtk.ResponseType.ACCEPT:
                 return
             path = dialog.get_filename()
         finally:
@@ -3515,14 +3515,13 @@ class EditorWindow(Gtk.Window):
         SVG support as a generic IFileFormatHandler too
         (SvgFileFormatHandler.cs), not a dedicated toolbar tool."""
         self._commit_text_editing_if_active()
-        dialog = Gtk.FileChooserDialog(title=_("Insert SVG"), transient_for=self, action=Gtk.FileChooserAction.OPEN)
-        dialog.add_buttons(Gtk.STOCK_CANCEL, Gtk.ResponseType.CANCEL, Gtk.STOCK_OPEN, Gtk.ResponseType.OK)
+        dialog = Gtk.FileChooserNative(title=_("Insert SVG"), transient_for=self, action=Gtk.FileChooserAction.OPEN)
         svg_filter = Gtk.FileFilter()
         svg_filter.set_name(_("SVG images"))
         svg_filter.add_pattern("*.svg")
         dialog.add_filter(svg_filter)
         try:
-            if dialog.run() != Gtk.ResponseType.OK:
+            if dialog.run() != Gtk.ResponseType.ACCEPT:
                 return
             path = dialog.get_filename()
         finally:
@@ -5302,15 +5301,16 @@ def choose_and_open_orcshot_file(transient_for: Gtk.Window = None) -> None:
     identical dialog and error handling, and both always open into a
     brand-new window.
     """
-    dialog = Gtk.FileChooserDialog(title=_("Open"), transient_for=transient_for, action=Gtk.FileChooserAction.OPEN)
-    dialog.add_buttons(Gtk.STOCK_CANCEL, Gtk.ResponseType.CANCEL, Gtk.STOCK_OPEN, Gtk.ResponseType.OK)
-    dialog.set_current_folder(str(get_output_directory()))
+    dialog = Gtk.FileChooserNative(title=_("Open"), transient_for=transient_for, action=Gtk.FileChooserAction.OPEN)
+    directory = get_output_directory()
+    if output_directory_is_reachable(directory):
+        dialog.set_current_folder(str(directory))
     orcshot_filter = Gtk.FileFilter()
     orcshot_filter.set_name(_("Orcshot files"))
     orcshot_filter.add_pattern("*.orcshot")
     dialog.add_filter(orcshot_filter)
     try:
-        if dialog.run() != Gtk.ResponseType.OK:
+        if dialog.run() != Gtk.ResponseType.ACCEPT:
             return
         path = dialog.get_filename()
     finally:
@@ -5362,18 +5362,15 @@ def _choose_save_location(parent: Gtk.Window = None) -> None:
     task #119 made this reachable from the tray icon's own
     Preferences dialog too, with no editor open at all.
     """
-    dialog = Gtk.FileChooserDialog(
-        title=_("Screenshot Save Location"), transient_for=parent, action=Gtk.FileChooserAction.SELECT_FOLDER
-    )
-    dialog.add_buttons(
-        Gtk.STOCK_CANCEL, Gtk.ResponseType.CANCEL,
-        _("Select"), Gtk.ResponseType.OK,
+    dialog = Gtk.FileChooserNative(
+        title=_("Screenshot Save Location"), transient_for=parent, action=Gtk.FileChooserAction.SELECT_FOLDER,
+        accept_label=_("Select"),
     )
     current = get_output_directory()
-    current.mkdir(parents=True, exist_ok=True)
-    dialog.set_current_folder(str(current))
+    if output_directory_is_reachable(current):
+        dialog.set_current_folder(str(current))
     try:
-        if dialog.run() == Gtk.ResponseType.OK:
+        if dialog.run() == Gtk.ResponseType.ACCEPT:
             set_output_directory(Path(dialog.get_filename()))
     finally:
         dialog.destroy()
@@ -5889,6 +5886,9 @@ def _build_output_settings_tab(parent: Gtk.Window) -> Gtk.Box:
 
     location_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
     location_row.pack_start(Gtk.Label(label=_("Screenshot Save Location:")), False, False, 0)
+    # ponytail: under Flatpak a portal-picked folder shows as
+    # /run/user/<uid>/doc/<id>/<name>; show the host path via the
+    # Documents portal's GetHostPaths if anyone minds (BACKLOG #210).
     location_label = Gtk.Label(label=str(get_output_directory()))
     location_row.pack_start(location_label, True, True, 0)
     change_button = Gtk.Button(label=_("Change..."))
