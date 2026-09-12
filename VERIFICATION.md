@@ -39,10 +39,15 @@ errors, `tray-full_screen` → Shell menu → *Edit…* → editor. — PASS 202
   `declaration-snap-v2:slots_connection:dbus-orcshot:dbus` (human review required). — PASS
   2026-09-11 (the `personal-files` hold is gone).
 - Launch inside the graphical session (`systemd-run --user --setenv=WAYLAND_DISPLAY=wayland-0
-  ... snap run orcshot`): before #206 the GUI crashed in `do_startup` on the app icon (BACKLOG
-  #206, confirmed pre-existing on main). After the #206 rebuild: first-run must show the
-  `snap-gnome` dialog with the §7 text, and the tray must appear once the extension runs.
-- Feature pass as in A once the extension is installed the way a user would.
+  ... snap run orcshot`): before #206 the GUI crashed in `do_startup` (pre-existing on main).
+  With `extensions: [gnome]` (#206): the first-run window appears - the snap's first window
+  ever (`vm-snap-session.png`) - and in a fresh session with the extension loaded the tray icon
+  shows and `tray-full_screen` → Shell menu → *Edit…* opens the editor with the capture,
+  strictly confined (`vm-snap-editor.png`). — PASS 2026-09-11.
+- Clicking *Enable* in first-run crashed on `systemctl` (PermissionError) - BACKLOG #207; the
+  autostart offer is now .deb-only. Re-check on the next build: no checkbox on Snap.
+- The `snap-gnome` install dialog (§7 text) is exercised on a session whose Shell has not
+  loaded the extension; the no-op rule hides it when Hello already arrived.
 
 **D. Flatpak on 26.04 (the CI-built bundle from the branch).**
 - `flatpak info --show-permissions org.orcshot.Orcshot`: no `filesystems=` line at all; Session

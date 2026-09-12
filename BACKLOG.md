@@ -1542,7 +1542,7 @@ wait for the listings. Open until the EGO first submission and the Spices PR are
 Task 9), which is when the Snap and Flatpak first-run redirects point at something real; #198
 then proceeds with `/orc-package snap` and `flatpak`.
 
-## #206: The snap's GUI has never launched: gdk-pixbuf has no loaders.cache under confinement, so Gtk.Window.set_default_icon_from_file crashes do_startup
+## #206: The snap's GUI has never launched: gdk-pixbuf has no loaders.cache under confinement, so Gtk.Window.set_default_icon_from_file crashes do_startup (RESOLVED 2026-09-12)
 
 Found 2026-09-11 during BACKLOG #205's live verification (plan Task 7, step 3), the first time
 anyone launched the Orcshot snap as a GUI app rather than `orcshot --help`. Under strict
@@ -1588,6 +1588,19 @@ the staged `shared-mime-info` carries only `packages/freedesktop.org.xml` becaus
 compiled mime database into the sandbox's private /tmp and setting `XDG_DATA_DIRS` to it made
 `set_default_icon_from_file` succeed on the spot. The fix is therefore `update-mime-database`
 in `override-prime` plus `XDG_DATA_DIRS: $SNAP/usr/share:/usr/share` in the app environment.
+
+**Resolved for real, not just tracked (2026-09-12):** the mime-database fix alone was one crash
+deep - the next launch died in GTK's Wayland backend on missing XKB data. The real fix was the one
+#192 had set aside: `extensions: [gnome]` on the app in `snapcraft.yaml`. Its `desktop-launch`
+wrapper and the gnome-46-2404 platform snap supply gdk-pixbuf loaders, XKB, mime, themes and every
+environment variable that had been hand-patched in. Verified three ways: (1) CI run 34671292380's
+new "Launch the real GUI under the headless Shell" step passes - the app owns its bus name and
+logs no traceback; (2) on the 26.04 VM the snap's first-run window appeared (the snap's first
+window ever), and in a fresh session with the extension loaded a `tray-full_screen` capture went
+through the Shell menu into the editor, strictly confined; (3) `review-tools` on that build still
+lists only the `dbus` slot. The gnome extension's plugs are all auto-connect; nothing new for the
+store. The one leftover is a harmless log line about our staged librsvg's SVG loader versus the
+platform's - cleaned up when the duplicated stage-packages are pruned, not urgent.
 
 ## #207: Autostart-on-login has no working mechanism under the snap: systemctl --user is not executable inside strict confinement
 
