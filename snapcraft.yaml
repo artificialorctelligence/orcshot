@@ -84,8 +84,8 @@ parts:
     # extension's XDG_DATA_DIRS makes $SNAP/usr/share/icons resolvable to
     # the app's own icon lookup, so Icon=org.orcshot.Orcshot in the desktop
     # file finds it there. The launcher entry snapd registers is a separate
-    # copy with no XDG_DATA_DIRS of its own - its icon isn't resolved
-    # (BACKLOG #217).
+    # copy with no XDG_DATA_DIRS of its own, so its Icon= is rewritten to a
+    # ${SNAP} path by the sed below (BACKLOG #217).
     override-build: |
       craftctl default
       install -Dm644 org.orcshot.Orcshot.desktop "$CRAFT_PART_INSTALL/usr/share/applications/org.orcshot.Orcshot.desktop"
