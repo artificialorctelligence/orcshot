@@ -2063,3 +2063,35 @@ from memory. Windows Greenshot writes real GIFs via .NET; parity may not be achi
 
 **Scope boundary:** the format table only. The portal/never-rename logic from #210/#212 is
 unaffected either way.
+
+## #219: Snap Store listing icon: snapcraft.yaml has no top-level icon:, and the only PNG asset is 155x147 - what the store shows for Orcshot is direflail's call
+
+Raised 2026-09-12 while specing #217 (the snap's *launcher* icon). The two are different
+assets with different rules, and only the launcher one is being fixed:
+
+- The launcher icon is the desktop file's `Icon=` line, shown in the app grid, dock and
+  switcher (#217: a `${SNAP}` path to the PNG already inside the snap).
+- The store icon is `snapcraft.yaml`'s top-level `icon:` key, packed as `meta/gui/icon.*` and
+  "used in the snap store and other graphical store fronts" (snapcraft `models/project.py`,
+  `Project.icon`, read 2026-09-12: "Icon size can be between 40x40 and 512x512 pixels. 256x256
+  is recommended. The file should be less than 256 KB."). `snapcraft.yaml` does not set it, so
+  the store listing would show no icon (or whatever the snapcraft.io dashboard is given by hand -
+  #205's research item 10 noted the listing "lives in the snapcraft.io dashboard", which is true
+  for screenshots/category but the icon is also carried by the package itself).
+
+**Consequence:** a `snapcraft upload` for #198 produces a listing with no mark, or a mark chosen
+in a hurry at release time. The only raster asset in the repo, `src/orcshot/resources/orcshot.png`,
+is 155x147 - inside the size range but not square. The Flatpak build wraps that same PNG into a
+square SVG at build time (a documented placeholder tradeoff, see `org.orcshot.Orcshot.yaml`'s
+icon step); the snap could do the same, or ship a purpose-made square PNG, or a real SVG.
+
+**Not a build decision.** How Orcshot's mark appears on snapcraft.io is a branding choice -
+per the standing rule, no icon/logo/visual mark representing Orcshot changes without direflail
+saying so, even a placeholder. Options to put in front of them when #198's snap half starts:
+(a) reuse the Flatpak's square-wrapped SVG generation for `meta/gui/icon.svg` (same mark,
+consistent across stores, no new asset); (b) a dedicated 256x256 PNG exported from the source
+artwork; (c) leave it to the dashboard. Whichever is chosen, it is a `snapcraft.yaml` line plus a
+CI check that `meta/gui/icon.*` exists in the built snap.
+
+**Scope boundary:** the Snap Store listing only. Flathub's listing icon comes from the desktop
+file + metainfo (already shipped and linted); the .deb has no store.
