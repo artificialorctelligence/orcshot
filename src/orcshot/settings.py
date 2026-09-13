@@ -105,12 +105,26 @@ def is_quit_marker_set(path: Path = None) -> bool:
     return path.exists()
 
 
+def real_home() -> Path:
+    """The user's home directory - the one they look in (BACKLOG #212).
+    Under the snap, HOME is $SNAP_USER_DATA (~/snap/orcshot/<rev>), so
+    Path.home() is the snap's private data dir; snapd exports the real
+    one as SNAP_REAL_HOME. Everywhere else the variable is unset and
+    HOME is already the real home - the .deb and the Flatpak are
+    untouched by this. Only for folders the user is meant to find
+    (the screenshot folder, ~/Orcshot); config/cache/autostart paths
+    keep XDG/Path.home(), which under the snap are meant to be private.
+    """
+    return Path(os.environ.get("SNAP_REAL_HOME") or Path.home())
+
+
 def default_output_directory() -> Path:
     """~/Pictures/Screenshots if a Pictures folder exists (the common
     convention across Linux desktops), else ~/Screenshots.
     """
-    pictures = Path.home() / "Pictures"
-    base = pictures if pictures.is_dir() else Path.home()
+    home = real_home()
+    pictures = home / "Pictures"
+    base = pictures if pictures.is_dir() else home
     return base / _DEFAULT_OUTPUT_DIRNAME
 
 

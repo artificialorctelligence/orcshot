@@ -49,6 +49,7 @@ from orcshot.settings import (
     mark_first_run_setup_done,
     quick_save_filename,
     quit_marker_path,
+    real_home,
     set_capture_mouse_cursor,
     set_excluded_destinations,
     set_external_commands,
@@ -116,10 +117,41 @@ class TestQuitMarker:
         assert not is_quit_marker_set(path)
 
 
+class TestRealHome:
+    """BACKLOG #212: under the snap HOME is $SNAP_USER_DATA; the user's
+    actual home is SNAP_REAL_HOME. Elsewhere the variable is unset."""
+
+    def test_is_path_home_when_snap_real_home_is_unset(self, monkeypatch):
+        monkeypatch.delenv("SNAP_REAL_HOME", raising=False)
+        assert real_home() == Path.home()
+
+    def test_is_snap_real_home_when_set(self, monkeypatch, tmp_path):
+        monkeypatch.setenv("SNAP_REAL_HOME", str(tmp_path / "realhome"))
+        assert real_home() == tmp_path / "realhome"
+
+
 class TestDefaultOutputDirectory:
-    def test_returns_a_path_under_home(self):
+    def test_returns_a_path_under_home(self, monkeypatch):
+        monkeypatch.delenv("SNAP_REAL_HOME", raising=False)
         result = default_output_directory()
         assert Path.home() in result.parents
+
+    def test_under_the_snap_it_is_under_the_real_home_not_snap_user_data(self, monkeypatch, tmp_path):
+        snap_home = tmp_path / "snap" / "orcshot" / "x1"
+        real = tmp_path / "realhome"
+        (real / "Pictures").mkdir(parents=True)
+        monkeypatch.setenv("HOME", str(snap_home))
+        monkeypatch.setenv("SNAP_REAL_HOME", str(real))
+        result = default_output_directory()
+        assert result == real / "Pictures" / "Screenshots"
+        assert snap_home not in result.parents
+
+    def test_under_the_snap_without_pictures_it_falls_back_to_the_real_home(self, monkeypatch, tmp_path):
+        real = tmp_path / "realhome"
+        real.mkdir()
+        monkeypatch.setenv("HOME", str(tmp_path / "snap" / "orcshot" / "x1"))
+        monkeypatch.setenv("SNAP_REAL_HOME", str(real))
+        assert default_output_directory() == real / "Screenshots"
 
 
 class TestOutputDirectory:

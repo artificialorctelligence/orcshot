@@ -17,6 +17,7 @@ from gi.repository import GdkPixbuf, GLib
 
 import numpy as np
 
+from orcshot.settings import real_home
 from orcshot.ui.gdk_convert import numpy_to_pixbuf
 
 _EXTENSION_TO_TYPE = {
@@ -132,9 +133,12 @@ def orcshot_visible_temp_dir(home: Path = None) -> Path:
     not instead of them, so restricting this to the owning user is
     still safe and doesn't defeat the Snap-visibility fix (Snap's
     confined process runs as this same Unix user).
+
+    Under the snap "~" is the user's real home via settings.real_home(),
+    not $SNAP_USER_DATA (BACKLOG #212).
     """
     if home is None:
-        home = Path.home()
+        home = real_home()
     directory = home / "Orcshot"
     directory.mkdir(mode=0o700, exist_ok=True)
     return directory
