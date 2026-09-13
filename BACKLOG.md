@@ -1780,7 +1780,7 @@ the two sites that did.
 
 Found by the #208 final review, 2026-09-12. `hotkey_setup.cinnamon_keybindings_available()` looks up the `org.cinnamon.desktop.keybindings` GSettings schema, which is not visible inside the Flatpak sandbox (VERIFICATION.md Scenario 2 recorded it answering False on a real Cinnamon desktop). #208 switched the *tray* to `ui/xapp_tray.running_on_cinnamon()` (XDG_CURRENT_DESKTOP), but hotkey setup still uses the schema check, so the Flatpak on Cinnamon never offers or registers the custom keybindings. Not user-visible as an error - it just does nothing. Fix candidates: detect Cinnamon via `running_on_cinnamon()` and write the keybindings through the host's `gsettings` via `flatpak-spawn --host`, or via the settings portal if one exists for custom keybindings. Verify on the Mint host with the CI bundle.
 
-## #212: Under the snap, Save has no filesystem grant: snapcraft.yaml declares no home plug, so every write to the output directory is AppArmor-denied
+## #212: Under the snap, Save has no filesystem grant: snapcraft.yaml declares no home plug, so every write to the output directory is AppArmor-denied (RESOLVED 2026-09-12)
 
 Found 2026-09-12 while specing #210 (Flatpak Save), whose entry explicitly asked for the snap to
 be checked "the same way". `snapcraft.yaml` is `confinement: strict` and its `plugs:` list is
@@ -1807,6 +1807,30 @@ review-gated interface at all. Then press Save in a real installed snap and find
 snap, so the dialog sites need nothing snap-specific; only the plug is missing.
 
 **Scope boundary:** snap only. The Flatpak side is #210; apt/PPA has no sandbox and is unaffected.
+
+**Resolved for real, not just tracked** (2026-09-12, spec `docs/superpowers/specs/2026-09-12-
+snap-save-home-plug-design.md`, PR #26): the mechanism above was wrong, and the live baseline
+on the 0.3.0 snap (VERIFICATION.md Scenario 4) is what showed it - *Save* raised nothing; the
+file went to `~/snap/orcshot/x4/Screenshots/…png` because snapd sets `HOME=$SNAP_USER_DATA`, so
+`Path.home()` *is* `~/snap/orcshot/<rev>` and the write succeeds where nobody looks. No
+AppArmor denial, no `PermissionError`. Adding the `home` plug alone changed nothing (same
+result on CI run 34728131086) - necessary, not sufficient. What fixed it: `home` in `plugs:`
+(the CI verify job now asserts `snap connections orcshot` shows it connected);
+`settings.real_home()` reading `SNAP_REAL_HOME` so the default folder and `~/Orcshot` are the
+user's; `is_portal_document_path` recognising both `/run/user/<uid>/doc/` and the
+`$XDG_RUNTIME_DIR/doc/` spelling so a portal-given path is never renamed under snap either;
+`output_directory_is_reachable` probing with a real temp-file create instead of `mkdir` (#216 -
+EEXIST on an existing folder never reaches AppArmor); and the snap's desktop file + icon (#215 -
+without it Ubuntu 26.04's portal granted every pick to app id `.`). Verified on the CI snap on
+the Ubuntu 26.04 GNOME 50 Wayland VM, VERIFICATION.md Scenario 4: A (default folder, run
+34731021927) and, on run 34732589935 / commit 70d0c40, A2 (launcher entry, `portal-info` reports
+the desktop file), B (Save As through the portal lands `snap-test.jpg` in the real
+`~/Pictures/Screenshots`, no `.xdp-*` remnant - the portal hands the snap the real path once
+`home` is connected), C (folder outside home: the picker appears once, the grant persists as a
+`/run/user/1000/doc/…` path, second Save silent) and D (restart, silent) all PASS. On the
+`_is_snap_command` question #213 defers here: not examined, still open under #213's boundary.
+Left open from the run: #214 (SVG loader log line) and #217 (the snap's launcher icon is the
+Flatpak's on the VM, the placeholder on a snap-only machine).
 
 ## #213: External commands and Open in External Editor cannot reach host applications from inside the Flatpak sandbox
 
