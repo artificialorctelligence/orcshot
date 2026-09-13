@@ -169,9 +169,19 @@ def is_portal_document_path(path: Path) -> bool:
     left ~/Screenshots/.xdp-portal-test.jpg-VWhcUm behind, complete
     and invisible. So callers must never rename a path this says yes
     to - the name the user confirmed is the file they get.
+
+    Two prefixes, not one (BACKLOG #212): under Flatpak $XDG_RUNTIME_DIR is
+    the user's runtime dir, so "$XDG_RUNTIME_DIR/doc" is the mount; under
+    a snap the variable is /run/user/<uid>/snap.<name> while snapd mounts
+    the portal at /run/user/<uid>/doc (snapd desktop/portal/document.go,
+    GetDefaultMountPoint) - so the user's runtime dir is checked as well,
+    unconditionally, since on a plain install it is simply never a path
+    a dialog returns.
     """
-    runtime_dir = os.environ.get("XDG_RUNTIME_DIR") or f"/run/user/{os.getuid()}"
-    return Path(path).is_relative_to(Path(runtime_dir) / "doc")
+    user_runtime_dir = Path(f"/run/user/{os.getuid()}")
+    env_runtime_dir = Path(os.environ.get("XDG_RUNTIME_DIR") or user_runtime_dir)
+    path = Path(path)
+    return path.is_relative_to(env_runtime_dir / "doc") or path.is_relative_to(user_runtime_dir / "doc")
 
 
 def quick_save_filename(when: datetime, counter: int) -> str:

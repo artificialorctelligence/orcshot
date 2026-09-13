@@ -747,3 +747,16 @@ class TestIsPortalDocumentPath:
     def test_falls_back_to_run_user_uid_without_the_env_var(self, monkeypatch):
         monkeypatch.delenv("XDG_RUNTIME_DIR", raising=False)
         assert is_portal_document_path(Path(f"/run/user/{os.getuid()}/doc/abc/f.png")) is True
+
+    def test_true_under_snap_where_the_env_var_is_the_snaps_own_runtime_dir(self, monkeypatch):
+        # BACKLOG #212: a snap sees XDG_RUNTIME_DIR=/run/user/<uid>/snap.<name>,
+        # but snapd mounts the document portal at the *user's* runtime dir
+        # (snapd desktop/portal/document.go GetDefaultMountPoint).
+        uid = os.getuid()
+        monkeypatch.setenv("XDG_RUNTIME_DIR", f"/run/user/{uid}/snap.orcshot")
+        assert is_portal_document_path(Path(f"/run/user/{uid}/doc/54b8e4a6/snap-test")) is True
+
+    def test_false_for_the_snaps_own_runtime_dir_without_doc(self, monkeypatch):
+        uid = os.getuid()
+        monkeypatch.setenv("XDG_RUNTIME_DIR", f"/run/user/{uid}/snap.orcshot")
+        assert is_portal_document_path(Path(f"/run/user/{uid}/snap.orcshot/orcshot.sock")) is False
