@@ -50,6 +50,12 @@ jobs:
       - name: "Assert the home plug is connected (BACKLOG #212: Save writes to ~/Pictures/Screenshots)"
         run: snap connections orcshot | grep -E '^home +orcshot:home +:home'
 
+      - name: "Assert the registered desktop file's Icon= is a path inside the snap that exists (BACKLOG #217)"
+        run: |
+          desktop=/var/lib/snapd/desktop/applications/orcshot_orcshot.desktop
+          grep '^Icon=/snap/orcshot/current/' "$desktop"
+          test -f "$(sed -n 's/^Icon=//p' "$desktop")"
+
       - name: "Assert gnome_shell_present() resolves org.gnome.shell under confinement (BACKLOG #192)"
         run: |
           snap run --shell orcshot -c "python3 -c 'from orcshot.gnome_extension_setup import gnome_shell_present; result = gnome_shell_present(); print(\"gnome_shell_present() ->\", result); assert result is True, \"schema unresolvable - gnome-shell-common staging/compile regressed\"'"

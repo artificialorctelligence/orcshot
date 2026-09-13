@@ -84,12 +84,19 @@ parts:
     # extension's XDG_DATA_DIRS makes $SNAP/usr/share/icons resolvable to
     # the app's own icon lookup, so Icon=org.orcshot.Orcshot in the desktop
     # file finds it there. The launcher entry snapd registers is a separate
-    # copy with no XDG_DATA_DIRS of its own - its icon isn't resolved
-    # (BACKLOG #217).
+    # copy with no XDG_DATA_DIRS of its own, so its Icon= is rewritten to a
+    # ${SNAP} path by the sed below (BACKLOG #217).
     override-build: |
       craftctl default
       install -Dm644 org.orcshot.Orcshot.desktop "$CRAFT_PART_INSTALL/usr/share/applications/org.orcshot.Orcshot.desktop"
       install -Dm644 src/orcshot/resources/orcshot.png "$CRAFT_PART_INSTALL/usr/share/icons/hicolor/128x128/apps/org.orcshot.Orcshot.png"
+      # BACKLOG #217: snapd keeps a theme-name Icon= verbatim and exports
+      # nothing for it, so a snap-only machine shows the placeholder. A
+      # ${SNAP} path is the one form snapd rewrites to a host-readable
+      # /snap/orcshot/current/... path (wrappers/desktop.go rewriteIconLine).
+      # Edited on the installed copy only: the source file's theme name is
+      # right for the Flatpak and the .deb.
+      sed -i 's|^Icon=.*|Icon=${SNAP}/usr/share/icons/hicolor/128x128/apps/org.orcshot.Orcshot.png|' "$CRAFT_PART_INSTALL/usr/share/applications/org.orcshot.Orcshot.desktop"
     # PyGObject and pycairo deliberately ship no PyPI wheels (they must link
     # the build machine's own libcairo/gobject-introspection), so pip builds
     # them from source unless it can see them as already satisfied. These
