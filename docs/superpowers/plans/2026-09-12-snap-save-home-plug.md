@@ -223,7 +223,134 @@ Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
 
 ---
 
-### Task 4: Live verification on the Ubuntu 26.04 VM, recorded in VERIFICATION.md
+### Task 4: `real_home()` — the user's home under the snap, not `$SNAP_USER_DATA`
+
+**Files:**
+- Modify: `src/orcshot/settings.py:108-114` (`default_output_directory`; new `real_home` above it)
+- Modify: `src/orcshot/ui/file_export.py:109-139` (`orcshot_visible_temp_dir`, the `home = Path.home()` default)
+- Test: `tests/unit/test_settings.py` (`class TestDefaultOutputDirectory`, ~line 119), `tests/unit/ui/test_file_export.py`
+
+**Interfaces:**
+- Produces: `settings.real_home() -> Path`. `default_output_directory()` and `orcshot_visible_temp_dir()` signatures unchanged.
+
+**Why (found by the Task 5 baseline on the VM):** snapd sets `HOME=$SNAP_USER_DATA`
+(`/home/<user>/snap/orcshot/<rev>`), so `Path.home()` is the snap's private data dir and the
+default output directory became `~/snap/orcshot/<rev>/Screenshots` — the write succeeds, in a
+folder no user looks in. snapd exports `SNAP_REAL_HOME=/home/<user>`. On the .deb and under
+Flatpak that variable is unset and `HOME` is the real home, so those channels are untouched.
+
+- [ ] **Step 1: Write the failing tests**
+
+In `tests/unit/test_settings.py`, add `real_home` to the `from orcshot.settings import (...)` block and replace `class TestDefaultOutputDirectory` with:
+
+```python
+class TestRealHome:
+    """BACKLOG #212: under the snap HOME is $SNAP_USER_DATA; the user's
+    actual home is SNAP_REAL_HOME. Elsewhere the variable is unset."""
+
+    def test_is_path_home_when_snap_real_home_is_unset(self, monkeypatch):
+        monkeypatch.delenv("SNAP_REAL_HOME", raising=False)
+        assert real_home() == Path.home()
+
+    def test_is_snap_real_home_when_set(self, monkeypatch, tmp_path):
+        monkeypatch.setenv("SNAP_REAL_HOME", str(tmp_path / "realhome"))
+        assert real_home() == tmp_path / "realhome"
+
+
+class TestDefaultOutputDirectory:
+    def test_returns_a_path_under_home(self, monkeypatch):
+        monkeypatch.delenv("SNAP_REAL_HOME", raising=False)
+        result = default_output_directory()
+        assert Path.home() in result.parents
+
+    def test_under_the_snap_it_is_under_the_real_home_not_snap_user_data(self, monkeypatch, tmp_path):
+        snap_home = tmp_path / "snap" / "orcshot" / "x1"
+        real = tmp_path / "realhome"
+        (real / "Pictures").mkdir(parents=True)
+        monkeypatch.setenv("HOME", str(snap_home))
+        monkeypatch.setenv("SNAP_REAL_HOME", str(real))
+        result = default_output_directory()
+        assert result == real / "Pictures" / "Screenshots"
+        assert snap_home not in result.parents
+
+    def test_under_the_snap_without_pictures_it_falls_back_to_the_real_home(self, monkeypatch, tmp_path):
+        real = tmp_path / "realhome"
+        real.mkdir()
+        monkeypatch.setenv("HOME", str(tmp_path / "snap" / "orcshot" / "x1"))
+        monkeypatch.setenv("SNAP_REAL_HOME", str(real))
+        assert default_output_directory() == real / "Screenshots"
+```
+
+In `tests/unit/ui/test_file_export.py`, append:
+
+```python
+def test_visible_temp_dir_defaults_to_the_real_home_under_the_snap(monkeypatch, tmp_path):
+    # BACKLOG #212: ~/Orcshot must be the user's home, not $SNAP_USER_DATA.
+    real = tmp_path / "realhome"
+    real.mkdir()
+    monkeypatch.setenv("HOME", str(tmp_path / "snap" / "orcshot" / "x1"))
+    monkeypatch.setenv("SNAP_REAL_HOME", str(real))
+    assert orcshot_visible_temp_dir() == real / "Orcshot"
+    assert (real / "Orcshot").is_dir()
+```
+
+(`Path.home()` reads `$HOME` on POSIX, so `monkeypatch.setenv("HOME", …)` is a faithful stand-in for snapd's environment.)
+
+- [ ] **Step 2: Run the tests to verify they fail**
+
+Run: `PYTHONPATH=src ../../../.venv/bin/python -m pytest tests/unit/test_settings.py tests/unit/ui/test_file_export.py -k "RealHome or DefaultOutputDirectory or real_home" -v`
+Expected: `ImportError` for `real_home`; once the import line is added, the two "under_the_snap" tests and the file_export test FAIL (paths under the fake snap HOME).
+
+- [ ] **Step 3: Implement**
+
+In `src/orcshot/settings.py`, directly above `default_output_directory`:
+
+```python
+def real_home() -> Path:
+    """The user's home directory - the one they look in (BACKLOG #212).
+    Under the snap, HOME is $SNAP_USER_DATA (~/snap/orcshot/<rev>), so
+    Path.home() is the snap's private data dir; snapd exports the real
+    one as SNAP_REAL_HOME. Everywhere else the variable is unset and
+    HOME is already the real home - the .deb and the Flatpak are
+    untouched by this. Only for folders the user is meant to find
+    (the screenshot folder, ~/Orcshot); config/cache/autostart paths
+    keep XDG/Path.home(), which under the snap are meant to be private.
+    """
+    return Path(os.environ.get("SNAP_REAL_HOME") or Path.home())
+```
+
+and in `default_output_directory` replace the two `Path.home()` calls:
+
+```python
+    home = real_home()
+    pictures = home / "Pictures"
+    base = pictures if pictures.is_dir() else home
+    return base / _DEFAULT_OUTPUT_DIRNAME
+```
+
+In `src/orcshot/ui/file_export.py`, add `from orcshot.settings import real_home` to the imports (first confirm no cycle: `grep -n "file_export" src/orcshot/settings.py` → nothing), and in `orcshot_visible_temp_dir` replace `home = Path.home()` with `home = real_home()`. Append to that docstring, before its closing `"""`:
+
+```
+    Under the snap "~" is the user's real home via settings.real_home(),
+    not $SNAP_USER_DATA (BACKLOG #212).
+```
+
+- [ ] **Step 4: Run the whole suite**
+
+Run: `PYTHONPATH=src ../../../.venv/bin/python -m pytest tests -q`
+Expected: all PASS.
+
+- [ ] **Step 5: Commit**
+
+Stage the four files (`src/orcshot/settings.py`, `src/orcshot/ui/file_export.py`, `tests/unit/test_settings.py`, `tests/unit/ui/test_file_export.py`) and commit with the subject:
+
+`real_home(): under the snap the screenshot folder and ~/Orcshot live in SNAP_REAL_HOME, not $SNAP_USER_DATA (#212)`
+
+plus the usual `Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>` trailer.
+
+---
+
+### Task 5: Live verification on the Ubuntu 26.04 VM, recorded in VERIFICATION.md
 
 **Files:**
 - Modify: `VERIFICATION.md` (new scenario via `/orc-todo add verification`)
@@ -233,9 +360,13 @@ Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
 
 VM access: registry memory `project_orcshot_vm_access.md`. `ssh -i ~/.ssh/orcshot_dev_vm -p 2222 ubuntu2604@localhost`; start with `DISPLAY=:0 VBoxManage startvm "Ubuntu 26.04" --type gui` if `VBoxManage list runningvms` does not list it. The VM currently has the 0.3.0 snap installed (`snap list orcshot` → `0.3.0 x4`), which is the unfixed baseline.
 
-- [ ] **Step 1: Baseline — the bug, observed, on the 0.3.0 snap**
+- [ ] **Step 1: Baseline — the bug, observed, on the 0.3.0 snap — DONE 2026-09-12**
 
-On the VM, make sure nothing else owns the bus name (`gdbus call --session --dest org.freedesktop.DBus --object-path /org/freedesktop/DBus --method org.freedesktop.DBus.NameHasOwner org.orcshot.Orcshot` → `false`; `flatpak kill org.orcshot.Orcshot` / quit any .deb instance if not). Launch the snap inside the graphical session with `systemd-run --user --unit=orcshot-snap -p StandardOutput=file:/tmp/orcshot-snap.log -p StandardError=file:/tmp/orcshot-snap.log snap run orcshot`, confirm the owner PID's `/proc/<pid>/cgroup` contains `snap.orcshot`, then `gdbus call --session --dest org.orcshot.Orcshot --object-path /org/orcshot/Orcshot --method org.gtk.Actions.Activate tray-full_screen '@av []' '@a{sv} {}'`, choose *Save* in the Shell-native picker (screenshot first — it pops at the pointer). Record: what `/tmp/orcshot-snap.log` shows (expected a `PermissionError` traceback), and that `~/Pictures/Screenshots` gained no file. This replaces #212's "presumably" with a fact. Then `snap remove orcshot`.
+Result: *Save* raised nothing and wrote `~/snap/orcshot/x4/Screenshots/2026-09-12 19_32_53.png`;
+the real `~/Pictures/Screenshots` was untouched. Cause: `HOME=$SNAP_USER_DATA` (Task 4). #212's
+"AppArmor-denied / PermissionError" guess was wrong — say so in the resolution paragraph. The
+`home` plug alone (this branch before Task 4, CI run 34728131086, snap x1) produced the identical
+result. The procedure, kept for re-runs: On the VM, make sure nothing else owns the bus name (`gdbus call --session --dest org.freedesktop.DBus --object-path /org/freedesktop/DBus --method org.freedesktop.DBus.NameHasOwner org.orcshot.Orcshot` → `false`; `flatpak kill org.orcshot.Orcshot` / quit any .deb instance if not). Launch the snap inside the graphical session with `systemd-run --user --unit=orcshot-snap -p StandardOutput=file:/tmp/orcshot-snap.log -p StandardError=file:/tmp/orcshot-snap.log snap run orcshot`, confirm the owner PID's `/proc/<pid>/cgroup` contains `snap.orcshot`, then `gdbus call --session --dest org.orcshot.Orcshot --object-path /org/orcshot/Orcshot --method org.gtk.Actions.Activate tray-full_screen '@av []' '@a{sv} {}'`, choose *Save* in the Shell-native picker (screenshot first — it pops at the pointer). Record: what `/tmp/orcshot-snap.log` shows (expected a `PermissionError` traceback), and that `~/Pictures/Screenshots` gained no file. This replaces #212's "presumably" with a fact. Then `snap remove orcshot`.
 
 - [ ] **Step 2: Push, get the CI snap**
 
@@ -248,7 +379,7 @@ The snap workflow runs on `pull_request` — open a draft PR against `main` if o
 
 - [ ] **Step 3: Scenario A — default folder**
 
-No `output_directory` in `~/snap/orcshot/current/.config/orcshot/config.json` (the snap's `XDG_CONFIG_HOME`; delete the key if present). Launch as in Step 1, capture, *Save*. Expected: no dialog; a new PNG in `~/Pictures/Screenshots` on the VM; log clean.
+No `output_directory` in `~/snap/orcshot/current/.config/orcshot/config.json` (the snap's `XDG_CONFIG_HOME`; delete the key if present). Launch as in Step 1, capture, *Save*. Expected: no dialog; a new PNG in the **real** `~/Pictures/Screenshots` on the VM; nothing new under `~/snap/orcshot/<rev>/Screenshots`; log clean apart from the known `libpixbufloader_svg.so` line (BACKLOG #214 — also note in the report whether the editor's toolbar icons render in Scenario B's screenshot, since that line means GdkPixbuf's SVG loader failed to load).
 
 - [ ] **Step 4: Scenario B — Save As through the portal, the section-2 fix**
 
