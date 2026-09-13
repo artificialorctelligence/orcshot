@@ -92,11 +92,18 @@ A Snap Store listing icon comes from a top-level `icon:` in `snapcraft.yaml` (wh
 also becomes the launcher icon, so #217's verification is re-run). The store wants ≥ 256×256
 PNG; the only PNG in the repo is 155×147.
 
-Per the standing rule, the visual choice is direflail's: the real candidates (the existing SVG
-rasterised at 256 and 512, the existing PNG upscaled for contrast) are shown as the store page
-would render them, and the chosen file is committed in the repo and referenced by a top-level `icon:` (the
-repo keeps `snapcraft.yaml` at its root; the path is whatever the file's real home is).
-`review-tools` runs again afterwards because the icon is part of the reviewed package.
+Per the standing rule, the visual choice is direflail's. There is no vector source: the only
+mark in the repo is `src/orcshot/resources/orcshot.png` (155×147), which the Flatpak build wraps
+into a square-viewBox SVG at build time. The candidates, shown as the store page would render
+them: (a) that same square wrapper, committed once as `snap/gui/icon.svg` — identical mark and
+padding to the Flatpak's, nothing redrawn; (b) the PNG padded to a square 256×256 raster; (c)
+no `icon:`, dashboard only. The chosen file is committed and referenced by a top-level `icon:`
+(`snapcraft.yaml` sits at the repo root; the conventional `snap/gui/` directory works alongside
+it and is where snapcraft looks first). Whether the store accepts an SVG there is checked
+against the live snapcraft reference before the file is committed, not remembered. `snap.yml`'s
+verify job asserts `meta/gui/icon.*` exists in the built snap; `review-tools` runs again because
+the icon is part of the reviewed package; #217's launcher assertion already in CI proves the
+launcher still resolves after `icon:` takes it over.
 
 ### 2.3 `/orc-package snap`
 
@@ -126,22 +133,27 @@ The ingredient's leaf assumes `prepare: snapcraft pack`. For Orcshot:
 
 ### 2.5 First upload and the `dbus` declaration
 
-Sequence, each step confirmed before the next:
+The first upload exists only to trigger the store's hold and obtain the `dbus` declaration; a
+held revision is never released retroactively, so nothing built before 0.4.0 ever reaches a
+channel. Sequence, each step confirmed before the next:
 
 1. `review-tools.snap-review` on the downloaded artifact (it must sit under
    `~/snap/review-tools/common/`). Expected: exactly one `human review required` line, the `dbus`
    slot's `deny-connection` constraint. Anything else is a defect fixed on this branch first.
-2. direflail runs `snapcraft upload --release=beta` (via `/orc-publish desktop.python.linux.snap`
-   once the leaf is written). The revision is held.
+2. direflail runs `snapcraft upload <artifact>` — **without** `--release`. The revision is held.
 3. direflail posts in the snapcraft forum's `store-requests` category. The text is drafted here:
    snap `orcshot`, bus name `org.orcshot.Orcshot`, one paragraph — the app owns the name for
    single-instance activation and its tray/actions export, the GNOME Shell extension calls in,
    nothing is exported beyond the app's own name. Precedent in the ingredient: BusyMax, two days.
-4. After the grant, the **same** artifact is re-uploaded (held revisions are not released
-   retroactively). `snap info orcshot` now shows a `beta` channel map — the only proof a revision
-   got past review.
-5. One `snap install --beta orcshot` on a clean 26.04 VM snapshot: first-run, one capture, no
-   loader error, toolbar icons present. This is #214's proof and the store's first real install.
+4. The grant is confirmed by the forum reply and by `snapcraft status orcshot` no longer
+   listing the revision as held. The Snap track is done; the held revision stays unreleased.
+
+The **0.4.0 release** is then the first `snapcraft upload --release=beta` (§3, via the new
+`RELEASING.md` step and `/orc-publish desktop.python.linux.snap`), and its confirmation is
+`snap info orcshot` showing a `beta` channel map — the only proof a revision got past review.
+One `snap install --beta orcshot` on a clean 26.04 VM snapshot follows: first-run, one capture,
+no loader error, toolbar icons present. This is #214's final proof and the store's first real
+install.
 
 `stable` promotion (`snapcraft release orcshot <rev> stable`) is a later, separate decision,
 after decision 6's EGO condition holds. The `RELEASING.md` step says so.
@@ -253,8 +265,8 @@ app repo. Nothing else is per-machine. #197 stays open for its PPA half and says
 
 ## 6. Verification and the record
 
-- **Snap:** `review-tools` output before each upload; `snap info orcshot` after the grant; the
-  clean-VM `snap install --beta` in §2.5 step 5.
+- **Snap:** `review-tools` output before each upload; the forum grant; `snap info orcshot`
+  after the 0.4.0 release; the clean-VM `snap install --beta` in §2.5.
 - **Flathub:** the bot's test build from the submission PR installed with `flatpak install
   --user <link>` on the Mint host, first-run and one capture through it; after merge, the
   appstream API lists 0.4.0.
