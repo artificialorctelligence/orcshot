@@ -309,7 +309,7 @@ without it).
   the .deb untouched; nothing new under `~/Pictures/Screenshots`; screenshots on the host under
   the session scratchpad.
 
-## Scenario 6: Snap Store: install from `beta` on a clean 26.04 VM (spec 2026-09-12)
+## Scenario 5: Snap Store: install from `beta` on a clean 26.04 VM (spec 2026-09-12)
 
 Scenario for docs/superpowers/specs/2026-09-12-store-onboarding-design.md §2.5 / §6. Runs once
 the first revision is released to `beta` by the 0.4.0 release (RELEASING.md step 12); until then
