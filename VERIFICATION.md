@@ -270,3 +270,41 @@ deleted from the config before A2/B and set to `/media/orcshot-test` again for C
 - Left on the VM: snap rev x2 (commit 70d0c40) installed and stopped; `/media/orcshot-test`
   with the three C/D files; `~/Pictures/Screenshots/snap-test.jpg`; the snap's config with
   `output_directory` deleted.
+
+**Re-run 2026-09-12 for #217 (CI run 34735988030, commit 44987e6, snap x3):** the CI verify
+job's new assertion passed (`grep '^Icon=/snap/orcshot/current/' … && test -f "$(sed -n
+'s/^Icon=//p' …)"` → `Icon=/snap/orcshot/current/usr/share/icons/hicolor/128x128/apps/org.orcshot.Orcshot.png`).
+Installed over x2 with `sudo snap install --dangerous`. The Gio probes ran with the graphical
+session's `XDG_DATA_DIRS` (`systemctl --user show-environment`; SSH's default one lacks
+`/var/lib/snapd/desktop`, and `Gio.DesktopAppInfo.new("orcshot_orcshot.desktop")` returns NULL
+without it).
+
+- **E. Icon resolves without the Flatpak.** Before installing (x2, Flatpak present):
+  `Icon=org.orcshot.Orcshot`, `test -f` fails (a theme name), probe → `ThemedIcon
+  org.orcshot.Orcshot`. After (x3): `grep '^Icon='` →
+  `Icon=/snap/orcshot/current/usr/share/icons/hicolor/128x128/apps/org.orcshot.Orcshot.png`;
+  `test -f` → `icon file exists`; `Gio.DesktopAppInfo.new("orcshot_orcshot.desktop").get_icon()`
+  → `FileIcon /snap/orcshot/current/usr/share/icons/hicolor/128x128/apps/org.orcshot.Orcshot.png`.
+  Same `FileIcon` answer again after the Flatpak was uninstalled for F. — PASS.
+- **F. Seen, with the Flatpak removed.** `flatpak uninstall --user -y org.orcshot.Orcshot`
+  (`flatpak list --user --app | grep -i orcshot` empty; `ls ~/.local/share/flatpak/exports/
+  share/icons/hicolor/scalable/apps/ | grep -c orcshot` → `0`; `find` of both exports trees for
+  `*orcshot*` empty). Super, `orc`: two "Orcshot" tiles, both with the Orcshot mark
+  (`F-appgrid.png`, `F-appgrid-crop.png`) - the .deb's `orcshot.desktop` (`ThemedIcon orcshot`,
+  a different name that cannot answer for the snap) and the snap's (`FileIcon …png`), per
+  `Gio.DesktopAppInfo.search("orc")`. Clicking the second tile started the snap (bus owner pid
+  19401, cgroup `snap.orcshot.orcshot-…scope`) - launched through the registered entry itself
+  rather than `systemd-run`. Capture → *Edit…* (`F-picker.png`, `F-editor.png`), Super: the dock
+  gained a running entry with the Orcshot mark and the window thumbnail carries the mark as
+  its badge (`F-overview.png`, `F-overview-dock-crop.png`, `F-overview-badge-crop.png`). The
+  .deb ships a byte-identical 16356-byte `orcshot.png`, so the mark alone cannot say which
+  entry the Shell matched the window to; Looking Glass
+  (`global.get_window_actors().map(a=>Shell.WindowTracker.get_default().get_window_app(a.meta_window)?.get_id())`)
+  → `r(0) = orcshot_orcshot.desktop` (`F-lg-result.png`): the snap's entry, matched through the
+  snap cgroup. No generic placeholder anywhere. — PASS. Then `tray-quit`, and the Flatpak
+  reinstalled from the session bundle (`orcshot_0.3.0.flatpak`, sha256 `6664c27e…86dae`, the same
+  bytes as before the uninstall): `flatpak list` shows `org.orcshot.Orcshot` again and the export
+  icon count is back to `1`.
+- Left on the VM: snap rev x3 (commit 44987e6) installed and stopped; the Flatpak reinstalled;
+  the .deb untouched; nothing new under `~/Pictures/Screenshots`; screenshots on the host under
+  the session scratchpad.

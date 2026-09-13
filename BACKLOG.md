@@ -2001,7 +2001,7 @@ silent as well. The dialog move could not be exercised live under snap: with `ho
 the portal returns real paths inside home (see #215's resolution), so the format-explanation
 branch is never reached there; it stays covered by the Flatpak path (#210) and the unit tests.
 
-## #217: The snap's launcher icon is not the snap's own: Icon=org.orcshot.Orcshot is a theme name snapd neither rewrites nor exports, so a snap-only machine shows Orcshot with the generic placeholder icon
+## #217: The snap's launcher icon is not the snap's own: Icon=org.orcshot.Orcshot is a theme name snapd neither rewrites nor exports, so a snap-only machine shows Orcshot with the generic placeholder icon (RESOLVED 2026-09-12)
 
 Found 2026-09-12 by #212's second live run on the Ubuntu 26.04 VM (VERIFICATION.md Scenario 4,
 re-run A2), while checking the thing #215 asked to be checked: "that the icon/`Icon=` resolves
@@ -2036,6 +2036,24 @@ not a defect - `snap routine portal-info` reports it and the portal grants work.
 **Scope boundary:** the launcher icon under snap only. The Flatpak exports its own icon
 (verified above, by accident) and the .deb installs `orcshot.png` under hicolor with
 `Icon=orcshot`.
+
+**Resolved for real, not just tracked (2026-09-12):** `snapcraft.yaml`'s `override-build` now
+`sed`s the installed desktop file's `Icon=` line to
+`${SNAP}/usr/share/icons/hicolor/128x128/apps/org.orcshot.Orcshot.png` (the source
+`org.orcshot.Orcshot.desktop` keeps the theme name for the Flatpak and the .deb, where it is
+right), so snapd rewrites it to `/snap/orcshot/current/...png` in the registered
+`orcshot_orcshot.desktop`; `snap.yml`'s verify job asserts the registered line starts with
+`/snap/orcshot/current/` and that the file exists (CI run 34735988030, commit 44987e6). Live on
+the Ubuntu 26.04 VM with that CI snap installed as x3 (VERIFICATION.md Scenario 4, re-run for
+#217): E - `Gio.DesktopAppInfo.new("orcshot_orcshot.desktop").get_icon()` in the session's
+environment went from `ThemedIcon org.orcshot.Orcshot` (x2) to `FileIcon
+/snap/orcshot/current/usr/share/icons/hicolor/128x128/apps/org.orcshot.Orcshot.png` (x3), and the
+file exists; F - with the Flatpak **uninstalled** (`flatpak uninstall --user`, zero orcshot icons
+left in either exports tree - the masking this entry described, ruled out rather than argued
+away), the app-grid tile, the dock's running entry and the window's overview badge all show the
+Orcshot mark, and GNOME Shell's window tracker (Looking Glass) matched the editor window to
+`orcshot_orcshot.desktop`. The Flatpak was reinstalled from the same bundle afterwards. The
+Snap Store *listing* icon is a separate asset and stays open as #219.
 
 ## #218: Save As offers GIF but file_export encodes .gif as PNG - _SAVE_AS_FORMATS and _EXTENSION_TO_TYPE disagree
 
