@@ -711,17 +711,23 @@ class TestOutputDirectoryIsReachable:
         monkeypatch.setattr("orcshot.settings.os.stat", different_device)
         assert output_directory_is_reachable(tmp_path / "Screenshots") is True
 
-    def test_creates_the_directory_before_checking(self, tmp_path, monkeypatch):
-        monkeypatch.setattr("orcshot.settings.detect_channel", lambda: "deb")
+    def test_creates_the_directory_on_every_channel(self, tmp_path, monkeypatch):
+        # BACKLOG #212: mkdir runs before the channel check so a denied
+        # folder (snap without a covering plug, a read-only folder on
+        # the .deb) is reported unreachable instead of raising later.
         target = tmp_path / "Pictures" / "Screenshots"
-        output_directory_is_reachable(target)
-        # "deb" returns early without touching disk; only the flatpak
-        # branch mkdirs. Pin that: the sandbox test above depends on
-        # the directory existing for os.stat.
-        assert not target.exists()
-        monkeypatch.setattr("orcshot.settings.detect_channel", lambda: "flatpak")
-        output_directory_is_reachable(target)
+        monkeypatch.setattr("orcshot.settings.detect_channel", lambda: "deb")
+        assert output_directory_is_reachable(target) is True
         assert target.is_dir()
+
+    def test_false_when_the_directory_cannot_be_created(self, tmp_path, monkeypatch):
+        def denied(self, *args, **kwargs):
+            raise PermissionError(13, "Permission denied", str(self))
+
+        monkeypatch.setattr(Path, "mkdir", denied)
+        for channel in ("snap", "deb", "flatpak"):
+            monkeypatch.setattr("orcshot.settings.detect_channel", lambda c=channel: c)
+            assert output_directory_is_reachable(tmp_path / "denied") is False, channel
 
 
 class TestIsPortalDocumentPath:

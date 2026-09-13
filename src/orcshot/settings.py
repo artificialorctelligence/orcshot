@@ -150,10 +150,19 @@ def output_directory_is_reachable(directory: Path) -> bool:
     xdg-pictures) has a different st_dev. Only meaningful under
     Flatpak - on a plain install /home may or may not be its own
     filesystem, so the comparison says nothing there and is skipped.
+
+    A folder that cannot be created is unreachable on every channel
+    (BACKLOG #212): under the snap that is any path no plug covers, on the
+    .deb a read-only folder. The caller then runs the Screenshot Save
+    Location picker once - through the portal, whose document grant is
+    writable regardless of plugs - instead of raising later in Save.
     """
+    try:
+        directory.mkdir(parents=True, exist_ok=True)
+    except PermissionError:
+        return False
     if detect_channel() != "flatpak":
         return True
-    directory.mkdir(parents=True, exist_ok=True)
     return os.stat(directory).st_dev != os.stat("/").st_dev
 
 
