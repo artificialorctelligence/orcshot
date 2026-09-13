@@ -63,6 +63,15 @@ jobs:
       - name: Confirm the installed binary launches without crashing
         run: orcshot --help
 
+      - name: "Assert no GdkPixbuf loader fails to load under confinement (BACKLOG #214)"
+        run: |
+          # A staged library older than the platform snap's loader shows up here as
+          # `g_module_open() failed for .../libpixbufloader_*.so: undefined symbol ...`.
+          out=$(snap run --shell orcshot -c "python3 -c 'import gi; gi.require_version(\"GdkPixbuf\", \"2.0\"); from gi.repository import GdkPixbuf; print([f.get_name() for f in GdkPixbuf.Pixbuf.get_formats()])'" 2>&1)
+          echo "$out"
+          ! echo "$out" | grep -q 'g_module_open() failed'
+          echo "$out" | grep -q "'svg'"
+
       - name: Install the extension the way a user would (unpacked into the user dir, unconfined)
         run: |
           # The snap ships no extension (spec 2026-09-11 §4): a strict snap

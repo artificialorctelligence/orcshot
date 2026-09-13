@@ -128,7 +128,10 @@ parts:
       - python3-shapely
       - python3-xlib
       - gir1.2-gtk-3.0
-      - gir1.2-rsvg-2.0
+      # BACKLOG #214: no gir1.2-rsvg-2.0 here. It staged core24's librsvg2-2, which the
+      # gnome extension's platform snap's own (newer) libpixbufloader_svg.so then resolved
+      # first and failed on (undefined symbol rsvg_handle_get_pixbuf_and_error). The
+      # platform snap ships librsvg and Rsvg-2.0.typelib itself (verified on the 26.04 VM).
       - gir1.2-gdkpixbuf-2.0
       - gir1.2-pango-1.0
       - gir1.2-glib-2.0
