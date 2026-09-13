@@ -56,6 +56,7 @@ def test_encoded_format_matches_what_save_image_to_file_actually_writes():
     assert encoded_format("x.tif") == "tiff"
     assert encoded_format("x.webp") == "png"
     assert encoded_format("x") == "png"
+    assert encoded_format("shot.orcshot") == "orcshot"
 
 
 def test_infers_jpeg_from_extension(tmp_path):
