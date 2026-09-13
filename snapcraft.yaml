@@ -2,6 +2,12 @@ name: orcshot
 base: core24
 confinement: strict
 grade: stable
+# BACKLOG #219: the Snap Store listing icon (meta/gui/icon.*). Same mark as every other
+# channel; direflail chose a: the Flatpak's square wrapper (org.orcshot.Orcshot.yaml's own
+# generated icon, committed once) on 2026-09-13. snapcraft also rewrites the launcher desktop
+# file's Icon= to this file, superseding #217's sed; #217's CI assertion still holds and
+# proves it.
+icon: snap/gui/icon.svg
 summary: Screenshot capture and annotation tool
 description: |
   A Linux port of Windows Greenshot (not affiliated with or endorsed by the
