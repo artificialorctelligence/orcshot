@@ -13,7 +13,12 @@ from gi.repository import GdkPixbuf
 
 import numpy as np
 
-from orcshot.ui.file_export import orcshot_cache_dir, orcshot_visible_temp_dir, save_image_to_file
+from orcshot.ui.file_export import (
+    encoded_format,
+    orcshot_cache_dir,
+    orcshot_visible_temp_dir,
+    save_image_to_file,
+)
 from orcshot.ui.gdk_convert import pixbuf_to_numpy
 
 
@@ -44,6 +49,14 @@ def test_defaults_to_png_for_an_unrecognized_extension(tmp_path):
     # of the odd extension on disk.
     loaded = GdkPixbuf.Pixbuf.new_from_file(str(path))
     assert loaded.get_width() == image.shape[1]
+
+
+def test_encoded_format_matches_what_save_image_to_file_actually_writes():
+    assert encoded_format("x.jpeg") == "jpeg"
+    assert encoded_format("x.tif") == "tiff"
+    assert encoded_format("x.webp") == "png"
+    assert encoded_format("x") == "png"
+    assert encoded_format("shot.orcshot") == "orcshot"
 
 
 def test_infers_jpeg_from_extension(tmp_path):
@@ -151,3 +164,13 @@ def test_cache_dir_is_created_with_restricted_permissions(tmp_path, monkeypatch)
     directory = orcshot_cache_dir()
 
     assert (directory.stat().st_mode & 0o777) == 0o700
+
+
+def test_visible_temp_dir_defaults_to_the_real_home_under_the_snap(monkeypatch, tmp_path):
+    # BACKLOG #212: ~/Orcshot must be the user's home, not $SNAP_USER_DATA.
+    real = tmp_path / "realhome"
+    real.mkdir()
+    monkeypatch.setenv("HOME", str(tmp_path / "snap" / "orcshot" / "x1"))
+    monkeypatch.setenv("SNAP_REAL_HOME", str(real))
+    assert orcshot_visible_temp_dir() == real / "Orcshot"
+    assert (real / "Orcshot").is_dir()

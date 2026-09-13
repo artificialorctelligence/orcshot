@@ -17,6 +17,7 @@ from gi.repository import GdkPixbuf, GLib
 
 import numpy as np
 
+from orcshot.settings import real_home
 from orcshot.ui.gdk_convert import numpy_to_pixbuf
 
 _EXTENSION_TO_TYPE = {
@@ -57,6 +58,15 @@ def _flatten_to_rgb_pixbuf(image: np.ndarray) -> GdkPixbuf.Pixbuf:
     return GdkPixbuf.Pixbuf.new_from_bytes(
         GLib.Bytes.new(data), GdkPixbuf.Colorspace.RGB, False, 8, width, height, rowstride
     )
+
+
+def encoded_format(path) -> str:
+    """The format save_image_to_file will actually write for this
+    name - by extension, PNG for anything it does not know."""
+    suffix = Path(path).suffix.lower()
+    if suffix == ".orcshot":
+        return "orcshot"  # the project format, written by save_orcshot_file, not a pixbuf
+    return _EXTENSION_TO_TYPE.get(suffix, "png")
 
 
 def save_image_to_file(image: np.ndarray, path, jpeg_quality: int = None) -> None:
@@ -132,9 +142,12 @@ def orcshot_visible_temp_dir(home: Path = None) -> Path:
     not instead of them, so restricting this to the owning user is
     still safe and doesn't defeat the Snap-visibility fix (Snap's
     confined process runs as this same Unix user).
+
+    Under the snap "~" is the user's real home via settings.real_home(),
+    not $SNAP_USER_DATA (BACKLOG #212).
     """
     if home is None:
-        home = Path.home()
+        home = real_home()
     directory = home / "Orcshot"
     directory.mkdir(mode=0o700, exist_ok=True)
     return directory

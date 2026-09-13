@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import json
 import os
+import tempfile
 from dataclasses import asdict, dataclass
 from datetime import datetime
 from pathlib import Path
@@ -105,12 +106,26 @@ def is_quit_marker_set(path: Path = None) -> bool:
     return path.exists()
 
 
+def real_home() -> Path:
+    """The user's home directory - the one they look in (BACKLOG #212).
+    Under the snap, HOME is $SNAP_USER_DATA (~/snap/orcshot/<rev>), so
+    Path.home() is the snap's private data dir; snapd exports the real
+    one as SNAP_REAL_HOME. Everywhere else the variable is unset and
+    HOME is already the real home - the .deb and the Flatpak are
+    untouched by this. Only for folders the user is meant to find
+    (the screenshot folder, ~/Orcshot); config/cache/autostart paths
+    keep XDG/Path.home(), which under the snap are meant to be private.
+    """
+    return Path(os.environ.get("SNAP_REAL_HOME") or Path.home())
+
+
 def default_output_directory() -> Path:
     """~/Pictures/Screenshots if a Pictures folder exists (the common
     convention across Linux desktops), else ~/Screenshots.
     """
-    pictures = Path.home() / "Pictures"
-    base = pictures if pictures.is_dir() else Path.home()
+    home = real_home()
+    pictures = home / "Pictures"
+    base = pictures if pictures.is_dir() else home
     return base / _DEFAULT_OUTPUT_DIRNAME
 
 
@@ -150,10 +165,30 @@ def output_directory_is_reachable(directory: Path) -> bool:
     xdg-pictures) has a different st_dev. Only meaningful under
     Flatpak - on a plain install /home may or may not be its own
     filesystem, so the comparison says nothing there and is skipped.
+
+    A folder that cannot be created is unreachable on every channel
+    (BACKLOG #212): under the snap that is any path no plug covers, on the
+    .deb a read-only folder. The caller then runs the Screenshot Save
+    Location picker once - through the portal, whose document grant is
+    writable regardless of plugs - instead of raising later in Save.
+
+    The probe is a real create-and-delete of a temp file (BACKLOG #216):
+    mkdir on an existing folder and os.access both answer "yes" where an
+    actual write is denied under AppArmor.
     """
+    try:
+        directory.mkdir(parents=True, exist_ok=True)
+        # A real write, not mkdir/os.access (BACKLOG #216): on an existing
+        # folder mkdir(exist_ok=True) returns EEXIST before AppArmor's
+        # hook runs, and os.access is not AppArmor-mediated - both said
+        # "fine" for a folder the snap may not write into. Any OSError
+        # (EACCES, EROFS, a vanished mount) means unreachable.
+        with tempfile.NamedTemporaryFile(dir=directory, prefix=".orcshot-probe-"):
+            pass
+    except OSError:
+        return False
     if detect_channel() != "flatpak":
         return True
-    directory.mkdir(parents=True, exist_ok=True)
     return os.stat(directory).st_dev != os.stat("/").st_dev
 
 
@@ -169,9 +204,19 @@ def is_portal_document_path(path: Path) -> bool:
     left ~/Screenshots/.xdp-portal-test.jpg-VWhcUm behind, complete
     and invisible. So callers must never rename a path this says yes
     to - the name the user confirmed is the file they get.
+
+    Two prefixes, not one (BACKLOG #212): under Flatpak $XDG_RUNTIME_DIR is
+    the user's runtime dir, so "$XDG_RUNTIME_DIR/doc" is the mount; under
+    a snap the variable is /run/user/<uid>/snap.<name> while snapd mounts
+    the portal at /run/user/<uid>/doc (snapd desktop/portal/document.go,
+    GetDefaultMountPoint) - so the user's runtime dir is checked as well,
+    unconditionally, since on a plain install it is simply never a path
+    a dialog returns.
     """
-    runtime_dir = os.environ.get("XDG_RUNTIME_DIR") or f"/run/user/{os.getuid()}"
-    return Path(path).is_relative_to(Path(runtime_dir) / "doc")
+    user_runtime_dir = Path(f"/run/user/{os.getuid()}")
+    env_runtime_dir = Path(os.environ.get("XDG_RUNTIME_DIR") or user_runtime_dir)
+    path = Path(path)
+    return path.is_relative_to(env_runtime_dir / "doc") or path.is_relative_to(user_runtime_dir / "doc")
 
 
 def quick_save_filename(when: datetime, counter: int) -> str:

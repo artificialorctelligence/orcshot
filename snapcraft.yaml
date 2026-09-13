@@ -13,6 +13,13 @@ adopt-info: orcshot
 apps:
   orcshot:
     command: bin/orcshot
+    # BACKLOG #215: without a desktop file, `snap routine portal-info` answers
+    # DesktopFile=. and xdg-desktop-portal grants every picked document to
+    # app id "." - the snap's by-app document mount stays empty and every
+    # portal file dialog fails after the pick. Same file the Flatpak ships;
+    # snapcraft copies it to meta/gui/<app>.desktop and snapd registers it as
+    # /var/lib/snapd/desktop/applications/orcshot_orcshot.desktop.
+    desktop: usr/share/applications/org.orcshot.Orcshot.desktop
     # BACKLOG #206: snapcraft's gnome extension. It supplies the GNOME
     # platform content snap (GTK, gdk-pixbuf loaders, XKB data, mime
     # database, icon/sound/gtk themes, GI typelibs) and a desktop-launch
@@ -43,6 +50,13 @@ apps:
       # PulseAudio/PipeWire, but that's an inference, not a confirmed
       # prior gap, so stated as such rather than as fact.
       - audio-playback
+      # BACKLOG #212: Save writes to the configured output directory
+      # (~/Pictures/Screenshots by default). home is auto-connected on
+      # classic distros, needs no store review, and covers every
+      # non-hidden path under the real home. A folder outside home goes
+      # through the FileChooser portal instead (settings.
+      # output_directory_is_reachable) - no removable-media plug.
+      - home
 
 slots:
   dbus-orcshot:
@@ -63,6 +77,19 @@ parts:
     override-pull: |
       craftctl default
       craftctl set version="$(grep -m1 '^version' pyproject.toml | sed -E 's/^version *= *"([^"]+)"/\1/')"
+    # BACKLOG #215: the python plugin installs only the package; the
+    # desktop file and icon the `desktop:` key above points at must be
+    # put in place here. The icon is the same non-square PNG the .deb
+    # ships at hicolor/128x128 (debian/orcshot.install); the gnome
+    # extension's XDG_DATA_DIRS makes $SNAP/usr/share/icons resolvable to
+    # the app's own icon lookup, so Icon=org.orcshot.Orcshot in the desktop
+    # file finds it there. The launcher entry snapd registers is a separate
+    # copy with no XDG_DATA_DIRS of its own - its icon isn't resolved
+    # (BACKLOG #217).
+    override-build: |
+      craftctl default
+      install -Dm644 org.orcshot.Orcshot.desktop "$CRAFT_PART_INSTALL/usr/share/applications/org.orcshot.Orcshot.desktop"
+      install -Dm644 src/orcshot/resources/orcshot.png "$CRAFT_PART_INSTALL/usr/share/icons/hicolor/128x128/apps/org.orcshot.Orcshot.png"
     # PyGObject and pycairo deliberately ship no PyPI wheels (they must link
     # the build machine's own libcairo/gobject-introspection), so pip builds
     # them from source unless it can see them as already satisfied. These

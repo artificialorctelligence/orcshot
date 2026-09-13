@@ -10,6 +10,8 @@ import os
 from datetime import datetime
 from pathlib import Path
 
+import pytest
+
 from orcshot.settings import (
     CONFIG_FILENAME,
     EXTERNAL_EDITOR_AUTO,
@@ -49,6 +51,7 @@ from orcshot.settings import (
     mark_first_run_setup_done,
     quick_save_filename,
     quit_marker_path,
+    real_home,
     set_capture_mouse_cursor,
     set_excluded_destinations,
     set_external_commands,
@@ -116,10 +119,41 @@ class TestQuitMarker:
         assert not is_quit_marker_set(path)
 
 
+class TestRealHome:
+    """BACKLOG #212: under the snap HOME is $SNAP_USER_DATA; the user's
+    actual home is SNAP_REAL_HOME. Elsewhere the variable is unset."""
+
+    def test_is_path_home_when_snap_real_home_is_unset(self, monkeypatch):
+        monkeypatch.delenv("SNAP_REAL_HOME", raising=False)
+        assert real_home() == Path.home()
+
+    def test_is_snap_real_home_when_set(self, monkeypatch, tmp_path):
+        monkeypatch.setenv("SNAP_REAL_HOME", str(tmp_path / "realhome"))
+        assert real_home() == tmp_path / "realhome"
+
+
 class TestDefaultOutputDirectory:
-    def test_returns_a_path_under_home(self):
+    def test_returns_a_path_under_home(self, monkeypatch):
+        monkeypatch.delenv("SNAP_REAL_HOME", raising=False)
         result = default_output_directory()
         assert Path.home() in result.parents
+
+    def test_under_the_snap_it_is_under_the_real_home_not_snap_user_data(self, monkeypatch, tmp_path):
+        snap_home = tmp_path / "snap" / "orcshot" / "x1"
+        real = tmp_path / "realhome"
+        (real / "Pictures").mkdir(parents=True)
+        monkeypatch.setenv("HOME", str(snap_home))
+        monkeypatch.setenv("SNAP_REAL_HOME", str(real))
+        result = default_output_directory()
+        assert result == real / "Pictures" / "Screenshots"
+        assert snap_home not in result.parents
+
+    def test_under_the_snap_without_pictures_it_falls_back_to_the_real_home(self, monkeypatch, tmp_path):
+        real = tmp_path / "realhome"
+        real.mkdir()
+        monkeypatch.setenv("HOME", str(tmp_path / "snap" / "orcshot" / "x1"))
+        monkeypatch.setenv("SNAP_REAL_HOME", str(real))
+        assert default_output_directory() == real / "Screenshots"
 
 
 class TestOutputDirectory:
@@ -711,17 +745,49 @@ class TestOutputDirectoryIsReachable:
         monkeypatch.setattr("orcshot.settings.os.stat", different_device)
         assert output_directory_is_reachable(tmp_path / "Screenshots") is True
 
-    def test_creates_the_directory_before_checking(self, tmp_path, monkeypatch):
-        monkeypatch.setattr("orcshot.settings.detect_channel", lambda: "deb")
+    def test_creates_the_directory_on_every_channel(self, tmp_path, monkeypatch):
+        # BACKLOG #212: mkdir runs before the channel check so a denied
+        # folder (snap without a covering plug, a read-only folder on
+        # the .deb) is reported unreachable instead of raising later.
         target = tmp_path / "Pictures" / "Screenshots"
-        output_directory_is_reachable(target)
-        # "deb" returns early without touching disk; only the flatpak
-        # branch mkdirs. Pin that: the sandbox test above depends on
-        # the directory existing for os.stat.
-        assert not target.exists()
-        monkeypatch.setattr("orcshot.settings.detect_channel", lambda: "flatpak")
-        output_directory_is_reachable(target)
+        monkeypatch.setattr("orcshot.settings.detect_channel", lambda: "deb")
+        assert output_directory_is_reachable(target) is True
         assert target.is_dir()
+
+    def test_false_when_the_directory_cannot_be_created(self, tmp_path, monkeypatch):
+        if os.geteuid() == 0:
+            pytest.skip("root ignores directory permissions")
+        parent = tmp_path / "locked"
+        parent.mkdir()
+        parent.chmod(0o500)
+        try:
+            for channel in ("snap", "deb", "flatpak"):
+                monkeypatch.setattr("orcshot.settings.detect_channel", lambda c=channel: c)
+                assert output_directory_is_reachable(parent / "new") is False, channel
+        finally:
+            parent.chmod(0o700)
+
+    def test_false_when_the_directory_exists_but_is_not_writable(self, tmp_path, monkeypatch):
+        # BACKLOG #216: mkdir(exist_ok=True) on an existing folder raises
+        # nothing even where a write would be denied (EEXIST precedes the
+        # permission check), so the probe has to actually write.
+        if os.geteuid() == 0:
+            pytest.skip("root ignores directory permissions")
+        existing = tmp_path / "readonly"
+        existing.mkdir()
+        existing.chmod(0o500)
+        try:
+            for channel in ("snap", "deb", "flatpak"):
+                monkeypatch.setattr("orcshot.settings.detect_channel", lambda c=channel: c)
+                assert output_directory_is_reachable(existing) is False, channel
+        finally:
+            existing.chmod(0o700)
+
+    def test_leaves_no_probe_file_behind(self, tmp_path, monkeypatch):
+        monkeypatch.setattr("orcshot.settings.detect_channel", lambda: "deb")
+        target = tmp_path / "Screenshots"
+        assert output_directory_is_reachable(target) is True
+        assert list(target.iterdir()) == []
 
 
 class TestIsPortalDocumentPath:
@@ -747,3 +813,16 @@ class TestIsPortalDocumentPath:
     def test_falls_back_to_run_user_uid_without_the_env_var(self, monkeypatch):
         monkeypatch.delenv("XDG_RUNTIME_DIR", raising=False)
         assert is_portal_document_path(Path(f"/run/user/{os.getuid()}/doc/abc/f.png")) is True
+
+    def test_true_under_snap_where_the_env_var_is_the_snaps_own_runtime_dir(self, monkeypatch):
+        # BACKLOG #212: a snap sees XDG_RUNTIME_DIR=/run/user/<uid>/snap.<name>,
+        # but snapd mounts the document portal at the *user's* runtime dir
+        # (snapd desktop/portal/document.go GetDefaultMountPoint).
+        uid = os.getuid()
+        monkeypatch.setenv("XDG_RUNTIME_DIR", f"/run/user/{uid}/snap.orcshot")
+        assert is_portal_document_path(Path(f"/run/user/{uid}/doc/54b8e4a6/snap-test")) is True
+
+    def test_false_for_the_snaps_own_runtime_dir_without_doc(self, monkeypatch):
+        uid = os.getuid()
+        monkeypatch.setenv("XDG_RUNTIME_DIR", f"/run/user/{uid}/snap.orcshot")
+        assert is_portal_document_path(Path(f"/run/user/{uid}/snap.orcshot/orcshot.sock")) is False

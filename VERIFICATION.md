@@ -157,3 +157,116 @@ tray-full_screen`, the picker driven with xdotool.
   `/run/user/1000/doc/e4453c62/Screenshots`; second *Save* → no dialog, `15_49_57.png`. — PASS.
 - Not verified: Save Objects under the portal (same guard as D, not separately run); Cinnamon
   on Wayland.
+
+## Scenario 4: Snap Save: home plug and the portal-path guard under snap (spec 2026-09-12)
+
+Scenarios for docs/superpowers/specs/2026-09-12-snap-save-home-plug-design.md, 2026-09-12, on
+the Ubuntu 26.04 / GNOME 50 / Wayland VM (snapd 2.76.3, xdg-desktop-portal 1.21.1+ds-1ubuntu3,
+xdg-desktop-portal-gnome 50.0). The snap launched inside the graphical session with `systemd-run
+--user --unit=orcshot-snap ... snap run orcshot`; before every scenario the bus name owner was
+checked (`GetConnectionUnixProcessID org.orcshot.Orcshot` + `/proc/<pid>/cgroup` containing
+`snap.orcshot`). Captures triggered with `gdbus ... Activate tray-full_screen`, the Shell-native
+picker and the dialogs driven with xdotool from the host.
+
+- **Baseline (0.3.0 snap, rev x4, no `home` plug).** *Save*: no dialog, no error, and the file
+  went to `~/snap/orcshot/x4/Screenshots/2026-09-12 19_32_53.png` - the real
+  `~/Pictures/Screenshots` untouched. Not #212's "AppArmor-denied / PermissionError": under the
+  snap `HOME=$SNAP_USER_DATA`, so `Path.home()` *is* `~/snap/orcshot/<rev>` and the write
+  succeeds there. — the bug, observed.
+- **Home plug alone (CI run 34728131086, rev x1, `home` connected).** Identical result:
+  `~/snap/orcshot/x1/Screenshots/2026-09-12 19_39_35.png`. `snap run --shell` proved the plug
+  itself works (`touch` in the real `~/Pictures/Screenshots` ok with it connected, `Permission
+  denied` with it disconnected) - the plug was necessary, not sufficient. That finding added
+  `settings.real_home()` (reads `SNAP_REAL_HOME`).
+- **A. Default folder (CI run 34731021927, commit 113d005, rev x1, `snap connections orcshot |
+  grep home` → `home  orcshot:home  :home  -`).** No `output_directory` in the snap's config.
+  *Save*: no dialog; `~/Pictures/Screenshots/2026-09-12 20_48_15.png` (1366x768 PNG, `file`);
+  `find ~/snap/orcshot -name Screenshots` → nothing; log clean apart from the #214
+  `libpixbufloader_svg.so` line, which appeared only on the first launch after install
+  (before `~/snap/orcshot/common/.cache/gdk-pixbuf-loaders.cache` existed) and not on the
+  relaunch. The editor's toolbar and tool-palette icons all render. — PASS.
+- **B. Save As through the portal under snap.** Capture → *Edit…* → Ctrl+S: the GNOME portal
+  save dialog appeared (GTK4/libadwaita, opened at Home/Pictures/Screenshots, *Save as type* under
+  the options button with PNG/JPEG/BMP/TIFF/GIF/Orcshot). Typed `snap-test`, chose JPEG, Save:
+  the *Saved as PNG* dialog appeared - and then the write failed: log `GLib.GError:
+  g-file-error-quark: Failed to open "/run/user/1000/doc/5501d0c5/snap-test" for writing: No
+  such file or directory`; `~/Pictures/Screenshots/snap-test` does not exist, no `.xdp-*` file
+  either (the two-prefix guard is not what failed - the doc path never became reachable). —
+  FAIL. Cause, proven on the VM: the snap ships no desktop file (`/snap/orcshot/x1/meta/gui/`
+  empty), so `snap routine portal-info <pid>` reports `DesktopFile=.`; Ubuntu 26.04's
+  xdg-desktop-portal (patch `xdp-app-info-snap-Use-the-desktop-ID-as-app-ID`, upstream PR
+  #1764) takes the desktop id as the app id, so `Documents.Info 5501d0c5` shows the grant as
+  `{'.': [read, write, grant-permissions]}` and xdg-document-portal logs `Invalid id .: Name
+  can't start with a period`; snapd bind-mounts `/run/user/1000/doc/by-app/snap.orcshot` over
+  `/run/user/1000/doc` inside the snap (the app's mountinfo), and that view is empty. Same
+  portal, same VM, the Flatpak's grant (Scenario 3 F) is under `org.orcshot.Orcshot` and works.
+  Tracked as BACKLOG #215.
+- **C. Folder outside home.** `output_directory` = `/media/orcshot-test` (existing, owned by
+  the user, no plug), snap relaunched, *Save*: **no** portal picker; log traceback from
+  `_quick_save` → `save_image_to_file`: `Failed to open "/media/orcshot-test/2026-09-12
+  20_57_30.png" for writing: Permission denied`; the folder stayed empty, the capture was lost
+  silently (`filename_counter` advanced to 3). — FAIL. Cause, proven with `snap run --shell`:
+  `output_directory_is_reachable` probes with `mkdir(parents=True, exist_ok=True)`, and on a
+  folder that already exists the kernel answers EEXIST before AppArmor's mkdir hook runs -
+  `Path.mkdir` raises nothing, `os.access(W_OK)` says True, only `open(..., "w")` raises
+  `PermissionError`. The guard catches the never-existed case only. Tracked as BACKLOG #216.
+  Even with that fixed, the picker's grant would have hit B's `.` app id (#215).
+- **D. Restart.** Not run - it depends on C's grant.
+- Left on the VM: snap rev x1 (commit 113d005) installed and stopped, `/media/orcshot-test`
+  present and empty, the snap's config still `"output_directory": "/media/orcshot-test"`.
+
+**Re-run 2026-09-12 after #215/#216 (CI run 34732589935, commit 70d0c40, snap x2):** the CI
+verify job's new assertion passed (`snap connections orcshot | grep -E '^home +orcshot:home +:home'`
+→ `home  orcshot:home  :home  -`). Installed over x1 with `sudo snap install --dangerous` so the
+snap data (config, first-run flag) carried over; `snap connections orcshot | grep -w home` →
+`home  orcshot:home  :home  -`. Same launch/owner/capture procedure as above; `output_directory`
+deleted from the config before A2/B and set to `/media/orcshot-test` again for C.
+
+- **A2. Launcher entry and portal identity.** `/snap/orcshot/x2/meta/gui/orcshot.desktop` exists
+  and `ls /var/lib/snapd/desktop/applications/ | grep orcshot` → `orcshot_orcshot.desktop`
+  (snapcraft names it `<snap>_<app>.desktop`, not the `orcshot_org.orcshot.Orcshot.desktop` the
+  spec guessed; `X-SnapInstanceName=orcshot`, `Exec=/snap/bin/orcshot`, `Icon=org.orcshot.Orcshot`).
+  Launched (pid 14526, cgroup `snap.orcshot.orcshot-…scope`, `session_type=wayland`); `snap
+  routine portal-info 14526` → `DesktopFile=orcshot_orcshot.desktop` - not `.`. Super, `orc` in
+  the search: three "Orcshot" tiles (the .deb's `/usr/share/applications/orcshot.desktop`, the
+  Flatpak's export and the snap's), all with the Orcshot icon. — PASS for the entry and the
+  portal identity. The icon is **not** the snap's own: `Gtk.IconTheme.get_default()
+  .lookup_icon("org.orcshot.Orcshot")` in the host session resolves to the *Flatpak's*
+  `~/.local/share/flatpak/exports/share/icons/hicolor/scalable/apps/org.orcshot.Orcshot.svg`,
+  and with the flatpak paths removed from the search path the lookup returns `None`;
+  `/var/lib/snapd/desktop/icons/` is empty (snapd rewrites `Icon=` only for `${SNAP}/` paths).
+  A snap-only machine gets the placeholder icon. Tracked as BACKLOG #217.
+- **B. Save As through the portal under snap.** Capture → *Edit…* (toolbar and tool-palette
+  icons render) → Ctrl+S: the GNOME portal save dialog, opened at Home this time; navigated to
+  Pictures/Screenshots, typed `snap-test`, *Save as type* → JPEG, Save. Checked **before**
+  touching anything else: `~/Pictures/Screenshots/snap-test.jpg` (`file`: JPEG image data,
+  1366x768), `ls -A ~/Pictures/Screenshots | grep xdp` empty, `find ~/Pictures -name '.xdp-*'`
+  empty, no traceback. No *Saved as PNG* dialog and no `snap-test` PNG - and that is right, not
+  a miss: the portal handed the snap the **real** path `…/Screenshots/snap-test`, not a
+  `/run/user/1000/doc/…` one - no new document id appeared and `by-app/snap.orcshot/` stayed
+  empty - because xdg-document-portal asks `snap routine file-access orcshot <path>` and, with
+  `home` connected and the app id now valid, the answer for that path is `read-write` (verified
+  on the VM; `/media/orcshot-test` answers `hidden`). A real path is not a portal document path,
+  so the normal branch appended `.jpg` for the chosen type. The first run's doc path and its
+  `.`-grant are gone with #215; the doc-path branch and the two-prefix guard are exercised by C.
+  — PASS (the regression this scenario guards - a stranded `.xdp-*` or a failed write - is
+  absent). New log line when the portal dialog opens: `GLib-GIO-WARNING: Error creating IO
+  channel for /proc/self/mountinfo: Permission denied` (GIO's mount monitor under confinement;
+  matching `open /proc/<pid>/mounts` and `/etc/fstab` AppArmor denials), cosmetic.
+- **C. Folder outside home.** `/media/orcshot-test` (existing, chowned, no plug) configured,
+  snap relaunched (pid 16040), *Save*: the portal **folder picker appeared** (the #216 real-write
+  probe: AppArmor logged `operation="mknod" … name="/media/orcshot-test/.orcshot-probe-…"
+  denied_mask="c"` twice - the shared guard and the picker's own initial-folder check - where
+  the first run's `mkdir` probe raised nothing); Ctrl+L, `/media/orcshot-test/`, *Select*: no
+  dialog after it, `/media/orcshot-test/2026-09-12 21_33_19.png` (988075 bytes), config now
+  `"output_directory": "/run/user/1000/doc/752c00e7/orcshot-test"` - a document path under a
+  valid `snap.orcshot` grant this time. Second capture → *Save*: silent, `2026-09-12
+  21_33_53.png`, no new denials. — PASS.
+- **D. Restart.** `launch.sh` again (unit stopped and restarted, pid 16532), capture → *Save*:
+  silent, third file `/media/orcshot-test/2026-09-12 21_34_31.png`, config unchanged, log
+  clean. — PASS.
+- The `libpixbufloader_svg.so` line (#214) again appeared only on the first launch of x2 and not
+  on the C/D relaunches.
+- Left on the VM: snap rev x2 (commit 70d0c40) installed and stopped; `/media/orcshot-test`
+  with the three C/D files; `~/Pictures/Screenshots/snap-test.jpg`; the snap's config with
+  `output_directory` deleted.
