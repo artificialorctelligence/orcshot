@@ -1708,7 +1708,7 @@ things it found beside the feature, each its own entry: #209 (the manifest linte
 the own-name exception to request at Flathub submission) and #210 (Save writes nowhere under
 Flatpak). CI: flatpak runs 34677307006, 34678723491, 34679321587 green.
 
-## #209: Flathub's manifest linter has never run on the manifest: --socket=fallback-x11 without --share=ipc is a pre-existing lint error
+## #209: Flathub's manifest linter has never run on the manifest: --socket=fallback-x11 without --share=ipc is a pre-existing lint error (RESOLVED 2026-09-12)
 
 Found 2026-09-12 during #208's Task 4, the first time `flatpak-builder-lint manifest` was run
 against `org.orcshot.Orcshot.yaml` (CI's flatpak.yml lints only the metainfo; the linter
@@ -1732,6 +1732,15 @@ the Flathub submission with that justification; the CI lint step therefore has t
 exactly that one error (the linter supports `--exceptions` for a local exceptions file, or the
 step greps the JSON), never a blanket pass. If Flathub refuses, Flatpak-on-Cinnamon has no
 tray icon - the state it is in today - and nothing else changes.
+
+**Resolved for real, not just tracked** (2026-09-12): `--share=ipc` landed with #208 (PR #24)
+and the manifest lint step in `flatpak.yml` runs on every push and PR with
+`--user-exceptions flathub-lint-exceptions.json`, which allows exactly
+`finish-args-own-name-org.x.StatusIcon.orcshot` and nothing else. Verified passing, not
+assumed: the step is `success` on the last completed `main` run (34735187718, commit 4c038d5,
+2026-09-13) and on every PR merged today (#25, #26, #27); the same command run locally on
+2026-09-12 after #210 added `--filesystem=xdg-pictures:create` exited 0 with no new finding.
+The one accepted exception stays a Flathub submission item under #198, as decided.
 
 ## #210: Under Flatpak, Save writes nowhere: the sandbox has no grant for the output directory and Save does not use the file-chooser portal (RESOLVED 2026-09-12)
 
