@@ -2141,7 +2141,7 @@ from memory. Windows Greenshot writes real GIFs via .NET; parity may not be achi
 **Scope boundary:** the format table only. The portal/never-rename logic from #210/#212 is
 unaffected either way.
 
-## #219: Snap Store listing icon: snapcraft.yaml has no top-level icon:, and the only PNG asset is 155x147 - what the store shows for Orcshot is direflail's call
+## #219: Snap Store listing icon: snapcraft.yaml has no top-level icon:, and the only PNG asset is 155x147 - what the store shows for Orcshot is direflail's call (RESOLVED 2026-09-13)
 
 Raised 2026-09-12 while specing #217 (the snap's *launcher* icon). The two are different
 assets with different rules, and only the launcher one is being fixed:
@@ -2179,3 +2179,38 @@ set, snapcraft also rewrites the launcher desktop file's `Icon=` to `${SNAP}/met
 keeps passing, but the launcher icon silently becomes the store asset. Whichever asset is chosen
 here therefore becomes the launcher icon too; pick one that is right for both, and re-run
 VERIFICATION.md Scenario 4's #217 paragraph (E/F) after setting `icon:`.
+
+**Step 1, live rules re-check before picking (2026-09-13):** read
+`https://ubuntu.com/docs/snapcraft/9.1/reference/snapcraft-yaml/#icon` (the `stable` alias
+301/302-redirects there; `article:modified_time` 2026-08-20) and cross-checked against
+`canonical/snapcraft`'s own `main`-branch source (`snapcraft/models/project.py` lines 1525-1536,
+`snapcraft/parts/setup_assets.py`'s `_find_icon_file`/`_finalize_icon`, both fetched live via the
+GitHub API): the doc's own numbers from 2026-09-12 still hold unchanged (40x40-512x512px,
+256x256 recommended, <256KB), and both **PNG and SVG are accepted** - `_find_icon_file` checks
+`snap/gui/icon.png` then `snap/gui/icon.svg` for auto-detection when `icon:` is unset, and
+`_finalize_icon` derives the packed extension from whatever path `icon:` gives when it is set.
+This confirmed candidate (a), an SVG, was eligible before it went in front of direflail.
+
+**Resolved 2026-09-13:** direflail chose **(a), the Flatpak's square wrapper** - same mark as
+every other channel, no new asset to maintain, and (per the coupling note above) this is also
+now the launcher icon, so consistency with the Flatpak's own listing/dock appearance mattered
+more than a from-scratch raster. The candidate was produced by running
+`org.orcshot.Orcshot.yaml`'s own icon-generation Python (lines 183-200) verbatim against
+`src/orcshot/resources/orcshot.png`, only redirecting the output path - so `snap/gui/icon.svg` is
+construction-identical to the Flatpak's generated icon (same opaque `#3d3d3d` backing rect, same
+attribute order, `href` not `xlink:href`), not merely similar-looking. A first pass at candidate
+generation (and the padded-PNG alternative, (b)) used code that left the square's padding fully
+transparent instead of filled - caught in review before anything was shown, and regenerated to
+match the Flatpak's actual construction before the choice was made.
+
+`snapcraft.yaml` now sets `icon: snap/gui/icon.svg`; `snap.yml`'s verify job asserts
+`meta/gui/icon.{svg,png}` exists inside the built snap (BACKLOG #219 step, after the #217
+assertion). CI (commit d11dd44, run 34775403917) passed both the pre-existing #217 assertion and
+the new #219 one. Installed that run's artifact on the Ubuntu 26.04 VM (`--dangerous`,
+`orcshot_0.3.0_amd64.snap`): the registered `orcshot_orcshot.desktop`'s `Icon=` line now reads
+`/snap/orcshot/current/meta/gui/icon.svg` (previously `#217`'s
+`.../usr/share/icons/hicolor/128x128/apps/org.orcshot.Orcshot.png`, confirming snapcraft's
+rewrite superseded the `sed` as the coupling note predicted), the file exists, and its
+`sha256sum` on the VM matches the committed `snap/gui/icon.svg` byte-for-byte - the exact chosen
+asset is what ships and what the launcher now resolves. App-grid visual confirmation done
+separately via the VM's own GUI window.
