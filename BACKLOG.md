@@ -2113,3 +2113,10 @@ CI check that `meta/gui/icon.*` exists in the built snap.
 
 **Scope boundary:** the Snap Store listing only. Flathub's listing icon comes from the desktop
 file + metainfo (already shipped and linted); the .deb has no store.
+
+**Coupling with #217 (added 2026-09-12, from #217's final review):** when a top-level `icon:` is
+set, snapcraft also rewrites the launcher desktop file's `Icon=` to `${SNAP}/meta/gui/icon.<ext>`
+- superseding #217's `sed`. snapd still rewrites that `${SNAP}` path, so #217's CI assertion
+keeps passing, but the launcher icon silently becomes the store asset. Whichever asset is chosen
+here therefore becomes the launcher icon too; pick one that is right for both, and re-run
+VERIFICATION.md Scenario 4's #217 paragraph (E/F) after setting `icon:`.
