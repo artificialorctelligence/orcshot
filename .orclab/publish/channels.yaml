@@ -4,13 +4,14 @@
 # `ppa.resolute` copies that build to 26.04 (step 7, automated 2026-09-07 - it used to be a
 # manual Launchpad web-UI click).
 #
-# snap and flatpak are left with no action on purpose: CI (`.github/workflows/{snap,flatpak}.yml`)
-# only builds and verifies them locally today - neither has a real Snap Store push or Flathub
-# submission step, manual or automated. Confirmed live again 2026-09-07: `snap info orcshot`
-# reports no such snap, and both the Flathub API and flathub/org.orcshot.Orcshot 404, so neither
-# channel has ever been onboarded at all - see BACKLOG #198 (build the mechanisms) and #197
-# (credentials/signing setup). Inventing a plausible-looking command for either would
-# misrepresent something that doesn't exist yet; an action-less leaf reports as
+# As of 2026-09-13 (BACKLOG #198, spec 2026-09-12) snap has a real action: it uploads the
+# CI-built artifact for HEAD's commit to the Snap Store (RELEASING.md step 12). flatpak is
+# still left with no action on purpose: CI (`.github/workflows/flatpak.yml`) only builds and
+# verifies it locally today - there is no real Flathub submission step, manual or automated.
+# Confirmed live again 2026-09-07: the Flathub API and flathub/org.orcshot.Orcshot 404, so that
+# channel has never been onboarded at all - see BACKLOG #198 (build the mechanism, flatpak track
+# still open) and #197 (credentials/signing setup). Inventing a plausible-looking command for it
+# would misrepresent something that doesn't exist yet; an action-less leaf reports as
 # "(known channel, not yet actionable)", which is the honest state.
 desktop:
   python:
@@ -81,12 +82,37 @@ desktop:
                to appear, even though the source is listed immediately. A green exit means the
                copy was accepted, not that it has landed."
       snap:
+        # BACKLOG #198, spec 2026-09-12 decision 2: the uploaded snap is the CI-built artifact
+        # for HEAD's commit - the binary the VM tests ran on, traceable to a run - never a local
+        # `snapcraft pack`. If no successful snap.yml run exists for HEAD this fails with that
+        # message, which is the "CI is green" gate in executable form.
+        prepare: >-
+          RUN=$(gh run list --workflow=snap.yml --commit "$(git rev-parse HEAD)" --status success --json databaseId --jq '.[0].databaseId');
+          test -n "$RUN" || { echo "no successful snap.yml run for $(git rev-parse HEAD) - push and wait for CI first"; exit 1; };
+          rm -rf dist/snap && gh run download "$RUN" --name orcshot-snap --dir dist/snap
+        artifact: "dist/snap/orcshot_$(grep -m1 '^version' pyproject.toml | sed -E 's/^version *= *\"([^\"]+)\"/\\1/')_amd64.snap"
+        preflight: [no-vcs, no-tool-state]
+        action: "snapcraft upload --release=beta dist/snap/orcshot_$(grep -m1 '^version' pyproject.toml | sed -E 's/^version *= *\"([^\"]+)\"/\\1/')_amd64.snap"
+        confirm:
+          url: "https://snapcraft.io/orcshot"
+        metrics: "snapcraft metrics orcshot --format=json --name weekly_installed_base_by_operating_system"
         requirements:
-          - "Depends on gnome-shell-extension.js.linux.ego: the snap installs no extension
-             itself; its first-run sends the user to extensions.gnome.org (spec 2026-09-11 §4).
-             Until orcshot@orcshot.org is listed there, the snap's GNOME-Wayland features run
-             on the portal fallback only. The publish action itself arrives with BACKLOG #198's
-             /orc-package snap."
+          - "Run review-tools on the downloaded artifact first (RELEASING.md's step shows the
+             command). Any `human review required` line other than none is a store hold."
+          - "`snapcraft whoami` must succeed on this machine (login done 2026-09-11, expires 2027-09-11)."
+          - "The dbus slot declaration must already be granted (BACKLOG #198, forum request from
+             the held first upload); until it is, an upload is held and never reaches beta."
+          - "First release goes to beta, never straight to stable. Promote with
+             `snapcraft release orcshot <revision> stable` only after one real
+             `snap install --beta orcshot` on a clean machine AND extensions.gnome.org lists
+             orcshot@orcshot.org (spec 2026-09-12 decision 6)."
+          - "Until EGO lists the extension, the snap's GNOME-Wayland features run on the portal
+             fallback; first-run sends the user to extensions.gnome.org (spec 2026-09-11 §4)."
+        issues:
+          - "Fallback if the CI artifact has expired (90 days) or GitHub is unreachable:
+             `snapcraft pack` locally (needs LXD or Multipass once) and upload that file, noting
+             in the release that the uploaded binary is not the VM-tested one."
+          - "Only amd64 is built and published; the snap is invisible to arm64 users."
       flatpak:
         requirements:
           - "Depends on gnome-shell-extension.js.linux.ego: InstallRemoteExtension fetches from

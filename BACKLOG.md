@@ -433,6 +433,35 @@ and must land before this entry's `/orc-package snap` step is applied. #205 hold
 research list and the spec. No `snap` ingredient exists yet in either Orclab location; capturing
 one is the step after #205.
 
+**Update 2026-09-13 - Snap track (branch store-onboarding-snap):** #214 and #219 resolved on this
+branch. Orclab's shipped `snap` ingredient was applied via `/orc-package snap` (snap `orcshot`,
+publisher `artificialorctelligence`, first channel `beta`, architecture `amd64`) and reshaped:
+`channels.yaml`'s `desktop.python.linux.snap` leaf now downloads and uploads the CI-built artifact
+for HEAD's commit (spec 2026-09-12 decision 2) rather than running a local `snapcraft pack` -
+traceable to the exact binary the VM tests ran on, and it fails loudly with a clear message if no
+successful `snap.yml` run exists for HEAD, which is "CI is green" as an executable gate.
+`RELEASING.md` gained step 12 ("Upload the snap to the Snap Store (beta)") with its one-time setup
+(store login/registration, the dbus slot forum request, the store listing), and step 1 gained the
+metainfo `<release>` reminder Flathub's linter needs. Steps renumbered to 14 total.
+
+What the ingredient got wrong for Orcshot, to carry to Orclab #33: (a) its `prepare:` assumed a
+local `snapcraft pack` rather than a CI-downloaded artifact - Orcshot's own CI-artifact model
+(decision 2) needed a full rewrite of `prepare:`/`artifact:`/`action:`; (b) its written `**Run:**`
+line ("review-tools... then /orc-publish...") is not recognised as a delegation by `/orc-release`'s
+parser - `delegates_to` only matches a bare `/orc-publish <path>` line, found 2026-09-13 while
+applying it, so the review-tools command had to move to its own fenced block below a bare `**Run:**`
+line; (c) its RELEASING step's review-tools command ran `review-tools.snap-review <the .snap>`
+directly on the downloaded file, but review-tools (itself a snap) can only read files under
+`~/snap/review-tools/common/`, so the step needed a `cp` into that directory first.
+
+Verified by hand (no `/orc-publish` invocation - not available in this session): the `prepare:`
+command run directly against HEAD (60e8658) downloaded a real successful `snap.yml` run and
+produced `dist/snap/orcshot_0.3.0_amd64.snap`; run again against a fake commit SHA it printed
+"no successful snap.yml run for 0000000 - push and wait for CI first" and exited non-zero.
+`channels.yaml` parses as YAML; `/orc-release`'s parser reads all 14 steps with step 12's
+`delegates_to` as `/orc-publish desktop.python.linux.snap`. No upload has happened. The held first
+upload and the dbus forum request follow on main (Task 4).
+
 ## #197: A real setup step for apt/snap/flatpak publishing - credentials/signing, tailored per channel and per machine
 
 *(Renumbered from #196 to #197 on 2026-09-07, when merging main into BACKLOG #189's branch: both

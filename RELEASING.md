@@ -27,6 +27,10 @@ match, or the built `.deb`'s own version won't line up with the source tree that
 
   (`date -R` prints the date in the right format.)
 
+Also add a `<release version="X.Y.Z" date="...">` entry at the top of
+`org.orcshot.Orcshot.metainfo.xml`'s `<releases>` - Flathub's linter fails a metainfo whose newest
+release is not the built version. (0.3.0 was never added; add it alongside 0.4.0.)
+
 ## 2. Full test suite
 
 ```bash
@@ -253,13 +257,42 @@ Expected: `completed` / `success` for that commit, on all three. If any is still
 it; if any failed, stop here and fix forward before step 12 - don't publish a release CI itself
 flagged as broken.
 
-## 12. Publish the GitHub Release
+## 12. Upload the snap to the Snap Store (beta)
+
+**One-time setup:** three things, once per snap, all yours to do:
+- Store login and name registration: check with `snapcraft whoami | sed 's/\(email:\).*/\1 <redacted>/'`
+  and `snapcraft names`. If missing: `snapcraft login`, then `snapcraft register orcshot`.
+  Both done 2026-09-11; the login expires 2027-09-11.
+- The `dbus` slot declaration for `org.orcshot.Orcshot`: the first upload was held with
+  `human review required due to 'deny-connection' constraint` and a request posted in the
+  snapcraft forum's `store-requests` category (BACKLOG #198). Check: `snapcraft status orcshot`
+  lists no held revision, or `snap info orcshot` shows a channel map.
+- The store listing (screenshots, category, description) is set in the snapcraft.io dashboard
+  (`https://snapcraft.io/orcshot/listing`); the icon comes from `snapcraft.yaml`'s `icon:` (#219).
+
+**Preconditions:** step 11 is green for this commit - this step downloads that run's artifact.
+
+**Run:** /orc-publish desktop.python.linux.snap
+
+Before confirming the real run, put the store's own reviewer on the file it just downloaded:
+
+```bash
+cp dist/snap/orcshot_*.snap ~/snap/review-tools/common/ && review-tools.snap-review ~/snap/review-tools/common/orcshot_*.snap
+```
+
+(`sudo snap install review-tools` once.) Expected: no `human review required` lines. Confirm the
+publish with `snap info orcshot`: the new version is on `beta`. Promote to `stable` only after
+one real `snap install --beta orcshot` on a clean machine, and only once extensions.gnome.org
+lists `orcshot@orcshot.org` (spec 2026-09-12 decision 6). Fallback if the artifact is gone:
+`snapcraft pack` locally (LXD/Multipass) and upload that, noting it is not the VM-tested binary.
+
+## 13. Publish the GitHub Release
 
 Create a release for the `vX.Y.Z` tag (web UI or `gh release create vX.Y.Z`) and attach the built
 `.deb` as a release asset. This is the step task #103 actually depends on - `releases/latest` only
 returns something once a real, non-draft, non-prerelease release exists.
 
-## 13. Sanity-check the update checker
+## 14. Sanity-check the update checker
 
 Once published, confirm task #103 actually sees it: Help > Check for Updates... on a build one
 version behind should report the new release; on the just-built version itself, "up to date."
