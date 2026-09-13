@@ -487,6 +487,14 @@ plan's Task 4 Step 3 with revision 1 filled in) goes up as soon as the account i
 the declaration is granted, the 0.4.0 release's step 12 upload would also be held - so the 0.4.0
 release waits on this grant, and the Flathub track waits on 0.4.0.
 
+**Flathub preconditions done 2026-09-13 (direflail, while the snap review waits):** GitHub 2FA is
+enabled on `artificialorctelligence` (`gh api user --jq .two_factor_authentication` → `true`);
+`flathub/flathub` forked as `artificialorctelligence/flathub` with the `new-pr` branch present
+(`746ea89`) - the intake fork is per account and shared by every app the account ever submits;
+Orcshot's own repo, `flathub/org.orcshot.Orcshot`, is created by Flathub on merge. Tasks 5-6 of the
+plan (manifest derivation script, `/orc-package flatpak`) run in a separate session; Task 7 (the
+submission PR) still waits for the `v0.4.0` tag.
+
 ## #197: A real setup step for apt/snap/flatpak publishing - credentials/signing, tailored per channel and per machine
 
 *(Renumbered from #196 to #197 on 2026-09-07, when merging main into BACKLOG #189's branch: both
