@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import json
 import os
+import tempfile
 from dataclasses import asdict, dataclass
 from datetime import datetime
 from pathlib import Path
@@ -170,10 +171,21 @@ def output_directory_is_reachable(directory: Path) -> bool:
     .deb a read-only folder. The caller then runs the Screenshot Save
     Location picker once - through the portal, whose document grant is
     writable regardless of plugs - instead of raising later in Save.
+
+    The probe is a real create-and-delete of a temp file (BACKLOG #216):
+    mkdir on an existing folder and os.access both answer "yes" where an
+    actual write is denied under AppArmor.
     """
     try:
         directory.mkdir(parents=True, exist_ok=True)
-    except PermissionError:
+        # A real write, not mkdir/os.access (BACKLOG #216): on an existing
+        # folder mkdir(exist_ok=True) returns EEXIST before AppArmor's
+        # hook runs, and os.access is not AppArmor-mediated - both said
+        # "fine" for a folder the snap may not write into. Any OSError
+        # (EACCES, EROFS, a vanished mount) means unreachable.
+        with tempfile.NamedTemporaryFile(dir=directory, prefix=".orcshot-probe-"):
+            pass
+    except OSError:
         return False
     if detect_channel() != "flatpak":
         return True

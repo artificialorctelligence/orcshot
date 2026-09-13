@@ -10,6 +10,8 @@ import os
 from datetime import datetime
 from pathlib import Path
 
+import pytest
+
 from orcshot.settings import (
     CONFIG_FILENAME,
     EXTERNAL_EDITOR_AUTO,
@@ -753,13 +755,39 @@ class TestOutputDirectoryIsReachable:
         assert target.is_dir()
 
     def test_false_when_the_directory_cannot_be_created(self, tmp_path, monkeypatch):
-        def denied(self, *args, **kwargs):
-            raise PermissionError(13, "Permission denied", str(self))
+        if os.geteuid() == 0:
+            pytest.skip("root ignores directory permissions")
+        parent = tmp_path / "locked"
+        parent.mkdir()
+        parent.chmod(0o500)
+        try:
+            for channel in ("snap", "deb", "flatpak"):
+                monkeypatch.setattr("orcshot.settings.detect_channel", lambda c=channel: c)
+                assert output_directory_is_reachable(parent / "new") is False, channel
+        finally:
+            parent.chmod(0o700)
 
-        monkeypatch.setattr(Path, "mkdir", denied)
-        for channel in ("snap", "deb", "flatpak"):
-            monkeypatch.setattr("orcshot.settings.detect_channel", lambda c=channel: c)
-            assert output_directory_is_reachable(tmp_path / "denied") is False, channel
+    def test_false_when_the_directory_exists_but_is_not_writable(self, tmp_path, monkeypatch):
+        # BACKLOG #216: mkdir(exist_ok=True) on an existing folder raises
+        # nothing even where a write would be denied (EEXIST precedes the
+        # permission check), so the probe has to actually write.
+        if os.geteuid() == 0:
+            pytest.skip("root ignores directory permissions")
+        existing = tmp_path / "readonly"
+        existing.mkdir()
+        existing.chmod(0o500)
+        try:
+            for channel in ("snap", "deb"):
+                monkeypatch.setattr("orcshot.settings.detect_channel", lambda c=channel: c)
+                assert output_directory_is_reachable(existing) is False, channel
+        finally:
+            existing.chmod(0o700)
+
+    def test_leaves_no_probe_file_behind(self, tmp_path, monkeypatch):
+        monkeypatch.setattr("orcshot.settings.detect_channel", lambda: "deb")
+        target = tmp_path / "Screenshots"
+        assert output_directory_is_reachable(target) is True
+        assert list(target.iterdir()) == []
 
 
 class TestIsPortalDocumentPath:

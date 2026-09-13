@@ -3434,6 +3434,8 @@ class EditorWindow(Gtk.Window):
         try:
             if dialog.run() == Gtk.ResponseType.ACCEPT:
                 output_format = dialog.get_choice("format") or initial
+                chosen_format = output_format
+                typed = None
                 path = Path(dialog.get_filename())
                 if is_portal_document_path(path):
                     # The portal hands over one exact filename and
@@ -3447,8 +3449,6 @@ class EditorWindow(Gtk.Window):
                     # a portal dialog can't, so say so when they differ
                     # instead of silently writing the other format.
                     typed = path.suffix.lower().lstrip(".")
-                    if typed != output_format:
-                        _explain_format_followed_extension(self, path.name, typed or "png")
                     output_format = typed if typed in dict(formats) else "png"
                 elif path.suffix.lower().lstrip(".") != output_format:
                     path = path.with_suffix(f".{output_format}")
@@ -3462,6 +3462,10 @@ class EditorWindow(Gtk.Window):
                     self._maybe_show_quality_dialog(output_format)
                     jpeg_quality = get_output_settings().jpeg_quality
                     save_image_to_file(self._composited_image(), path, jpeg_quality=jpeg_quality)
+                if typed is not None and typed != chosen_format:
+                    # After the write, not before (BACKLOG #216 found it
+                    # announcing a save that then failed).
+                    _explain_format_followed_extension(self, path.name, output_format)
                 self._saved_generation = self.undo_redo.generation
                 if output_settings.copy_path_to_clipboard:
                     Gtk.Clipboard.get_default(self.get_display()).set_text(str(path), -1)  # noqa: i18n (clipboard data, not UI text)
