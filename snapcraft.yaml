@@ -43,6 +43,13 @@ apps:
       # PulseAudio/PipeWire, but that's an inference, not a confirmed
       # prior gap, so stated as such rather than as fact.
       - audio-playback
+      # BACKLOG #212: Save writes to the configured output directory
+      # (~/Pictures/Screenshots by default). home is auto-connected on
+      # classic distros, needs no store review, and covers every
+      # non-hidden path under the real home. A folder outside home goes
+      # through the FileChooser portal instead (settings.
+      # output_directory_is_reachable) - no removable-media plug.
+      - home
 
 slots:
   dbus-orcshot:
