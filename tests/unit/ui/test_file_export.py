@@ -13,7 +13,12 @@ from gi.repository import GdkPixbuf
 
 import numpy as np
 
-from orcshot.ui.file_export import orcshot_cache_dir, orcshot_visible_temp_dir, save_image_to_file
+from orcshot.ui.file_export import (
+    encoded_format,
+    orcshot_cache_dir,
+    orcshot_visible_temp_dir,
+    save_image_to_file,
+)
 from orcshot.ui.gdk_convert import pixbuf_to_numpy
 
 
@@ -44,6 +49,13 @@ def test_defaults_to_png_for_an_unrecognized_extension(tmp_path):
     # of the odd extension on disk.
     loaded = GdkPixbuf.Pixbuf.new_from_file(str(path))
     assert loaded.get_width() == image.shape[1]
+
+
+def test_encoded_format_matches_what_save_image_to_file_actually_writes():
+    assert encoded_format("x.jpeg") == "jpeg"
+    assert encoded_format("x.tif") == "tiff"
+    assert encoded_format("x.webp") == "png"
+    assert encoded_format("x") == "png"
 
 
 def test_infers_jpeg_from_extension(tmp_path):

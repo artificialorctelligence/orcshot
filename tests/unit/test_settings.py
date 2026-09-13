@@ -777,7 +777,7 @@ class TestOutputDirectoryIsReachable:
         existing.mkdir()
         existing.chmod(0o500)
         try:
-            for channel in ("snap", "deb"):
+            for channel in ("snap", "deb", "flatpak"):
                 monkeypatch.setattr("orcshot.settings.detect_channel", lambda c=channel: c)
                 assert output_directory_is_reachable(existing) is False, channel
         finally:

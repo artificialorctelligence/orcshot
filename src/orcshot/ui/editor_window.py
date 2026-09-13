@@ -251,7 +251,7 @@ from orcshot.ui.color_dialog import show_color_picker
 from orcshot.ui.composite import composite_to_numpy
 from orcshot.ui.effects import resize_image, torn_edge_image
 from orcshot.ui.gdk_convert import pixbuf_to_numpy
-from orcshot.ui.file_export import orcshot_cache_dir, save_image_to_file
+from orcshot.ui.file_export import encoded_format, orcshot_cache_dir, save_image_to_file
 from orcshot.ui.orcshot_file import (
     InvalidOrcshotFileError,
     load_objects_file,
@@ -3464,8 +3464,12 @@ class EditorWindow(Gtk.Window):
                     save_image_to_file(self._composited_image(), path, jpeg_quality=jpeg_quality)
                 if typed is not None and typed != chosen_format:
                     # After the write, not before (BACKLOG #216 found it
-                    # announcing a save that then failed).
-                    _explain_format_followed_extension(self, path.name, output_format)
+                    # announcing a save that then failed). Names the
+                    # format save_image_to_file actually encoded by
+                    # extension, not output_format's dict-membership
+                    # guess - those disagree for e.g. "shot.jpeg" with
+                    # PNG chosen (BACKLOG #212).
+                    _explain_format_followed_extension(self, path.name, encoded_format(path))
                 self._saved_generation = self.undo_redo.generation
                 if output_settings.copy_path_to_clipboard:
                     Gtk.Clipboard.get_default(self.get_display()).set_text(str(path), -1)  # noqa: i18n (clipboard data, not UI text)

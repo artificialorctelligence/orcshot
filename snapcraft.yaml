@@ -17,8 +17,8 @@ apps:
     # DesktopFile=. and xdg-desktop-portal grants every picked document to
     # app id "." - the snap's by-app document mount stays empty and every
     # portal file dialog fails after the pick. Same file the Flatpak ships;
-    # snapcraft rewrites Exec to the snap command and registers it as
-    # /var/lib/snapd/desktop/applications/orcshot_org.orcshot.Orcshot.desktop.
+    # snapcraft copies it to meta/gui/<app>.desktop and snapd registers it as
+    # /var/lib/snapd/desktop/applications/orcshot_orcshot.desktop.
     desktop: usr/share/applications/org.orcshot.Orcshot.desktop
     # BACKLOG #206: snapcraft's gnome extension. It supplies the GNOME
     # platform content snap (GTK, gdk-pixbuf loaders, XKB data, mime
@@ -81,8 +81,11 @@ parts:
     # desktop file and icon the `desktop:` key above points at must be
     # put in place here. The icon is the same non-square PNG the .deb
     # ships at hicolor/128x128 (debian/orcshot.install); the gnome
-    # extension's XDG_DATA_DIRS makes $SNAP/usr/share/icons resolvable,
-    # so Icon=org.orcshot.Orcshot in the desktop file finds it.
+    # extension's XDG_DATA_DIRS makes $SNAP/usr/share/icons resolvable to
+    # the app's own icon lookup, so Icon=org.orcshot.Orcshot in the desktop
+    # file finds it there. The launcher entry snapd registers is a separate
+    # copy with no XDG_DATA_DIRS of its own - its icon isn't resolved
+    # (BACKLOG #217).
     override-build: |
       craftctl default
       install -Dm644 org.orcshot.Orcshot.desktop "$CRAFT_PART_INSTALL/usr/share/applications/org.orcshot.Orcshot.desktop"

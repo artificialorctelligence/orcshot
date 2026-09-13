@@ -60,6 +60,12 @@ def _flatten_to_rgb_pixbuf(image: np.ndarray) -> GdkPixbuf.Pixbuf:
     )
 
 
+def encoded_format(path) -> str:
+    """The format save_image_to_file will actually write for this
+    name - by extension, PNG for anything it does not know."""
+    return _EXTENSION_TO_TYPE.get(Path(path).suffix.lower(), "png")
+
+
 def save_image_to_file(image: np.ndarray, path, jpeg_quality: int = None) -> None:
     """``jpeg_quality`` (0-100, faithful port of Windows' own
     OutputFileJpegQuality - task #95's Output tab, settings.

@@ -68,6 +68,11 @@ runtime dir, but snapd mounts the portal at the user's). Docstring cites `docume
 snap case. No channel detection — the two prefixes are checked unconditionally, which is also
 correct on a plain install (the second is simply never a real path there).
 
+This branch only fires once the portal actually hands back a document-portal path in the first
+place; with `home` connected and the save inside the default `~/Pictures/Screenshots`, snapd's
+`file-access=read-write` policy makes the portal answer with the *real* path instead, so this
+guard (and the "Saved as" dialog it protects) is never reached — see Scenario B below.
+
 ### 3. `settings.output_directory_is_reachable` — a denied folder is unreachable
 
 ```python
@@ -120,12 +125,12 @@ Fix, in `snapcraft.yaml`: the `orcshot` part's `override-build` installs the exi
 `org.orcshot.Orcshot.desktop` (the Flatpak's, `Exec=orcshot`, `Icon=org.orcshot.Orcshot`) to
 `usr/share/applications/` and the icon PNG to
 `usr/share/icons/hicolor/128x128/apps/org.orcshot.Orcshot.png` (the same non-square asset the
-.deb ships at that size), and `apps.orcshot.desktop:` names that file. snapcraft rewrites `Exec`
-to the snap command and registers the file as
-`/var/lib/snapd/desktop/applications/orcshot_org.orcshot.Orcshot.desktop`; the gnome extension's
-`XDG_DATA_DIRS` makes the hicolor icon resolvable. Whether Ubuntu 26.04's portal then maps the
-desktop id back to `snap.orcshot` is the thing Scenario B re-verifies — it is the hypothesis,
-stated as one.
+.deb ships at that size), and `apps.orcshot.desktop:` names that file. snapcraft copies it to
+`meta/gui/orcshot.desktop` and rewrites `Exec` to the snap command; snapd registers it as
+`/var/lib/snapd/desktop/applications/orcshot_orcshot.desktop`; the gnome extension's
+`XDG_DATA_DIRS` makes the hicolor icon resolvable to the app's own icon lookup. Whether Ubuntu
+26.04's portal then maps the desktop id back to `snap.orcshot` is the thing Scenario B
+re-verifies — it is the hypothesis, stated as one.
 
 ### 6. The reachability probe must actually write (BACKLOG #216)
 
@@ -180,12 +185,16 @@ name owner first (`GetConnectionUnixProcessID` + `/proc/<pid>/cgroup` containing
   on the VM, and nothing new under `~/snap/orcshot/`. — PASS 2026-09-12 (run 34731021927,
   snap x1, VERIFICATION.md Scenario 4). Toolbar icons render (#214 is a log line only).
 - **A2. Launcher entry.** After install, `/var/lib/snapd/desktop/applications/
-  orcshot_org.orcshot.Orcshot.desktop` exists, `snap routine portal-info <pid>` reports that
+  orcshot_orcshot.desktop` exists, `snap routine portal-info <pid>` reports that
   desktop file (not `.`), and the app appears in GNOME's app grid with its icon.
 - **B. Save As through the portal under snap.** Editor → *Save As…*: the portal dialog appears;
-  type `snap-test` (no extension), choose JPEG: the *Saved as PNG* dialog appears, then
-  `~/Pictures/Screenshots/snap-test` exists as PNG and **no** `.xdp-snap-test*` file exists
-  anywhere in that folder. This is the section-2 fix; it fails on #210's code as merged.
+  type `snap-test` (no extension), choose JPEG. With `home` connected and the target inside
+  `~/Pictures/Screenshots`, the portal answers snapd's own `file-access=read-write` and hands
+  back the *real* path, not a document-portal one — so the write lands directly at
+  `~/Pictures/Screenshots/snap-test.jpg`, JPEG, and **no** "Saved as" dialog appears (the
+  extension the portal returned already matches the chosen format). The document-portal path —
+  and the "Saved as" dialog for a mismatched extension — is exercised instead by Scenario C
+  (a folder outside `home`).
 - **C. Folder outside home.** `output_directory` = `/media/orcshot-test` (owned by the user,
   no plug covers it). *Save*: the portal folder picker appears once; pick it; file lands there;
   config now a `/run/user/1000/doc/…` path; second *Save* silent.
