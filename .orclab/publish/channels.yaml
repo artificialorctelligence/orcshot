@@ -89,16 +89,23 @@ desktop:
         prepare: >-
           RUN=$(gh run list --workflow=snap.yml --commit "$(git rev-parse HEAD)" --status success --json databaseId --jq '.[0].databaseId');
           test -n "$RUN" || { echo "no successful snap.yml run for $(git rev-parse HEAD) - push and wait for CI first"; exit 1; };
-          rm -rf dist/snap && gh run download "$RUN" --name orcshot-snap --dir dist/snap
+          rm -rf dist/snap && gh run download "$RUN" --name orcshot-snap --dir dist/snap &&
+          rm -f "$HOME/snap/review-tools/common/"orcshot_*.snap && cp dist/snap/*.snap "$HOME/snap/review-tools/common/" &&
+          { review-tools.snap-review "$HOME/snap/review-tools/common/"orcshot_*.snap | tee dist/snap/review.txt; true; } &&
+          test "$(grep -c 'human review required' dist/snap/review.txt)" = "$(grep -c 'dbus-orcshot:dbus' dist/snap/review.txt)"
         artifact: "dist/snap/orcshot_$(grep -m1 '^version' pyproject.toml | sed -E 's/^version *= *\"([^\"]+)\"/\\1/')_amd64.snap"
-        preflight: [no-vcs, no-tool-state]
+        timeout: 1800
         action: "snapcraft upload --release=beta dist/snap/orcshot_$(grep -m1 '^version' pyproject.toml | sed -E 's/^version *= *\"([^\"]+)\"/\\1/')_amd64.snap"
         confirm:
           url: "https://snapcraft.io/orcshot"
         metrics: "snapcraft metrics orcshot --format=json --name weekly_installed_base_by_operating_system"
         requirements:
-          - "Run review-tools on the downloaded artifact first (RELEASING.md's step shows the
-             command). Any `human review required` line other than none is a store hold."
+          - "Review-tools now runs automatically inside `prepare:` above (requires
+             `sudo snap install review-tools` once on this machine). The only `human review
+             required` line it is ever expected to print is the dbus slot's
+             (`dbus-orcshot:dbus`) - the store's own granted declaration, which the local tool
+             cannot see. Any other line, or the dbus one going missing, fails `prepare:`'s own
+             count check and stops the run before upload."
           - "`snapcraft whoami` must succeed on this machine (login done 2026-09-11, expires 2027-09-11)."
           - "The dbus slot declaration must already be granted (BACKLOG #198, forum request from
              the held first upload); until it is, an upload is held and never reaches beta."

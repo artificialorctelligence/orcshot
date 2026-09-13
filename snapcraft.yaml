@@ -5,8 +5,8 @@ grade: stable
 # BACKLOG #219: the Snap Store listing icon (meta/gui/icon.*). Same mark as every other
 # channel; direflail chose a: the Flatpak's square wrapper (org.orcshot.Orcshot.yaml's own
 # generated icon, committed once) on 2026-09-13. snapcraft also rewrites the launcher desktop
-# file's Icon= to this file, superseding #217's sed; #217's CI assertion still holds and
-# proves it.
+# file's Icon= to this file, superseding #217's sed; #217's CI assertion still passes and
+# guards the outcome.
 icon: snap/gui/icon.svg
 summary: Screenshot capture and annotation tool
 description: |
@@ -101,7 +101,11 @@ parts:
       # ${SNAP} path is the one form snapd rewrites to a host-readable
       # /snap/orcshot/current/... path (wrappers/desktop.go rewriteIconLine).
       # Edited on the installed copy only: the source file's theme name is
-      # right for the Flatpak and the .deb.
+      # right for the Flatpak and the .deb. Now a fallback rather than what
+      # actually resolves the launcher icon: since #219 set a top-level
+      # `icon:`, snapcraft's own rewrite overwrites this sed's Icon= line
+      # with a ${SNAP}/meta/gui/icon.<ext> path before snapd ever sees it.
+      # Kept in case `icon:` is ever removed.
       sed -i 's|^Icon=.*|Icon=${SNAP}/usr/share/icons/hicolor/128x128/apps/org.orcshot.Orcshot.png|' "$CRAFT_PART_INSTALL/usr/share/applications/org.orcshot.Orcshot.desktop"
     # PyGObject and pycairo deliberately ship no PyPI wheels (they must link
     # the build machine's own libcairo/gobject-introspection), so pip builds

@@ -70,9 +70,9 @@ jobs:
         run: |
           # A staged library older than the platform snap's loader shows up here as
           # `g_module_open() failed for .../libpixbufloader_*.so: undefined symbol ...`.
-          out=$(snap run --shell orcshot -c "python3 -c 'import gi; gi.require_version(\"GdkPixbuf\", \"2.0\"); from gi.repository import GdkPixbuf; print([f.get_name() for f in GdkPixbuf.Pixbuf.get_formats()])'" 2>&1)
+          out=$(snap run --shell orcshot -c "python3 -c 'import gi; gi.require_version(\"GdkPixbuf\", \"2.0\"); from gi.repository import GdkPixbuf; print([f.get_name() for f in GdkPixbuf.Pixbuf.get_formats()])'" 2>&1) || { echo "$out"; exit 1; }
           echo "$out"
-          ! echo "$out" | grep -q 'g_module_open() failed'
+          if echo "$out" | grep -q 'g_module_open() failed'; then exit 1; fi
           echo "$out" | grep -q "'svg'"
 
       - name: Install the extension the way a user would (unpacked into the user dir, unconfined)

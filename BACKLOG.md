@@ -452,7 +452,14 @@ parser - `delegates_to` only matches a bare `/orc-publish <path>` line, found 20
 applying it, so the review-tools command had to move to its own fenced block below a bare `**Run:**`
 line; (c) its RELEASING step's review-tools command ran `review-tools.snap-review <the .snap>`
 directly on the downloaded file, but review-tools (itself a snap) can only read files under
-`~/snap/review-tools/common/`, so the step needed a `cp` into that directory first.
+`~/snap/review-tools/common/`, so the step needed a `cp` into that directory first; (d) its leaf
+carried `preflight: [no-vcs, no-tool-state]`, but `/orc-publish`'s inspector reads tar/zip only -
+a `.snap` (squashfs) raises `UnsupportedArchive` and every real run comes back *refused*, found in
+final review 2026-09-13 and fixed by deleting the key; (e) its review-tools gate was written as a
+separate manual step run at release time expecting zero `human review required` lines, which is
+never true once the dbus slot's declaration is granted (the store's own hold, invisible to the
+local tool) - folded into `prepare:` instead, comparing the count of that line against the known
+dbus one so the gate can still fail on anything new.
 
 Verified by hand (no `/orc-publish` invocation - not available in this session): the `prepare:`
 command run directly against HEAD (60e8658) downloaded a real successful `snap.yml` run and
@@ -2243,3 +2250,7 @@ rewrite superseded the `sed` as the coupling note predicted), the file exists, a
 `sha256sum` on the VM matches the committed `snap/gui/icon.svg` byte-for-byte - the exact chosen
 asset is what ships and what the launcher now resolves. App-grid visual confirmation done
 separately via the VM's own GUI window.
+
+**Note (final review, 2026-09-13):** review-tools was run against d11dd44's artifact as part of
+the Track 1 fix wave - exactly one `human review required` line, the dbus slot's; the
+`desktop_file_icon` lint passed, confirming this icon change itself introduced no new store hold.

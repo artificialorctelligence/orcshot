@@ -263,10 +263,11 @@ flagged as broken.
 - Store login and name registration: check with `snapcraft whoami | sed 's/\(email:\).*/\1 <redacted>/'`
   and `snapcraft names`. If missing: `snapcraft login`, then `snapcraft register orcshot`.
   Both done 2026-09-11; the login expires 2027-09-11.
-- The `dbus` slot declaration for `org.orcshot.Orcshot`: the first upload was held with
-  `human review required due to 'deny-connection' constraint` and a request posted in the
-  snapcraft forum's `store-requests` category (BACKLOG #198). Check: `snapcraft status orcshot`
-  lists no held revision, or `snap info orcshot` shows a channel map.
+- The `dbus` slot declaration for `org.orcshot.Orcshot`: the first upload is held with
+  `human review required due to 'deny-connection' constraint`; post a request in the
+  snapcraft forum's `store-requests` category (BACKLOG #198). Check: the snapcraft.io
+  dashboard's revisions page (`https://snapcraft.io/orcshot/releases`) shows the revision
+  approved, or `snap info orcshot` shows a channel map after the first release.
 - The store listing (screenshots, category, description) is set in the snapcraft.io dashboard
   (`https://snapcraft.io/orcshot/listing`); the icon comes from `snapcraft.yaml`'s `icon:` (#219).
 
@@ -274,14 +275,14 @@ flagged as broken.
 
 **Run:** /orc-publish desktop.python.linux.snap
 
-Before confirming the real run, put the store's own reviewer on the file it just downloaded:
+The run's `prepare:` step already puts the downloaded artifact through review-tools and prints
+the result (requires `sudo snap install review-tools` once on this machine) before the upload can
+proceed - see `channels.yaml`'s `desktop.python.linux.snap` leaf. Expected: `dist/snap/review.txt`'s
+only `human review required` line is the dbus slot's - the store's own granted declaration, which
+the local tool cannot see and always reports as a hold. Any other line fails `prepare:`'s own
+check and stops the run before upload.
 
-```bash
-cp dist/snap/orcshot_*.snap ~/snap/review-tools/common/ && review-tools.snap-review ~/snap/review-tools/common/orcshot_*.snap
-```
-
-(`sudo snap install review-tools` once.) Expected: no `human review required` lines. Confirm the
-publish with `snap info orcshot`: the new version is on `beta`. Promote to `stable` only after
+Confirm the publish with `snap info orcshot`: the new version is on `beta`. Promote to `stable` only after
 one real `snap install --beta orcshot` on a clean machine, and only once extensions.gnome.org
 lists `orcshot@orcshot.org` (spec 2026-09-12 decision 6). Fallback if the artifact is gone:
 `snapcraft pack` locally (LXD/Multipass) and upload that, noting it is not the VM-tested binary.
