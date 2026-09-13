@@ -469,6 +469,24 @@ produced `dist/snap/orcshot_0.3.0_amd64.snap`; run again against a fake commit S
 `delegates_to` as `/orc-publish desktop.python.linux.snap`. No upload has happened. The held first
 upload and the dbus forum request follow on main (Task 4).
 
+**Update 2026-09-13 - first upload held, forum request waiting on a forum account.** PR #28
+merged as `6a87b4c`. `review-tools.snap-review` on that merge commit's CI artifact
+(`orcshot_0.3.0_amd64.snap`, snap.yml run 34779570476, sha256 `2322bbf9efb8bca7...`): exactly one
+`human review required` line, `declaration-snap-v2:slots_connection:dbus-orcshot:dbus`
+(`deny-connection`), nothing else. direflail ran `snapcraft upload` on it without `--release`:
+**revision 1**, uploaded 2026-09-13T20:17:32Z, status "will need manual review", on no channel -
+the held revision the declaration request refers to; it will never be released. `/orc-publish`'s
+real dry run of the leaf with the artifact present exited 0 (no preflight refusal, timeout 1800s).
+
+Blocked, not by us: `forum.snapcraft.io` is a separate Discourse account from the Ubuntu One SSO
+that `dashboard.snapcraft.io` and `snapcraft` use (verified live 2026-09-13 - the forum's login
+page is a plain email/password form with no SSO button). direflail created a forum account the same
+day; it is awaiting manual moderator approval before it can post. The `store-requests` post
+(title "dbus slot declaration request for orcshot (org.orcshot.Orcshot)", body drafted in the
+plan's Task 4 Step 3 with revision 1 filled in) goes up as soon as the account is approved. Until
+the declaration is granted, the 0.4.0 release's step 12 upload would also be held - so the 0.4.0
+release waits on this grant, and the Flathub track waits on 0.4.0.
+
 ## #197: A real setup step for apt/snap/flatpak publishing - credentials/signing, tailored per channel and per machine
 
 *(Renumbered from #196 to #197 on 2026-09-07, when merging main into BACKLOG #189's branch: both

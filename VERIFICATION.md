@@ -308,3 +308,22 @@ without it).
 - Left on the VM: snap rev x3 (commit 44987e6) installed and stopped; the Flatpak reinstalled;
   the .deb untouched; nothing new under `~/Pictures/Screenshots`; screenshots on the host under
   the session scratchpad.
+
+## Scenario 6: Snap Store: install from `beta` on a clean 26.04 VM (spec 2026-09-12)
+
+Scenario for docs/superpowers/specs/2026-09-12-store-onboarding-design.md §2.5 / §6. Runs once
+the first revision is released to `beta` by the 0.4.0 release (RELEASING.md step 12); until then
+this records the store-side state that precedes it.
+
+- **Preconditions met 2026-09-13.** `review-tools.snap-review` on `main`'s merge-commit artifact
+  (`6a87b4c`, snap.yml run 34779570476, `orcshot_0.3.0_amd64.snap`, sha256 `2322bbf9efb8bca7…`):
+  exactly one `human review required` line, the `dbus` slot's `deny-connection` constraint.
+  `snapcraft upload` without `--release` → **revision 1**, "will need manual review", on no
+  channel. The `dbus` declaration request waits on direflail's forum account being approved
+  (BACKLOG #198).
+- **Steps, when a revision is on `beta`:** on a fresh snapshot of the Ubuntu 26.04 VM with no
+  Orcshot .deb or Flatpak installed: `sudo snap install --beta orcshot`; `snap connections
+  orcshot | grep -E '^home '` shows `home` connected; launch from the app grid (icon is the mark,
+  not a placeholder); first-run dialog offers extensions.gnome.org; one full-screen capture →
+  Save lands in `~/Pictures/Screenshots`; `journalctl --user -b | grep -c g_module_open` → 0.
+- **Result:** pending - first released revision is the 0.4.0 release.
