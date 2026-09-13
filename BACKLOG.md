@@ -1841,3 +1841,201 @@ MIME registration, which Flatpak exports.
 already handle a snap-confined *target*; whether a strictly confined Orcshot *snap* can exec host
 programs is a separate question not examined here (it generally cannot without `classic` or a
 matching interface) - note it when #212 is picked up rather than opening a fourth entry now.
+
+## #214: CI-built snap: GdkPixbuf's SVG loader fails to load (undefined symbol rsvg_handle_get_pixbuf_and_error) - staged librsvg is older than the platform snap's loader
+
+Found 2026-09-12 by #212's live verification on the Ubuntu 26.04 VM (plan Task 5, the CI snap
+from PR #26 run 34728131086, revision x1). At startup the snap logs
+`g_module_open() failed for .../libpixbufloader_svg.so: undefined symbol:
+rsvg_handle_get_pixbuf_and_error`. The 0.3.0 snap installed on the same VM days earlier (x4)
+does not log it - so the GNOME platform content snap the `gnome` extension resolves at build time
+moved under us between the two builds, and the loader it now ships expects a librsvg symbol the
+staged one lacks.
+
+**Mechanism (read from snapcraft.yaml, not yet proven by unpacking the snap):** `stage-packages`
+lists `gir1.2-rsvg-2.0`, which drags in Ubuntu 24.04's `librsvg2-2` into `$SNAP`; the platform
+snap provides its own, newer `libpixbufloader_svg.so` (built against a newer librsvg exporting
+`rsvg_handle_get_pixbuf_and_error`), and the loader resolves the older staged library first.
+Confirm by `ldd`/`nm` inside `snap run --shell orcshot` before fixing.
+
+**Consequence:** GdkPixbuf cannot load SVGs inside the snap. Not yet observed what that breaks
+in the UI - the app's own icons (`ui/icons.py`) and `Insert SVG` (Rsvg via GI, a different
+path) are the candidates. Plan Task 5 Scenario B records whether the editor's toolbar icons
+render; if they don't, this is a Snap Store blocker alongside #212/#198, not a log nit.
+
+**Fix candidates:** drop `gir1.2-rsvg-2.0`/librsvg from `stage-packages` if the platform snap
+already provides `Rsvg-2.0` typelib + library (the same reasoning that removed GTK/pixbuf
+staging under #206), or pin the platform snap's track/channel so the two stop drifting apart.
+Check `THIRD_PARTY_NOTICES.md` if a staged package is removed.
+
+**Scope boundary:** snap only. Flatpak builds against org.gnome.Platform//50's own librsvg
+(confirmed working in #210's live runs); the .deb uses the distro's matched pair.
+
+## #215: The snap ships no desktop file, so on Ubuntu 26.04 every portal file/folder pick is granted to app id "." and is unreachable from inside the snap (Save As and the folder picker both fail) (RESOLVED 2026-09-12)
+
+Found 2026-09-12 by #212's live verification on the Ubuntu 26.04 VM (VERIFICATION.md
+Scenario 4 B/C). `snapcraft.yaml`'s `orcshot` app has no `desktop:` key and there is no
+`snap/gui/`; `/snap/orcshot/x1/meta/gui/` is empty and nothing lands in
+`/var/lib/snapd/desktop/applications/`. Two consequences, one proven, one inferred.
+
+**Proven: every portal file or folder pick is unreachable from inside the snap on Ubuntu
+26.04.** The chain, each link observed on the VM: `snap routine portal-info <pid>` - what
+xdg-desktop-portal asks snapd about the caller - reports `DesktopFile=.` (snapd's
+`cmd_routine_portal_info.go` does `filepath.Base(app.DesktopFile)` on an empty string). Ubuntu
+26.04's xdg-desktop-portal `1.21.1+ds-1ubuntu3` carries `ubuntu/snaps/xdp-app-info-snap-Use-the-
+desktop-ID-as-app-ID-and-snap-I.patch` (upstream PR #1764): a snap's app id *is* its desktop id,
+so the Save As document was registered to app id `.` - `org.freedesktop.portal.Documents.Info
+5501d0c5` → `{'.': ['read', 'write', 'grant-permissions']}` - and xdg-document-portal logged
+`error: Invalid id .: Name can't start with a period`. snapd bind-mounts
+`/run/user/1000/doc/by-app/snap.orcshot` over `/run/user/1000/doc` in the snap's mount namespace
+(the app's `/proc/<pid>/mountinfo`), and that per-app view is empty. So the write to
+`/run/user/1000/doc/5501d0c5/snap-test` failed with `No such file or directory` *after* the
+*Saved as PNG* dialog had already been shown; no file, no `.xdp-*` remnant. The same portal on
+the same VM serves the Flatpak fine (its grant is under `org.orcshot.Orcshot`, Scenario 3 F).
+Upstream 1.21.1 unpatched would use `snap.orcshot` as the id; this is Ubuntu-specific but
+Ubuntu is where the snap ships.
+
+**Inferred, not checked:** with no desktop file snapd installs no launcher, so the snap has no
+entry in the GNOME app grid / dock - it can only be started from a terminal or by D-Bus
+activation. Confirm when fixing.
+
+**Fix shape:** give the snap app a desktop file (`apps.orcshot.desktop:` pointing at the
+installed `org.orcshot.Orcshot.desktop`, or `snap/gui/orcshot.desktop`); snapd then installs
+`orcshot_<basename>.desktop` with `X-SnapInstanceName=orcshot` and `portal-info` reports it, the
+app id becomes that desktop id, and Ubuntu's `document-portal-Use-app-permissions-ID` patches
+map it back to the `snap.orcshot` permissions id the bind mount expects. That last step is
+the hypothesis to verify live: Save As to `snap-test` must produce the file, and the folder
+picker of #212's Scenario C must yield a folder the snap can write. Also check that the
+icon/`Icon=` resolves under snapd's desktop-file rewriting. Blocks #212's resolution and the
+snap half of #198.
+
+**Scope boundary:** snap only; the Flatpak's portal path is verified (Scenario 3) and the .deb
+does not use the document portal.
+
+**Resolved for real, not just tracked** (2026-09-12, commit 6ac166b on the #212 branch, PR #26):
+`snapcraft.yaml`'s `orcshot` app got `desktop: usr/share/applications/org.orcshot.Orcshot.desktop`
+and an `override-build` that installs that file and the 128x128 PNG into the part. Verified on
+the CI snap (run 34732589935, rev x2) on the Ubuntu 26.04 VM, VERIFICATION.md Scenario 4 re-run:
+`/snap/orcshot/x2/meta/gui/orcshot.desktop` exists, snapd registered
+`/var/lib/snapd/desktop/applications/orcshot_orcshot.desktop` (`<snap>_<app>`, not the
+`orcshot_org.orcshot.Orcshot.desktop` guessed above - a naming detail), `snap routine
+portal-info <pid>` → `DesktopFile=orcshot_orcshot.desktop`, and the hypothesis held: the
+folder picker's grant (Scenario C) is a real document, `"/run/user/1000/doc/752c00e7/orcshot-test"`,
+that the snap writes into (three files across C and D). The inferred half is confirmed too -
+the app grid now lists the snap. One twist worth knowing: with the app id valid *and* `home`
+connected, Save As inside home (Scenario B) no longer goes through the document portal at all -
+xdg-document-portal asks `snap routine file-access orcshot <path>`, gets `read-write`, and
+returns the real path, so `snap-test.jpg` landed directly in `~/Pictures/Screenshots`; only
+paths the snap cannot reach (`file-access` → `hidden`, e.g. `/media/orcshot-test`) become
+`/run/user/1000/doc/…` documents. The "also check the icon" ask was checked and failed: the
+`Icon=org.orcshot.Orcshot` line survives snapd's rewriting untouched and resolves on the VM only
+through the Flatpak's exported SVG - tracked as #217.
+
+## #216: output_directory_is_reachable lets an existing folder the process cannot write into through: its mkdir probe never reaches the permission check, so the picker does not run and Save raises (RESOLVED 2026-09-12)
+
+Found 2026-09-12 by #212's live verification on the Ubuntu 26.04 VM (VERIFICATION.md
+Scenario 4 C). `settings.output_directory_is_reachable` (#212, this branch) decides "the folder
+cannot be created" by `directory.mkdir(parents=True, exist_ok=True)` and catching
+`PermissionError`. That only fires when the folder does not exist yet. With `output_directory`
+= `/media/orcshot-test` (existing, owned by the user, covered by no plug), *Save* in the snap
+showed **no** picker and `_quick_save` raised `Failed to open "/media/orcshot-test/2026-09-12
+20_57_30.png" for writing: Permission denied` - capture lost, nothing on screen,
+`filename_counter` advanced. Proven with `snap run --shell orcshot`: `Path.mkdir(...,
+exist_ok=True)` on the existing folder raises nothing (the kernel answers EEXIST in
+`filename_create` before the LSM `path_mkdir` hook runs), `os.access(dir, os.W_OK)` returns
+True (AppArmor does not mediate `access(2)`), `mkdir` of a new subfolder and `open(..., "w")`
+both raise `PermissionError`. The Task 2 review had deferred exactly this: "denial test mocks
+Path.mkdir rather than a real chmod denial".
+
+**Consequence:** on every channel an existing folder the process cannot write into passes
+the guard: under the snap any existing path outside `home`'s grant, on the .deb a read-only
+folder. The spec's "a folder that cannot be created is unreachable" is true but too narrow -
+the case that matters is "cannot be written into".
+
+**Fix shape:** probe by creating, not by `mkdir`: after the `mkdir`, open a temp file in the
+folder (`tempfile.NamedTemporaryFile(dir=directory)` / `O_CREAT|O_EXCL` + unlink) and treat
+`PermissionError` (and `OSError` for a read-only mount, EROFS - the other deferred note) as
+unreachable. Keep the Flatpak `st_dev` check. Then Scenario C's picker appears - and lands on
+the snap desktop-file entry until that is fixed.
+
+**Scope boundary:** the guard only; the picker and the portal grant are #212 / the desktop-file
+entry.
+
+**Resolved for real, not just tracked** (2026-09-12, commit 70d0c40 on the #212 branch, PR #26):
+`output_directory_is_reachable` now does the `mkdir` and then a real
+`tempfile.NamedTemporaryFile(dir=directory, prefix=".orcshot-probe-")` create-and-delete, and
+any `OSError` (EACCES, EROFS, a vanished mount) means unreachable; the unit tests exercise the
+denial with a real unwritable directory instead of a mocked `Path.mkdir`. The same commit moved
+the editor's *Saved as <format>* explanation after the write, since the first run had it
+announcing a save that then failed. Verified on the CI snap (run 34732589935, rev x2) on the
+Ubuntu 26.04 VM, VERIFICATION.md Scenario 4 re-run C: with `output_directory` =
+`/media/orcshot-test` (existing, chowned, no plug) *Save* now shows the portal folder picker -
+AppArmor logged the probe's `operation="mknod" … name="/media/orcshot-test/.orcshot-probe-…"
+denied_mask="c"` (twice: the shared guard and the picker's initial-folder check, both denied,
+both harmless) - and after the pick the file landed and the second Save was silent; D (restart)
+silent as well. The dialog move could not be exercised live under snap: with `home` connected
+the portal returns real paths inside home (see #215's resolution), so the format-explanation
+branch is never reached there; it stays covered by the Flatpak path (#210) and the unit tests.
+
+## #217: The snap's launcher icon is not the snap's own: Icon=org.orcshot.Orcshot is a theme name snapd neither rewrites nor exports, so a snap-only machine shows Orcshot with the generic placeholder icon
+
+Found 2026-09-12 by #212's second live run on the Ubuntu 26.04 VM (VERIFICATION.md Scenario 4,
+re-run A2), while checking the thing #215 asked to be checked: "that the icon/`Icon=` resolves
+under snapd's desktop-file rewriting". It does not. #215's `desktop:` key makes snapd install
+`/var/lib/snapd/desktop/applications/orcshot_orcshot.desktop` with the app's `Icon=org.orcshot.Orcshot`
+line carried over verbatim - snapd rewrites `Icon=` only when it is a `${SNAP}/...` path, and
+exports an icon of its own only from `meta/gui/icon.*`; `/var/lib/snapd/desktop/icons/` on the VM
+is empty and the PNG the build installs at
+`$SNAP/usr/share/icons/hicolor/128x128/apps/org.orcshot.Orcshot.png` is visible to nothing outside
+the snap. The app grid on the VM *did* show Orcshot with its icon, which is why the first look
+said PASS - but `Gtk.IconTheme.get_default().lookup_icon("org.orcshot.Orcshot")` in the host
+session resolved to `~/.local/share/flatpak/exports/share/icons/hicolor/scalable/apps/org.orcshot.Orcshot.svg`:
+the Flatpak's export, present on this VM only because the Flatpak is installed beside the snap.
+The same lookup with the flatpak paths removed from the search path returned `None`; the .deb's
+icon is a different name (`orcshot`).
+
+**Consequence:** a Snap Store user - no Flatpak, no .deb - sees Orcshot in the app grid, dock and
+switcher with GNOME's generic "missing icon" placeholder. Cosmetic, but the first thing a store
+user sees, and #215's desktop file is the reason it is now visible at all. The portal identity,
+Save, Save As and the folder picker are unaffected (Scenario 4 re-run B/C/D all PASS).
+
+**Fix shape:** point `Icon=` at the file inside the snap so snapd's rewriting applies -
+`Icon=${SNAP}/usr/share/icons/hicolor/128x128/apps/org.orcshot.Orcshot.png` in the desktop
+file snapcraft reads (a `sed` in the same `override-build` that installs it, since the source
+`org.orcshot.Orcshot.desktop` is shared with the Flatpak and the .deb, where the theme name is
+right) - or ship `snap/gui/icon.png` and let snapd export it. Verify with the same IconTheme
+probe on a machine (or search path) without the Flatpak, not by looking at the app grid on this
+VM. Also note: snapcraft registers the entry as `orcshot_orcshot.desktop` (`<snap>_<app>`), not
+the `orcshot_org.orcshot.Orcshot.desktop` #212's spec and #215 guessed; that is a naming detail,
+not a defect - `snap routine portal-info` reports it and the portal grants work.
+
+**Scope boundary:** the launcher icon under snap only. The Flatpak exports its own icon
+(verified above, by accident) and the .deb installs `orcshot.png` under hicolor with
+`Icon=orcshot`.
+
+## #218: Save As offers GIF but file_export encodes .gif as PNG - _SAVE_AS_FORMATS and _EXTENSION_TO_TYPE disagree
+
+Found 2026-09-12 by the #212 final review's scoped re-review, as an out-of-scope observation:
+`ui/editor_window._SAVE_AS_FORMATS` lists `("gif", "GIF")` as a Save As type, but
+`ui/file_export._EXTENSION_TO_TYPE` has no `.gif` entry, so `save_image_to_file` falls back to
+its default and writes PNG data into a file named `*.gif`. The "Save as type" combo therefore
+offers a format the encoder never produces; the file opens in most viewers (they sniff the PNG
+signature) which is why nobody noticed, but it is mislabelled data and any tool that trusts the
+extension gets it wrong. Not new to this branch - the two tables have disagreed since the Save
+As format list was ported from Windows' `OutputFileFormat` (the docstring near
+`_SAVE_AS_FORMATS` cites `ICoreConfiguration.cs:130-132`).
+
+**Consequence:** on every channel, choosing GIF in Save As (or setting the Output tab's
+primary format to gif for quick Save) silently produces PNG. Also affects the new
+`file_export.encoded_format()` (the "Saved as" dialog under the portal), which is honest about
+it - it says PNG.
+
+**Fix shape:** either add `".gif": "gif"` to `_EXTENSION_TO_TYPE` (GdkPixbuf's `savev` supports
+`gif`? - verify: gdk-pixbuf can *load* GIF but its GIF *saver* was removed upstream; if
+`savev(..., "gif")` raises, GIF cannot be offered at all) or drop GIF from `_SAVE_AS_FORMATS`
+and the primary-format list. Decide from a live `GdkPixbuf.Pixbuf.get_formats()` check
+(`is_writable()` on the gif format) on the GNOME 50 runtime and the .deb's gdk-pixbuf, not
+from memory. Windows Greenshot writes real GIFs via .NET; parity may not be achievable here.
+
+**Scope boundary:** the format table only. The portal/never-rename logic from #210/#212 is
+unaffected either way.
