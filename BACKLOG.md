@@ -1875,7 +1875,7 @@ already handle a snap-confined *target*; whether a strictly confined Orcshot *sn
 programs is a separate question not examined here (it generally cannot without `classic` or a
 matching interface) - note it when #212 is picked up rather than opening a fourth entry now.
 
-## #214: CI-built snap: GdkPixbuf's SVG loader fails to load (undefined symbol rsvg_handle_get_pixbuf_and_error) - staged librsvg is older than the platform snap's loader
+## #214: CI-built snap: GdkPixbuf's SVG loader fails to load (undefined symbol rsvg_handle_get_pixbuf_and_error) - staged librsvg is older than the platform snap's loader (RESOLVED 2026-09-13)
 
 Found 2026-09-12 by #212's live verification on the Ubuntu 26.04 VM (plan Task 5, the CI snap
 from PR #26 run 34728131086, revision x1). At startup the snap logs
@@ -1903,6 +1903,46 @@ Check `THIRD_PARTY_NOTICES.md` if a staged package is removed.
 
 **Scope boundary:** snap only. Flatpak builds against org.gnome.Platform//50's own librsvg
 (confirmed working in #210's live runs); the .deb uses the distro's matched pair.
+
+**Resolved 2026-09-13:** confirmed the mechanism on the 26.04 VM before touching anything
+(store-onboarding-snap branch, main's CI snap run 34737732565, revision x2, installed
+`--dangerous`). Inside `snap run --shell orcshot`, `ldd` on
+`$SNAP/gnome-platform/usr/lib/x86_64-linux-gnu/gdk-pixbuf-2.0/2.10.0/loaders/libpixbufloader_svg.so`
+resolved `librsvg-2.so.2` to the **staged** copy at `$SNAP/usr/lib/x86_64-linux-gnu/`, not the
+platform snap's own. `nm -D` on that staged copy found `rsvg_handle_get_pixbuf_and_error` 0
+times; the same symbol in the platform snap's (`gnome-46-2404`) copy of `librsvg-2.so.2` was
+found once. Both the platform snap and the staged tree ship `Rsvg-2.0.typelib`, so the
+Insert-SVG-needs-Rsvg-via-GI stop condition did not apply and the fix could proceed.
+
+What the breakage looked like in the UI: launching `orcshot --capture-full-screen` in the VM's
+GUI session and taking the resulting screenshot to the destination picker (Copy to
+Clipboard/Save/Save As/Edit/Print) showed no visibly broken icons and no `g_module_open` in
+that flow's stderr - that popup's icons never exercise the SVG loader. Clicking "Edit..." to
+open the full editor triggered a GNOME "Remote Desktop / Allow Remote Interaction" system
+consent dialog that this session's XWayland-based `xdotool` automation could not dismiss (it is
+a native Wayland/mutter surface, not an XWayland window), so the editor's toolbar and Insert
+SVG could not be exercised visually within the time-boxed check. The load-bearing check instead
+ran the CI guard's own reproducer directly in the confined shell: before the fix (revision x2),
+that is the same failure #212 already logged; after the fix (revision x3, built from this
+branch's green run 34771379969), `python3 -c 'import gi; gi.require_version("GdkPixbuf",
+"2.0"); from gi.repository import GdkPixbuf; print([f.get_name() for f in
+GdkPixbuf.Pixbuf.get_formats()])'` printed a list ending in `'svg'` with no
+`g_module_open() failed` anywhere in its output or in `journalctl --user -b`.
+
+**Fix:** dropped `gir1.2-rsvg-2.0` from the `orcshot` part's `stage-packages` in
+`snapcraft.yaml` (it never appeared in `build-packages`, so nothing there needed to change);
+the platform snap's own librsvg and typelib cover it. Added a CI regression guard, "Assert no
+GdkPixbuf loader fails to load under confinement (BACKLOG #214)", to `.github/workflows/snap.yml`'s
+verify job, running the same `GdkPixbuf.Pixbuf.get_formats()` check and failing the build on
+either a `g_module_open() failed` line or a missing `'svg'` entry.
+
+**Verified:** CI run 34771379969 (store-onboarding-snap, PR #28) - both `snap / build` and
+`snap / verify` jobs green, including the new guard step. Re-verified live on the 26.04 VM with
+that run's artifact installed `--dangerous` as revision x3: the staged `librsvg-2.so.2` and its
+`girepository-1.0/Rsvg-2.0.typelib` are gone from `$SNAP/usr/lib/x86_64-linux-gnu/`, the
+`GdkPixbuf.Pixbuf.get_formats()` reproducer above passed clean, and `journalctl --user -b` has
+zero occurrences of `g_module_open` across the whole boot, including after launching the fixed
+build.
 
 ## #215: The snap ships no desktop file, so on Ubuntu 26.04 every portal file/folder pick is granted to app id "." and is unreachable from inside the snap (Save As and the folder picker both fail) (RESOLVED 2026-09-12)
 
