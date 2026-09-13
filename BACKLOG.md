@@ -1929,6 +1929,16 @@ branch's green run 34771379969), `python3 -c 'import gi; gi.require_version("Gdk
 GdkPixbuf.Pixbuf.get_formats()])'` printed a list ending in `'svg'` with no
 `g_module_open() failed` anywhere in its output or in `journalctl --user -b`.
 
+**Visual verification, 2026-09-13:** done separately via the VM's own GUI window (bare
+`orcshot` on that VM resolves to the .deb's `/usr/bin/orcshot`, not the snap - `/snap/bin/orcshot`
+had to be launched explicitly). On the fixed revision x3, a full-screen capture's Edit... opened
+the editor with every toolbar and tool-palette icon rendered, and File -> Insert SVG... on a
+test SVG (a green circle) inserted and rendered it on the canvas via Rsvg; `journalctl --user -b
+| grep -c g_module_open` was 0 and stderr was clean. Screenshot kept at
+`.superpowers/sdd/2026-09-12-store-onboarding/task-1-visual-svg-inserted.png`. This closes the
+gap the headless attempt above left open (blocked by the GNOME remote-interaction consent
+dialog).
+
 **Fix:** dropped `gir1.2-rsvg-2.0` from the `orcshot` part's `stage-packages` in
 `snapcraft.yaml` (it never appeared in `build-packages`, so nothing there needed to change);
 the platform snap's own librsvg and typelib cover it. Added a CI regression guard, "Assert no
