@@ -433,6 +433,42 @@ and must land before this entry's `/orc-package snap` step is applied. #205 hold
 research list and the spec. No `snap` ingredient exists yet in either Orclab location; capturing
 one is the step after #205.
 
+**Update 2026-09-13 - Snap track (branch store-onboarding-snap):** #214 and #219 resolved on this
+branch. Orclab's shipped `snap` ingredient was applied via `/orc-package snap` (snap `orcshot`,
+publisher `artificialorctelligence`, first channel `beta`, architecture `amd64`) and reshaped:
+`channels.yaml`'s `desktop.python.linux.snap` leaf now downloads and uploads the CI-built artifact
+for HEAD's commit (spec 2026-09-12 decision 2) rather than running a local `snapcraft pack` -
+traceable to the exact binary the VM tests ran on, and it fails loudly with a clear message if no
+successful `snap.yml` run exists for HEAD, which is "CI is green" as an executable gate.
+`RELEASING.md` gained step 12 ("Upload the snap to the Snap Store (beta)") with its one-time setup
+(store login/registration, the dbus slot forum request, the store listing), and step 1 gained the
+metainfo `<release>` reminder Flathub's linter needs. Steps renumbered to 14 total.
+
+What the ingredient got wrong for Orcshot, to carry to Orclab #33: (a) its `prepare:` assumed a
+local `snapcraft pack` rather than a CI-downloaded artifact - Orcshot's own CI-artifact model
+(decision 2) needed a full rewrite of `prepare:`/`artifact:`/`action:`; (b) its written `**Run:**`
+line ("review-tools... then /orc-publish...") is not recognised as a delegation by `/orc-release`'s
+parser - `delegates_to` only matches a bare `/orc-publish <path>` line, found 2026-09-13 while
+applying it, so the review-tools command had to move to its own fenced block below a bare `**Run:**`
+line; (c) its RELEASING step's review-tools command ran `review-tools.snap-review <the .snap>`
+directly on the downloaded file, but review-tools (itself a snap) can only read files under
+`~/snap/review-tools/common/`, so the step needed a `cp` into that directory first; (d) its leaf
+carried `preflight: [no-vcs, no-tool-state]`, but `/orc-publish`'s inspector reads tar/zip only -
+a `.snap` (squashfs) raises `UnsupportedArchive` and every real run comes back *refused*, found in
+final review 2026-09-13 and fixed by deleting the key; (e) its review-tools gate was written as a
+separate manual step run at release time expecting zero `human review required` lines, which is
+never true once the dbus slot's declaration is granted (the store's own hold, invisible to the
+local tool) - folded into `prepare:` instead, comparing the count of that line against the known
+dbus one so the gate can still fail on anything new.
+
+Verified by hand (no `/orc-publish` invocation - not available in this session): the `prepare:`
+command run directly against HEAD (60e8658) downloaded a real successful `snap.yml` run and
+produced `dist/snap/orcshot_0.3.0_amd64.snap`; run again against a fake commit SHA it printed
+"no successful snap.yml run for 0000000 - push and wait for CI first" and exited non-zero.
+`channels.yaml` parses as YAML; `/orc-release`'s parser reads all 14 steps with step 12's
+`delegates_to` as `/orc-publish desktop.python.linux.snap`. No upload has happened. The held first
+upload and the dbus forum request follow on main (Task 4).
+
 ## #197: A real setup step for apt/snap/flatpak publishing - credentials/signing, tailored per channel and per machine
 
 *(Renumbered from #196 to #197 on 2026-09-07, when merging main into BACKLOG #189's branch: both
@@ -1875,7 +1911,7 @@ already handle a snap-confined *target*; whether a strictly confined Orcshot *sn
 programs is a separate question not examined here (it generally cannot without `classic` or a
 matching interface) - note it when #212 is picked up rather than opening a fourth entry now.
 
-## #214: CI-built snap: GdkPixbuf's SVG loader fails to load (undefined symbol rsvg_handle_get_pixbuf_and_error) - staged librsvg is older than the platform snap's loader
+## #214: CI-built snap: GdkPixbuf's SVG loader fails to load (undefined symbol rsvg_handle_get_pixbuf_and_error) - staged librsvg is older than the platform snap's loader (RESOLVED 2026-09-13)
 
 Found 2026-09-12 by #212's live verification on the Ubuntu 26.04 VM (plan Task 5, the CI snap
 from PR #26 run 34728131086, revision x1). At startup the snap logs
@@ -1903,6 +1939,56 @@ Check `THIRD_PARTY_NOTICES.md` if a staged package is removed.
 
 **Scope boundary:** snap only. Flatpak builds against org.gnome.Platform//50's own librsvg
 (confirmed working in #210's live runs); the .deb uses the distro's matched pair.
+
+**Resolved 2026-09-13:** confirmed the mechanism on the 26.04 VM before touching anything
+(store-onboarding-snap branch, main's CI snap run 34737732565, revision x2, installed
+`--dangerous`). Inside `snap run --shell orcshot`, `ldd` on
+`$SNAP/gnome-platform/usr/lib/x86_64-linux-gnu/gdk-pixbuf-2.0/2.10.0/loaders/libpixbufloader_svg.so`
+resolved `librsvg-2.so.2` to the **staged** copy at `$SNAP/usr/lib/x86_64-linux-gnu/`, not the
+platform snap's own. `nm -D` on that staged copy found `rsvg_handle_get_pixbuf_and_error` 0
+times; the same symbol in the platform snap's (`gnome-46-2404`) copy of `librsvg-2.so.2` was
+found once. Both the platform snap and the staged tree ship `Rsvg-2.0.typelib`, so the
+Insert-SVG-needs-Rsvg-via-GI stop condition did not apply and the fix could proceed.
+
+What the breakage looked like in the UI: launching `orcshot --capture-full-screen` in the VM's
+GUI session and taking the resulting screenshot to the destination picker (Copy to
+Clipboard/Save/Save As/Edit/Print) showed no visibly broken icons and no `g_module_open` in
+that flow's stderr - that popup's icons never exercise the SVG loader. Clicking "Edit..." to
+open the full editor triggered a GNOME "Remote Desktop / Allow Remote Interaction" system
+consent dialog that this session's XWayland-based `xdotool` automation could not dismiss (it is
+a native Wayland/mutter surface, not an XWayland window), so the editor's toolbar and Insert
+SVG could not be exercised visually within the time-boxed check. The load-bearing check instead
+ran the CI guard's own reproducer directly in the confined shell: before the fix (revision x2),
+that is the same failure #212 already logged; after the fix (revision x3, built from this
+branch's green run 34771379969), `python3 -c 'import gi; gi.require_version("GdkPixbuf",
+"2.0"); from gi.repository import GdkPixbuf; print([f.get_name() for f in
+GdkPixbuf.Pixbuf.get_formats()])'` printed a list ending in `'svg'` with no
+`g_module_open() failed` anywhere in its output or in `journalctl --user -b`.
+
+**Visual verification, 2026-09-13:** done separately via the VM's own GUI window (bare
+`orcshot` on that VM resolves to the .deb's `/usr/bin/orcshot`, not the snap - `/snap/bin/orcshot`
+had to be launched explicitly). On the fixed revision x3, a full-screen capture's Edit... opened
+the editor with every toolbar and tool-palette icon rendered, and File -> Insert SVG... on a
+test SVG (a green circle) inserted and rendered it on the canvas via Rsvg; `journalctl --user -b
+| grep -c g_module_open` was 0 and stderr was clean. Screenshot kept at
+`.superpowers/sdd/2026-09-12-store-onboarding/task-1-visual-svg-inserted.png`. This closes the
+gap the headless attempt above left open (blocked by the GNOME remote-interaction consent
+dialog).
+
+**Fix:** dropped `gir1.2-rsvg-2.0` from the `orcshot` part's `stage-packages` in
+`snapcraft.yaml` (it never appeared in `build-packages`, so nothing there needed to change);
+the platform snap's own librsvg and typelib cover it. Added a CI regression guard, "Assert no
+GdkPixbuf loader fails to load under confinement (BACKLOG #214)", to `.github/workflows/snap.yml`'s
+verify job, running the same `GdkPixbuf.Pixbuf.get_formats()` check and failing the build on
+either a `g_module_open() failed` line or a missing `'svg'` entry.
+
+**Verified:** CI run 34771379969 (store-onboarding-snap, PR #28) - both `snap / build` and
+`snap / verify` jobs green, including the new guard step. Re-verified live on the 26.04 VM with
+that run's artifact installed `--dangerous` as revision x3: the staged `librsvg-2.so.2` and its
+`girepository-1.0/Rsvg-2.0.typelib` are gone from `$SNAP/usr/lib/x86_64-linux-gnu/`, the
+`GdkPixbuf.Pixbuf.get_formats()` reproducer above passed clean, and `journalctl --user -b` has
+zero occurrences of `g_module_open` across the whole boot, including after launching the fixed
+build.
 
 ## #215: The snap ships no desktop file, so on Ubuntu 26.04 every portal file/folder pick is granted to app id "." and is unreachable from inside the snap (Save As and the folder picker both fail) (RESOLVED 2026-09-12)
 
@@ -2091,7 +2177,7 @@ from memory. Windows Greenshot writes real GIFs via .NET; parity may not be achi
 **Scope boundary:** the format table only. The portal/never-rename logic from #210/#212 is
 unaffected either way.
 
-## #219: Snap Store listing icon: snapcraft.yaml has no top-level icon:, and the only PNG asset is 155x147 - what the store shows for Orcshot is direflail's call
+## #219: Snap Store listing icon: snapcraft.yaml has no top-level icon:, and the only PNG asset is 155x147 - what the store shows for Orcshot is direflail's call (RESOLVED 2026-09-13)
 
 Raised 2026-09-12 while specing #217 (the snap's *launcher* icon). The two are different
 assets with different rules, and only the launcher one is being fixed:
@@ -2129,3 +2215,42 @@ set, snapcraft also rewrites the launcher desktop file's `Icon=` to `${SNAP}/met
 keeps passing, but the launcher icon silently becomes the store asset. Whichever asset is chosen
 here therefore becomes the launcher icon too; pick one that is right for both, and re-run
 VERIFICATION.md Scenario 4's #217 paragraph (E/F) after setting `icon:`.
+
+**Step 1, live rules re-check before picking (2026-09-13):** read
+`https://ubuntu.com/docs/snapcraft/9.1/reference/snapcraft-yaml/#icon` (the `stable` alias
+301/302-redirects there; `article:modified_time` 2026-08-20) and cross-checked against
+`canonical/snapcraft`'s own `main`-branch source (`snapcraft/models/project.py` lines 1525-1536,
+`snapcraft/parts/setup_assets.py`'s `_find_icon_file`/`_finalize_icon`, both fetched live via the
+GitHub API): the doc's own numbers from 2026-09-12 still hold unchanged (40x40-512x512px,
+256x256 recommended, <256KB), and both **PNG and SVG are accepted** - `_find_icon_file` checks
+`snap/gui/icon.png` then `snap/gui/icon.svg` for auto-detection when `icon:` is unset, and
+`_finalize_icon` derives the packed extension from whatever path `icon:` gives when it is set.
+This confirmed candidate (a), an SVG, was eligible before it went in front of direflail.
+
+**Resolved 2026-09-13:** direflail chose **(a), the Flatpak's square wrapper** - same mark as
+every other channel, no new asset to maintain, and (per the coupling note above) this is also
+now the launcher icon, so consistency with the Flatpak's own listing/dock appearance mattered
+more than a from-scratch raster. The candidate was produced by running
+`org.orcshot.Orcshot.yaml`'s own icon-generation Python (lines 183-200) verbatim against
+`src/orcshot/resources/orcshot.png`, only redirecting the output path - so `snap/gui/icon.svg` is
+construction-identical to the Flatpak's generated icon (same opaque `#3d3d3d` backing rect, same
+attribute order, `href` not `xlink:href`), not merely similar-looking. A first pass at candidate
+generation (and the padded-PNG alternative, (b)) used code that left the square's padding fully
+transparent instead of filled - caught in review before anything was shown, and regenerated to
+match the Flatpak's actual construction before the choice was made.
+
+`snapcraft.yaml` now sets `icon: snap/gui/icon.svg`; `snap.yml`'s verify job asserts
+`meta/gui/icon.{svg,png}` exists inside the built snap (BACKLOG #219 step, after the #217
+assertion). CI (commit d11dd44, run 34775403917) passed both the pre-existing #217 assertion and
+the new #219 one. Installed that run's artifact on the Ubuntu 26.04 VM (`--dangerous`,
+`orcshot_0.3.0_amd64.snap`): the registered `orcshot_orcshot.desktop`'s `Icon=` line now reads
+`/snap/orcshot/current/meta/gui/icon.svg` (previously `#217`'s
+`.../usr/share/icons/hicolor/128x128/apps/org.orcshot.Orcshot.png`, confirming snapcraft's
+rewrite superseded the `sed` as the coupling note predicted), the file exists, and its
+`sha256sum` on the VM matches the committed `snap/gui/icon.svg` byte-for-byte - the exact chosen
+asset is what ships and what the launcher now resolves. App-grid visual confirmation done
+separately via the VM's own GUI window.
+
+**Note (final review, 2026-09-13):** review-tools was run against d11dd44's artifact as part of
+the Track 1 fix wave - exactly one `human review required` line, the dbus slot's; the
+`desktop_file_icon` lint passed, confirming this icon change itself introduced no new store hold.
