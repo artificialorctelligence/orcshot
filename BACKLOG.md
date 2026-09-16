@@ -495,6 +495,14 @@ Orcshot's own repo, `flathub/org.orcshot.Orcshot`, is created by Flathub on merg
 plan (manifest derivation script, `/orc-package flatpak`) run in a separate session; Task 7 (the
 submission PR) still waits for the `v0.4.0` tag.
 
+**Update 2026-09-16 - dbus declaration request posted, held for moderation.** The forum account
+was approved. direflail created the `store-requests` topic ("dbus slot declaration request for
+orcshot (org.orcshot.Orcshot)", body as drafted in the plan's Task 4 Step 3 with revision 1). On
+submit Discourse reported the post is awaiting approval from a moderator - the usual hold on a new
+account's first post, not a rejection. No thread URL exists yet; it arrives with the approval
+email. Next: record the URL and date here, then Task 4 Step 4 (confirm the grant on the
+dashboard's revisions page) ~2 days after the post goes live.
+
 ## #197: A real setup step for apt/snap/flatpak publishing - credentials/signing, tailored per channel and per machine
 
 *(Renumbered from #196 to #197 on 2026-09-07, when merging main into BACKLOG #189's branch: both
