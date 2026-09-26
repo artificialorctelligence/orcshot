@@ -101,12 +101,28 @@ GOLDEN_SHAPE = RectangleShape(
 def test_the_serialised_stream_is_byte_for_byte_unchanged():
     """The format is a contract with a program we do not control.
 
-    Any difference here - a member name, a type enum, an id, a constant -
-    is a change to what real Greenshot will be asked to read, so it must
-    not happen by accident. If this fails because the change was
-    deliberate, the file has to be re-verified against real Greenshot on
-    the Windows VM (REQUIREMENTS.md, task #124) before the golden is
-    regenerated, not instead of it.
+    Any difference here is a change to what real Greenshot would be asked
+    to read, so it must not happen by accident. But not every difference
+    needs the same answer, and it is worth being precise rather than
+    sending someone to boot a Windows VM over a renumbered object id:
+
+    - **Needs re-verification on the windows11 VM** before the golden is
+      regenerated: class names, library declarations, member names,
+      member order, type enums, and the state constant. These are what
+      real Greenshot's BinaryFormatterHelper whitelist binder binds
+      against - the same path Object > Load Objects uses. That round trip
+      is how the missing-BinaryLibrary bug ("No assembly ID for object
+      type '4 System.Drawing.Color'") was caught; see REQUIREMENTS.md's
+      task #124 section.
+    - **Does not**: object ids. _IdAllocator's own docstring records,
+      verified live, that any unique-per-stream ids are valid NRBF.
+    - **Does not**: the payload values (bounds, colours, thickness).
+      Those are data, not format.
+
+    Note also that task #124 is PARKED and nothing in src/ calls this
+    exporter, so no user-reachable behaviour depends on it today. That is
+    a reason to keep the golden cheap to regenerate, not a reason to let
+    the format drift unnoticed.
 
     Regenerate with:
         python3 -c "import sys; sys.path.insert(0,'src'); \\
