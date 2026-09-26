@@ -65,7 +65,19 @@ exclude = [
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+# Without this, `import orcshot` in a test resolves by interpreter state, not by the
+# repo: a bare `python3 -m pytest` picks up the installed .deb under
+# /usr/lib/python3/dist-packages, and a .venv whose editable install points at an old
+# worktree picks up that worktree's src/ - both silently test code that is not this
+# tree (found 2026-09-26 by the first /orc-test run: 10 collection errors on symbols
+# the tree has and the installed 0.3.0 does not). pytest prepends these to sys.path.
+pythonpath = ["src"]
 markers = [
     "x11: needs a running X server (skipped when DISPLAY is unset)",
     "wayland: needs a running Wayland session (skipped when WAYLAND_DISPLAY is unset)",
 ]
+
+[tool.mutmut]
+source_paths = ["src/orcshot/"]
+pytest_add_cli_args_test_selection = ["tests/"]
+also_copy = ["tests/", "pyproject.toml", "conftest.py"]
