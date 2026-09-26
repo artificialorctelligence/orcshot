@@ -52,3 +52,69 @@ def _isolated_config(monkeypatch, tmp_path):
     including ones not written yet.
     """
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
+
+
+# --------------------------------------------------------------------
+# GLib sources a test leaves behind
+#
+# A test that creates a GLib source and does not remove it leaves it
+# alive in the process's default main context. In a normal `pytest` run
+# that is untidy and nothing more. Under `mutmut run` it is not: mutmut
+# executes the whole suite many times inside ONE process, so a leaked
+# source - especially a repeating timeout, whose callback returns truthy
+# and reschedules itself forever - bleeds into later mutants' runs and
+# can abort the process with SIGABRT.
+#
+# The damage from that is not a loud crash. The mutants lost when the
+# run dies leave the scored set silently, which makes TCE go *up*: a
+# smaller denominator with the same kills. One such leak was measured
+# flattering a file from 96.7% to 99.3% (2026-09-26, BACKLOG #220). A
+# measurement that fails by overstating itself is the worst kind, so
+# this is a guard rather than a tidiness rule.
+#
+# Six tests on this branch leaked one source each when this was first
+# measured. They are cleaned up here rather than individually rewritten:
+# every source goes through these three functions, so this is the one
+# place that makes the whole suite safe, including tests not yet
+# written. Cleaning up is deliberate, not merely convenient - the leak
+# is harmful only because the process is shared, and removing the source
+# removes the harm.
+# --------------------------------------------------------------------
+
+import gi as _gi
+
+_gi.require_version("Gtk", "3.0")
+from gi.repository import GLib as _GLib  # noqa: E402
+
+_GLIB_SOURCE_ADDERS = ("timeout_add", "timeout_add_seconds", "idle_add")
+_created_sources: list[int] = []
+
+
+def _record_source_ids() -> None:
+    for _name in _GLIB_SOURCE_ADDERS:
+        _real = getattr(_GLib, _name)
+        if getattr(_real, "_orcshot_recording", False):
+            continue
+
+        def _wrapper(*args, _real=_real, **kwargs):
+            source_id = _real(*args, **kwargs)
+            _created_sources.append(source_id)
+            return source_id
+
+        _wrapper._orcshot_recording = True
+        setattr(_GLib, _name, _wrapper)
+
+
+_record_source_ids()
+
+
+@pytest.fixture(autouse=True)
+def _no_leaked_glib_sources():
+    """Remove any GLib source this test created and did not remove."""
+    first = len(_created_sources)
+    yield
+    context = _GLib.MainContext.default()
+    for source_id in _created_sources[first:]:
+        if context.find_source_by_id(source_id) is not None:
+            _GLib.source_remove(source_id)
+    del _created_sources[first:]
