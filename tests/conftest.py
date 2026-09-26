@@ -18,3 +18,37 @@ import tempfile
 # modules, so this module-level assignment runs before orcshot.i18n (or
 # anything that imports it) ever does.
 os.environ["XDG_CONFIG_HOME"] = tempfile.mkdtemp(prefix="orcshot-test-config-")
+
+
+import pytest
+
+
+@pytest.fixture(autouse=True)
+def _isolated_config(monkeypatch, tmp_path):
+    """A fresh config directory per test, so settings a test writes cannot
+    reach the next one.
+
+    The module-level XDG_CONFIG_HOME above isolates the suite from the
+    developer's real config, which it must do before collection because
+    orcshot.i18n reads get_language() at import time. It does not isolate
+    tests from *each other*: settings.py resolves $XDG_CONFIG_HOME on every
+    call, so one directory for the whole session means every set_*() call
+    persists into every later test.
+
+    That was not theoretical. The Preferences tab tests parametrise over
+    both values of each checkbox and leave whichever ran last in place, and
+    the overlay contract's cursor-sampling test relies on
+    get_capture_mouse_cursor()'s default. In the full suite the order
+    happened to work. Under `mutmut run`, whose selection ignores
+    test_app.py and therefore collects in a different order, it did not -
+    test_the_cursor_is_sampled_at_construction_time[GnomeShellRegionSelect]
+    failed on a clean tree and took the whole mutation run's clean-test
+    pre-flight with it, so no TCE could be measured at all (2026-09-26,
+    BACKLOG #220).
+
+    Fixing it here rather than in the leaky tests is deliberate: every
+    settings-writing test routes through this one env var, so this is the
+    single place that makes order-independence true for all of them,
+    including ones not written yet.
+    """
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
