@@ -188,35 +188,29 @@ class TestValidate:
         assert _validate("Krita", "krita", '--comment "unclosed', None) is not None
 
     @pytest.mark.parametrize(
-        "template,error",
+        "template",
         [
-            ("{nope}", KeyError),       # a named placeholder
-            ("{1}", IndexError),        # an index past the single argument
-            ("{0:>{1}}", IndexError),   # a nested width referring to a second argument
+            "{nope}",      # a named placeholder
+            "{1}",         # an index past the single argument
+            "{0:>{1}}",    # a nested width referring to a second argument
         ],
     )
-    def test_a_placeholder_the_validator_does_not_catch_escapes_as_an_exception(
-        self, monkeypatch, template, error
-    ):
-        """BACKLOG #221 - a real defect, pinned as observed rather than
-        fixed here.
+    def test_a_placeholder_the_format_call_cannot_satisfy_becomes_a_message(self, monkeypatch, template):
+        """BACKLOG #221, fixed 2026-09-26.
 
-        _validate exists to turn a bad Arguments field into a message.
-        It runs token.format("") to find out, but catches only
-        ValueError, and str.format raises KeyError for a named
-        placeholder and IndexError for an out-of-range one. Those escape
-        the validator, so an ordinary typo in Preferences -> Destinations
-        -> a command's Arguments field reaches the caller as an unhandled
-        exception instead of the message the user should see.
+        _validate exists to turn a bad Arguments field into a message. It
+        runs token.format("") to find out, and used to catch ValueError
+        alone - but str.format raises KeyError for a named placeholder and
+        IndexError for an out-of-range one, so those escaped the validator
+        and an ordinary typo in Preferences -> Destinations -> Arguments
+        reached the caller as an unhandled exception instead.
 
-        Asserting the exception rather than a return value is deliberate:
-        this test should FAIL when the defect is fixed, which is what
-        makes it a reminder rather than a blessing of the bug.
+        This test previously asserted the exception, deliberately, so that
+        it would fail when the defect was fixed. It has.
         """
         monkeypatch.setattr(shutil, "which", lambda name: "/usr/bin/krita")
 
-        with pytest.raises(error):
-            _validate("Krita", "krita", template, None)
+        assert _validate("Krita", "krita", template, None) is not None
 
     @pytest.mark.parametrize("template", ["{0", "{0!z}"])
     def test_a_malformed_template_the_validator_does_catch_becomes_a_message(self, monkeypatch, template):

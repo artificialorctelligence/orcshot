@@ -696,7 +696,16 @@ class OrcshotApplication(Gtk.Application):
             "preferences": _("Preferences..."),
             "quit": _("Quit"),
         }
-        color = _rgba_to_color(Gtk.Window().get_style_context().get_color(Gtk.StateFlags.NORMAL))
+        # Destroyed, not abandoned (BACKLOG #222): this window exists only
+        # to be asked the theme's foreground colour. It is never shown, so
+        # leaking it was invisible on screen - but it is a live toplevel,
+        # and the tray menu is re-exported on more than first launch, so
+        # they accumulated for the life of the session.
+        color_probe = Gtk.Window()
+        try:
+            color = _rgba_to_color(color_probe.get_style_context().get_color(Gtk.StateFlags.NORMAL))
+        finally:
+            color_probe.destroy()
         # Kept alive on self for the app's whole lifetime - see this
         # method's own docstring above for why a local variable isn't
         # enough.

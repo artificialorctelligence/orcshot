@@ -660,6 +660,31 @@ class TestExportTrayMenu:
         bare_app._export_tray_menu()
         assert exported == [(bare_app, bare_app._tray_menu)]
 
+    def test_exporting_the_menu_leaves_no_toplevel_window_behind(self, bare_app, monkeypatch):
+        """BACKLOG #222.
+
+        _export_tray_menu needs one colour out of a style context and used
+        to build a whole Gtk.Window to get it, then abandon it. The window
+        is never shown, so nothing is visible on screen - but it is a live
+        toplevel, and the tray menu is re-exported on more than first
+        launch (theme changes, destination-list changes), so they
+        accumulate for the life of the session.
+
+        Counting toplevels rather than asserting on an internal is
+        deliberate: it is the leak itself that matters, and this test
+        stays honest whichever way the colour ends up being obtained.
+        """
+        from orcshot.capture import gnome_tray_export
+
+        monkeypatch.setattr(gnome_tray_export, "export_tray_menu", lambda app, menu: None)
+        before = len(Gtk.Window.list_toplevels())
+
+        bare_app._export_tray_menu()
+        bare_app._export_tray_menu()
+        bare_app._export_tray_menu()
+
+        assert len(Gtk.Window.list_toplevels()) == before
+
     def test_the_menu_is_built_in_four_sections(self, bare_app, monkeypatch):
         # 5 capture modes, then Open File, Preferences, Quit each alone -
         # the GMenu idiom for the three dividers X11's Gtk.Menu draws.

@@ -2335,7 +2335,7 @@ production seam was added for a test. `ui/printing.py`'s remaining 30% is `_draw
 to a store. The Snap dbus declaration was granted 2026-09-17 (forum thread 53283), so the release
 chain is otherwise unblocked and waiting on this.
 
-## #221: `_validate` raises instead of returning a message for a named or out-of-range placeholder in an external command's Arguments field
+## #221: `_validate` raises instead of returning a message for a named or out-of-range placeholder in an external command's Arguments field (RESOLVED 2026-09-26)
 
 Found 2026-09-26 writing the first tests for `ui/external_commands.py` under BACKLOG #220. Not a
 test artefact - reachable by an ordinary user typing into Preferences -> Destinations -> a command's
@@ -2369,11 +2369,17 @@ which asserts the exception deliberately - **that test will fail when this is fi
 makes it a reminder rather than a blessing of the bug. Fixing this means changing that test to
 assert a message instead.
 
-Not yet checked: what the caller does with the exception - whether the dialog's OK-button handler
-swallows it, leaves the dialog wedged, or lets it reach the top level. Worth finding out before
-deciding severity.
+**Resolved 2026-09-26**, on direflail's instruction to fix it rather than carry it into 0.4.0. The
+`except ValueError` is now `except (ValueError, KeyError, IndexError)`, with a comment naming the
+two cases and why they are ordinary typos rather than exotic input. The test that asserted the
+exception was flipped first and watched fail on all three templates before the source changed, so
+the fix is proven by a test that could only pass afterwards. `{nope}`, `{1}` and `{0:>{1}}` now
+come back as "Invalid arguments: ..." like the unclosed-brace and bad-conversion cases always did.
 
-## #222: `_export_tray_menu` constructs and abandons a toplevel `Gtk.Window` on every call, just to read a style-context colour
+The open question above - what the caller did with the escaping exception - is now moot and was
+never answered; nothing reaches the caller to handle.
+
+## #222: `_export_tray_menu` constructs and abandons a toplevel `Gtk.Window` on every call, just to read a style-context colour (RESOLVED 2026-09-26)
 
 Found 2026-09-26 by the Task 4 agent writing `tests/unit/test_app.py` under BACKLOG #220, and
 measured rather than inferred: a probe constructing six applications left **six toplevel windows**
@@ -2390,7 +2396,17 @@ widget, or read the colour from a widget that already exists (the tray icon's ow
 application's). Which one depends on whether the style context has to come from a *realized*
 toplevel to be correct, which is not yet checked.
 
-Left for direflail rather than fixed under #220, same rule as #221.
+**Resolved 2026-09-26**, on direflail's instruction. The probe window is now created, asked for
+the colour, and destroyed in a `finally`. Reusing an existing widget was considered and rejected:
+`_export_tray_menu` runs during startup, when there is no other widget guaranteed to exist, and the
+colour wanted is the theme's default window foreground - which is exactly what an unrealized
+`Gtk.Window`'s style context answers. The window was never shown before and is not shown now, so
+nothing about the colour changes.
+
+Proven by a test that counts `Gtk.Window.list_toplevels()` across three consecutive exports and
+requires the count not to move. It counts toplevels rather than asserting on an internal
+deliberately: it is the leak that matters, and the test stays honest if the colour is ever
+obtained some other way. Watched fail before the fix.
 
 ## #219: Snap Store listing icon: snapcraft.yaml has no top-level icon:, and the only PNG asset is 155x147 - what the store shows for Orcshot is direflail's call (RESOLVED 2026-09-13)
 
