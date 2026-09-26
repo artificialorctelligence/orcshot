@@ -2211,6 +2211,85 @@ from memory. Windows Greenshot writes real GIFs via .NET; parity may not be achi
 **Scope boundary:** the format table only. The portal/never-rename logic from #210/#212 is
 unaffected either way.
 
+## #220: The first /orc-test run this project has ever had - coverage 44.4% against an 80 gate, TCE 75.6% against a 70 one, and three defects found on the way in
+
+Raised 2026-09-26 when direflail asked, before the 0.4.0 release, whether a full `/orc-test` run
+had ever happened here. It had not - not in this repo. Confirmed rather than assumed: zero commits
+mention `orc-test` across all 11 branches, no `pytest-cov`/`mutmut` in `[project.optional-dependencies].dev`,
+no coverage config, no coverage or mutation artifacts, and no BACKLOG entry on either subject. What
+*had* run was the suite itself (1260 passed locally, and CI's `xvfb-run` job at `.github/workflows/apt.yml:33`).
+The tests passed; nobody had ever measured whether they test anything.
+
+One earlier run exists and is worth not re-deriving: 2026-09-13, from an **Orclab**-centred session,
+against a **scratch clone** of Orcshot, as the subject for Orclab v19's `/orc-code refactor` quality
+mode (Orclab BACKLOG #42). It reported 77.9% -> 78.3% coverage. That number was wrong in a specific
+way: coverage.py only lists an *unexecuted* file when its directory has an `__init__.py`, `src/` has
+none, so the 17 files nothing imports were missing from the denominator entirely. Same ~4308 covered
+lines over 5531 instead of 9712. The honest figure is 44.4%, not 78%. Orclab fixed all three of its
+own defects that day; this entry is about Orcshot's side, which nobody came back to.
+
+**Baseline, measured 2026-09-26 on `test/coverage-to-80`:**
+- `run`: 1260 passed - but only after the defect below; before it, 10 collection errors.
+- `audit`: 0 vulnerable (pip-audit against the declared dependencies).
+- `coverage src`: **44.4% (4308/9712)** against the 80 gate. 17 files at 0.0%.
+- `analyze` TCE: **75.6%** against the 70 gate - 8278 killed + 62 timeout of 11028 scored, 2688
+  survived. **15468 of 26496 mutants were skipped as unreachable**, because no test covers that code.
+  So the 75.6% describes the covered 44% and says nothing about the rest.
+
+**The defect that made local testing meaningless (fixed, `dc35a87`).** The project declared no
+`pythonpath`, so `import orcshot` in a test resolved by interpreter state, not by the repo. Three
+different answers on this machine: bare `python3` -> the installed .deb under
+`/usr/lib/python3/dist-packages`; `.venv/bin/python` -> `.claude/worktrees/mystifying-elion-e6651b/src/`,
+a stale worktree its editable install still pointed at; only `PYTHONPATH=src` -> this tree. CI was
+never affected (fresh venv, `pip install -e .` on the checkout), so merged work is sound - but every
+*local* green suite was measured against the wrong source, including the baselines recorded in the
+store-onboarding SDD ledger. It surfaced as 10 collection errors only because this tree has symbols
+the installed 0.3.0 lacks; had they matched, it would have stayed silent.
+
+**Why 80% forces a change of testing strategy, not just more tests.** The established pattern here is
+to split pure logic out of a GTK class and test that, never constructing the widget - stated outright
+in `ui/destination_picker.py`'s `_should_reuse_editor` docstring and in `ui/effects.py`'s module
+docstring ("verified live instead"). That is a legitimate tradeoff and it is why 17 files sit at zero.
+It cannot reach 80%: `ui/editor_window.py` alone is 2678 executable lines - half of everything
+uncovered - so covering every other file perfectly and leaving it alone tops out at **72.7%**.
+Verified live the same day: `EditorWindow` *does* construct headlessly under Xvfb, which CI already
+runs, and one construction covers 33% of the file. So the road is open; the strategy changes for
+windows, and stays as it is for logic.
+
+**Two findings in `ui/effects.py`, pinned in tests as observed behaviour rather than changed** - this
+is a user-visible effect verified live on the VMs, and altering its output is not a coverage decision.
+direflail's call whether either is a bug:
+- `shadow_size` is applied to the canvas twice. `torn_edge_image` sizes its Cairo surface with
+  `pad = shadow_size`, then `drop_shadow_image` pads by its own `size` again (`core/effects.py`:
+  `pad = size`), because it builds its own canvas. A shadowed torn edge grows by **4x** `shadow_size`
+  per dimension, not 2x.
+- `generate_shadow=False` still grows the image by `shadow_size` on every side - a transparent margin
+  sized by a shadow that was never drawn. The first pad reserves room the second makes for itself.
+
+**Where the existing suite is weakest, by mutation score** - these are concrete defects no test
+catches, in code the suite *does* execute, so they are pure test-quality debt and independent of the
+coverage work: `ui/extension_install.py` 41% (84 survivors), `capture/x11_window.py` 47% (109),
+`capture/fake.py` 58% (45), `ui/icons.py` 60% (**789** - the largest single pool), `ui/orcshot_file.py`
+66% (42), `capture/shell_bridge.py` 67% (88), `ui/xapp_tray.py` 67% (49), `ui/render.py` 72% (374),
+`ui/external_commands.py` 72% (133).
+
+**The trap to plan around.** The two gates interact. Every new test written for coverage makes
+previously-skipped mutants scoreable, and coverage-driven tests kill mutants less efficiently than the
+existing hand-written ones. TCE at 75.6% has only 5.6 points of headroom over its gate, so reaching
+80% coverage carelessly is a plausible way to push TCE *below* 70. Both have to hold at the same time,
+on the same run, at the end - not one then the other.
+
+**Progress so far on `test/coverage-to-80`:** 44.4% -> 55.0%. `ui/effects.py` 0% -> 100% (`2ffd202`);
+`ui/editor_window.py` 0% -> 35% via the first 19 tests ever to construct one (`dc35a87`). Remaining to
+80%: **+2469 lines**, of which `editor_window.py` holds 1733. Then `app.py` (304),
+`ui/text_obfuscation_dialog.py` (215), `ui/region_select.py` (183), `ui/window_picker.py` (166),
+`ui/region_select_wayland.py` (164), the two eyedroppers (292), `ui/color_dialog.py` (130),
+`ui/external_commands.py` (128), `ui/printing.py` (104), `ui/destination_picker.py` (100), and a tail.
+
+**Blocks the 0.4.0 release**, by direflail's decision 2026-09-26: both gates pass before anything goes
+to a store. The Snap dbus declaration was granted 2026-09-17 (forum thread 53283), so the release
+chain is otherwise unblocked and waiting on this.
+
 ## #219: Snap Store listing icon: snapcraft.yaml has no top-level icon:, and the only PNG asset is 155x147 - what the store shows for Orcshot is direflail's call (RESOLVED 2026-09-13)
 
 Raised 2026-09-12 while specing #217 (the snap's *launcher* icon). The two are different
