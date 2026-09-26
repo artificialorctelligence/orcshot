@@ -2286,9 +2286,111 @@ on the same run, at the end - not one then the other.
 `ui/region_select_wayland.py` (164), the two eyedroppers (292), `ui/color_dialog.py` (130),
 `ui/external_commands.py` (128), `ui/printing.py` (104), `ui/destination_picker.py` (100), and a tail.
 
+**Update 2026-09-26 - the coverage gate passes: 44.4% -> 81.6% (7927/9712).** Branch
+`test/coverage-to-80`, 1752 tests passing under CI's own selection, 0 failures. Tasks 1-5, 7 and
+most of 8 of the plan are done; tasks 2-5 ran as parallel agents in isolated git worktrees. TCE is
+being re-measured now and is the remaining gate - see the trap noted above, which is why the
+baseline 75.6% cannot be reused.
+
+Per-file, the eight-file overlay contract (plan Task 5) was the single biggest win, exactly as the
+plan bet: `region_select` 15.7->98.6, `region_select_wayland` 16.8->98.5, `region_select_gnome_shell`
+0->100, `window_picker` 0->97.6, `window_picker_wayland` 0->95.6, `window_picker_gnome_shell` 0->100,
+`eyedropper` 17.7->100, `eyedropper_wayland` 0->100. Also `app.py` 0->98, `editor_window.py` 0->~72,
+`effects.py` 0->100, `color_dialog.py` 0->79, `printing.py` 17->70.
+
+**Two real defects found and filed rather than fixed: #221** (`_validate` raises `KeyError`/
+`IndexError` instead of returning a message) and **#222** (`_export_tray_menu` leaks a toplevel per
+call). Both are user-reachable and neither is a test artefact.
+
+**Source behaviour pinned as observed, for direflail's call** - each has a test with a comment
+explaining it, so a deliberate change shows up as a test change:
+- No pointer handler in `editor_window.py` reads `event.button`, so a right-click on the canvas
+  starts a draw drag exactly like a left-click and there is no canvas context menu.
+- A capture flag silently swallows a positional file argument: `do_command_line` checks the options
+  dict before the positional, so `orcshot --capture-region /tmp/a.orcshot` captures and never opens
+  the file. Flag precedence is positional rather than validated (region > full-screen >
+  active-window > window-picker > last-region).
+- `_WaylandEyedropperOverlay._on_button_release` ignores both coordinate parameters and delivers
+  whatever the last press or motion sampled; `_EyedropperOverlay`'s never checks whether a drag
+  started, so a bare release falls through to `on_cancelled`.
+- A press-and-release with no drag means opposite things across the overlay family: a zero-area
+  region cancels, a zero-area colour pick is a perfectly good pick.
+- `ui/printing.py`'s `elif options.grayscale` is an **equivalent mutant** against a second `if`:
+  `monochrome_image` emits only 0 and 255, so `grayscale_image` over that is the identity. A future
+  mutation run will report that survivor as unkillable; it is not a test gap.
+
+**Corrections to the numbers in this entry's own baseline:** the per-file figure of 59.9% for
+`ui/external_commands.py` was unstable, not wrong-by-arithmetic. `maybe_seed_default_external_commands`
+calls `list_installed_apps`, which really queries the snapd socket, `flatpak` and the `.desktop`
+directories, so that file's coverage varies with the machine's installed apps. Measured from a clean
+state it was 18%, and is 26% after #220's tests. The whole-project totals in this entry were all
+measured the same way (`/orc-test coverage src`, under `xvfb-run`) and are sound.
+
+**Two ceilings accepted rather than papered over:** `app.py`'s last 7 lines need a second registered
+`Gtk.Application` in one process, which segfaults or fails to export - probed, not assumed, and no
+production seam was added for a test. `ui/printing.py`'s remaining 30% is `_draw_print_page` and
+`_footer_layout`, which need a real `Gtk.PrintContext`.
+
 **Blocks the 0.4.0 release**, by direflail's decision 2026-09-26: both gates pass before anything goes
 to a store. The Snap dbus declaration was granted 2026-09-17 (forum thread 53283), so the release
 chain is otherwise unblocked and waiting on this.
+
+## #221: `_validate` raises instead of returning a message for a named or out-of-range placeholder in an external command's Arguments field
+
+Found 2026-09-26 writing the first tests for `ui/external_commands.py` under BACKLOG #220. Not a
+test artefact - reachable by an ordinary user typing into Preferences -> Destinations -> a command's
+**Arguments** field.
+
+`_validate(name, commandline, argument, existing_name)` exists to turn a bad field into a message
+the dialog can show; it returns a string or `None`. To check the Arguments template it runs
+`token.format("")` over `shlex.split(argument)` and catches **`ValueError` only**. But
+`str.format` raises other things:
+
+Confirmed live (six templates, `shutil.which` faked so the program resolves):
+
+| template | result |
+|---|---|
+| `{0}` | `None` (valid) |
+| `{0` | message: "expected '}' before end of string" |
+| `{0!z}` | message: "Unknown conversion specifier z" |
+| `{nope}` | **raises `KeyError: 'nope'`** |
+| `{1}` | **raises `IndexError: Replacement index 1 out of range`** |
+| `{0:>{1}}` | **raises `IndexError`** |
+
+So the unclosed-brace and bad-conversion cases work as designed, and a *named* placeholder or an
+*index past the single argument* escape the validator entirely. `{1}` is an especially easy typo
+for anyone who assumes the placeholders are numbered per argument rather than per format call.
+
+The fix is one line - catch `(ValueError, KeyError, IndexError)` - but it is a behaviour change in a
+dialog direflail has live-tested, so it is not being made as a side effect of a coverage task
+(#220's rule: pin, do not fix). Pinned in
+`tests/unit/ui/test_external_commands.py::TestValidate::test_a_placeholder_the_validator_does_not_catch_escapes_as_an_exception`,
+which asserts the exception deliberately - **that test will fail when this is fixed**, which is what
+makes it a reminder rather than a blessing of the bug. Fixing this means changing that test to
+assert a message instead.
+
+Not yet checked: what the caller does with the exception - whether the dialog's OK-button handler
+swallows it, leaves the dialog wedged, or lets it reach the top level. Worth finding out before
+deciding severity.
+
+## #222: `_export_tray_menu` constructs and abandons a toplevel `Gtk.Window` on every call, just to read a style-context colour
+
+Found 2026-09-26 by the Task 4 agent writing `tests/unit/test_app.py` under BACKLOG #220, and
+measured rather than inferred: a probe constructing six applications left **six toplevel windows**
+alive.
+
+`app.py`'s `_export_tray_menu` needs a colour from a widget's style context and builds a throwaway
+`Gtk.Window()` to get one. The window is never destroyed, so each call leaks one toplevel. The tray
+menu is re-exported on more than first launch (theme changes, destination-list changes), so this
+accumulates over a session rather than being a one-off.
+
+Not a test problem - `_close_open_modal_dialogs` only touches visible `Gtk.Dialog`s, so the leak is
+invisible to it. Likely fixes: destroy the window after reading the colour, reuse one module-level
+widget, or read the colour from a widget that already exists (the tray icon's own, or the
+application's). Which one depends on whether the style context has to come from a *realized*
+toplevel to be correct, which is not yet checked.
+
+Left for direflail rather than fixed under #220, same rule as #221.
 
 ## #219: Snap Store listing icon: snapcraft.yaml has no top-level icon:, and the only PNG asset is 155x147 - what the store shows for Orcshot is direflail's call (RESOLVED 2026-09-13)
 
