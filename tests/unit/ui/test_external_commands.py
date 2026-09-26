@@ -22,6 +22,7 @@ import shutil
 
 import pytest
 
+from orcshot.i18n import _
 from orcshot.settings import ExternalCommand
 from orcshot.ui.external_commands import (
     InstalledApp,
@@ -289,3 +290,148 @@ class TestIsNewerIgnoringBadVersions:
     )
     def test_it_compares_ordinary_versions(self, candidate, current, expected):
         assert _is_newer_ignoring_bad_versions(candidate, current) is expected
+
+
+class TestValidateMessages:
+    """_validate's whole job is to produce *the right message* - the
+    caller only ever shows it (show_command_detail_dialog's revalidate
+    puts it straight in the dialog's error label). A test that asserts
+    "not None" proves the field was rejected and nothing about whether
+    the user was told something they can act on, which is how five
+    distinct messages could be swapped for each other unnoticed
+    (BACKLOG #220, task 9).
+
+    Each message is compared against _() of the same msgid rather than
+    against raw English, so the assertion holds under a translated
+    locale and still fails if the msgid in the source changes.
+    """
+
+    @pytest.fixture(autouse=True)
+    def no_existing_commands(self, monkeypatch):
+        monkeypatch.setattr("orcshot.ui.external_commands.get_external_commands", lambda: [])
+
+    def test_a_blank_name_says_the_name_is_required(self):
+        assert _validate("   ", "/usr/bin/krita", "{0}", None) == _("Name is required.")
+
+    def test_a_duplicate_name_says_the_name_is_taken(self, monkeypatch):
+        monkeypatch.setattr(
+            "orcshot.ui.external_commands.get_external_commands",
+            lambda: [ExternalCommand(name="Krita", commandline="/usr/bin/krita")],
+        )
+
+        assert _validate("Krita", "/usr/bin/krita", "{0}", None) == _(
+            "A command with this name already exists."
+        )
+
+    def test_a_blank_command_says_the_command_is_required(self):
+        assert _validate("Krita", "  ", "{0}", None) == _("Command is required.")
+
+    def test_a_pasted_command_line_says_to_split_it(self, monkeypatch):
+        """direflail pasted "flatpak run org.kde.krita" whole into the
+        program field during task #166's follow-up. The generic "not
+        found" below does not tell them what to do about it; this one
+        does, and the two must not be swapped."""
+        monkeypatch.setattr(shutil, "which", lambda name: None)
+
+        assert _validate("Krita", "flatpak run org.kde.krita", "{0}", None) == _(
+            "This looks like a full command line - put just the program name here, and the rest in Arguments."
+        )
+
+    def test_a_missing_program_without_a_space_says_it_was_not_found(self, monkeypatch):
+        monkeypatch.setattr(shutil, "which", lambda name: None)
+
+        assert _validate("Krita", "definitely-not-a-real-program", "{0}", None) == _(
+            "Command not found - check the path, or that it's on your PATH."
+        )
+
+    def test_the_program_field_is_what_gets_looked_up_on_path(self, tmp_path, monkeypatch):
+        """shutil.which is deliberately *not* faked here: the point is
+        that the value looked up is the commandline the user typed. A
+        non-executable file is not on $PATH and which() will not find it,
+        so this exercises the is_file() fallback for a real absolute
+        path - the "I browsed to my own script" case.
+        """
+        program = tmp_path / "my-editor"
+        program.write_text("#!/bin/sh\nexit 0\n")
+        monkeypatch.setattr("orcshot.ui.external_commands.get_external_commands", lambda: [])
+
+        assert shutil.which(str(program)) is None
+        assert _validate("Mine", str(program), "{0}", None) is None
+
+    def test_an_argument_error_carries_the_reason_the_format_call_gave(self, monkeypatch):
+        """"Invalid arguments:" alone does not tell the user which brace
+        is wrong; the exception's own text is the actionable half."""
+        monkeypatch.setattr(shutil, "which", lambda name: "/usr/bin/krita")
+
+        message = _validate("Krita", "krita", "{nope}", None)
+
+        assert message.startswith(_("Invalid arguments: "))
+        assert "nope" in message
+
+    def test_a_placeholder_that_indexes_into_the_path_is_rejected(self, monkeypatch):
+        """Pins the probe value, which is surprising and worth knowing:
+        _validate asks whether the template can be formatted by running
+        token.format("") - an *empty* string. So "{0[0]}" fails
+        validation with "string index out of range" even though at run
+        time build_command_argv substitutes a real path, where it would
+        have yielded that path's first character. The empty probe is what
+        makes the validator conservative; documented here rather than
+        changed (BACKLOG #220's constraint on src/ behaviour).
+        """
+        monkeypatch.setattr(shutil, "which", lambda name: "/usr/bin/krita")
+
+        message = _validate("Krita", "krita", "{0[0]}", None)
+
+        assert message is not None
+        assert message.startswith(_("Invalid arguments: "))
+
+
+class TestSearchMatchesEachFieldOnItsOwn:
+    """The existing search tests all use queries that happen to appear in
+    more than one field ("krita" is in both the name and
+    /snap/bin/krita), so any one of the three comparisons could stop
+    working unnoticed. These use a query that appears in exactly one
+    field.
+    """
+
+    NAME_ONLY = InstalledApp(
+        name="Inkscape", source="native", commandline="/usr/bin/vector-draw", argument="--file {0}"
+    )
+    COMMANDLINE_ONLY = InstalledApp(
+        name="Vector Editor", source="native", commandline="/opt/inkview/bin/run", argument="{0}"
+    )
+    ARGUMENT_ONLY = InstalledApp(
+        name="Drawing", source="flatpak", commandline="flatpak", argument="run org.inkscape.Inkscape {0}"
+    )
+
+    def test_a_query_matching_only_the_name_still_matches(self):
+        """The name is stored with its real capitalisation ("Inkscape",
+        from the .desktop file's Name=) and the query is lower-cased, so
+        the name has to be lower-cased too."""
+        apps = [self.NAME_ONLY, self.COMMANDLINE_ONLY]
+
+        assert search_installed_apps("inkscape", apps) == [self.NAME_ONLY]
+
+    def test_a_query_matching_only_the_commandline_still_matches(self):
+        apps = [self.NAME_ONLY, self.COMMANDLINE_ONLY]
+
+        assert search_installed_apps("inkview", apps) == [self.COMMANDLINE_ONLY]
+
+    def test_a_query_matching_only_the_argument_still_matches(self):
+        apps = [self.COMMANDLINE_ONLY, self.ARGUMENT_ONLY]
+
+        assert search_installed_apps("org.inkscape", apps) == [self.ARGUMENT_ONLY]
+
+
+class TestIsNewerIgnoringUnparseableVersions:
+    """The reason this wrapper exists at all: Snap and Flatpak version
+    strings are free-form. `flatpak list` reports a branch name ("stable")
+    or nothing for plenty of apps, and parse_version strips non-numerics
+    and then int()s what is left, so those raise ValueError. A wrapper
+    that answered True on a ValueError would make the unparseable side
+    win the Snap-vs-Flatpak tie-break every time.
+    """
+
+    @pytest.mark.parametrize("candidate,current", [("stable", "5.2.0"), ("", "5.2.0"), ("5.2.0", "stable")])
+    def test_an_unparseable_version_never_wins(self, candidate, current):
+        assert _is_newer_ignoring_bad_versions(candidate, current) is False
