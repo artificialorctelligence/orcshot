@@ -2408,6 +2408,49 @@ requires the count not to move. It counts toplevels rather than asserting on an 
 deliberately: it is the leak that matters, and the test stays honest if the colour is ever
 obtained some other way. Watched fail before the fix.
 
+## #223: The snap's extension-install dialog sends the user to extensions.gnome.org's front page and then tells them to use "the Orcshot page"
+
+Found 2026-09-26 by the agent taking `ui/extension_install.py` from 41% to 100% mutation score
+under #220. Not a test artefact - it is what a snap user is told to do today.
+
+`ui/extension_install.py:37` is `EGO_URL = "https://extensions.gnome.org/"`, the site root, and its
+own comment says so: *"Replaced with the real listing page once EGO accepts the first submission
+(plan Task 9); the site root works meanwhile."* But the snap-gnome body text at lines 70-71 reads:
+
+```
+1. Click Open extensions.gnome.org below.
+2. On the Orcshot page, switch the toggle to ON.
+```
+
+The button lands them on the front page. Step 2 describes a page they are not on, and there is no
+search step in between. The comment's "the site root works meanwhile" is true of the *link* and not
+of the *instructions beside it*.
+
+**Why this is not merely cosmetic, and why it matters now.** The snap deliberately does not ship the
+GNOME Shell extension - that is the whole point of #205's decision to distribute it through
+extensions.gnome.org rather than write into `~/.local/share/gnome-shell/extensions`, which is what
+made the Snap Store's `personal-files` hold avoidable. So on the snap this dialog is the *only*
+route a user has to a working Wayland capture path. If the instructions do not land, the feature
+does not land.
+
+It is also live-blocked in a way worth stating: EGO has not yet listed the extension (confirmed
+2026-09-26, `extensions.gnome.org/extension-query/?search=orcshot` returns 0 results), so the real
+listing URL does not exist yet and cannot simply be pasted in.
+
+**Two independent fixes, and the first does not wait on anything:**
+1. Make step 2 match where the button actually goes - e.g. "2. Search for Orcshot." then "3. On the
+   Orcshot page, switch the toggle to ON." That is correct today and stays correct after the listing
+   exists.
+2. When EGO accepts the submission, replace `EGO_URL` with the real listing page, at which point the
+   current two-step text becomes correct on its own. This is already the plan's intent; the entry
+   exists because nothing tracked the *text* half of it.
+
+Current text pinned as-is by the #220 tests rather than changed, per that entry's rule. Fixing it
+means updating those assertions.
+
+**Should be fixed before 0.4.0 reaches a real snap user**, since 0.4.0 is the first released snap
+revision.
+
 ## #219: Snap Store listing icon: snapcraft.yaml has no top-level icon:, and the only PNG asset is 155x147 - what the store shows for Orcshot is direflail's call (RESOLVED 2026-09-13)
 
 Raised 2026-09-12 while specing #217 (the snap's *launcher* icon). The two are different
