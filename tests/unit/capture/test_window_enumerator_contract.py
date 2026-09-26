@@ -23,9 +23,20 @@ def enumerator(enumerator_name):
     if enumerator_name == "x11":
         if not os.environ.get("DISPLAY"):
             pytest.skip("no X11 display available")
-        from orcshot.capture.x11_window import X11WindowEnumerator
+        from orcshot.capture.x11_window import X11WindowEnumerationUnavailable, X11WindowEnumerator
 
-        return X11WindowEnumerator()
+        try:
+            return X11WindowEnumerator()
+        except X11WindowEnumerationUnavailable as exc:
+            # A display is not enough: enumeration needs an EWMH window
+            # manager to publish _NET_CLIENT_LIST, and a bare Xvfb (what
+            # xvfb-run gives CI and any coverage run) has none. Without
+            # this the six tests below error rather than skip, which is
+            # why /orc-test's coverage run could not be taken under a
+            # display at all - and it has to be, since the GTK window
+            # tests skip without one. An unmet environment precondition
+            # is a skip, the same as the DISPLAY check above.
+            pytest.skip(f"no EWMH-compliant window manager: {exc}")
     return FakeWindowEnumerator(
         windows=[
             _window(2, "Browser"),
