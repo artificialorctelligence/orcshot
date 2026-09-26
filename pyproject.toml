@@ -79,5 +79,19 @@ markers = [
 
 [tool.mutmut]
 source_paths = ["src/orcshot/"]
-pytest_add_cli_args_test_selection = ["tests/"]
 also_copy = ["tests/", "pyproject.toml", "conftest.py"]
+# app.py is excluded from mutation, and its tests from the selection, for
+# one reason: mutmut runs the whole suite many times inside a SINGLE Python
+# process, and tests/unit/test_app.py cannot run twice in one process. Two
+# hard GLib limits, both probed rather than assumed (BACKLOG #220):
+# GApplication exports its action group at /org/gtk/Application/anonymous
+# on first registration and never releases it, so a second register()
+# raises "An object is already exported"; and
+# g_application_parse_command_line SEGFAULTS on a second call for the same
+# instance. Left in the selection, test_app.py kills the whole run at its
+# clean-test pre-flight, so no TCE could be measured for anything at all.
+# Consequence, stated rather than hidden: app.py's 304 lines have 98% line
+# coverage and NO mutation score. Revisit if mutmut gains a
+# process-per-mutant mode.
+do_not_mutate = ["src/orcshot/app.py"]
+pytest_add_cli_args_test_selection = ["tests/", "--ignore=tests/unit/test_app.py"]
