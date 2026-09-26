@@ -12,6 +12,13 @@
 
 - **Both gates must pass on the same run, at the end.** Coverage ≥ 80% (`/orc-test coverage src`), TCE ≥ 70% (`/orc-test analyze`). Baseline 2026-09-26: coverage 44.4% (4308/9712), TCE 75.6% (8340 caught of 11028 scored, 15468 skipped as unreachable). TCE has only 5.6 points of headroom and **coverage work converts skipped mutants into scoreable ones**, so TCE is expected to fall as coverage rises. Never treat the baseline TCE as still valid after adding tests.
 - **Every task proves its tests can fail.** test-discipline rule 5, both halves: plant one real defect in the code under test, run the tests, record which failed and with what, revert. A plant that is caught by nothing means the test is weak — write a better one before moving on. Three of the first four slices hit exactly this.
+- **After every rule-5 revert, clear the bytecode cache before re-running.**
+
+```bash
+find src tests -name __pycache__ -type d -exec rm -rf {} + ; rm -rf .pytest_cache
+```
+
+  Not optional and not hygiene. A plant that swaps one identifier for another of the same length leaves the `.py` file's *size* unchanged, and CPython's default `.pyc` validation compares the recorded source mtime and size — so a `cp`-based revert can leave the cached bytecode accepted and the interpreter still running the defect while `git diff --stat src/` reports clean. Hit for real 2026-09-26: `center_check` -> `footer_check` in `ui/printing.py` (both 12 characters), four tests failing on pristine source, ~20 minutes lost. It cuts both ways — a stale cache can make a reverted defect look still-present, and it can make a coverage measurement describe defective code.
 - **Never change `src/` behaviour to make a test pass.** Where a test reveals surprising behaviour, pin the actual behaviour, document why in the test, and add it to BACKLOG #220. `ui/effects.py`'s double shadow padding is the precedent.
 - **A GTK test needs a display.** Module-level `pytestmark = pytest.mark.skipif(not os.environ.get("DISPLAY"), reason=...)` — this repo's existing idiom, not a new marker. CI already runs under `xvfb-run`; do **not** use the `x11` marker, which CI deselects and which 6 window-enumerator tests fail under bare Xvfb.
 - **Realistic data.** Capture-shaped RGBA arrays with real per-pixel variation, not `np.zeros`. Reuse the `_capture()` / `_photo()` helpers' shape from `tests/unit/ui/test_editor_window.py`.

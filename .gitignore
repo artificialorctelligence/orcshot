@@ -56,3 +56,6 @@ src/orcshot/resources/locale/
 
 # mutmut copies the whole package here, one mutated variant at a time (26k of them)
 mutants/
+
+# hypothesis writes its example database here when the suite runs
+.hypothesis/
