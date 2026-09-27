@@ -495,6 +495,14 @@ Orcshot's own repo, `flathub/org.orcshot.Orcshot`, is created by Flathub on merg
 plan (manifest derivation script, `/orc-package flatpak`) run in a separate session; Task 7 (the
 submission PR) still waits for the `v0.4.0` tag.
 
+**Update 2026-09-16 - dbus declaration request posted, held for moderation.** The forum account
+was approved. direflail created the `store-requests` topic ("dbus slot declaration request for
+orcshot (org.orcshot.Orcshot)", body as drafted in the plan's Task 4 Step 3 with revision 1). On
+submit Discourse reported the post is awaiting approval from a moderator - the usual hold on a new
+account's first post, not a rejection. No thread URL exists yet; it arrives with the approval
+email. Next: record the URL and date here, then Task 4 Step 4 (confirm the grant on the
+dashboard's revisions page) ~2 days after the post goes live.
+
 ## #197: A real setup step for apt/snap/flatpak publishing - credentials/signing, tailored per channel and per machine
 
 *(Renumbered from #196 to #197 on 2026-09-07, when merging main into BACKLOG #189's branch: both
@@ -2202,6 +2210,392 @@ from memory. Windows Greenshot writes real GIFs via .NET; parity may not be achi
 
 **Scope boundary:** the format table only. The portal/never-rename logic from #210/#212 is
 unaffected either way.
+
+## #220: The first /orc-test run this project has ever had - coverage 44.4% against an 80 gate, TCE 75.6% against a 70 one, and three defects found on the way in (RESOLVED 2026-09-26)
+
+Raised 2026-09-26 when direflail asked, before the 0.4.0 release, whether a full `/orc-test` run
+had ever happened here. It had not - not in this repo. Confirmed rather than assumed: zero commits
+mention `orc-test` across all 11 branches, no `pytest-cov`/`mutmut` in `[project.optional-dependencies].dev`,
+no coverage config, no coverage or mutation artifacts, and no BACKLOG entry on either subject. What
+*had* run was the suite itself (1260 passed locally, and CI's `xvfb-run` job at `.github/workflows/apt.yml:33`).
+The tests passed; nobody had ever measured whether they test anything.
+
+One earlier run exists and is worth not re-deriving: 2026-09-13, from an **Orclab**-centred session,
+against a **scratch clone** of Orcshot, as the subject for Orclab v19's `/orc-code refactor` quality
+mode (Orclab BACKLOG #42). It reported 77.9% -> 78.3% coverage. That number was wrong in a specific
+way: coverage.py only lists an *unexecuted* file when its directory has an `__init__.py`, `src/` has
+none, so the 17 files nothing imports were missing from the denominator entirely. Same ~4308 covered
+lines over 5531 instead of 9712. The honest figure is 44.4%, not 78%. Orclab fixed all three of its
+own defects that day; this entry is about Orcshot's side, which nobody came back to.
+
+**Baseline, measured 2026-09-26 on `test/coverage-to-80`:**
+- `run`: 1260 passed - but only after the defect below; before it, 10 collection errors.
+- `audit`: 0 vulnerable (pip-audit against the declared dependencies).
+- `coverage src`: **44.4% (4308/9712)** against the 80 gate. 17 files at 0.0%.
+- `analyze` TCE: **75.6%** against the 70 gate - 8278 killed + 62 timeout of 11028 scored, 2688
+  survived. **15468 of 26496 mutants were skipped as unreachable**, because no test covers that code.
+  So the 75.6% describes the covered 44% and says nothing about the rest.
+
+**The defect that made local testing meaningless (fixed, `dc35a87`).** The project declared no
+`pythonpath`, so `import orcshot` in a test resolved by interpreter state, not by the repo. Three
+different answers on this machine: bare `python3` -> the installed .deb under
+`/usr/lib/python3/dist-packages`; `.venv/bin/python` -> `.claude/worktrees/mystifying-elion-e6651b/src/`,
+a stale worktree its editable install still pointed at; only `PYTHONPATH=src` -> this tree. CI was
+never affected (fresh venv, `pip install -e .` on the checkout), so merged work is sound - but every
+*local* green suite was measured against the wrong source, including the baselines recorded in the
+store-onboarding SDD ledger. It surfaced as 10 collection errors only because this tree has symbols
+the installed 0.3.0 lacks; had they matched, it would have stayed silent.
+
+**Why 80% forces a change of testing strategy, not just more tests.** The established pattern here is
+to split pure logic out of a GTK class and test that, never constructing the widget - stated outright
+in `ui/destination_picker.py`'s `_should_reuse_editor` docstring and in `ui/effects.py`'s module
+docstring ("verified live instead"). That is a legitimate tradeoff and it is why 17 files sit at zero.
+It cannot reach 80%: `ui/editor_window.py` alone is 2678 executable lines - half of everything
+uncovered - so covering every other file perfectly and leaving it alone tops out at **72.7%**.
+Verified live the same day: `EditorWindow` *does* construct headlessly under Xvfb, which CI already
+runs, and one construction covers 33% of the file. So the road is open; the strategy changes for
+windows, and stays as it is for logic.
+
+**Two findings in `ui/effects.py`, pinned in tests as observed behaviour rather than changed** - this
+is a user-visible effect verified live on the VMs, and altering its output is not a coverage decision.
+direflail's call whether either is a bug:
+- `shadow_size` is applied to the canvas twice. `torn_edge_image` sizes its Cairo surface with
+  `pad = shadow_size`, then `drop_shadow_image` pads by its own `size` again (`core/effects.py`:
+  `pad = size`), because it builds its own canvas. A shadowed torn edge grows by **4x** `shadow_size`
+  per dimension, not 2x.
+- `generate_shadow=False` still grows the image by `shadow_size` on every side - a transparent margin
+  sized by a shadow that was never drawn. The first pad reserves room the second makes for itself.
+
+**Where the existing suite is weakest, by mutation score** - these are concrete defects no test
+catches, in code the suite *does* execute, so they are pure test-quality debt and independent of the
+coverage work: `ui/extension_install.py` 41% (84 survivors), `capture/x11_window.py` 47% (109),
+`capture/fake.py` 58% (45), `ui/icons.py` 60% (**789** - the largest single pool), `ui/orcshot_file.py`
+66% (42), `capture/shell_bridge.py` 67% (88), `ui/xapp_tray.py` 67% (49), `ui/render.py` 72% (374),
+`ui/external_commands.py` 72% (133).
+
+**The trap to plan around.** The two gates interact. Every new test written for coverage makes
+previously-skipped mutants scoreable, and coverage-driven tests kill mutants less efficiently than the
+existing hand-written ones. TCE at 75.6% has only 5.6 points of headroom over its gate, so reaching
+80% coverage carelessly is a plausible way to push TCE *below* 70. Both have to hold at the same time,
+on the same run, at the end - not one then the other.
+
+**Progress so far on `test/coverage-to-80`:** 44.4% -> 55.0%. `ui/effects.py` 0% -> 100% (`2ffd202`);
+`ui/editor_window.py` 0% -> 35% via the first 19 tests ever to construct one (`dc35a87`). Remaining to
+80%: **+2469 lines**, of which `editor_window.py` holds 1733. Then `app.py` (304),
+`ui/text_obfuscation_dialog.py` (215), `ui/region_select.py` (183), `ui/window_picker.py` (166),
+`ui/region_select_wayland.py` (164), the two eyedroppers (292), `ui/color_dialog.py` (130),
+`ui/external_commands.py` (128), `ui/printing.py` (104), `ui/destination_picker.py` (100), and a tail.
+
+**Update 2026-09-26 - the coverage gate passes: 44.4% -> 81.6% (7927/9712).** Branch
+`test/coverage-to-80`, 1752 tests passing under CI's own selection, 0 failures. Tasks 1-5, 7 and
+most of 8 of the plan are done; tasks 2-5 ran as parallel agents in isolated git worktrees. TCE is
+being re-measured now and is the remaining gate - see the trap noted above, which is why the
+baseline 75.6% cannot be reused.
+
+Per-file, the eight-file overlay contract (plan Task 5) was the single biggest win, exactly as the
+plan bet: `region_select` 15.7->98.6, `region_select_wayland` 16.8->98.5, `region_select_gnome_shell`
+0->100, `window_picker` 0->97.6, `window_picker_wayland` 0->95.6, `window_picker_gnome_shell` 0->100,
+`eyedropper` 17.7->100, `eyedropper_wayland` 0->100. Also `app.py` 0->98, `editor_window.py` 0->~72,
+`effects.py` 0->100, `color_dialog.py` 0->79, `printing.py` 17->70.
+
+**Two real defects found and filed rather than fixed: #221** (`_validate` raises `KeyError`/
+`IndexError` instead of returning a message) and **#222** (`_export_tray_menu` leaks a toplevel per
+call). Both are user-reachable and neither is a test artefact.
+
+**Source behaviour pinned as observed, for direflail's call** - each has a test with a comment
+explaining it, so a deliberate change shows up as a test change:
+- No pointer handler in `editor_window.py` reads `event.button`, so a right-click on the canvas
+  starts a draw drag exactly like a left-click and there is no canvas context menu.
+- A capture flag silently swallows a positional file argument: `do_command_line` checks the options
+  dict before the positional, so `orcshot --capture-region /tmp/a.orcshot` captures and never opens
+  the file. Flag precedence is positional rather than validated (region > full-screen >
+  active-window > window-picker > last-region).
+- `_WaylandEyedropperOverlay._on_button_release` ignores both coordinate parameters and delivers
+  whatever the last press or motion sampled; `_EyedropperOverlay`'s never checks whether a drag
+  started, so a bare release falls through to `on_cancelled`.
+- A press-and-release with no drag means opposite things across the overlay family: a zero-area
+  region cancels, a zero-area colour pick is a perfectly good pick.
+- `ui/printing.py`'s `elif options.grayscale` is an **equivalent mutant** against a second `if`:
+  `monochrome_image` emits only 0 and 255, so `grayscale_image` over that is the identity. A future
+  mutation run will report that survivor as unkillable; it is not a test gap.
+
+**Corrections to the numbers in this entry's own baseline:** the per-file figure of 59.9% for
+`ui/external_commands.py` was unstable, not wrong-by-arithmetic. `maybe_seed_default_external_commands`
+calls `list_installed_apps`, which really queries the snapd socket, `flatpak` and the `.desktop`
+directories, so that file's coverage varies with the machine's installed apps. Measured from a clean
+state it was 18%, and is 26% after #220's tests. The whole-project totals in this entry were all
+measured the same way (`/orc-test coverage src`, under `xvfb-run`) and are sound.
+
+**Two ceilings accepted rather than papered over:** `app.py`'s last 7 lines need a second registered
+`Gtk.Application` in one process, which segfaults or fails to export - probed, not assumed, and no
+production seam was added for a test. `ui/printing.py`'s remaining 30% is `_draw_print_page` and
+`_footer_layout`, which need a real `Gtk.PrintContext`.
+
+**RESOLVED 2026-09-26. Both gates pass on one run, with the debt paid down as well.**
+
+```
+Python     coverage 82.5% (8023/9730 lines) ✓
+           TCE 89.6% ✓    lint: 0 findings
+```
+
+Coverage 44.4% -> 82.5%. TCE never-measured -> 89.6%, against gates of 80 and 70. 1887 tests, 0
+failures under CI's own selection, verified in two different collection orders. pip-audit clean.
+Test lint clean - no assertion-free test, no sleep, no skipped test, no duplicate name.
+
+The mutation run's arithmetic is stated because it is the one thing that can fail silently: 21178
+scored + 4619 skipped = 25797, exactly the mutant total, so no mutants left the denominator. See
+the leaked-GLib-source trap below for why that check is not ceremony.
+
+**TCE went UP, which contradicts the prediction in this entry.** The expectation was that it would
+fall, because coverage work turns skipped mutants into scoreable ones and coverage-driven tests kill
+less efficiently. Instead it went 75.6% -> 87.3% while the scoreable population nearly doubled
+(11028 -> 21178), then 87.3% -> 89.6% with the debt work. The cause is test-discipline rule 5 held
+to literally: every new test file had a real defect planted in it before being accepted, and on the
+five occasions a plant survived, the test was rewritten rather than kept. Tests built that way kill
+mutants. Worth remembering the next time the rule feels like it is doubling the cost for nothing.
+
+**Mutation debt, worst files first** (#220's own ranking, paid by four parallel agents and one
+in-session pass): `autostart.py` 24%->100%, `extension_install.py` 41%->100%, `capture_feedback.py`
+49%->100%, `external_commands.py` 63%->100%, `shell_bridge.py` 67%->97%, `xapp_tray.py` 68%->96.7%,
+`magnifier.py` 77%->94.4%, `greenshot_export.py` 78%->100%. 493 survivors killed. Where a ceiling
+was reached it was reported as a ceiling with the reasoning, not forced: 26 documented equivalent
+mutants remain, and two of the three groups in `shell_bridge` were spot-checked by hand rather than
+taken on trust.
+
+**Four pieces of shared process state were found leaking between tests, every one of which passed
+in isolation.** This is the entry's most transferable finding. mutmut runs the whole suite many
+times in ONE process, which is the only reason any of them surfaced:
+1. The config directory - one `XDG_CONFIG_HOME` per *session*, so every `set_*()` persisted into
+   later tests. Fixed with a per-test directory in `conftest.py`.
+2. Leaked GLib sources - a repeating timeout left behind aborts mutmut with SIGABRT, and the mutants
+   lost that way leave the scored set **silently**, raising TCE. One such leak was measured
+   flattering a file from 96.7% to 99.3%. Six tests were leaking. Fixed centrally in `conftest.py`.
+3. A dialog-capture helper comparing `id()` values - a freed wrapper lets a new dialog land at the
+   same address and look pre-existing.
+4. The process-global `ShellBridge` singleton, whose listener list outlived the test that added to
+   it (surfaced by #224's second subscriber). Fixed by resetting it per test.
+
+**Three real defects found and fixed**, each written test-first with the test watched failing before
+the source changed: #221 (`_validate` raising instead of returning a message), #222
+(`_export_tray_menu` leaking a toplevel per call), #224 ("Capture Window" never greyed out, the
+function that would have done it called by nothing - and wrong as written). Plus #223 filed, not
+fixed: the snap's extension-install dialog sends the user to EGO's front page and then refers to
+"the Orcshot page".
+
+**Two ceilings accepted and named rather than papered over.** `app.py`: 98% line coverage and NO
+mutation score, because `test_app.py` cannot run twice in one process (GApplication never releases
+the action group it exports, and `g_application_parse_command_line` segfaults on a second call for
+one instance - both probed). Excluding it was the only way to score the other 84 files.
+`ui/printing.py`: the remaining 30% is `_draw_print_page` and `_footer_layout`, which need a real
+`Gtk.PrintContext`.
+
+**Still open, deliberately:** 2197 survivors in files above the gate, and the four test-only-
+referenced names from the dead-code audit (`fake.py`'s four test doubles, which ship inside the
+installed package, plus `is_valid_regex` and `renumber_step_labels`). Neither blocks a release.
+
+**No longer blocks 0.4.0.**
+
+---
+
+*Original blocking note, kept for the record:* **Blocks the 0.4.0 release**, by direflail's decision 2026-09-26: both gates pass before anything goes
+to a store. The Snap dbus declaration was granted 2026-09-17 (forum thread 53283), so the release
+chain is otherwise unblocked and waiting on this.
+
+## #221: `_validate` raises instead of returning a message for a named or out-of-range placeholder in an external command's Arguments field (RESOLVED 2026-09-26)
+
+Found 2026-09-26 writing the first tests for `ui/external_commands.py` under BACKLOG #220. Not a
+test artefact - reachable by an ordinary user typing into Preferences -> Destinations -> a command's
+**Arguments** field.
+
+`_validate(name, commandline, argument, existing_name)` exists to turn a bad field into a message
+the dialog can show; it returns a string or `None`. To check the Arguments template it runs
+`token.format("")` over `shlex.split(argument)` and catches **`ValueError` only**. But
+`str.format` raises other things:
+
+Confirmed live (six templates, `shutil.which` faked so the program resolves):
+
+| template | result |
+|---|---|
+| `{0}` | `None` (valid) |
+| `{0` | message: "expected '}' before end of string" |
+| `{0!z}` | message: "Unknown conversion specifier z" |
+| `{nope}` | **raises `KeyError: 'nope'`** |
+| `{1}` | **raises `IndexError: Replacement index 1 out of range`** |
+| `{0:>{1}}` | **raises `IndexError`** |
+
+So the unclosed-brace and bad-conversion cases work as designed, and a *named* placeholder or an
+*index past the single argument* escape the validator entirely. `{1}` is an especially easy typo
+for anyone who assumes the placeholders are numbered per argument rather than per format call.
+
+The fix is one line - catch `(ValueError, KeyError, IndexError)` - but it is a behaviour change in a
+dialog direflail has live-tested, so it is not being made as a side effect of a coverage task
+(#220's rule: pin, do not fix). Pinned in
+`tests/unit/ui/test_external_commands.py::TestValidate::test_a_placeholder_the_validator_does_not_catch_escapes_as_an_exception`,
+which asserts the exception deliberately - **that test will fail when this is fixed**, which is what
+makes it a reminder rather than a blessing of the bug. Fixing this means changing that test to
+assert a message instead.
+
+**Resolved 2026-09-26**, on direflail's instruction to fix it rather than carry it into 0.4.0. The
+`except ValueError` is now `except (ValueError, KeyError, IndexError)`, with a comment naming the
+two cases and why they are ordinary typos rather than exotic input. The test that asserted the
+exception was flipped first and watched fail on all three templates before the source changed, so
+the fix is proven by a test that could only pass afterwards. `{nope}`, `{1}` and `{0:>{1}}` now
+come back as "Invalid arguments: ..." like the unclosed-brace and bad-conversion cases always did.
+
+The open question above - what the caller did with the escaping exception - is now moot and was
+never answered; nothing reaches the caller to handle.
+
+## #222: `_export_tray_menu` constructs and abandons a toplevel `Gtk.Window` on every call, just to read a style-context colour (RESOLVED 2026-09-26)
+
+Found 2026-09-26 by the Task 4 agent writing `tests/unit/test_app.py` under BACKLOG #220, and
+measured rather than inferred: a probe constructing six applications left **six toplevel windows**
+alive.
+
+`app.py`'s `_export_tray_menu` needs a colour from a widget's style context and builds a throwaway
+`Gtk.Window()` to get one. The window is never destroyed, so each call leaks one toplevel. The tray
+menu is re-exported on more than first launch (theme changes, destination-list changes), so this
+accumulates over a session rather than being a one-off.
+
+Not a test problem - `_close_open_modal_dialogs` only touches visible `Gtk.Dialog`s, so the leak is
+invisible to it. Likely fixes: destroy the window after reading the colour, reuse one module-level
+widget, or read the colour from a widget that already exists (the tray icon's own, or the
+application's). Which one depends on whether the style context has to come from a *realized*
+toplevel to be correct, which is not yet checked.
+
+**Resolved 2026-09-26**, on direflail's instruction. The probe window is now created, asked for
+the colour, and destroyed in a `finally`. Reusing an existing widget was considered and rejected:
+`_export_tray_menu` runs during startup, when there is no other widget guaranteed to exist, and the
+colour wanted is the theme's default window foreground - which is exactly what an unrealized
+`Gtk.Window`'s style context answers. The window was never shown before and is not shown now, so
+nothing about the colour changes.
+
+Proven by a test that counts `Gtk.Window.list_toplevels()` across three consecutive exports and
+requires the count not to move. It counts toplevels rather than asserting on an internal
+deliberately: it is the leak that matters, and the test stays honest if the colour is ever
+obtained some other way. Watched fail before the fix.
+
+## #223: The snap's extension-install dialog sends the user to extensions.gnome.org's front page and then tells them to use "the Orcshot page"
+
+Found 2026-09-26 by the agent taking `ui/extension_install.py` from 41% to 100% mutation score
+under #220. Not a test artefact - it is what a snap user is told to do today.
+
+`ui/extension_install.py:37` is `EGO_URL = "https://extensions.gnome.org/"`, the site root, and its
+own comment says so: *"Replaced with the real listing page once EGO accepts the first submission
+(plan Task 9); the site root works meanwhile."* But the snap-gnome body text at lines 70-71 reads:
+
+```
+1. Click Open extensions.gnome.org below.
+2. On the Orcshot page, switch the toggle to ON.
+```
+
+The button lands them on the front page. Step 2 describes a page they are not on, and there is no
+search step in between. The comment's "the site root works meanwhile" is true of the *link* and not
+of the *instructions beside it*.
+
+**Why this is not merely cosmetic, and why it matters now.** The snap deliberately does not ship the
+GNOME Shell extension - that is the whole point of #205's decision to distribute it through
+extensions.gnome.org rather than write into `~/.local/share/gnome-shell/extensions`, which is what
+made the Snap Store's `personal-files` hold avoidable. So on the snap this dialog is the *only*
+route a user has to a working Wayland capture path. If the instructions do not land, the feature
+does not land.
+
+It is also live-blocked in a way worth stating: EGO has not yet listed the extension (confirmed
+2026-09-26, `extensions.gnome.org/extension-query/?search=orcshot` returns 0 results), so the real
+listing URL does not exist yet and cannot simply be pasted in.
+
+**Two independent fixes, and the first does not wait on anything:**
+1. Make step 2 match where the button actually goes - e.g. "2. Search for Orcshot." then "3. On the
+   Orcshot page, switch the toggle to ON." That is correct today and stays correct after the listing
+   exists.
+2. When EGO accepts the submission, replace `EGO_URL` with the real listing page, at which point the
+   current two-step text becomes correct on its own. This is already the plan's intent; the entry
+   exists because nothing tracked the *text* half of it.
+
+Current text pinned as-is by the #220 tests rather than changed, per that entry's rule. Fixing it
+means updating those assertions.
+
+**Update 2026-09-26 - fix 1 done, fix 2 still waits on EGO; the entry stays open.**
+
+The steps now read: *1. Click Open extensions.gnome.org below. 2. Search for Orcshot and open its
+page. 3. Switch the toggle to ON. 4. That's it...* - correct for wherever the button actually lands.
+
+The test written for it asserts the **relationship** rather than the words, which is the part worth
+keeping: it reads `EGO_URL`, and requires a search step while that URL is the site root and requires
+its *absence* once it is a deep link. Both directions were proven by planting them - restoring the
+old step 2 fails it, and pointing `EGO_URL` at a listing URL while leaving the search step in also
+fails it. So the next person cannot change the link without the words, or the words without the
+link. `EGO_URL`'s own comment now says so too.
+
+Changing the string made the committed `po/orcshot.pot` stale, which
+`tests/unit/test_extract_pot.py` caught on the first full run - the guard from #204 doing exactly
+its job. Regenerated with `scripts/extract_pot.sh`. No `.po` carried the old msgid, so no
+translation was lost.
+
+**Why this is not closed.** Fix 2 - `EGO_URL` pointing at the real listing - cannot happen until
+extensions.gnome.org accepts the submission, and as of today it still lists nothing. Until then the
+dialog's instructions are *correct* but lead to a search that finds nothing, so the snap's Wayland
+capture path is still unreachable in practice. That is the same gate `#205` decision 6 already puts
+on snap `stable`; worth being explicit that it also makes this dialog non-functional for a 0.4.0
+**beta** user, not just a stable one.
+
+**Should be fixed before 0.4.0 reaches a real snap user**, since 0.4.0 is the first released snap
+revision.
+
+## #224: "Capture Window" was never greyed out, because the function written to do it was called by nothing (RESOLVED 2026-09-26)
+
+Found 2026-09-26 during #220's dead-code audit, which direflail asked for after the mutation work
+turned up several unreferenced functions. `capture/backend_select.py`'s `window_picker_supported()`
+had no caller anywhere in `src/`, `tests/`, or any `.js`/`.desktop`/`.yaml`. Its own docstring said
+what it was for: *"Used to grey out the tray menu item rather than let it silently do nothing or
+show wrong content."* Nothing ever did.
+
+**What actually happened without it, traced rather than assumed.** On Wayland,
+`ui/window_picker.py`'s `start_window_picker` first tries the Shell-native flow
+(`gnome_window_picker.is_available()`, capability `window-picker`). If that is absent it falls
+through to `default_window_enumerator_and_activator()`, which tries `gnome_window_calls`
+(capability `list-windows`) and otherwise constructs `X11WindowEnumerator()` - whose **constructor
+raises** `X11WindowEnumerationUnavailable` when the window manager publishes no EWMH
+`_NET_CLIENT_LIST`. `OrcshotApplication._run_capture` catches `PortalRequestCancelled`,
+`PortalRequestFailed` and `PortalRequestTimedOut` - and nothing else. So on a Wayland session whose
+Shell extension offers neither capability, clicking "Capture Window" raised out of a GAction
+handler and the user saw nothing happen at all, exactly as the docstring predicted.
+
+**The function was also wrong, so wiring it up unchanged would have shipped a new bug.** It checked
+`list-windows` only. Since `start_window_picker` *prefers* `window-picker` and only falls back to
+enumeration, a Shell offering `window-picker` without `list-windows` would have had a perfectly
+working picker behind a greyed-out menu item. Those two can differ in practice: the extension
+announces `CAPABILITIES = ['tray', ...Object.keys(HANDLERS)]`, so one version announces both - but
+GNOME Shell caches an extension's JS for a whole login session, so the running copy can be an older
+version than the installed one. That is a state this project already knows about and detects
+(`gnome_extension_setup.bundled_version_name`, and #220's own stale-copy notification).
+
+**Resolved the same day.** `window_picker_supported()` now returns true if *either* capability is
+present, with both looked up through one `_shell_has` seam so a test can answer them with no bridge
+and no bus. `gnome_window_calls` gained a `CAPABILITY = "list-windows"` constant to match
+`gnome_window_picker`'s, since the string is now read from two modules and a magic string in two
+places is a rename waiting to go wrong against a separately-shipped extension.
+
+The action is gated in `_register_tray_actions`, following `repeat_region`'s existing precedent, and
+**subscribes to `on_capabilities_changed`** rather than checking once - Hello arrives after startup,
+asynchronously, so a single check at registration time answers "no" on every Wayland session that is
+about to answer "yes". Same reason `_check_shell_extension_health` subscribes. The subscription is
+`off`-then-`on` so re-registering cannot stack listeners.
+
+Eight tests cover it, including that either capability alone is enough and that a later Hello
+enables the item. Rule 5: turning the `or` into an `and` failed 4, and dropping the subscription
+failed the Hello test specifically.
+
+**One consequence worth recording.** Adding a second subscriber to the process-global
+`ShellBridge` broke two existing health-check tests that passed in isolation and failed in the full
+suite - they asserted on `_listeners`, which now outlived the test that added to it. Fixed by
+resetting the singleton per test in `tests/conftest.py` rather than loosening those two assertions.
+That is the fourth piece of shared process state on this branch found leaking between tests, after
+the config directory, the GLib source list, and a reused `id()` in a dialog-capture helper.
+
+**Not changed:** `X11WindowEnumerator` still raises on a non-EWMH window manager, and
+`window_picker_supported()` still answers true on X11 without probing for that. Every real X11
+desktop publishes `_NET_CLIENT_LIST`; a bare Xvfb, which does not, is not a session anyone captures
+from. Recorded here so the gap is a decision rather than an oversight.
 
 ## #219: Snap Store listing icon: snapcraft.yaml has no top-level icon:, and the only PNG asset is 155x147 - what the store shows for Orcshot is direflail's call (RESOLVED 2026-09-13)
 

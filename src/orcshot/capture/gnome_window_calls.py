@@ -96,8 +96,16 @@ class GnomeWindowCallsBackend:
             raise GnomeWindowCallsUnavailable(f"Shell extension activate-window failed: {error}") from error
 
 
+# Named for the same reason gnome_window_picker.CAPABILITY is: it is
+# looked up from more than one module now (backend_select's
+# window_picker_supported also asks for it), and a magic string in two
+# places is a rename waiting to go wrong against a separately-shipped
+# extension.
+CAPABILITY = "list-windows"
+
+
 def is_available() -> bool:
     """A capability the extension announced in Hello - a dictionary
     lookup, no probe. "GNOME on Wayland" and "GNOME on Wayland with the
     extension actually running" are told apart by whether Hello came."""
-    return get_bridge().has("list-windows")
+    return get_bridge().has(CAPABILITY)

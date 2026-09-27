@@ -110,17 +110,43 @@ def default_window_enumerator_and_activator() -> tuple[WindowEnumerator, WindowA
     return X11WindowEnumerator(), None
 
 
+def _shell_has(kind: str) -> bool:
+    """One seam for both capability lookups below, so a test can answer
+    them without a bridge or a bus."""
+    from orcshot.capture.shell_bridge import get_bridge
+
+    return get_bridge().has(kind)
+
+
 def window_picker_supported() -> bool:
-    """Whether "Capture Window" can work correctly right now - always
-    true on X11 (the frozen-backdrop crop needs nothing extra beyond
-    X11WindowEnumerator), true on Wayland only if the bundled
-    window-calls extension is actually installed, enabled, and
-    responding. Used to grey out the tray menu item rather than let it
-    silently do nothing or show wrong content - see REQUIREMENTS.md's
-    Wayland window-picker section."""
+    """Whether "Capture Window" can work correctly right now.
+
+    Always true on X11: the frozen-backdrop crop needs nothing beyond
+    X11WindowEnumerator. (Strictly, that enumerator's constructor still
+    raises on a window manager with no EWMH _NET_CLIENT_LIST - real
+    desktops all have one, and a bare Xvfb, which does not, is not a
+    session anyone captures from.)
+
+    On Wayland, true if the bundled Shell extension offers *either*
+    capability, because ui/window_picker.py's start_window_picker
+    accepts either: it prefers the Shell-native "window-picker" flow and
+    falls back to a plain overlay driven by "list-windows" enumeration.
+    Checking only one would disable a menu item that would have worked -
+    and the two can differ in practice, because the Shell may be running
+    a cached older copy of the extension than the one this package ships
+    (see gnome_extension_setup.bundled_version_name).
+
+    With neither, activating the item reaches X11WindowEnumerator under
+    Wayland, whose constructor raises X11WindowEnumerationUnavailable -
+    which OrcshotApplication._run_capture does not catch, since it
+    handles the three portal exceptions only. The click does nothing at
+    all. Gating the action is what turns that into a visibly unavailable
+    menu item (BACKLOG #224).
+    """
     if os.environ.get("XDG_SESSION_TYPE") != "wayland":
         return True
 
-    from orcshot.capture.gnome_window_calls import is_available
+    from orcshot.capture.gnome_window_calls import CAPABILITY as ENUMERATE_CAPABILITY
+    from orcshot.capture.gnome_window_picker import CAPABILITY as SHELL_PICKER_CAPABILITY
 
-    return is_available()
+    return _shell_has(SHELL_PICKER_CAPABILITY) or _shell_has(ENUMERATE_CAPABILITY)

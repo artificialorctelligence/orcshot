@@ -34,6 +34,12 @@ from orcshot.i18n import _
 EXTENSION_UUID = "orcshot@orcshot.org"
 # Replaced with the real listing page once EGO accepts the first
 # submission (plan Task 9); the site root works meanwhile.
+#
+# The snap-gnome steps below must agree with wherever this lands
+# (BACKLOG #223): while it is the site root they have to include a search
+# step, and when it becomes a deep link that step goes. A test asserts
+# exactly that relationship rather than the words, so changing one
+# without the other fails.
 EGO_URL = "https://extensions.gnome.org/"
 
 
@@ -68,8 +74,9 @@ _TEXT = {
             "extension. Snap packages aren't allowed to install extensions, so this one comes from GNOME's own "
             "extension site.\n\n"
             "1. Click Open extensions.gnome.org below.\n"
-            "2. On the Orcshot page, switch the toggle to ON.\n"
-            "3. That's it — this window closes by itself when the extension is running.\n\n"
+            "2. Search for Orcshot and open its page.\n"
+            "3. Switch the toggle to ON.\n"
+            "4. That's it — this window closes by itself when the extension is running.\n\n"
             "If the page says your browser needs the GNOME Shell integration add-on: install the add-on it "
             "links to, then on Ubuntu run  sudo apt install gnome-browser-connector  (or install Extension "
             "Manager from the Software app and search for Orcshot there). This is a one-time setup for any "
