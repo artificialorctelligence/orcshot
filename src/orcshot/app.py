@@ -627,6 +627,24 @@ class OrcshotApplication(Gtk.Application):
                 # its own comment).
                 self._tray_repeat_action = action
                 action.set_enabled(False)
+            if mode == "window_picker":
+                # Gated, because on Wayland this one can be genuinely
+                # unavailable (BACKLOG #224): with neither Shell
+                # capability the handler reaches X11WindowEnumerator,
+                # whose constructor raises X11WindowEnumerationUnavailable,
+                # and _run_capture catches the three portal exceptions
+                # only - so the click does nothing at all and says
+                # nothing. A disabled item tells the truth instead.
+                self._tray_window_picker_action = action
+                self._refresh_window_picker_action()
+                # Hello arrives after startup, asynchronously, so the
+                # answer at registration time is usually "no" even where
+                # it will shortly be "yes" - same reason
+                # _check_shell_extension_health subscribes rather than
+                # checking once. off-then-on keeps a second
+                # registration from stacking listeners.
+                self._shell_bridge.off_capabilities_changed(self._on_capabilities_for_window_picker)
+                self._shell_bridge.on_capabilities_changed(self._on_capabilities_for_window_picker)
         open_file_action = Gio.SimpleAction.new("tray-open-file", None)
         open_file_action.connect("activate", lambda *_args: self.open_file_from_tray())
         self.add_action(open_file_action)
@@ -881,6 +899,20 @@ class OrcshotApplication(Gtk.Application):
         if self._restart_after_editors_close and not self._open_editors:
             print("[orcshot] restarting for a language change (exit 1 triggers systemd's Restart=on-failure)")
             sys.exit(1)
+
+    def _on_capabilities_for_window_picker(self, _capabilities) -> None:
+        self._refresh_window_picker_action()
+
+    def _refresh_window_picker_action(self) -> None:
+        """Enables "Capture Window" exactly when it can actually work -
+        see backend_select.window_picker_supported for what that means
+        on each session type.
+        """
+        from orcshot.capture.backend_select import window_picker_supported
+
+        action = getattr(self, "_tray_window_picker_action", None)
+        if action is not None:
+            action.set_enabled(window_picker_supported())
 
     def _check_shell_extension_health(self) -> None:
         """Surfaces one real, ordinary-but-easy-to-miss state

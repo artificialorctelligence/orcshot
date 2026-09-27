@@ -2451,6 +2451,62 @@ means updating those assertions.
 **Should be fixed before 0.4.0 reaches a real snap user**, since 0.4.0 is the first released snap
 revision.
 
+## #224: "Capture Window" was never greyed out, because the function written to do it was called by nothing (RESOLVED 2026-09-26)
+
+Found 2026-09-26 during #220's dead-code audit, which direflail asked for after the mutation work
+turned up several unreferenced functions. `capture/backend_select.py`'s `window_picker_supported()`
+had no caller anywhere in `src/`, `tests/`, or any `.js`/`.desktop`/`.yaml`. Its own docstring said
+what it was for: *"Used to grey out the tray menu item rather than let it silently do nothing or
+show wrong content."* Nothing ever did.
+
+**What actually happened without it, traced rather than assumed.** On Wayland,
+`ui/window_picker.py`'s `start_window_picker` first tries the Shell-native flow
+(`gnome_window_picker.is_available()`, capability `window-picker`). If that is absent it falls
+through to `default_window_enumerator_and_activator()`, which tries `gnome_window_calls`
+(capability `list-windows`) and otherwise constructs `X11WindowEnumerator()` - whose **constructor
+raises** `X11WindowEnumerationUnavailable` when the window manager publishes no EWMH
+`_NET_CLIENT_LIST`. `OrcshotApplication._run_capture` catches `PortalRequestCancelled`,
+`PortalRequestFailed` and `PortalRequestTimedOut` - and nothing else. So on a Wayland session whose
+Shell extension offers neither capability, clicking "Capture Window" raised out of a GAction
+handler and the user saw nothing happen at all, exactly as the docstring predicted.
+
+**The function was also wrong, so wiring it up unchanged would have shipped a new bug.** It checked
+`list-windows` only. Since `start_window_picker` *prefers* `window-picker` and only falls back to
+enumeration, a Shell offering `window-picker` without `list-windows` would have had a perfectly
+working picker behind a greyed-out menu item. Those two can differ in practice: the extension
+announces `CAPABILITIES = ['tray', ...Object.keys(HANDLERS)]`, so one version announces both - but
+GNOME Shell caches an extension's JS for a whole login session, so the running copy can be an older
+version than the installed one. That is a state this project already knows about and detects
+(`gnome_extension_setup.bundled_version_name`, and #220's own stale-copy notification).
+
+**Resolved the same day.** `window_picker_supported()` now returns true if *either* capability is
+present, with both looked up through one `_shell_has` seam so a test can answer them with no bridge
+and no bus. `gnome_window_calls` gained a `CAPABILITY = "list-windows"` constant to match
+`gnome_window_picker`'s, since the string is now read from two modules and a magic string in two
+places is a rename waiting to go wrong against a separately-shipped extension.
+
+The action is gated in `_register_tray_actions`, following `repeat_region`'s existing precedent, and
+**subscribes to `on_capabilities_changed`** rather than checking once - Hello arrives after startup,
+asynchronously, so a single check at registration time answers "no" on every Wayland session that is
+about to answer "yes". Same reason `_check_shell_extension_health` subscribes. The subscription is
+`off`-then-`on` so re-registering cannot stack listeners.
+
+Eight tests cover it, including that either capability alone is enough and that a later Hello
+enables the item. Rule 5: turning the `or` into an `and` failed 4, and dropping the subscription
+failed the Hello test specifically.
+
+**One consequence worth recording.** Adding a second subscriber to the process-global
+`ShellBridge` broke two existing health-check tests that passed in isolation and failed in the full
+suite - they asserted on `_listeners`, which now outlived the test that added to it. Fixed by
+resetting the singleton per test in `tests/conftest.py` rather than loosening those two assertions.
+That is the fourth piece of shared process state on this branch found leaking between tests, after
+the config directory, the GLib source list, and a reused `id()` in a dialog-capture helper.
+
+**Not changed:** `X11WindowEnumerator` still raises on a non-EWMH window manager, and
+`window_picker_supported()` still answers true on X11 without probing for that. Every real X11
+desktop publishes `_NET_CLIENT_LIST`; a bare Xvfb, which does not, is not a session anyone captures
+from. Recorded here so the gap is a decision rather than an oversight.
+
 ## #219: Snap Store listing icon: snapcraft.yaml has no top-level icon:, and the only PNG asset is 155x147 - what the store shows for Orcshot is direflail's call (RESOLVED 2026-09-13)
 
 Raised 2026-09-12 while specing #217 (the snap's *launcher* icon). The two are different

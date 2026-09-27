@@ -118,3 +118,35 @@ def _no_leaked_glib_sources():
         if context.find_source_by_id(source_id) is not None:
             _GLib.source_remove(source_id)
     del _created_sources[first:]
+
+
+# --------------------------------------------------------------------
+# The ShellBridge singleton
+#
+# capture/shell_bridge.py keeps one process-global bridge behind
+# get_bridge(), which is right for the app - there is one Shell
+# connection - and wrong for a suite, because anything a test registers
+# on it outlives that test. The listener list is the sharp edge:
+# app.py's _check_shell_extension_health and _register_tray_actions both
+# subscribe to capability changes, so a test that triggers either leaves
+# a listener behind, and a later test asserting on _listeners sees it.
+#
+# Found the same day the "Capture Window" gating was wired (BACKLOG
+# #224): two existing health-check tests began failing in the full suite
+# while passing in isolation, which is the signature of exactly this.
+# Resetting here rather than making those two assertions looser keeps
+# them meaning what they were written to mean.
+#
+# Constructing a fresh bridge is cheap and touches no bus: ShellBridge()
+# only builds a Gio.SimpleAction, and register() - which takes the
+# connection - is a separate call the app makes and tests do not.
+# --------------------------------------------------------------------
+
+
+@pytest.fixture(autouse=True)
+def _fresh_shell_bridge():
+    from orcshot.capture import shell_bridge
+
+    shell_bridge.set_bridge(None)
+    yield
+    shell_bridge.set_bridge(None)

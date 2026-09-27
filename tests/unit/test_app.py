@@ -1366,3 +1366,96 @@ class TestMain:
 
         monkeypatch.setattr(appmod, "OrcshotApplication", FailingApplication)
         assert main() == 7
+
+
+# --------------------------------------------------------------------
+# "Capture Window" availability (BACKLOG #224)
+#
+# window_picker_supported() existed, documented itself as being used to
+# grey out this menu item, and was called by nothing - so the item was
+# always enabled. On a Wayland session whose Shell extension offers
+# neither capability, activating it reaches X11WindowEnumerator, whose
+# constructor raises X11WindowEnumerationUnavailable, which _run_capture
+# does not catch (it catches the three portal exceptions only). The user
+# clicks and nothing happens.
+# --------------------------------------------------------------------
+
+
+class TestWindowPickerAvailability:
+    def test_x11_always_supports_the_window_picker(self, monkeypatch):
+        from orcshot.capture.backend_select import window_picker_supported
+
+        monkeypatch.setenv("XDG_SESSION_TYPE", "x11")
+
+        assert window_picker_supported() is True
+
+    @pytest.mark.parametrize("capability", ["window-picker", "list-windows"])
+    def test_either_shell_capability_is_enough_on_wayland(self, monkeypatch, capability):
+        """start_window_picker prefers the Shell-native "window-picker"
+        flow and only falls back to enumeration ("list-windows"), so
+        either one on its own means the feature works. Checking just one
+        would grey out a menu item that would have worked.
+        """
+        from orcshot.capture import backend_select
+
+        monkeypatch.setenv("XDG_SESSION_TYPE", "wayland")
+        monkeypatch.setattr(backend_select, "_shell_has", lambda kind: kind == capability)
+
+        assert backend_select.window_picker_supported() is True
+
+    def test_wayland_without_either_capability_does_not_support_it(self, monkeypatch):
+        from orcshot.capture import backend_select
+
+        monkeypatch.setenv("XDG_SESSION_TYPE", "wayland")
+        monkeypatch.setattr(backend_select, "_shell_has", lambda kind: False)
+
+        assert backend_select.window_picker_supported() is False
+
+
+class TestWindowPickerTrayActionIsGated:
+    def test_the_action_is_disabled_when_the_picker_cannot_work(self, bare_app, monkeypatch):
+        from orcshot.capture import backend_select
+
+        monkeypatch.setenv("XDG_SESSION_TYPE", "wayland")
+        monkeypatch.setattr(backend_select, "_shell_has", lambda kind: False)
+        bare_app._register_tray_actions()
+
+        assert bare_app.lookup_action("tray-window_picker").get_enabled() is False
+
+    def test_the_action_is_enabled_when_the_picker_can_work(self, bare_app, monkeypatch):
+        from orcshot.capture import backend_select
+
+        monkeypatch.setenv("XDG_SESSION_TYPE", "wayland")
+        monkeypatch.setattr(backend_select, "_shell_has", lambda kind: kind == "window-picker")
+        bare_app._register_tray_actions()
+
+        assert bare_app.lookup_action("tray-window_picker").get_enabled() is True
+
+    def test_it_becomes_enabled_when_the_shell_says_hello_later(self, bare_app, monkeypatch):
+        """Hello arrives asynchronously, after startup - the same reason
+        _check_shell_extension_health subscribes rather than checking
+        once. Registering while the extension is still silent must not
+        leave the item permanently dead.
+        """
+        from orcshot.capture import backend_select
+
+        monkeypatch.setenv("XDG_SESSION_TYPE", "wayland")
+        available = {"yes": False}
+        monkeypatch.setattr(
+            backend_select, "_shell_has", lambda kind: available["yes"] and kind == "window-picker"
+        )
+        bare_app._register_tray_actions()
+        action = bare_app.lookup_action("tray-window_picker")
+        assert action.get_enabled() is False
+
+        available["yes"] = True
+        for listener in list(bare_app._shell_bridge._listeners):
+            listener(frozenset({"window-picker"}))
+
+        assert action.get_enabled() is True
+
+    def test_x11_leaves_the_action_enabled(self, bare_app, monkeypatch):
+        monkeypatch.setenv("XDG_SESSION_TYPE", "x11")
+        bare_app._register_tray_actions()
+
+        assert bare_app.lookup_action("tray-window_picker").get_enabled() is True
