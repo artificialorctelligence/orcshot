@@ -26,6 +26,22 @@ gi.require_version("GLib", "2.0")
 from gi.repository import Gio, GLib
 
 SHELL_OBJECT_PATH = "/org/orcshot/Orcshot/Shell"
+
+# The second bus name the extension watches, for headless capture
+# (BACKLOG #225). It exists because the extension talks to whoever owns a
+# name it watches, and a running tray app owns the main one - so without
+# this, `orcshot --capture-to` would fail in its most common case, on a
+# machine where the developer has Orcshot running.
+#
+# A child of the app id on purpose: the Snap Store granted the dbus
+# declaration for org.orcshot.Orcshot, and a child name is the shape most
+# likely to satisfy the same naming criteria when a second slot is
+# requested. These three strings must match extension.js's own constants
+# exactly - the same cross-language duplication SHELL_OBJECT_PATH already
+# has, and the CI shell-roundtrip is what catches a drift.
+HEADLESS_BUS_NAME = "org.orcshot.Orcshot.Headless"
+HEADLESS_ACTIONS_PATH = "/org/orcshot/Orcshot/Headless"
+HEADLESS_SHELL_OBJECT_PATH = HEADLESS_ACTIONS_PATH + "/Shell"
 SHELL_INTERFACE = "org.orcshot.Orcshot.Shell"
 REQUEST_ACTION = "shell-request"
 
@@ -95,15 +111,25 @@ class ShellBridge:
 
     # -- wiring ---------------------------------------------------------
 
-    def register(self, connection, object_path: str, action_map: Gio.ActionMap) -> None:
+    def register(
+        self, connection, object_path: str, action_map: Gio.ActionMap,
+        shell_object_path: str = SHELL_OBJECT_PATH,
+    ) -> None:
         """Adds the request action to the app's action map (GApplication
         exports it at /org/orcshot/Orcshot alongside the tray actions)
         and, when a connection is given, exports the Shell object.
-        connection=None is the unit-test path: no bus, just the action."""
+        connection=None is the unit-test path: no bus, just the action.
+
+        ``shell_object_path`` was hardcoded until BACKLOG #225 - this
+        method took an ``object_path`` it never used, and still does not
+        (GApplication decides where the action group lands). The headless
+        bus needs its own Shell object, hence the real parameter; the
+        default keeps every existing caller identical.
+        """
         action_map.add_action(self._action)
         if connection is not None:
             node_info = Gio.DBusNodeInfo.new_for_xml(self.SHELL_IFACE_XML)
-            connection.register_object(SHELL_OBJECT_PATH, node_info.interfaces[0], self.handle_method_call)
+            connection.register_object(shell_object_path, node_info.interfaces[0], self.handle_method_call)
 
     def on_capabilities_changed(self, callback: Callable[[frozenset[str]], None]) -> None:
         self._listeners.append(callback)
@@ -214,3 +240,86 @@ def get_bridge() -> ShellBridge:
 def set_bridge(bridge: ShellBridge | None) -> None:
     global _bridge
     _bridge = bridge
+
+
+class HeadlessSessionUnavailable(RuntimeError):
+    """A headless process could not reach the Shell extension, with the
+    reason as its message."""
+
+
+class HeadlessShellSession:
+    """Owns HEADLESS_BUS_NAME for the length of one headless capture.
+
+    This is scripts/ci-shell-roundtrip.py's recipe promoted into the
+    package: own the name, export an action group, register a bridge on
+    it, wait for the extension's Hello, act, unown. That script already
+    proves the recipe works inside both the strict snap and the Flatpak
+    sandbox, which is why it was chosen over alternatives nothing had
+    exercised (BACKLOG #225).
+
+    Its own ShellBridge, not the process-wide get_bridge() singleton: a
+    headless invocation is a fresh one-shot process with no tray app in
+    it, so there is no shared state to join and no reason to entangle
+    with a global.
+    """
+
+    def __init__(self, bridge: "ShellBridge" = None):
+        self.bridge = bridge if bridge is not None else ShellBridge()
+        self._owner_id = None
+
+    def open(self, timeout_ms: int = 5000) -> "ShellBridge":
+        group = Gio.SimpleActionGroup()
+        loop = GLib.MainLoop()
+        outcome = {"hello": False, "lost": False}
+
+        def on_bus_acquired(connection, _name):
+            connection.export_action_group(HEADLESS_ACTIONS_PATH, group)
+            self.bridge.register(
+                connection, HEADLESS_ACTIONS_PATH, group, shell_object_path=HEADLESS_SHELL_OBJECT_PATH
+            )
+
+        def on_name_lost(_connection, _name):
+            outcome["lost"] = True
+            loop.quit()
+
+        def on_hello(_capabilities):
+            outcome["hello"] = True
+            loop.quit()
+
+        self.bridge.on_capabilities_changed(on_hello)
+        self._owner_id = Gio.bus_own_name(
+            Gio.BusType.SESSION, HEADLESS_BUS_NAME, Gio.BusNameOwnerFlags.NONE,
+            on_bus_acquired, None, on_name_lost,
+        )
+        timeout_id = GLib.timeout_add(timeout_ms, loop.quit)
+        try:
+            loop.run()
+        finally:
+            GLib.source_remove(timeout_id)
+            self.bridge.off_capabilities_changed(on_hello)
+
+        # The name was taken before either failure could be discovered,
+        # so give it back here rather than leaving it to the caller's
+        # finally. A name still held by a process that has already given
+        # up is precisely what makes the *next* headless capture fail
+        # with "another headless capture may be running".
+        if outcome["lost"]:
+            self.close()
+            raise HeadlessSessionUnavailable(
+                f"could not own the bus name {HEADLESS_BUS_NAME} - another headless capture may be running"
+            )
+        if not outcome["hello"]:
+            self.close()
+            raise HeadlessSessionUnavailable(
+                "no Hello from the Orcshot GNOME Shell extension - "
+                "not a GNOME session, or the extension is not installed or not enabled"
+            )
+        return self.bridge
+
+    def close(self) -> None:
+        """Safe to call whether or not open() succeeded - a caller
+        closing in a finally must not raise over the original failure and
+        hide it."""
+        if self._owner_id is not None:
+            Gio.bus_unown_name(self._owner_id)
+            self._owner_id = None

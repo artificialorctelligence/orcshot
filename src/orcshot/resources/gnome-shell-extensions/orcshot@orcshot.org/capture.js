@@ -1647,6 +1647,22 @@ function _buildDrawnMenuItem(iconGeometry, geometryKey, label, size = 16) {
 // carry a leading `false`. pngBytes stay Uint8Array (what
 // selectAsync/steal_as_bytes().toArray() already produce), which packs
 // as 'ay'.
+// The grab half of a rect capture, shared by the interactive
+// 'capture-rect' and the headless 'capture-rect-headless' below so a fix
+// to either lands once. Nothing interactive here: one frozen stage
+// screenshot, composited to a PNG in memory, cropped to the rect.
+async function _grabRectPng(x, y, width, height) {
+  const [content, scale] = await new Shell.Screenshot().screenshot_stage_to_content();
+  const texture = content.get_texture();
+  const stream = Gio.MemoryOutputStream.new_resizable();
+  await Shell.Screenshot.composite_to_stream(
+    texture, x, y, width, height, scale,
+    null, 0, 0, 1,
+    stream);
+  stream.close(null);
+  return stream.steal_as_bytes().toArray();
+}
+
 export const handlers = {
   async 'region-select'({ showMagnifier }) {
     try {
@@ -1691,22 +1707,13 @@ export const handlers = {
   },
 
   // No overlay actor/grab/gesture of its own, unlike the interactive
-  // handlers above - just a single frozen stage screenshot cropped to
-  // the given rect (same primitive RegionSelectOverlay/
-  // WindowPickerOverlay already use for their own final crop), then
+  // handlers above - _grabRectPng is a single frozen stage screenshot
+  // cropped to the given rect (the same primitive RegionSelectOverlay/
+  // WindowPickerOverlay already use for their own final crop) - then
   // straight into the same pickDestinationAsync those two use.
   async 'capture-rect'({ x, y, width, height }) {
     try {
-      const [content, scale] = await new Shell.Screenshot().screenshot_stage_to_content();
-      const texture = content.get_texture();
-      const stream = Gio.MemoryOutputStream.new_resizable();
-      await Shell.Screenshot.composite_to_stream(
-        texture, x, y, width, height, scale,
-        null, 0, 0, 1,
-        stream);
-      stream.close(null);
-      const pngBytes = stream.steal_as_bytes().toArray();
-
+      const pngBytes = await _grabRectPng(x, y, width, height);
       const [pointerX, pointerY] = global.get_pointer();
       const destination = await pickDestinationAsync(pointerX, pointerY);
       return destination === null
@@ -1714,6 +1721,29 @@ export const handlers = {
         : { ok: true, destination, pngBytes };
     } catch (e) {
       logError(e, 'Error in capture-rect');
+      return { ok: false, error: String(e) };
+    }
+  },
+
+  // The headless sibling (BACKLOG #225): the same grab, handed straight
+  // back instead of into pickDestinationAsync. Reachable only over the
+  // headless bus name, and deliberately not from the main one.
+  //
+  // It exists because a scripted caller has nobody to click a
+  // destination menu, and because xdg-desktop-portal is not an
+  // alternative for one: it answers any process with no focused window
+  // "Only the focused app is allowed to show a system access dialog"
+  // (proven by this project's own SpikePortalGnome). Inside the
+  // compositor there is nothing to ask.
+  //
+  // Creates no actor, takes no grab and moves no focus. That last one is
+  // not cosmetic - taking focus would change the very picture being
+  // captured.
+  async 'capture-rect-headless'({ x, y, width, height }) {
+    try {
+      return { ok: true, pngBytes: await _grabRectPng(x, y, width, height) };
+    } catch (e) {
+      logError(e, 'Error in capture-rect-headless');
       return { ok: false, error: String(e) };
     }
   },

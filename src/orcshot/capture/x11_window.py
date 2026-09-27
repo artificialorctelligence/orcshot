@@ -38,6 +38,8 @@ from orcshot.capture.window import WindowInfo, is_capturable
 from orcshot.core.geometry import Rect
 
 _WINDOW_TYPE_ATOM_SUFFIX = "_NET_WM_WINDOW_TYPE_"
+# EWMH: _NET_WM_DESKTOP of 0xFFFFFFFF means "on all workspaces".
+_STICKY_DESKTOP = 0xFFFFFFFF
 
 
 class X11WindowEnumerationUnavailable(RuntimeError):
@@ -59,8 +61,40 @@ class X11WindowEnumerator:
         atom = self._display.get_atom(atom_name)
         return window.get_full_property(atom, X.AnyPropertyType)
 
+    def _window_for(self, window_id: int):
+        return self._display.create_resource_object("window", window_id)
+
+    def is_on_current_workspace(self, window_id: int) -> bool:
+        """Whether ``window_id`` sits on the workspace currently showing
+        (BACKLOG #225). Not part of the WindowEnumerator contract - only
+        headless capture needs it, and GNOME already gets the same answer
+        free from list-windows' own ``in_current_workspace``.
+
+        Unknown means yes, deliberately. Not every EWMH window manager
+        publishes _NET_WM_DESKTOP/_NET_CURRENT_DESKTOP, and answering
+        "no" without data would refuse every capture on such a WM -
+        far worse than the narrow wrong-workspace case this guards
+        against. A real hole, recorded rather than hidden.
+        """
+        current = self._get_property(self._root, "_NET_CURRENT_DESKTOP")
+        window_desktop = self._get_property(self._window_for(window_id), "_NET_WM_DESKTOP")
+        # Absent, or present but carrying nothing - a window manager can
+        # produce a zero-length property, and reading value[0] there
+        # would raise IndexError out of a function whose entire purpose
+        # is to tolerate incomplete EWMH.
+        if not getattr(current, "value", None) or not getattr(window_desktop, "value", None):
+            return True
+        # 0xFFFFFFFF is EWMH's "on all workspaces" sentinel - a pinned
+        # window is visible wherever you are, so it is always current.
+        if window_desktop.value[0] == _STICKY_DESKTOP:
+            return True
+        # An explicit comparison, not truthiness: workspace 0 is a real
+        # workspace, and `if not window_desktop.value[0]` would wave
+        # through a window sitting on it while workspace 4 is showing.
+        return window_desktop.value[0] == current.value[0]
+
     def _window_info(self, window_id: int) -> Optional[WindowInfo]:
-        window = self._display.create_resource_object("window", window_id)
+        window = self._window_for(window_id)
 
         try:
             geometry = window.get_geometry()

@@ -2597,6 +2597,121 @@ the config directory, the GLib source list, and a reused `id()` in a dialog-capt
 desktop publishes `_NET_CLIENT_LIST`; a bare Xvfb, which does not, is not a session anyone captures
 from. Recorded here so the gap is a decision rather than an oversight.
 
+## #225: Headless capture - `orcshot --capture-to PATH [--window TITLE]`, so Claude can look at the screen itself on GNOME Wayland
+
+Requested 2026-09-26 by Orclab, in `docs/handoffs/2026-09-26-orcshot-headless-capture.md`. Orclab's
+`device-observation` skill has one rule: Claude should never ask a developer to look at something
+Claude could look at itself - ask a person for judgement, not for observation. On X11 that already
+works with ordinary tools. On **GNOME Wayland nothing works**, because the only sanctioned route is
+the desktop portal and the portal waits for a human to click, which defeats the entire purpose.
+
+Orcshot ships a GNOME Shell extension. Extensions run *inside* the compositor and do not have to
+ask. That is why the request came here and nowhere else.
+
+**The portal is not merely inconvenient here, it is impossible - already proven in this repo.**
+`org.orcshot.SpikePortalGnome` (see the spike recorded around line 882 of this file) confirmed
+`org.freedesktop.portal.Screenshot` fails with `response_code=2`, *"Only the focused app is allowed
+to show a system access dialog"*, for any process with no focused GUI window of its own. A headless
+CLI process can never satisfy that. So the Shell extension is not the preferred route, it is the
+only one.
+
+**Scope, decided by direflail 2026-09-26: broad - GNOME Wayland *and* X11.** Not because X11 lacks
+tools, but because the backends already exist behind one shared contract
+(`CaptureBackend`/`WindowEnumerator`), so X11 costs almost nothing once the CLI and lifecycle work
+is done - and Orcshot can find a window by title where `import` needs an X window id. Note the
+honest limit: this cannot cover sway or KDE Wayland, which have no non-interactive path for Orcshot
+either; `grim` works there via `wlr-screencopy`, which Orcshot does not use.
+
+**Five design decisions, direflail's, taken against three competing architectures:**
+1. **Bypass GApplication entirely**, intercepting in `main()` before `OrcshotApplication` exists -
+   the quit-marker gate at `app.py:1087` is the existing precedent. Necessary, not stylistic: GLib's
+   single-instance forwarding hands a CLI invocation to a *running tray process*, which would
+   capture with its own environment and cwd while the calling process gets exit 0 back with no
+   visibility into what happened.
+2. **Refuse rather than return a wrong image** - exit non-zero if the target window is minimised, on
+   another workspace, or overlapped by a window above it. Neither platform reads a window's own
+   buffer; both crop a screen grab. Applies to `--window` only: a full-screen capture cannot be
+   wrongly occluded.
+3. **Build both paths now**, with the GNOME half behind the existing capability check until
+   extensions.gnome.org accepts a version carrying the new handler.
+4. **CLI**: `--capture-to PATH`, `--window TITLE`, `--can-capture`.
+5. **A second bus name**, `org.orcshot.Orcshot.Headless`, watched by the extension alongside the
+   main one - because the extension talks to whoever owns `org.orcshot.Orcshot`, and a running tray
+   app owns it. Without this the feature fails in exactly its most common case: a developer with
+   Orcshot running.
+
+**Architecture chosen: the minimal-diff one, with three borrowings.** It reuses
+`scripts/ci-shell-roundtrip.py`'s bus-ownership recipe, which is already proven in CI under both the
+strict snap and the Flatpak sandbox - beating two plausible but unexercised alternatives. Workspace
+membership passes as a *callback* rather than a new `WindowInfo` field, keeping it out of the
+cross-platform contract and out of every fake and contract test. Exit codes stay 0/1 with the reason
+on stderr, matching what Orclab actually asked for rather than a taxonomy nobody requested. Borrowed
+from the other two: an explicit handler allowlist on the headless bus, a `metadata.json`
+`version-name` bump so `needs_relogin` still catches a stale Shell copy, and writing the Shell's PNG
+bytes straight to disk when the output path is `.png` instead of decoding and re-encoding for
+nothing.
+
+**Two facts found during exploration that are worth not re-deriving.** `ShellBridge.register()`
+takes an `object_path` parameter and never uses it - it hardcodes `SHELL_OBJECT_PATH` - so making a
+second Shell object path possible is a one-line fix to dead code, not new plumbing. And
+`X11CaptureBackend` works with no `Gtk.init()` and no `Gtk.Application` at all: verified live
+2026-09-26, `screen_layout()` and `grab()` both returned real data from a bare process under Xvfb.
+That had never been done in this codebase (every existing caller sits inside a running
+`Gtk.Application`) and was the one open risk on the X11 path.
+
+**The gap that cannot be closed by any test we can run - direflail's call 2026-09-26 to record it
+and continue.** The CI shell-roundtrip rig can prove the second bus name comes up, that `Hello`
+announces the new capability, and that a `capture-rect-headless` request round-trips real PNG bytes
+under a headless GNOME Shell in both sandboxes. It **cannot** prove that
+`Shell.Screenshot.screenshot_stage_to_content()` behaves the same when invoked from a connection
+that never created any visible Shell UI as it does from the interactive path, because CI's headless
+Shell has no real compositor behind it - no real outputs, no real GPU. The timing- and
+compositor-state-dependent bugs this project has repeatedly hit live (the 150ms restack delay in
+`WindowPickerOverlay.selectAsync`, the extension-reload caching trap) are exactly the class that
+will not reproduce there. Nor can CI prove real occlusion or workspace refusal against real
+overlapping windows under a real Mutter. Both need a live GNOME Wayland session on the VMs.
+
+This is why decision #3's capability check **fails closed**: with no capability announced the
+headless path reports unavailable and exits non-zero rather than assuming it works. The live
+verification pass is owed before this is called done, and is not a formality.
+
+**Update 2026-09-27 - the CI roundtrip ran, and proved more than expected.** The extended
+`scripts/ci-shell-roundtrip.py` executed under a real headless GNOME Shell inside **both** the
+strict snap and the Flatpak sandbox, on commit `6d50e7e`:
+
+```
+owning org.orcshot.Orcshot - waiting for Hello
+Hello -> [..., 'capture-rect-headless', ...] version-name 0.4.0
+list-windows ok, 0 windows delivered
+owning org.orcshot.Orcshot.Headless - waiting for its Hello
+headless Hello -> ['capture-rect-headless', 'list-windows', 'ping']
+capture-rect-headless ok, 303 bytes of real PNG
+```
+
+So the riskiest parts are no longer unproven: the `_AppLink` refactor brings up **two** bus watchers,
+the second name is reachable, its Hello announces **exactly** the allowlist - no `tray`, no
+interactive kind - and `capture-rect-headless` returns real PNG bytes through the inverted
+GetRequest/Deliver contract. The main link still announces the full capability set, so the existing
+behaviour is intact.
+
+**What that still does not prove, unchanged:** the headless Shell draws a virtual 1024x768 monitor
+with nothing on it, so those 303 bytes say the plumbing works, not that a stage screenshot taken
+from a connection with no visible UI is *correct* against real outputs. Nor does anything here
+exercise occlusion or workspace refusal against real overlapping windows under a real Mutter. The
+live VM pass is still owed - it is just a much narrower one than this entry first described.
+
+**Deployment consequence to plan for, not discover late.** `snapcraft.yaml:70` declares exactly one
+`dbus` slot, `org.orcshot.Orcshot`, and the Snap Store granted its declaration for that name on
+2026-09-17. A second name needs a second slot and probably its own forum request - the same ~2-day
+process. Choosing a *child* of the app id makes it most likely to satisfy the same naming criteria.
+Flatpak needs nothing: owning sub-names of the app ID is allowed by default.
+
+**Progress:** the refusal logic (`capture/modes.py`'s `resolve_window_for_headless_capture`,
+`X11WindowEnumerator.is_on_current_workspace`) landed 2026-09-26 with 28 tests and six rule-5
+plants. Remaining: `HeadlessShellSession`, `headless.py`, the `main()` hook, the extension's
+`capture-rect-headless` handler and second-bus refactor, the `metadata.json` bump, and the CI
+roundtrip phase.
+
 ## #219: Snap Store listing icon: snapcraft.yaml has no top-level icon:, and the only PNG asset is 155x147 - what the store shows for Orcshot is direflail's call (RESOLVED 2026-09-13)
 
 Raised 2026-09-12 while specing #217 (the snap's *launcher* icon). The two are different
