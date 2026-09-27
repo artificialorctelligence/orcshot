@@ -2211,7 +2211,7 @@ from memory. Windows Greenshot writes real GIFs via .NET; parity may not be achi
 **Scope boundary:** the format table only. The portal/never-rename logic from #210/#212 is
 unaffected either way.
 
-## #220: The first /orc-test run this project has ever had - coverage 44.4% against an 80 gate, TCE 75.6% against a 70 one, and three defects found on the way in
+## #220: The first /orc-test run this project has ever had - coverage 44.4% against an 80 gate, TCE 75.6% against a 70 one, and three defects found on the way in (RESOLVED 2026-09-26)
 
 Raised 2026-09-26 when direflail asked, before the 0.4.0 release, whether a full `/orc-test` run
 had ever happened here. It had not - not in this repo. Confirmed rather than assumed: zero commits
@@ -2331,7 +2331,73 @@ measured the same way (`/orc-test coverage src`, under `xvfb-run`) and are sound
 production seam was added for a test. `ui/printing.py`'s remaining 30% is `_draw_print_page` and
 `_footer_layout`, which need a real `Gtk.PrintContext`.
 
-**Blocks the 0.4.0 release**, by direflail's decision 2026-09-26: both gates pass before anything goes
+**RESOLVED 2026-09-26. Both gates pass on one run, with the debt paid down as well.**
+
+```
+Python     coverage 82.5% (8023/9730 lines) ✓
+           TCE 89.6% ✓    lint: 0 findings
+```
+
+Coverage 44.4% -> 82.5%. TCE never-measured -> 89.6%, against gates of 80 and 70. 1887 tests, 0
+failures under CI's own selection, verified in two different collection orders. pip-audit clean.
+Test lint clean - no assertion-free test, no sleep, no skipped test, no duplicate name.
+
+The mutation run's arithmetic is stated because it is the one thing that can fail silently: 21178
+scored + 4619 skipped = 25797, exactly the mutant total, so no mutants left the denominator. See
+the leaked-GLib-source trap below for why that check is not ceremony.
+
+**TCE went UP, which contradicts the prediction in this entry.** The expectation was that it would
+fall, because coverage work turns skipped mutants into scoreable ones and coverage-driven tests kill
+less efficiently. Instead it went 75.6% -> 87.3% while the scoreable population nearly doubled
+(11028 -> 21178), then 87.3% -> 89.6% with the debt work. The cause is test-discipline rule 5 held
+to literally: every new test file had a real defect planted in it before being accepted, and on the
+five occasions a plant survived, the test was rewritten rather than kept. Tests built that way kill
+mutants. Worth remembering the next time the rule feels like it is doubling the cost for nothing.
+
+**Mutation debt, worst files first** (#220's own ranking, paid by four parallel agents and one
+in-session pass): `autostart.py` 24%->100%, `extension_install.py` 41%->100%, `capture_feedback.py`
+49%->100%, `external_commands.py` 63%->100%, `shell_bridge.py` 67%->97%, `xapp_tray.py` 68%->96.7%,
+`magnifier.py` 77%->94.4%, `greenshot_export.py` 78%->100%. 493 survivors killed. Where a ceiling
+was reached it was reported as a ceiling with the reasoning, not forced: 26 documented equivalent
+mutants remain, and two of the three groups in `shell_bridge` were spot-checked by hand rather than
+taken on trust.
+
+**Four pieces of shared process state were found leaking between tests, every one of which passed
+in isolation.** This is the entry's most transferable finding. mutmut runs the whole suite many
+times in ONE process, which is the only reason any of them surfaced:
+1. The config directory - one `XDG_CONFIG_HOME` per *session*, so every `set_*()` persisted into
+   later tests. Fixed with a per-test directory in `conftest.py`.
+2. Leaked GLib sources - a repeating timeout left behind aborts mutmut with SIGABRT, and the mutants
+   lost that way leave the scored set **silently**, raising TCE. One such leak was measured
+   flattering a file from 96.7% to 99.3%. Six tests were leaking. Fixed centrally in `conftest.py`.
+3. A dialog-capture helper comparing `id()` values - a freed wrapper lets a new dialog land at the
+   same address and look pre-existing.
+4. The process-global `ShellBridge` singleton, whose listener list outlived the test that added to
+   it (surfaced by #224's second subscriber). Fixed by resetting it per test.
+
+**Three real defects found and fixed**, each written test-first with the test watched failing before
+the source changed: #221 (`_validate` raising instead of returning a message), #222
+(`_export_tray_menu` leaking a toplevel per call), #224 ("Capture Window" never greyed out, the
+function that would have done it called by nothing - and wrong as written). Plus #223 filed, not
+fixed: the snap's extension-install dialog sends the user to EGO's front page and then refers to
+"the Orcshot page".
+
+**Two ceilings accepted and named rather than papered over.** `app.py`: 98% line coverage and NO
+mutation score, because `test_app.py` cannot run twice in one process (GApplication never releases
+the action group it exports, and `g_application_parse_command_line` segfaults on a second call for
+one instance - both probed). Excluding it was the only way to score the other 84 files.
+`ui/printing.py`: the remaining 30% is `_draw_print_page` and `_footer_layout`, which need a real
+`Gtk.PrintContext`.
+
+**Still open, deliberately:** 2197 survivors in files above the gate, and the four test-only-
+referenced names from the dead-code audit (`fake.py`'s four test doubles, which ship inside the
+installed package, plus `is_valid_regex` and `renumber_step_labels`). Neither blocks a release.
+
+**No longer blocks 0.4.0.**
+
+---
+
+*Original blocking note, kept for the record:* **Blocks the 0.4.0 release**, by direflail's decision 2026-09-26: both gates pass before anything goes
 to a store. The Snap dbus declaration was granted 2026-09-17 (forum thread 53283), so the release
 chain is otherwise unblocked and waiting on this.
 
