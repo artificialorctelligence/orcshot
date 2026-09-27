@@ -2514,6 +2514,30 @@ listing URL does not exist yet and cannot simply be pasted in.
 Current text pinned as-is by the #220 tests rather than changed, per that entry's rule. Fixing it
 means updating those assertions.
 
+**Update 2026-09-26 - fix 1 done, fix 2 still waits on EGO; the entry stays open.**
+
+The steps now read: *1. Click Open extensions.gnome.org below. 2. Search for Orcshot and open its
+page. 3. Switch the toggle to ON. 4. That's it...* - correct for wherever the button actually lands.
+
+The test written for it asserts the **relationship** rather than the words, which is the part worth
+keeping: it reads `EGO_URL`, and requires a search step while that URL is the site root and requires
+its *absence* once it is a deep link. Both directions were proven by planting them - restoring the
+old step 2 fails it, and pointing `EGO_URL` at a listing URL while leaving the search step in also
+fails it. So the next person cannot change the link without the words, or the words without the
+link. `EGO_URL`'s own comment now says so too.
+
+Changing the string made the committed `po/orcshot.pot` stale, which
+`tests/unit/test_extract_pot.py` caught on the first full run - the guard from #204 doing exactly
+its job. Regenerated with `scripts/extract_pot.sh`. No `.po` carried the old msgid, so no
+translation was lost.
+
+**Why this is not closed.** Fix 2 - `EGO_URL` pointing at the real listing - cannot happen until
+extensions.gnome.org accepts the submission, and as of today it still lists nothing. Until then the
+dialog's instructions are *correct* but lead to a search that finds nothing, so the snap's Wayland
+capture path is still unreachable in practice. That is the same gate `#205` decision 6 already puts
+on snap `stable`; worth being explicit that it also makes this dialog non-functional for a 0.4.0
+**beta** user, not just a stable one.
+
 **Should be fixed before 0.4.0 reaches a real snap user**, since 0.4.0 is the first released snap
 revision.
 

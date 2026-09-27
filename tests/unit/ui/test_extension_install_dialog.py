@@ -21,6 +21,8 @@ gi.require_version("Gtk", "3.0")
 from gi.repository import GLib, Gtk
 import pytest
 
+from urllib.parse import urlparse
+
 from orcshot.capture import shell_bridge
 from orcshot.ui import extension_install
 from orcshot.ui.extension_install import EGO_URL, EXTENSION_UUID, _TEXT
@@ -187,8 +189,34 @@ def test_the_snap_body_spells_out_the_manual_steps(build):
     whole procedure including the browser-connector caveat (spec 7)."""
     body = build("snap-gnome").text.get_label()
     assert "Click Open extensions.gnome.org below." in body
-    assert "switch the toggle to ON" in body
+    # Not the leading verb's case - that moved when the search step was
+    # inserted ahead of it (BACKLOG #223) and is not what this test is about.
+    assert "toggle to ON" in body
     assert "gnome-browser-connector" in body
+
+
+def test_the_snap_steps_reach_the_listing_from_wherever_the_button_lands(build):
+    """BACKLOG #223.
+
+    The action button opens EGO_URL, and the numbered steps have to carry
+    the user from there to the Orcshot listing. While EGO_URL is the site
+    root - which it is, deliberately, until extensions.gnome.org accepts
+    the first submission - telling them "on the Orcshot page" with no
+    search step describes a page the button never opened.
+
+    Asserted against EGO_URL rather than as a fixed string so it still
+    means something after the real listing URL lands: a deep link needs no
+    search step, and this test then requires its absence. That is the
+    actual contract - the words and the link must agree - and it is what
+    stops the next person changing one without the other.
+    """
+    body = build("snap-gnome").text.get_label()
+    lands_on_the_front_page = urlparse(EGO_URL).path.strip("/") == ""
+
+    if lands_on_the_front_page:
+        assert "Search for Orcshot" in body, "the button opens the site root, so the steps must include a search"
+    else:
+        assert "Search for Orcshot" not in body, "the button opens the listing directly, so the search step is stale"
 
 
 def test_both_labels_are_inset_from_the_dialog_edges(build):
