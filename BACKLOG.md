@@ -2675,6 +2675,31 @@ This is why decision #3's capability check **fails closed**: with no capability 
 headless path reports unavailable and exits non-zero rather than assuming it works. The live
 verification pass is owed before this is called done, and is not a formality.
 
+**Update 2026-09-27 - the CI roundtrip ran, and proved more than expected.** The extended
+`scripts/ci-shell-roundtrip.py` executed under a real headless GNOME Shell inside **both** the
+strict snap and the Flatpak sandbox, on commit `6d50e7e`:
+
+```
+owning org.orcshot.Orcshot - waiting for Hello
+Hello -> [..., 'capture-rect-headless', ...] version-name 0.4.0
+list-windows ok, 0 windows delivered
+owning org.orcshot.Orcshot.Headless - waiting for its Hello
+headless Hello -> ['capture-rect-headless', 'list-windows', 'ping']
+capture-rect-headless ok, 303 bytes of real PNG
+```
+
+So the riskiest parts are no longer unproven: the `_AppLink` refactor brings up **two** bus watchers,
+the second name is reachable, its Hello announces **exactly** the allowlist - no `tray`, no
+interactive kind - and `capture-rect-headless` returns real PNG bytes through the inverted
+GetRequest/Deliver contract. The main link still announces the full capability set, so the existing
+behaviour is intact.
+
+**What that still does not prove, unchanged:** the headless Shell draws a virtual 1024x768 monitor
+with nothing on it, so those 303 bytes say the plumbing works, not that a stage screenshot taken
+from a connection with no visible UI is *correct* against real outputs. Nor does anything here
+exercise occlusion or workspace refusal against real overlapping windows under a real Mutter. The
+live VM pass is still owed - it is just a much narrower one than this entry first described.
+
 **Deployment consequence to plan for, not discover late.** `snapcraft.yaml:70` declares exactly one
 `dbus` slot, `org.orcshot.Orcshot`, and the Snap Store granted its declaration for that name on
 2026-09-17. A second name needs a second slot and probably its own forum request - the same ~2-day
