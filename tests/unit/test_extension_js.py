@@ -32,12 +32,29 @@ EXTENSION_DIR = (
 )
 JS_FILES = sorted(EXTENSION_DIR.glob("*.js"))
 
+# The extension's JavaScript is deliberately excluded from the wheel
+# (pyproject.toml's `exclude`): it is OS-packaging data, installed from
+# the source tree by debian/orcshot.install and never read by the Python
+# package at a package-relative path. So it is absent from dh_auto_test's
+# pybuild build tree, where the .deb build runs this suite - the same
+# reason test_extract_pot.py skips there. These are source-checkout
+# guards, and saying so is better than failing a package build.
+#
+# Found by CI, not locally: every local run is a source checkout, so
+# nothing here could have caught it (2026-09-27).
+pytestmark = pytest.mark.skipif(
+    not EXTENSION_DIR.is_dir() or not JS_FILES,
+    reason="the extension's JavaScript is not in a built package tree - source checkout only",
+)
+
 needs_node = pytest.mark.skipif(shutil.which("node") is None, reason="node is not installed")
 
 
 def test_the_extension_ships_javascript_at_all():
-    """A canary for the glob above: if the files move, every other test
-    in this module would pass vacuously."""
+    """A canary for the glob above: if the files move *within a source
+    checkout*, every other test in this module would pass vacuously.
+    The module-level skip covers their legitimate absence in a package
+    build; this covers them going missing where they should be."""
     assert {path.name for path in JS_FILES} >= {"extension.js", "capture.js", "windows.js"}
 
 
