@@ -165,6 +165,54 @@ class TestCapturing:
 
 
 class TestUsage:
+    @pytest.mark.parametrize("argv", [
+        ["orcshot", "--capture-to"],
+        ["orcshot", "--capture-to", "--window"],
+        ["orcshot", "--can-capture", "--window"],
+    ])
+    def test_a_flag_missing_its_value_does_not_escape_as_a_bare_exit(self, argv):
+        """argparse's own error() calls sys.exit(2) and prints a usage
+        dump. That is not this interface's contract: parsing is called
+        from main() with nothing around it, so a SystemExit would sail
+        straight out of the process with two lines on stderr and the
+        wrong status. It has to come back as an ordinary request that
+        run() can refuse in one line.
+        """
+        request = headless.parse_headless_request(argv)
+
+        assert request is not None
+
+    @pytest.mark.parametrize("argv,flag", [
+        (["orcshot", "--capture-to"], "--capture-to"),
+        # argparse names the flag that expected a value, not the token
+        # that looked like one - so this case also names --capture-to.
+        (["orcshot", "--capture-to", "--window"], "--capture-to"),
+    ])
+    def test_a_flag_missing_its_value_is_reported_by_name(self, argv, flag, capsys, monkeypatch):
+        """Naming the offending flag is the load-bearing assertion.
+
+        Shape alone is not enough: with the usage check removed, the
+        request falls through to a real capture with no destination,
+        which also fails with one line and exit 1 - so a test asserting
+        only "one line, exit 1" passes either way. It did (rule 5,
+        2026-09-27). The capture seam is replaced here so that fallback
+        cannot quietly stand in for the real answer.
+        """
+        monkeypatch.setattr(
+            headless, "_capture_and_write",
+            lambda capture_to, window: pytest.fail("a malformed command line must never reach a capture"),
+        )
+
+        status = headless.run(headless.parse_headless_request(argv))
+        captured = capsys.readouterr()
+
+        assert status == 1
+        assert captured.out == ""
+        assert len(captured.err.strip().splitlines()) == 1
+        assert captured.err.startswith("orcshot: ")
+        assert flag in captured.err
+
+
     def test_a_window_without_a_destination_is_refused(self, capsys):
         """--window alone has nowhere to put the result."""
         status = headless.run(headless.parse_headless_request(["orcshot", "--window", "Firefox", "--can-capture"]))

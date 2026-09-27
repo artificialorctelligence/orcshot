@@ -33,13 +33,7 @@ CAPABILITY = "capture-rect-headless"
 _TIMEOUT_MS = 10000
 
 
-def is_available() -> bool:
-    from orcshot.capture.shell_bridge import get_bridge
-
-    return get_bridge().has(CAPABILITY)
-
-
-def capture_png_to(path: str, window_title: Optional[str], session=None) -> None:
+def capture_png_to(path: str, window_title: Optional[str], session=None, screen_layout=None) -> None:
     """Capture through the Shell extension and write ``path``.
 
     Raises HeadlessCaptureError if the extension cannot do it - the
@@ -61,19 +55,36 @@ def capture_png_to(path: str, window_title: Optional[str], session=None) -> None
                 "the installed Orcshot GNOME Shell extension cannot capture headlessly - "
                 "it predates this feature, or the session is still running a cached older copy"
             )
-        region = _region_for(bridge, window_title)
+        region = _region_for(bridge, window_title, screen_layout)
         result = bridge.request(CAPABILITY, region, timeout_ms=_TIMEOUT_MS)
         _write(result["pngBytes"], path)
     finally:
         session.close()
 
 
-def _region_for(bridge, window_title: Optional[str]) -> dict:
+def _region_for(bridge, window_title: Optional[str], screen_layout=None) -> dict:
     if window_title is None:
-        # No enumeration for a full-screen capture: the Shell already
-        # knows the stage's own size, and a whole-screen grab has no
-        # need to know what windows exist.
-        return {}
+        # An explicit rectangle, not an empty dict. The handler
+        # destructures {x, y, width, height} and has no fallback, so
+        # sending {} hands composite_to_stream four undefineds and fails
+        # inside the Shell - on the commonest path this feature has.
+        # (An earlier version did exactly that, on the strength of a
+        # comment claiming "the Shell already knows the stage's own
+        # size". It does not, and nobody had checked. Found in review,
+        # 2026-09-27.)
+        #
+        # The geometry comes from GDK rather than from the Shell: it is
+        # the same gdk_screen_layout WaylandCaptureBackend.screen_layout
+        # already uses, it needs no portal and shows no prompt, and it
+        # keeps the fix on this side of the D-Bus boundary - which
+        # matters, because changing the extension means another
+        # extensions.gnome.org review.
+        #
+        # No enumeration either way: a whole-screen grab has no need to
+        # know what windows exist.
+        layout = screen_layout if screen_layout is not None else _gdk_screen_layout()
+        bounds = layout.virtual_bounds
+        return {"x": bounds.left, "y": bounds.top, "width": bounds.width, "height": bounds.height}
 
     raw_windows = json.loads(bridge.request("list-windows", {}, timeout_ms=_TIMEOUT_MS)["windows"])
     windows = [window for window in map(parse_window_info, raw_windows) if is_capturable(window)]
@@ -86,6 +97,18 @@ def _region_for(bridge, window_title: Optional[str]) -> dict:
     )
     bounds = target.bounds
     return {"x": bounds.left, "y": bounds.top, "width": bounds.width, "height": bounds.height}
+
+
+def _gdk_screen_layout():
+    """The whole virtual screen, spanning every monitor."""
+    from gi.repository import Gdk
+
+    from orcshot.capture.gdk_screen_layout import gdk_screen_layout
+
+    display = Gdk.Display.get_default()
+    if display is None:
+        raise HeadlessCaptureError("no display: cannot work out the screen size to capture")
+    return gdk_screen_layout(display)
 
 
 def _write(png_bytes: bytes, path: str) -> None:

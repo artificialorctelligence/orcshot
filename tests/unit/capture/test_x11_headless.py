@@ -11,7 +11,7 @@ import pytest
 
 from orcshot.capture.backend import Monitor
 from orcshot.capture.fake import FakeCaptureBackend
-from orcshot.capture.headless_x11 import capture_to_file
+from orcshot.capture.x11_headless import capture_to_file
 from orcshot.capture.modes import HeadlessCaptureError
 from orcshot.capture.window import WindowInfo
 from orcshot.core.geometry import Rect
@@ -48,7 +48,7 @@ class _Enumerator:
 def written(monkeypatch):
     saved = {}
     monkeypatch.setattr(
-        "orcshot.capture.headless_x11.save_image_to_file",
+        "orcshot.capture.x11_headless.save_image_to_file",
         lambda image, path: saved.update(image=image, path=str(path)),
     )
     return saved

@@ -298,11 +298,18 @@ class HeadlessShellSession:
             GLib.source_remove(timeout_id)
             self.bridge.off_capabilities_changed(on_hello)
 
+        # The name was taken before either failure could be discovered,
+        # so give it back here rather than leaving it to the caller's
+        # finally. A name still held by a process that has already given
+        # up is precisely what makes the *next* headless capture fail
+        # with "another headless capture may be running".
         if outcome["lost"]:
+            self.close()
             raise HeadlessSessionUnavailable(
                 f"could not own the bus name {HEADLESS_BUS_NAME} - another headless capture may be running"
             )
         if not outcome["hello"]:
+            self.close()
             raise HeadlessSessionUnavailable(
                 "no Hello from the Orcshot GNOME Shell extension - "
                 "not a GNOME session, or the extension is not installed or not enabled"
@@ -316,10 +323,3 @@ class HeadlessShellSession:
         if self._owner_id is not None:
             Gio.bus_unown_name(self._owner_id)
             self._owner_id = None
-
-    def __enter__(self) -> "ShellBridge":
-        return self.open()
-
-    def __exit__(self, *_exc) -> bool:
-        self.close()
-        return False

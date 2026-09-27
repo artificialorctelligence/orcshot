@@ -215,12 +215,34 @@ class TestClosingASession:
 
         session.close()
 
-    def test_it_works_as_a_context_manager_and_always_unowns(self, fake_bus):
+    @pytest.mark.parametrize("script", ["lost", "silent"])
+    def test_a_failed_open_unowns_the_name_itself(self, fake_bus, script):
+        """open() takes the name before it can discover either failure,
+        so it has to give it back on the way out. Leaving that to the
+        caller's finally would be enough for the two callers that exist -
+        but a name held by a process that already gave up is exactly what
+        makes the *next* headless capture fail with "another headless
+        capture may be running".
+        """
+        fake_bus["script"] = script
         session = HeadlessShellSession()
         fake_bus["bridge"] = session.bridge
 
-        with pytest.raises(RuntimeError, match="boom"):
-            with session:
-                raise RuntimeError("boom")
+        with pytest.raises(HeadlessSessionUnavailable):
+            session.open()
+
+        assert fake_bus["unowned"] == [4242]
+
+    def test_closing_after_a_failed_open_does_not_unown_twice(self, fake_bus):
+        """Both callers close in a finally regardless, so the second
+        attempt must be a no-op rather than a double unown.
+        """
+        fake_bus["script"] = "lost"
+        session = HeadlessShellSession()
+        fake_bus["bridge"] = session.bridge
+        with pytest.raises(HeadlessSessionUnavailable):
+            session.open()
+
+        session.close()
 
         assert fake_bus["unowned"] == [4242]

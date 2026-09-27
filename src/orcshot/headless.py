@@ -45,6 +45,27 @@ class HeadlessRequest:
     capture_to: Optional[str]
     window: Optional[str]
     can_capture: bool
+    # Set when the command line was headless but malformed. Carried
+    # rather than raised so run() can refuse it the same way it refuses
+    # everything else - one line on stderr, exit 1.
+    usage_error: Optional[str] = None
+
+
+class _Parser(argparse.ArgumentParser):
+    """argparse's own error() prints a usage dump and calls sys.exit(2).
+
+    Neither is this interface's contract, and parse_headless_request is
+    called from main() with nothing around it - so that SystemExit would
+    sail straight out of the process with two lines on stderr and the
+    wrong status, past every promise the module docstring makes.
+    """
+
+    def error(self, message):  # noqa: D102 - argparse's own hook
+        raise _UsageError(message)
+
+
+class _UsageError(Exception):
+    pass
 
 
 def parse_headless_request(argv: Sequence[str]) -> Optional[HeadlessRequest]:
@@ -61,11 +82,17 @@ def parse_headless_request(argv: Sequence[str]) -> Optional[HeadlessRequest]:
     if not any(flag in argument for flag in _HEADLESS_FLAGS for argument in arguments):
         return None
 
-    parser = argparse.ArgumentParser(prog="orcshot", add_help=False)
+    parser = _Parser(prog="orcshot", add_help=False)
     parser.add_argument("--capture-to")
     parser.add_argument("--window")
     parser.add_argument("--can-capture", action="store_true")
-    known, _unknown = parser.parse_known_args(arguments)
+    try:
+        known, _unknown = parser.parse_known_args(arguments)
+    except _UsageError as error:
+        # A headless flag was present and the command line was wrong, so
+        # this is a headless invocation with a mistake in it - not an
+        # ordinary launch to hand on to the application.
+        return HeadlessRequest(capture_to=None, window=None, can_capture=False, usage_error=str(error))
     if known.capture_to is None and not known.can_capture:
         return None
     return HeadlessRequest(capture_to=known.capture_to, window=known.window, can_capture=known.can_capture)
@@ -73,6 +100,9 @@ def parse_headless_request(argv: Sequence[str]) -> Optional[HeadlessRequest]:
 
 def run(request: HeadlessRequest) -> int:
     """Perform ``request`` and return the process's exit status."""
+    if request.usage_error is not None:
+        return _fail(request.usage_error)
+
     if request.window is not None and request.capture_to is None:
         return _fail("--window needs --capture-to: there is nowhere to put the capture")
 
@@ -140,6 +170,6 @@ def _capture_and_write(capture_to: str, window: Optional[str]) -> None:
 
         capture_png_to(capture_to, window)
         return
-    from orcshot.capture.headless_x11 import capture_to_file
+    from orcshot.capture.x11_headless import capture_to_file
 
     capture_to_file(capture_to, window)

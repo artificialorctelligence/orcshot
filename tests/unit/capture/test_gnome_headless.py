@@ -16,7 +16,9 @@ import json
 
 import pytest
 
+from orcshot.capture.backend import Monitor, ScreenLayout
 from orcshot.capture.gnome_headless import CAPABILITY, capture_png_to
+from orcshot.core.geometry import Rect
 from orcshot.capture.modes import HeadlessCaptureError
 
 # A real 2x2 RGBA PNG with four distinct pixels, so the decode path gets
@@ -27,6 +29,14 @@ PNG_2X2 = bytes.fromhex(
     "0000001449444154789c63f8cfc0f01f0c81341030340000474b087913f160d000"
     "00000049454e44ae426082"
 )
+
+
+# Two monitors side by side, so virtual_bounds is wider than either and
+# a single-monitor answer would be visibly wrong.
+SCREEN = ScreenLayout([
+    Monitor("HDMI-1", Rect(0, 0, 1920, 1080), is_primary=True),
+    Monitor("DP-1", Rect(1920, 0, 2560, 720)),
+])
 
 
 def _raw_window(window_id, title, x, y, width, height, minimized=False, in_current_workspace=True):
@@ -77,13 +87,13 @@ class TestTheCapabilityGate:
         session = FakeSession(FakeBridge(capabilities=("list-windows",)))
 
         with pytest.raises(HeadlessCaptureError, match="extension"):
-            capture_png_to(str(tmp_path / "a.png"), None, session=session)
+            capture_png_to(str(tmp_path / "a.png"), None, session=session, screen_layout=SCREEN)
 
     def test_the_session_is_closed_even_when_refused(self, tmp_path):
         session = FakeSession(FakeBridge(capabilities=()))
 
         with pytest.raises(HeadlessCaptureError):
-            capture_png_to(str(tmp_path / "a.png"), None, session=session)
+            capture_png_to(str(tmp_path / "a.png"), None, session=session, screen_layout=SCREEN)
 
         assert session.closed is True
 
@@ -96,14 +106,14 @@ class TestWritingTheBytes:
         target = tmp_path / "shot.png"
         session = FakeSession(FakeBridge())
 
-        capture_png_to(str(target), None, session=session)
+        capture_png_to(str(target), None, session=session, screen_layout=SCREEN)
 
         assert target.read_bytes() == PNG_2X2
 
     def test_an_uppercase_extension_is_still_a_png(self, tmp_path):
         target = tmp_path / "shot.PNG"
 
-        capture_png_to(str(target), None, session=FakeSession(FakeBridge()))
+        capture_png_to(str(target), None, session=FakeSession(FakeBridge()), screen_layout=SCREEN)
 
         assert target.read_bytes() == PNG_2X2
 
@@ -115,7 +125,7 @@ class TestWritingTheBytes:
         )
         target = tmp_path / "shot.jpg"
 
-        capture_png_to(str(target), None, session=FakeSession(FakeBridge()))
+        capture_png_to(str(target), None, session=FakeSession(FakeBridge()), screen_layout=SCREEN)
 
         assert converted["path"] == str(target)
         assert converted["shape"][:2] == (2, 2)
@@ -123,7 +133,7 @@ class TestWritingTheBytes:
     def test_the_session_is_closed_after_a_successful_capture(self, tmp_path):
         session = FakeSession(FakeBridge())
 
-        capture_png_to(str(tmp_path / "a.png"), None, session=session)
+        capture_png_to(str(tmp_path / "a.png"), None, session=session, screen_layout=SCREEN)
 
         assert session.closed is True
 
@@ -132,9 +142,34 @@ class TestFullScreen:
     def test_no_windows_are_listed_for_a_full_screen_capture(self, tmp_path):
         bridge = FakeBridge()
 
-        capture_png_to(str(tmp_path / "a.png"), None, session=FakeSession(bridge))
+        capture_png_to(str(tmp_path / "a.png"), None, session=FakeSession(bridge), screen_layout=SCREEN)
 
         assert [kind for kind, _params in bridge.requests] == [CAPABILITY]
+
+    def test_a_real_rectangle_is_sent_not_an_empty_one(self, tmp_path):
+        """The handler destructures {x, y, width, height} and has no
+        fallback, so sending {} would hand composite_to_stream four
+        undefineds and fail inside the Shell - on the commonest path
+        there is. Found in review, 2026-09-27.
+        """
+        bridge = FakeBridge()
+
+        capture_png_to(str(tmp_path / "a.png"), None, session=FakeSession(bridge), screen_layout=SCREEN)
+
+        _kind, params = bridge.requests[-1]
+        assert set(params) == {"x", "y", "width", "height"}
+        assert params["width"] > 0 and params["height"] > 0
+
+    def test_the_rectangle_is_the_whole_virtual_screen(self, tmp_path):
+        """Multi-monitor included: virtual_bounds spans every output, so
+        a full-screen capture is the whole desktop, not one monitor.
+        """
+        bridge = FakeBridge()
+
+        capture_png_to(str(tmp_path / "a.png"), None, session=FakeSession(bridge), screen_layout=SCREEN)
+
+        _kind, params = bridge.requests[-1]
+        assert params == {"x": 0, "y": 0, "width": 2560, "height": 1080}
 
 
 class TestByWindowTitle:
