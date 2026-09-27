@@ -26,7 +26,10 @@ STICKY = 0xFFFFFFFF
 
 class _FakeProperty:
     def __init__(self, value):
-        self.value = [value]
+        # A real python-xlib property carries an array; `None` here means
+        # the array is present but empty, which a window manager can
+        # genuinely produce for a zero-length property.
+        self.value = [] if value is None else [value]
 
 
 def _enumerator_reading(window_desktop, current_desktop):
@@ -71,11 +74,25 @@ class TestIsOnCurrentWorkspace:
         """
         assert _enumerator_reading(window_desktop=STICKY, current_desktop=7).is_on_current_workspace(1) is True
 
+    def test_an_empty_property_value_is_treated_as_current(self):
+        """A property that exists but carries no value is the same
+        unknown as one that is absent. Raising here would surface to the
+        user as `orcshot: list index out of range`, and would defeat the
+        whole point of tolerating incomplete EWMH.
+        """
+        enumerator = X11WindowEnumerator.__new__(X11WindowEnumerator)
+        enumerator._display = None
+        enumerator._root = object()
+        enumerator._window_for = lambda window_id: object()
+        enumerator._get_property = lambda window, atom_name: _FakeProperty(None)
+
+        assert enumerator.is_on_current_workspace(1) is True
+
     @pytest.mark.parametrize(
         "window_desktop,current_desktop",
         [(None, 2), (2, None), (None, None)],
     )
-    def test_a_missing_property_is_treated_as_current(self, window_desktop, current_desktop):
+    def test_an_absent_property_is_treated_as_current(self, window_desktop, current_desktop):
         """Not every EWMH window manager publishes these. Answering "no"
         on missing data would refuse every capture on such a WM, which is
         worse than the narrow case this guards - so the unknown answer is

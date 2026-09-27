@@ -78,7 +78,11 @@ class X11WindowEnumerator:
         """
         current = self._get_property(self._root, "_NET_CURRENT_DESKTOP")
         window_desktop = self._get_property(self._window_for(window_id), "_NET_WM_DESKTOP")
-        if current is None or window_desktop is None:
+        # Absent, or present but carrying nothing - a window manager can
+        # produce a zero-length property, and reading value[0] there
+        # would raise IndexError out of a function whose entire purpose
+        # is to tolerate incomplete EWMH.
+        if not getattr(current, "value", None) or not getattr(window_desktop, "value", None):
             return True
         # 0xFFFFFFFF is EWMH's "on all workspaces" sentinel - a pinned
         # window is visible wherever you are, so it is always current.
