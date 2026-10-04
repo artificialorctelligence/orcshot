@@ -521,7 +521,14 @@ def _validate(name: str, commandline: str, argument: str, existing_name: str | N
     try:
         for token in shlex.split(argument):
             token.format("")
-    except ValueError as error:
+    except (ValueError, KeyError, IndexError) as error:
+        # Not ValueError alone (BACKLOG #221): str.format raises KeyError
+        # for a named placeholder ("{nope}") and IndexError for one past
+        # the single argument this call supplies ("{1}", or a nested width
+        # like "{0:>{1}}"). Both are ordinary typos in a field the user
+        # types freely, and both used to escape this validator as an
+        # unhandled exception instead of becoming the message it exists to
+        # produce.
         return _("Invalid arguments: {}").format(error)
     return None
 

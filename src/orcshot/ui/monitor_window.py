@@ -193,10 +193,6 @@ class MonitorWindow(Gtk.Window):
         return False
 
 
-def release_keyboard_grab() -> None:
-    Gdk.Display.get_default().get_default_seat().ungrab()
-
-
 def create_monitor_windows(
     monitors,
     on_draw: Callable[["MonitorWindow", object], None],

@@ -1,0 +1,16 @@
+# /orc-test's own gates for this project. Both are the tool's defaults;
+# they are written down because BACKLOG #220 turns on them, and a silent
+# change to either would otherwise be invisible.
+#
+# Always measure with a path: `/orc-test coverage src`. Without one, the
+# --cov walk descends into every directory holding a .py file that has no
+# __init__.py - here that is the three stale worktrees under
+# .claude/worktrees/ (each a full copy of src/) and the gitignored
+# debian/orcshot/usr/lib/python3/dist-packages/ dpkg staging tree, giving
+# a 57890-line denominator for a 9712-line project (7.4%, measured
+# 2026-09-26). src/ is what ships.
+#
+# Run it under a display (xvfb-run -a) - the GTK window tests skip
+# without one and they are most of this project's coverage.
+coverage: 80
+tce: 70
