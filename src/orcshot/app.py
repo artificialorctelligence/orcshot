@@ -58,6 +58,8 @@ from orcshot.ui.capture_modes import (
 )
 from orcshot.autostart import remove_legacy_autostart_entry
 from orcshot.capture.shell_bridge import get_bridge
+from orcshot.headless import parse_headless_request
+from orcshot.headless import run as run_headless
 from orcshot.resources import LOGO_PATH
 from orcshot.ui.external_commands import maybe_seed_default_external_commands
 from orcshot.ui.first_run_setup import maybe_run_first_run_setup
@@ -1061,6 +1063,22 @@ def main() -> int:
     # absolute path, a symlink, etc.) - a real gotcha for interpreted-
     # language GTK apps, confirmed via research before packaging.
     GLib.set_prgname("orcshot")
+
+    # Headless first, before anything else looks at argv (BACKLOG #225).
+    # Not a style choice: GApplication's single-instance forwarding would
+    # hand `orcshot --capture-to ...` to whichever process already owns
+    # org.orcshot.Orcshot, which would capture using *that* process's
+    # working directory and environment while this process got exit 0
+    # back with no way to learn whether a file was written at all.
+    # Returning here, before OrcshotApplication exists, is what makes a
+    # scripted capture answerable to its own caller.
+    #
+    # Above the quit-marker gate too: that marker means "the user asked
+    # the tray to stay dead until they restart it", which a scripted
+    # capture has nothing to do with.
+    headless_request = parse_headless_request(sys.argv)
+    if headless_request is not None:
+        return run_headless(headless_request)
 
     # Task #150 follow-up: the global capture hotkeys (hotkey_setup.py)
     # are OS-level "run this command" keybindings, independent of

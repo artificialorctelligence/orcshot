@@ -1308,6 +1308,61 @@ class TestMain:
         # of how this entry point was invoked.
         assert names == ["orcshot"]
 
+    def test_a_headless_capture_never_constructs_the_application(self, monkeypatch, fake_main):
+        """BACKLOG #225. The whole point of the bypass: GLib's
+        single-instance forwarding would hand this to a running tray
+        process, which would capture with that process's environment
+        while the caller got exit 0 back and no way to learn anything.
+        So it must return before OrcshotApplication exists at all.
+        """
+        _names, _cleared = fake_main
+        monkeypatch.setattr(appmod, "run_headless", lambda request: 0)
+        monkeypatch.setattr(appmod.sys, "argv", ["orcshot", "--capture-to", "/tmp/shot.png"])
+
+        assert main() == 0
+        assert FakeApplication.instances == []
+
+    def test_a_headless_capture_returns_its_own_exit_status(self, monkeypatch, fake_main):
+        _names, _cleared = fake_main
+        monkeypatch.setattr(appmod, "run_headless", lambda request: 1)
+        monkeypatch.setattr(appmod.sys, "argv", ["orcshot", "--capture-to", "/tmp/shot.png"])
+
+        assert main() == 1
+
+    def test_the_probe_runs_without_resurrecting_an_explicitly_quit_tray(self, monkeypatch, fake_main):
+        """The quit marker means "the user asked the tray to stay dead
+        until they restart it", and a scripted capture has no
+        relationship to it - so headless is checked first.
+
+        The clear_quit_marker assertion is the load-bearing half. The
+        marker gate clears the marker for any invocation that is not one
+        of the five GUI capture flags, and --can-capture is not one of
+        them - so a headless hook placed *below* that gate would let a
+        probe silently undo the user's own Quit, and the next hotkey
+        press would bring the tray back. Nothing else in this file
+        notices that, which is how the mis-ordered version passed every
+        test before this assertion existed (rule 5, 2026-09-26).
+        """
+        _names, cleared = fake_main
+        monkeypatch.setattr(appmod, "is_quit_marker_set", lambda: True)
+        seen = []
+        monkeypatch.setattr(appmod, "run_headless", lambda request: seen.append(request) or 0)
+        monkeypatch.setattr(appmod.sys, "argv", ["orcshot", "--can-capture"])
+
+        assert main() == 0
+        assert len(seen) == 1
+        assert FakeApplication.instances == []
+        assert cleared == [], "a headless probe must not clear the user's quit marker"
+
+    def test_an_ordinary_launch_is_untouched_by_the_headless_hook(self, monkeypatch, fake_main):
+        _names, _cleared = fake_main
+        monkeypatch.setattr(appmod, "is_quit_marker_set", lambda: False)
+        monkeypatch.setattr(appmod, "run_headless", lambda request: pytest.fail("headless must not run here"))
+        monkeypatch.setattr(appmod.sys, "argv", ["orcshot", "--capture-region"])
+
+        assert main() == 0
+        assert len(FakeApplication.instances) == 1
+
     def test_a_normal_launch_runs_the_application_with_argv(self, monkeypatch, fake_main):
         _names, cleared = fake_main
         monkeypatch.setattr(appmod, "is_quit_marker_set", lambda: False)
