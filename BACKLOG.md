@@ -263,6 +263,28 @@ Launchpad does not allow re-uploading an existing version, the content is duplic
 repo anyway, and superseding them would mean burning version numbers to republish history that is
 already on GitHub. Worth knowing about rather than acting on.
 
+**Update 2026-10-04 - the fix above was incomplete, and this time something private leaked.** At
+the 0.4.0 release, step 7's source build (in place, as RELEASING.md then said) was inspected before
+`dput` and found to carry `vmpw.txt`, a one-line password for the `ubuntu2604` account on the
+"Ubuntu 26.04" dev VM, plus `mutants/` (407 files), `.superpowers/` and `.flatpak-builder/`. Every
+one of those is gitignored, and none is on `debian/source/options`' `tar-ignore` list. The local
+copies of the `0.1.1-1`, `0.2.0-1` and `0.3.0-1` source tarballs all contain `vmpw.txt`, and
+Launchpad was publicly serving `orcshot_0.3.0-1.tar.xz` with it inside (HTTP 200, checked
+2026-10-04; the 0.1.1-3 and 0.2.0-1 sources already return 404 after being superseded). The
+presence-only scan above looked for credential patterns under `.claude/` only, and `vmpw.txt` sits
+at the project root, which is why it was missed. It was never committed to git and is in none of
+the `.deb`, snap or Flatpak.
+
+The real cause is the approach, not a missing pattern: a hand-kept ignore list can only exclude
+what someone remembered to list, and `.gitignore` already says what is private. **Fixed for
+real**: RELEASING.md step 7 now builds the source package from an export of `git ls-files` (with
+the working tree's uncommitted version edits) and lists the tarball before `debsign`. The 0.4.0
+upload was built that way: 286 files, 1.2 MB, every one present in the public repo's `main`. The
+password file moved out of the repo to `~/.config/orcshot-dev/vmpw.txt` (0600); the VMs were
+judged by direflail to be unreachable dev machines, and their SSH port forwards were rebound from
+all interfaces to `127.0.0.1` the same day. The public 0.3.0 tarball is left to be superseded by
+0.4.0 rather than deleted, which would leave apt users with no installable version.
+
 ## #200: Aikido only scans what a session hand-feeds it - the repo has never been connected for real, continuous scanning (RESOLVED 2026-09-07)
 
 Found while running `RELEASING.md` step 3 for the `0.3.0` release (2026-09-07). Step 3's prose has
@@ -2674,3 +2696,28 @@ separately via the VM's own GUI window.
 **Note (final review, 2026-09-13):** review-tools was run against d11dd44's artifact as part of
 the Track 1 fix wave - exactly one `human review required` line, the dbus slot's; the
 `desktop_file_icon` lint passed, confirming this icon change itself introduced no new store hold.
+
+## #226: postinst restarts nothing when the user's first-listed login session is not graphical, so an upgrade over SSH leaves the app stopped
+
+Found 2026-10-04 during the 0.4.0 release's install test (RELEASING.md step 9) on the "Ubuntu2404"
+VM. 0.3.0 was running in the Wayland desktop session; installing 0.4.0 over SSH stopped it, and
+the postinst then printed "Open it from your Applications menu..." instead of "starting now", so
+the tray app was simply gone until it was started by hand. On the "Ubuntu 26.04" VM the same
+install, also over SSH, restarted it correctly.
+
+Root cause, confirmed on both VMs: for each human uid, `debian/orcshot.postinst` takes that user's
+**first** session from `loginctl list-sessions` (`awk ... {print $1; exit}`) and only acts if that
+one session's Type is wayland or x11. On 24.04 (systemd 255) the list put the SSH session (13,
+Type=tty) before the desktop session (6, Type=wayland), so the check failed and the loop moved on
+to the next uid. On 26.04 the seat0 desktop session happened to be listed first. The debconf
+answer `orcshot/enable-autostart` was `true` on both, so it is not that.
+
+Who it affects: anyone who upgrades the .deb while they also have an SSH or text-console session
+open - including unattended-upgrades run from an admin's SSH login. Their tray app stops and does
+not come back until a relaunch or the next login. It does not affect a plain `apt upgrade` typed in
+a terminal inside the desktop, which belongs to the graphical session. Not new in 0.4.0: the
+session-picking line is unchanged since 0.3.0 (the 0.4.0 changes to postinst were #203's uid_min
+and a break->continue).
+
+The fix is to pick the user's first session whose Type is wayland or x11, not the first session.
+0.4.0 was already built and published when this was found, so it goes in the next release.
