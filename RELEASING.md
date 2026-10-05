@@ -34,8 +34,13 @@ release is not the built version. (0.3.0 was never added; add it alongside 0.4.0
 ## 2. Full test suite
 
 ```bash
-.venv/bin/pytest tests/ -q
+xvfb-run -a .venv/bin/pytest tests/ -q
 ```
+
+**Under `xvfb-run`, never on the real display.** The GTK tests map real windows - the capture
+overlay tests show the dimmed region-select panes - and on the desktop they flash up in the corner
+of the screen for the length of the run (noticed 2026-10-04). Without any display at all the GTK
+tests skip instead, taking most of the suite with them.
 
 Must be fully green before building - the package build itself re-runs the whole suite for real via
 `dh_auto_test`/pybuild (see step 5), so a failure here just means finding out later instead of now.
