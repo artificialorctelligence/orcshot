@@ -1,3 +1,26 @@
+orcshot (0.4.0-1) noble; urgency=medium
+
+  * Merges the three GNOME Shell extensions into one, orcshot@orcshot.org,
+    published on extensions.gnome.org. The extension now calls into the app
+    and exposes nothing on D-Bus itself, which is what the Snap Store
+    requires. On first run, Flatpak installs it from extensions.gnome.org
+    and Snap points the user there; nothing writes extension files into the
+    home folder any more.
+  * Replaces the Cinnamon panel applet with the app's own XApp status icon:
+    no forced About/Remove menu items, nothing to install separately.
+  * Flatpak: Save goes through the file-chooser portal, never writes into
+    the sandbox's temporary folder, and never renames a portal-given file.
+    Every file dialog is now a portal dialog.
+  * Snap: the main window launches under confinement (it never did in
+    0.3.0), Save reaches the real home folder, and the launcher icon,
+    desktop file and SVG images all work.
+  * The "Saved as" dialog names the format that was actually written.
+  * "Capture Window" is greyed out when no window can be captured.
+  * An invalid placeholder in an external command's Arguments field shows
+    an error message instead of crashing.
+
+ -- Orcshot <314918217+artificialorctelligence@users.noreply.github.com>  Sun, 04 Oct 2026 17:04:39 -0500
+
 orcshot (0.3.0-1) noble; urgency=medium
 
   * Adds Snap and Flatpak as real, install-tested distribution channels

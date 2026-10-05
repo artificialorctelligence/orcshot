@@ -39,6 +39,29 @@
     </screenshot>
   </screenshots>
   <releases>
+    <release version="0.4.0" date="2026-10-04">
+      <description>
+        <ul>
+          <li>Merges the three GNOME Shell extensions into one, orcshot@orcshot.org, published on extensions.gnome.org. The extension now calls into the app and exposes nothing on D-Bus itself, which is what the Snap Store requires. On first run, Flatpak installs it from extensions.gnome.org and Snap points the user there; nothing writes extension files into the home folder any more.</li>
+          <li>Replaces the Cinnamon panel applet with the app's own XApp status icon: no forced About/Remove menu items, nothing to install separately.</li>
+          <li>Flatpak: Save goes through the file-chooser portal, never writes into the sandbox's temporary folder, and never renames a portal-given file. Every file dialog is now a portal dialog.</li>
+          <li>Snap: the main window launches under confinement (it never did in 0.3.0), Save reaches the real home folder, and the launcher icon, desktop file and SVG images all work.</li>
+          <li>The "Saved as" dialog names the format that was actually written.</li>
+          <li>"Capture Window" is greyed out when no window can be captured.</li>
+          <li>An invalid placeholder in an external command's Arguments field shows an error message instead of crashing.</li>
+        </ul>
+      </description>
+    </release>
+    <release version="0.3.0" date="2026-09-06">
+      <description>
+        <ul>
+          <li>Adds Snap and Flatpak as real, install-tested distribution channels alongside the existing PPA.</li>
+          <li>Redesigns the tray to export a Gio.Menu directly on both GNOME and Cinnamon, replacing the AppIndicator3 extension API and the deprecated Gtk.StatusIcon.</li>
+          <li>Replaces GSound with bundled GStreamer audio for the capture-complete sound, which Flatpak previously did not play at all.</li>
+          <li>Fixes a crash when no X11/XWayland display is reachable during cursor capture, adds a "Reuse Editor" preference, and ships a redrawn logo.</li>
+        </ul>
+      </description>
+    </release>
     <release version="0.2.0" date="2026-08-26">
       <description>
         <p>Initial Flathub-ready release.</p>

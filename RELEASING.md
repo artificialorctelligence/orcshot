@@ -151,10 +151,22 @@ If it is not, import or generate the key registered to the Launchpad account bef
 Discovering this at `debsign` time leaves a built, unsigned package and a half-done step.
 
 ```bash
-dpkg-buildpackage -us -uc -S -sa
-debsign -kFAF777B27363A1BBB445E2F2596233AC9F58280A ../orcshot_X.Y.Z-1_source.changes
-dput ppa:artificialorctelligence/orcshot ../orcshot_X.Y.Z-1_source.changes
+d=$(mktemp -d) && mkdir "$d/orcshot"
+git ls-files -z | tar --null -T - -cf - | tar -xf - -C "$d/orcshot"
+(cd "$d/orcshot" && dpkg-buildpackage -us -uc -S -sa)
+tar -tf "$d"/orcshot_X.Y.Z-1.tar.xz | awk -F/ '{print $2}' | sort | uniq -c
+debsign -kFAF777B27363A1BBB445E2F2596233AC9F58280A "$d"/orcshot_X.Y.Z-1_source.changes
+dput ppa:artificialorctelligence/orcshot "$d"/orcshot_X.Y.Z-1_source.changes
 ```
+
+**Build the source package from git-tracked files only, never from the checkout itself.** This is
+a native package, so the source tarball is the whole directory minus `debian/source/options`'
+`--tar-ignore` list, and that list does not follow `.gitignore`. Built in place, every upload from
+0.1.1 to 0.3.0 carried the gitignored `vmpw.txt` (a dev VM password) to Launchpad, which serves
+source tarballs publicly; the 0.4.0 attempt would have added `mutants/`, `.superpowers/` and
+`.flatpak-builder/` too (found 2026-10-04). The export copies tracked files from the working tree,
+so step 1's uncommitted version edits are included. Read the `tar -tf` listing before `debsign`:
+nothing in it should be absent from `git ls-files`.
 
 `-sa` forces the (native-format) source tarball to be included even on a non-first upload to this
 version - without it `dpkg-genchanges` may assume Launchpad already has it and omit it, which fails
@@ -180,7 +192,7 @@ login = anonymous
 allow_unsigned_uploads = 0
 ```
 
-Then `dput orcshot-ppa ../orcshot_X.Y.Z-1_source.changes` (or just `dput ppa:artificialorctelligence/orcshot ...`
+Then `dput orcshot-ppa "$d"/orcshot_X.Y.Z-1_source.changes` (or just `dput ppa:artificialorctelligence/orcshot ...`
 as above - `dput` understands the `ppa:` shorthand directly without needing the `[orcshot-ppa]` section
 at all; the section above is only needed if that shorthand ever stops resolving correctly).
 
