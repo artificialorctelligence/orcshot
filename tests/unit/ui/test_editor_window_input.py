@@ -46,6 +46,7 @@ from orcshot.core.geometry import Rect
 from orcshot.core.history import CompositeMemento
 from orcshot.core.shapes import RectangleShape, ShapeStyle, TextShape
 from orcshot.core.tools import Tool
+from orcshot.core.zoom import ZOOM_LEVELS
 from orcshot.ui.editor_window import EditorWindow
 
 # Handles are _HANDLE_SIZE=6 wide and crop handles sit on the selection's
@@ -922,11 +923,14 @@ class TestKeyPress:
         assert float(editor._zoom) == 1.0
 
     def test_ctrl_9_switches_to_best_fit(self, editor):
-        editor._zoom = 3.0
+        # 5x is not a ZOOM_LEVELS entry and best fit only ever returns one,
+        # so the zoom must move on any monitor. Starting at 3x did not: on a
+        # 2560x1440 monitor best fit for 640x400 *is* 3x.
+        editor._zoom = 5.0
 
         assert _key(editor, Gdk.KEY_9, state=_ctrl()) is True
 
-        assert float(editor._zoom) != 3.0
+        assert editor._zoom in ZOOM_LEVELS
 
     def test_delete_removes_the_selection_and_ctrl_delete_clears_the_image(self, editor):
         shape = _shape()
